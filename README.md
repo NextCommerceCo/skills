@@ -1,12 +1,12 @@
-# NEXT Commerce — Claude Code Skills
+# NEXT — Claude Code Skills
 
-Claude Code skills for building, customizing, and deploying NEXT Commerce storefronts.
+Claude Code skills for the NEXT platform. Each skill encodes deep domain knowledge — platform architecture, CLI workflows, gotchas, and best practices — so Claude can work autonomously across Next Commerce storefronts, campaigns, automations, and merchant tooling.
 
 ## Available Skills
 
-| Skill | Description |
-|-------|-------------|
-| [`next-theme-dev`](next-theme-dev/) | Theme development — build, modify, and debug storefront themes using DTL, ntk CLI, and the NEXT Commerce platform |
+| Skill | Domain | Description |
+|-------|--------|-------------|
+| [`next-theme-dev`](next-theme-dev/) | Storefronts | Theme development — build, modify, and debug storefront themes using DTL, ntk CLI, and the NEXT platform |
 
 ## Install
 
@@ -29,7 +29,7 @@ ln -sf ~/next-commerce-skills/next-theme-dev ~/.claude/skills/next-theme-dev
 
 ### Option 2: Project-local install
 
-Copy a skill into your theme repo so it's available to anyone who clones it:
+Copy a skill into your project repo so it's available to anyone who clones it:
 
 ```bash
 mkdir -p .claude/skills/next-theme-dev
@@ -46,12 +46,10 @@ Symlinked skills pick up changes automatically.
 
 ## Prerequisites
 
-Skills in this repo assume you have:
+Each skill lists its own prerequisites. Common requirements across skills:
 
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed
-- [next-theme-kit](https://pypi.org/project/29next-theme-kit/) (`pip install next-theme-kit`)
-- Python 3
-- Access to a NEXT Commerce store with an API key
+- Access to a NEXT store with an API key
 
 ## Contributing
 

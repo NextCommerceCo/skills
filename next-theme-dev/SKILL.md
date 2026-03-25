@@ -2,12 +2,12 @@
 name: next-theme-dev
 version: 1.0.0
 description: |
-  NEXT Commerce theme development — build, modify, and debug storefront themes
-  using Django Template Language, ntk CLI, and the NEXT Commerce platform.
-  Use this skill when working in a NEXT Commerce theme directory (look for
+  Next Commerce theme development — build, modify, and debug storefront themes
+  using Django Template Language, ntk CLI, and the Next Commerce platform.
+  Use this skill when working in a Next Commerce theme directory (look for
   manifest.json, config.yml, or the standard theme directory structure with
   assets/, configs/, layouts/, templates/, partials/). Also trigger when the
-  user mentions ntk, theme templates, storefront customization, or NEXT Commerce
+  user mentions ntk, theme templates, storefront customization, or Next Commerce
   themes. Proactively suggest when you detect DTL template files (.html with
   {% extends %}, {% block %}, {% include %}) alongside a configs/ directory.
 allowed-tools:
@@ -19,7 +19,7 @@ allowed-tools:
   - Glob
 ---
 
-# NEXT Commerce Theme Development
+# Next Commerce Theme Development
 
 ## Preamble — Environment Check
 
@@ -55,7 +55,7 @@ Get the API key from Dashboard > Settings > API Keys. Get the theme_id from `ntk
 
 ### Directory Structure
 
-Every NEXT Commerce theme follows this structure:
+Every Next Commerce theme follows this structure:
 
 ```
 theme/
@@ -126,7 +126,7 @@ These will silently break things if ignored:
 
 ### Full-Page Caching: The Server vs. Client Boundary
 
-This is the most important architectural constraint in NEXT Commerce themes. All storefront pages are **fully cached for 5 minutes** on mapped domains. The cache is keyed by URL + language + currency combination — so each locale variant (EN+USD, FR+EUR, etc.) has its own cached page, and all visitors with that same locale see the same cached HTML.
+This is the most important architectural constraint in Next Commerce themes. All storefront pages are **fully cached for 5 minutes** on mapped domains. The cache is keyed by URL + language + currency combination — so each locale variant (EN+USD, FR+EUR, etc.) has its own cached page, and all visitors with that same locale see the same cached HTML.
 
 This means product pricing is safe in templates (it varies by currency, and the cache handles that). But per-user data — cart, authentication, wishlists — is unique to each individual and fundamentally incompatible with page caching.
 
@@ -140,7 +140,7 @@ This means product pricing is safe in templates (it varies by currency, and the 
 - User authentication state (logged in/out, username)
 - Wishlists, saved items, order history
 
-Never put `{{ cart.num_items }}` or `{{ user.is_authenticated }}` in a cached template — one user's data gets served to everyone in that locale. This is why NEXT Commerce themes don't show a cart item counter in the nav by default — displaying it requires a client-side GraphQL call on every page load, which is an intentional performance tradeoff.
+Never put `{{ cart.num_items }}` or `{{ user.is_authenticated }}` in a cached template — one user's data gets served to everyone in that locale. This is why Next Commerce themes don't show a cart item counter in the nav by default — displaying it requires a client-side GraphQL call on every page load, which is an intentional performance tradeoff.
 
 ```
 SAFE in templates (cached per locale)    REQUIRES GraphQL (per-user, client-side JS)
@@ -617,7 +617,7 @@ Add the compat step to the build pipeline:
 }
 ```
 
-The compat script strips `@property` rules, converts `oklch()` to hex, and replaces `color-mix()` — ensuring broad browser support on the NEXT Commerce platform.
+The compat script strips `@property` rules, converts `oklch()` to hex, and replaces `color-mix()` — ensuring broad browser support on the Next Commerce platform.
 
 ---
 
