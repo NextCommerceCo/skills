@@ -7,6 +7,7 @@ Claude Code skills for the NEXT platform. Each skill encodes deep domain knowled
 | Skill | Domain | Description |
 |-------|--------|-------------|
 | [`next-theme-dev`](next-theme-dev/) | Storefronts | Theme development — build, modify, and debug storefront themes using DTL, ntk CLI, and the NEXT platform |
+| [`next-bulk-fulfill`](next-bulk-fulfill/) | Operations | Bulk fulfillment tracking sync — update orders to Fulfilled from a CSV when the fulfillment provider's automation fails |
 
 ## Install
 
