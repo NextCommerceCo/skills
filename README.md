@@ -1,24 +1,23 @@
-# NEXT — Claude Code Skills
+# Next Commerce AI Skills
 
-Claude Code skills for the NEXT platform. Each skill encodes deep domain knowledge — platform architecture, CLI workflows, gotchas, and best practices — so Claude can work autonomously across Next Commerce storefronts, campaigns, automations, and merchant tooling.
+Pre-built skills that give AI coding agents deep knowledge of the Next Commerce platform — APIs, CLI workflows, architecture patterns, and gotchas — so they can work autonomously on your store.
 
-## Available Skills
+**Skills are structured markdown files.** Any AI tool that accepts a context file or system prompt can use them. They work with Claude Code, OpenAI Codex, Cursor, GitHub Copilot, and any other agent that reads markdown.
 
-| Skill | Domain | Description |
-|-------|--------|-------------|
-| [`next-theme-dev`](next-theme-dev/) | Storefronts | Theme development — build, modify, and debug storefront themes using DTL, ntk CLI, and the NEXT platform |
-| [`next-bulk-fulfill`](next-bulk-fulfill/) | Operations | Bulk fulfillment tracking sync — update orders to Fulfilled from a CSV when the fulfillment provider's automation fails |
+## Skills
 
-## Install
+| Skill | What It Does | When to Use |
+|-------|-------------|-------------|
+| [**Theme Development**](next-theme-dev/) | Build and customize storefront themes — DTL templates, ntk CLI, Tailwind CSS, settings, side cart | You're editing theme files, setting up a new storefront, or debugging template issues |
+| [**Bulk Fulfillment Sync**](next-bulk-fulfill/) | Update orders to Fulfilled with tracking numbers from a CSV | Your fulfillment provider shipped orders but tracking didn't sync back — orders stuck in Processing |
 
-### Option 1: Global install (recommended)
+## Quick Start
 
-Clone once, symlink the skills you want:
+### Claude Code
 
 ```bash
-git clone https://github.com/NextCommerceCo/skills.git ~/next-commerce-skills
-
-# Install all skills
+# Install all skills (recommended — symlinks stay up to date)
+git clone git@github.com:NextCommerceCo/skills.git ~/next-commerce-skills
 for skill in ~/next-commerce-skills/*/; do
   name=$(basename "$skill")
   [ -f "$skill/SKILL.md" ] && ln -sf "$skill" ~/.claude/skills/"$name"
@@ -28,14 +27,53 @@ done
 ln -sf ~/next-commerce-skills/next-theme-dev ~/.claude/skills/next-theme-dev
 ```
 
-### Option 2: Project-local install
+Once installed, Claude Code auto-detects when a skill is relevant, or you can invoke directly with `/<skill-name>` (e.g., `/next-theme-dev`).
 
-Copy a skill into your project repo so it's available to anyone who clones it:
+### OpenAI Codex
 
 ```bash
-mkdir -p .claude/skills/next-theme-dev
-cp ~/next-commerce-skills/next-theme-dev/SKILL.md .claude/skills/next-theme-dev/
+git clone git@github.com:NextCommerceCo/skills.git ~/next-commerce-skills
+
+# Use a skill as a system prompt
+codex --system-prompt ~/next-commerce-skills/next-theme-dev/SKILL.md
 ```
+
+### Cursor
+
+Copy the skill file into your project's Cursor rules directory:
+
+```bash
+mkdir -p .cursor/rules
+cp ~/next-commerce-skills/next-theme-dev/SKILL.md .cursor/rules/next-theme-dev.md
+```
+
+### GitHub Copilot
+
+Reference the skill in your project's Copilot instructions:
+
+```bash
+mkdir -p .github
+echo "See next-commerce-skills/next-theme-dev/SKILL.md for theme development patterns." >> .github/copilot-instructions.md
+```
+
+### Any Other AI Tool
+
+Each skill is a single `SKILL.md` file — structured markdown with no proprietary format. Load it however your tool accepts context:
+
+- **System prompt** — paste or reference the file
+- **Context file** — point your tool at the SKILL.md path
+- **Chat upload** — drag the file into your conversation
+
+## Machine-Readable Index
+
+For AI agents that need to programmatically discover available skills, [`skills.json`](skills.json) provides a structured manifest with skill IDs, descriptions, trigger phrases, and prerequisites. Agents can fetch this single file to decide which skill to load.
+
+## Prerequisites
+
+Each skill lists its own requirements in the file. Common across all skills:
+
+- Access to a Next Commerce store
+- An API key with the scopes specified by the skill (create at **Dashboard > Settings > API Access**)
 
 ## Update
 
@@ -43,20 +81,15 @@ cp ~/next-commerce-skills/next-theme-dev/SKILL.md .claude/skills/next-theme-dev/
 cd ~/next-commerce-skills && git pull
 ```
 
-Symlinked skills pick up changes automatically.
-
-## Prerequisites
-
-Each skill lists its own prerequisites. Common requirements across skills:
-
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed
-- Access to a NEXT store with an API key
+Symlinked installations (Claude Code) pick up changes automatically. For copy-based installations (Cursor, Copilot), re-copy the updated files.
 
 ## Contributing
 
 Each skill is a directory containing a single `SKILL.md` file. To add a new skill:
 
-1. Create a directory with a descriptive name (e.g., `my-skill/`)
-2. Add a `SKILL.md` with frontmatter (`name`, `version`, `description`, `allowed-tools`)
-3. Update this README's skill index
-4. Open a PR
+1. Create a directory with a descriptive name (e.g., `next-my-skill/`)
+2. Add a `SKILL.md` with YAML frontmatter (`name`, `version`, `description`, `allowed-tools`) followed by the skill instructions in markdown
+3. Add a "Using This Skill" section with cross-tool usage instructions (see existing skills for the format)
+4. Add an entry to `skills.json`
+5. Update this README's skills table
+6. Open a PR

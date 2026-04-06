@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "next-commerce-skills",
+  "description": "AI agent skills for the Next Commerce platform. Each skill is a structured markdown file that any AI coding tool can load as context.",
+  "homepage": "https://github.com/NextCommerceCo/skills",
+  "skills": [
+    {
+      "id": "next-theme-dev",
+      "name": "Theme Development",
+      "version": "1.0.0",
+      "path": "next-theme-dev/SKILL.md",
+      "domain": "storefronts",
+      "description": "Build, modify, and debug Next Commerce storefront themes using Django Template Language, ntk CLI, and Tailwind CSS.",
+      "triggers": [
+        "theme development",
+        "ntk",
+        "storefront customization",
+        "template editing",
+        "side cart",
+        "theme settings",
+        "DTL templates"
+      ],
+      "prerequisites": [
+        "Python 3",
+        "ntk (pip install 29next-theme-kit)",
+        "A Next Commerce store with API key (themes:read, themes:write scopes)"
+      ]
+    },
+    {
+      "id": "next-bulk-fulfill",
+      "name": "Bulk Fulfillment Tracking Sync",
+      "version": "1.0.0",
+      "path": "next-bulk-fulfill/SKILL.md",
+      "domain": "operations",
+      "description": "Update orders to Fulfilled status with tracking numbers from a CSV when a fulfillment provider's automation fails to sync back.",
+      "triggers": [
+        "bulk fulfill",
+        "sync tracking numbers",
+        "tracking sync",
+        "orders stuck in processing",
+        "fulfill orders from CSV",
+        "tracking numbers didn't sync"
+      ],
+      "prerequisites": [
+        "Python 3",
+        "requests library (pip install requests)",
+        "A Next Commerce store with API key (fulfillment_orders:read, fulfillment_orders:write scopes)"
+      ]
+    }
+  ]
+}

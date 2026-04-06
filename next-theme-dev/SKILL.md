@@ -21,6 +21,20 @@ allowed-tools:
 
 # Next Commerce Theme Development
 
+## Using This Skill
+
+This skill works with any AI coding tool that can load a markdown file as context.
+
+| Tool | How to Use |
+|------|-----------|
+| **Claude Code** | Install to `~/.claude/skills/next-theme-dev/` (see repo README). Invoke with `/next-theme-dev` or let Claude auto-detect from your project files. |
+| **OpenAI Codex** | Pass as a system prompt: `codex --system-prompt next-theme-dev/SKILL.md` |
+| **Cursor** | Add to `.cursor/rules/` or reference in your project's AI context files. |
+| **GitHub Copilot** | Add to `.github/copilot-instructions.md` or include via `@workspace` reference. |
+| **Other agents** | Load `SKILL.md` as context/system prompt. The instructions are tool-agnostic markdown. |
+
+---
+
 ## Preamble — Environment Check
 
 Run these checks at the start of every theme task to understand the working context:

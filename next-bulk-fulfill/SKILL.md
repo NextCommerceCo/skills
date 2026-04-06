@@ -25,6 +25,20 @@ allowed-tools:
 
 # /next-bulk-fulfill: Bulk Fulfillment Tracking Sync (v1)
 
+## Using This Skill
+
+This skill works with any AI coding tool that can load a markdown file as context.
+
+| Tool | How to Use |
+|------|-----------|
+| **Claude Code** | Install to `~/.claude/skills/next-bulk-fulfill/` (see repo README). Invoke with `/next-bulk-fulfill`. |
+| **OpenAI Codex** | Pass as a system prompt: `codex --system-prompt next-bulk-fulfill/SKILL.md` |
+| **Cursor** | Add to `.cursor/rules/` or reference in your project's AI context files. |
+| **GitHub Copilot** | Add to `.github/copilot-instructions.md` or include via `@workspace` reference. |
+| **Other agents** | Load `SKILL.md` as context/system prompt. The instructions are tool-agnostic markdown. |
+
+---
+
 Updates orders stuck in Processing (or Open) status with tracking numbers from a CSV,
 triggering fulfillment completion and customer shipping notifications.
 
