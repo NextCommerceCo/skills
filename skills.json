@@ -46,6 +46,28 @@
         "requests library (pip install requests)",
         "A Next Commerce store with API key (fulfillment_orders:read, fulfillment_orders:write scopes)"
       ]
+    },
+    {
+      "id": "next-bulk-move",
+      "name": "Bulk Fulfillment Order Move",
+      "version": "1.0.0",
+      "path": "next-bulk-move/SKILL.md",
+      "domain": "operations",
+      "description": "Move fulfillment orders between warehouse locations in bulk from a flat file of order numbers — handles cancellation requests for processing FOs, location discovery, and dry-run validation.",
+      "triggers": [
+        "bulk move orders",
+        "move fulfillment orders",
+        "transfer orders to new warehouse",
+        "change fulfillment location",
+        "switch fulfillment provider",
+        "reassign orders to new location"
+      ],
+      "prerequisites": [
+        "Python 3",
+        "requests library (pip install requests)",
+        "pandas library (pip install pandas)",
+        "A Next Commerce store with API key (fulfillment_orders:read, fulfillment_orders:write, locations:read scopes)"
+      ]
     }
   ]
 }
