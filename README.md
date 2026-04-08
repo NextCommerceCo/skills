@@ -11,6 +11,8 @@ Pre-built skills that give AI coding agents deep knowledge of the Next Commerce 
 | [**Theme Development**](next-theme-dev/) | Build and customize storefront themes — DTL templates, ntk CLI, Tailwind CSS, settings, side cart | You're editing theme files, setting up a new storefront, or debugging template issues |
 | [**Bulk Fulfillment Sync**](next-bulk-fulfill/) | Update orders to Fulfilled with tracking numbers from a CSV | Your fulfillment provider shipped orders but tracking didn't sync back — orders stuck in Processing |
 | [**Bulk Fulfillment Move**](next-bulk-move/) | Move fulfillment orders between warehouse locations in bulk | Switching fulfillment providers — need to reassign open/processing orders to a new location |
+| [**New CPK Campaign**](next-cpk-new-campaign/) | Scaffold a new campaign-page-kit campaign — brand init, starter template, campaigns.json seed | Starting a new CPK campaign for a brand |
+| [**CPK Config Setup**](next-cpk-config-setup/) | Wire up `config.js` and `campaigns.json` with API key, store details, and analytics | Configuring a freshly scaffolded campaign or updating an existing one |
 
 ## Quick Start
 
