@@ -75,6 +75,10 @@ Then gather the following. Ask for all of them in a single message — do not as
 - **Returns URL** — full URL to returns/refund policy page
 - **Shipping URL** — full URL to shipping policy page
 
+After collecting, validate all URLs before writing any files:
+- Store URL, Terms URL, Privacy URL, Contact URL, Returns URL, and Shipping URL must each start with `https://` and contain at least one `.` after the domain — e.g. `https://example.com/path`
+- If any URL fails this check, show which ones are invalid and ask the user to correct them before proceeding. Do not write partial data.
+
 **Optional (press enter to skip):**
 - **GTM container ID** — e.g. `GTM-XXXXXXX` (leave blank to keep disabled)
 - **Facebook Pixel ID** — e.g. `123456789012345` (leave blank to keep disabled)

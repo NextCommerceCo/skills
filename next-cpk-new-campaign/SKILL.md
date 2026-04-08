@@ -102,9 +102,18 @@ npx campaign-init
 
 `npx campaign-init` creates `_data/campaigns.json` and adds npm scripts to `package.json`. It does **not** create any `src/` folders.
 
+After running, verify it succeeded:
+- Check `_data/campaigns.json` exists — if not, stop and warn the user that `campaign-init` may have failed
+- Check `package.json` contains a `dev` script — if not, warn the user to run `npx campaign-init` manually
+
 If `package.json` **already exists**, skip — the project is already initialized.
 
 ### 4 — Copy Starter Template
+
+Before copying, confirm the template slug is valid. Valid slugs are:
+`demeter`, `limos`, `olympus`, `olympus-mv-single-step`, `olympus-mv-two-step`, `shop-single-step`, `shop-three-step`
+
+If the provided template slug is not in this list → **stop and ask the user to pick a valid template**.
 
 Run from the brand folder:
 
@@ -112,6 +121,8 @@ Run from the brand folder:
 cd <CPK_ROOT>/[brand-name]
 npx degit NextCommerceCo/campaign-cart-starter-templates/campaign-kit-templates/src/[template-slug] src/[campaign-slug]
 ```
+
+If degit exits with a non-zero code or reports that the source path was not found, stop and warn the user — the template slug may not exist in the upstream repo.
 
 The destination folder name is the **campaign slug**, not the template name.
 
@@ -123,7 +134,9 @@ Fetch the upstream campaigns.json to get the canonical entry for the chosen temp
 https://raw.githubusercontent.com/NextCommerceCo/campaign-cart-starter-templates/HEAD/campaign-kit-templates/_data/campaigns.json
 ```
 
-Find the entry matching `[template-slug]`. Use its `sdk_version`, `description`, and field structure as the base. Then customise:
+If the fetch fails or returns non-JSON, stop and warn the user.
+
+Find the entry matching `[template-slug]`. If no entry with that key exists in the JSON → **stop and warn the user** — do not proceed with a missing or partial entry. Use its `sdk_version`, `description`, and field structure as the base. Then customise:
 
 - Key: change from `[template-slug]` to `[campaign-slug]`
 - `name`: title-case derived from the campaign slug (hyphens → spaces)
