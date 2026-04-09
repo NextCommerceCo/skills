@@ -9,6 +9,7 @@ description: |
   campaign's config. Use when: "configure campaign", "set up API key", "wire up
   store details", "add GTM", "add Facebook Pixel", or "cpk config".
 allowed-tools:
+  - Bash
   - Read
   - Write
   - Edit
@@ -61,6 +62,7 @@ If brand name and campaign slug were not provided as args, ask for them now.
 
 Then confirm the campaign exists:
 - If `<CPK_ROOT>/[brand-name]/src/[campaign-slug]/assets/config.js` does not exist → **stop and warn**. The campaign has not been scaffolded yet — run `/next-cpk-new-campaign` first.
+- If `<CPK_ROOT>/[brand-name]/_data/campaigns.json` does not exist → **stop and warn**. The CPK project may not be initialized — run `/next-cpk-new-campaign` first.
 
 Then gather the following. Ask for all of them in a single message — do not ask one at a time:
 
@@ -90,7 +92,7 @@ After collecting, validate all URLs before writing any files:
 Read the current `config.js`. Make the following changes:
 
 1. **`apiKey`** — replace the placeholder value with the provided API key
-2. **`storeName`** — replace with a lowercase-hyphenated slug derived from the store name (e.g. "Winter Gloves Co" → `'winter-gloves-co'`)
+2. **`storeName`** — replace with a lowercase-hyphenated slug derived from the store name (e.g. "Winter Gloves Co" → `'winter-gloves-co'`). This is an analytics identifier used for Facebook Pixel event deduplication, not a display name.
 3. **GTM** (if GTM container ID was provided):
    - Set `gtm.enabled` to `true`
    - Set `gtm.settings.containerId` to the provided ID
@@ -144,5 +146,5 @@ Then show next steps:
 Next steps:
 1. npm run dev  → pick [campaign-slug] and verify the page loads + SDK initialises
 2. Check the Campaigns app → confirm the API key is valid for this store
-3. QA checklist: docs/olympus-v0.4.0-sdk-qa-checklist.md
+3. QA checklist: check the SDK QA checklist in docs/
 ```

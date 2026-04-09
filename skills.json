@@ -68,8 +68,7 @@
         "pandas library (pip install pandas)",
         "A Next Commerce store with API key (fulfillment_orders:read, fulfillment_orders:write, locations:read scopes)"
       ]
-    }
-    ,
+    },
     {
       "id": "next-cpk-new-campaign",
       "name": "New CPK Campaign",
