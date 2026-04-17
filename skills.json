@@ -70,6 +70,28 @@
       ]
     },
     {
+      "id": "next-bulk-subscription",
+      "name": "Bulk Subscription Partial Update",
+      "version": "1.0.0",
+      "path": "next-bulk-subscription/SKILL.md",
+      "domain": "operations",
+      "description": "Apply a PATCH (status, renewal date, interval, gateway, address) to a list of subscription IDs from a CSV/XLSX via the Admin API subscriptionsPartialUpdate endpoint. Handles baseline selection, dry-run, rate limiting, and verification.",
+      "triggers": [
+        "bulk subscription update",
+        "bulk pause subscriptions",
+        "bulk cancel subscriptions",
+        "shift renewal dates",
+        "move renewals out by N days",
+        "bulk change subscription interval",
+        "bulk subscription edit"
+      ],
+      "prerequisites": [
+        "Python 3",
+        "requests library (pip install requests)",
+        "A Next Commerce store with API key (subscriptions:write scope)"
+      ]
+    },
+    {
       "id": "next-cpk-new-campaign",
       "name": "New CPK Campaign",
       "version": "1.0.0",
