@@ -1,17 +1,19 @@
 ---
 name: next-bulk-move
-version: 1.0.0
+version: 1.1.0
 description: |
-  Move fulfillment orders between locations in bulk. Takes a flat file (XLSX/CSV)
-  of order numbers and moves all fulfillment order line items from one location
-  to another.
+  Move fulfillment orders between locations in bulk. Accepts either a flat file
+  (XLSX/CSV) of order numbers, or a list of Product IDs / SKUs to target every
+  FO containing those items. Moves all matching fulfillment order line items
+  from one location to another.
 
   Handles the full workflow: location discovery, status checks, cancellation
   requests for processing FOs, move execution, and results reporting.
 
   Use when: "bulk move orders", "move fulfillment orders", "transfer orders
-  to new warehouse", "change fulfillment location", or when a flat file of
-  order numbers needs location reassignment.
+  to new warehouse", "change fulfillment location", "move all FOs for SKU X",
+  or when a flat file of order numbers or a product/SKU list needs location
+  reassignment.
 allowed-tools:
   - Bash
   - Read
@@ -108,11 +110,12 @@ Ask the user to confirm source and destination:
 
 Store as `SOURCE_LOCATION_ID` and `DEST_LOCATION_ID`.
 
-### Step 4: Ingest File
+### Step 4: Ingest Targets
 
-Read the input file (XLSX or CSV). The minimum required column is **Order Number**.
+Two supported input modes. Pick based on what the user provides.
 
-Parse with Python:
+**Mode A — Order number file (XLSX/CSV).** Minimum required column: **Order Number**.
+
 ```python
 import pandas as pd
 
@@ -126,6 +129,20 @@ order_numbers = df['Order Number'].dropna().astype(int).tolist()
 
 Report:
 > "Found **{N}** order numbers in the file."
+
+**Mode B — Product ID / SKU list.** Use when the user wants to move every FO containing specific items (e.g., discontinued SKU, supplier change for one product) without pre-computing an order list.
+
+Query the filter directly — the API now supports `product_id` and `sku` on the fulfillment-orders list (shipped via [oscar-prime#2241](https://github.com/NextCommerceCo/oscar-prime/issues/2241)):
+
+```
+GET {STORE}/api/admin/fulfillment-orders/?sku=SKU-A,SKU-B&location_id={SOURCE_LOCATION_ID}
+GET {STORE}/api/admin/fulfillment-orders/?product_id=123,456&location_id={SOURCE_LOCATION_ID}
+```
+
+Filter server-side by `location_id={SOURCE_LOCATION_ID}` to avoid pulling FOs already at the destination or at unrelated locations. Paginate until exhausted. The resulting FO set becomes the targets — skip the per-order-number lookup in Phase 2 Step 1 and classify these FOs directly.
+
+Report:
+> "Found **{N}** fulfillment orders at source matching {sku/product filter}."
 
 ---
 
@@ -153,7 +170,7 @@ From the results, classify:
 | FO already at destination location | `ALREADY_MOVED` | Skip — already at target |
 | FO at source, `status: closed` | `ALREADY_FULFILLED` | Skip — already shipped |
 | FO at source, `status: canceled` | `CANCELED` | Skip — already canceled |
-| Multiple FOs at source location | `MULTIPLE` | Flag for manual review |
+| Multiple FOs at source location | `MULTIPLE` | Flag for manual review — unless a SKU/product filter was provided (Mode B), in which case the server-side filter already narrowed to the intended FO |
 | FO exists but at neither source nor dest | `WRONG_LOCATION` | Skip — not at expected source |
 
 **Matching logic:** Compare `assigned_location.id` against `SOURCE_LOCATION_ID` and `DEST_LOCATION_ID`.
@@ -295,7 +312,7 @@ with open(f'{store}-bulk-move-{date}.csv', 'w', newline='') as f:
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `/api/admin/locations/` | GET | List all fulfillment locations |
-| `/api/admin/fulfillment-orders/` | GET | List FOs (filter: `order_number`, `status`, `location_id`) |
+| `/api/admin/fulfillment-orders/` | GET | List FOs (filter: `order_number`, `status`, `location_id`, `product_id`, `sku` — comma-separated for multiple values) |
 | `/api/admin/fulfillment-orders/{id}/move/` | POST | Move FO to new location |
 | `/api/admin/fulfillment-orders/{id}/cancellation-request/` | POST | Request cancellation of processing FO |
 | `/api/admin/fulfillment-orders/{id}/available-locations/` | GET | Check which locations have inventory |
@@ -314,7 +331,8 @@ with open(f'{store}-bulk-move-{date}.csv', 'w', newline='') as f:
 - **Move the same FO ID after cancel:** After cancellation, call `/move/` on the same FO ID immediately. The move creates a NEW FO at the destination (with a new ID) and sets the original to `closed`.
 - **`/locations/` may return empty:** The locations list endpoint requires `locations:read` scope and may return empty if locations are managed by fulfillment services. Fallback: discover locations from FO data by querying `/fulfillment-orders/` and extracting unique `assigned_location` values.
 - **HTTP 200 on move, not 201:** The move endpoint returns 200 despite being a POST. Don't treat 200 as an error.
-- **Multiple FOs per order:** An order with items from different warehouses has multiple FOs. Don't guess which one to move — flag for manual review.
+- **Multiple FOs per order:** An order with items from different warehouses has multiple FOs. Don't guess which one to move — flag for manual review. If the user supplied a SKU/product filter (Mode B), the server-side filter already disambiguates; no manual review needed.
+- **Prefer server-side filtering:** Combine `location_id`, `status`, `sku`, and/or `product_id` on the list endpoint to narrow the FO set before iterating. Cheaper and faster than per-order-number lookups when the target criteria is product-based.
 - **`new_location_id` is required:** The move endpoint requires the destination location ID (integer). `fulfillment_order_line_items` is optional — if omitted, ALL line items in the FO move (correct default for bulk operations).
 - **Response contains both old and new FO:** `moved_fulfillment_order` (new FO at destination, `status: open`) and `original_fulfillment_order` (old FO at source, `status: closed`).
 - **Don't filter by status on initial lookup:** Query all FOs for an order number first. Filtering by status could miss FOs that need cancellation before moving.

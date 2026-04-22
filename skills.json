@@ -50,17 +50,19 @@
     {
       "id": "next-bulk-move",
       "name": "Bulk Fulfillment Order Move",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "path": "next-bulk-move/SKILL.md",
       "domain": "operations",
-      "description": "Move fulfillment orders between warehouse locations in bulk from a flat file of order numbers — handles cancellation requests for processing FOs, location discovery, and dry-run validation.",
+      "description": "Move fulfillment orders between warehouse locations in bulk — driven either by a flat file of order numbers or by a Product ID / SKU list. Handles cancellation requests for processing FOs, location discovery, and dry-run validation.",
       "triggers": [
         "bulk move orders",
         "move fulfillment orders",
         "transfer orders to new warehouse",
         "change fulfillment location",
         "switch fulfillment provider",
-        "reassign orders to new location"
+        "reassign orders to new location",
+        "move all FOs for SKU",
+        "move fulfillment orders by product"
       ],
       "prerequisites": [
         "Python 3",
