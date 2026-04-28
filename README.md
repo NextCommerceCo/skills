@@ -12,8 +12,7 @@ Pre-built skills that give AI coding agents deep knowledge of the Next Commerce 
 | [**Bulk Fulfillment Sync**](next-bulk-fulfill/) | Update orders to Fulfilled with tracking numbers from a CSV | Your fulfillment provider shipped orders but tracking didn't sync back — orders stuck in Processing |
 | [**Bulk Fulfillment Move**](next-bulk-move/) | Move fulfillment orders between warehouse locations in bulk — by order-number file or by Product ID / SKU list | Switching fulfillment providers, or moving every FO containing a given SKU/product to a new location |
 | [**Bulk Subscription Update**](next-bulk-subscription/) | Apply a PATCH (status, renewal date, interval, etc.) to a list of subscription IDs | Merchant wants to bulk-pause, bulk-shift renewals, bulk-cancel, or migrate subscriptions between gateways |
-| [**New CPK Campaign**](next-cpk-new-campaign/) | Scaffold a new campaign-page-kit campaign — brand init, starter template, campaigns.json seed | Starting a new CPK campaign for a brand |
-| [**CPK Config Setup**](next-cpk-config-setup/) | Wire up `config.js` and `campaigns.json` with API key, store details, and analytics | Configuring a freshly scaffolded campaign or updating an existing one |
+| [**New Campaign Setup**](next-campaigns-setup/) | Scaffold and fully configure a new CPK campaign — brand init, starter template, campaigns.json seed, API key, store details, and analytics in one pass | Starting a new CPK campaign for a brand |
 
 ## Quick Start
 
