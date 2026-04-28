@@ -94,27 +94,6 @@
       ]
     },
     {
-      "id": "next-cpk-config-setup",
-      "name": "CPK Campaign Config Setup",
-      "version": "1.0.0",
-      "path": "next-cpk-config-setup/SKILL.md",
-      "domain": "campaigns",
-      "description": "Wire up config.js and campaigns.json for a campaign-page-kit campaign with API key, store details, and analytics (GTM, Facebook Pixel). Run after scaffolding with next-cpk-new-campaign.",
-      "triggers": [
-        "configure campaign",
-        "cpk config",
-        "set up API key",
-        "wire up store details",
-        "add GTM to campaign",
-        "add Facebook Pixel"
-      ],
-      "prerequisites": [
-        "A scaffolded CPK campaign (run next-cpk-new-campaign first)",
-        "Campaign Cart API key for the store",
-        "CPK_ROOT environment variable or path to campaign root"
-      ]
-    },
-    {
       "id": "next-campaigns-setup",
       "name": "New Campaign Setup",
       "version": "1.0.0",
