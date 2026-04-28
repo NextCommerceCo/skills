@@ -1,6 +1,6 @@
 ---
 name: next-theme-dev
-version: 1.0.0
+version: 1.1.0
 description: |
   Next Commerce theme development — build, modify, and debug storefront themes
   using Django Template Language, ntk CLI, and the Next Commerce platform.
@@ -168,6 +168,23 @@ Product prices, categories, filters      Checkout state
 
 The `/cart/`, `/checkout/`, and `/accounts/` paths are excluded from full-page caching, but any content in shared layouts (headers, footers via `layouts/base.html`) renders on every cached page.
 
+### Compiled CSS Must Be Committed (Installable Themes)
+
+The platform does not compile CSS server-side. Build tools (Tailwind binary, npm, Sass CLIs) are not preserved on `ntk push` and don't come down on `ntk pull`. This means **the compiled, minified output (`assets/main.css` for Tailwind themes, the compiled CSS for SCSS themes that build locally) MUST be committed to the repo** for the theme to be installable.
+
+If `assets/main.css` is gitignored:
+- Cloning the repo gives a styled-broken theme
+- Pulling via ntk gives a styled-broken theme
+- The merchant has to install a Tailwind toolchain just to get a working storefront
+
+The right pattern:
+- **Gitignore the binary** (`tailwindcss`, `node_modules/`) — platform-specific, large, and not needed at install time
+- **Commit the artifact** (`assets/main.css`) — small, what actually ships, makes the theme self-contained
+- **Add a `make release` (or equivalent) target** that rebuilds + stages the artifact so source and output stay in sync
+- **Document the contract** in CLAUDE.md / README so future devs don't re-gitignore the artifact thinking it's "build output"
+
+Treat the committed `main.css` as a versioned artifact. Drift between `css/input.css` and the committed output is a bug to be fixed before the next push, not a normal state.
+
 ### Tailwind + DTL: No Dynamic Class Construction
 
 Never build Tailwind class names with template variables:
@@ -257,6 +274,7 @@ Hard-won lessons from building Spark. These will silently break things if you do
 | **sass-compat is required** | Every Tailwind build must run through `sass-compat.py`. Platform SCSS compiler rejects: `oklch()`, `color-mix()`, `@layer`, `@property`, `:is()`/`:where()`, logical properties, media range syntax |
 | **Preview URL** | `https://{store}/?preview_theme={theme_id}` — useful for testing unpublished theme changes |
 | **ntk accepted directories** | Only these are recognized: assets, checkout, configs, layouts, partials, templates, locales, sass. Files outside these are silently ignored |
+| **Build artifacts must be committed** | The platform doesn't compile CSS/JS server-side and doesn't preserve binaries on push. Compiled `assets/main.css` (Tailwind) or compiled CSS (build-time SCSS) must be checked in or the theme is unstyled on install. Gitignore the toolchain (binaries, `node_modules/`), commit the artifact |
 
 ---
 
@@ -591,15 +609,38 @@ ntk watch handles Sass compilation automatically — `.scss` files in `sass/` ar
 
 ### Tailwind Themes
 
-Tailwind themes orchestrate both the CSS compiler and ntk via `package.json` scripts — one command runs everything:
+Two valid setups for the Tailwind v4 toolchain. The standalone CLI is preferred for new themes — no Node dependency, single binary, simpler onboarding.
+
+**Option A: Standalone CLI (preferred — no Node required).** Download the platform-specific binary from `tailwindlabs/tailwindcss` releases, gitignore it, and orchestrate via `Makefile`:
+
+```makefile
+TAILWIND = ./tailwindcss
+COMPAT = python3 scripts/sass-compat.py
+
+dev:
+	@$(TAILWIND) -i css/input.css -o assets/main.css --watch &
+	@ntk watch
+
+css:
+	$(TAILWIND) -i css/input.css -o assets/main.css --minify
+	$(COMPAT) assets/main.css
+
+release: css
+	@git add assets/main.css
+```
+
+Add an `install-tailwind` Make target that detects the dev's OS/arch and curls the right release binary. The binary stays gitignored (76MB, platform-specific) but `assets/main.css` is **committed** (see "Compiled CSS Must Be Committed" critical warning).
+
+**Option B: npm-based (when the theme already has a Node toolchain).** Orchestrate via `package.json`:
 
 ```json
 {
   "scripts": {
     "dev": "npm run tailwind:watch & ntk watch",
-    "build": "npm run tailwind:build",
+    "build": "npm run tailwind:build && npm run compat",
     "tailwind:watch": "npx @tailwindcss/cli -i css/input.css -o assets/main.css --watch",
-    "tailwind:build": "npx @tailwindcss/cli -i css/input.css -o assets/main.css --minify"
+    "tailwind:build": "npx @tailwindcss/cli -i css/input.css -o assets/main.css --minify",
+    "compat": "python3 scripts/sass-compat.py assets/main.css"
   }
 }
 ```
@@ -612,6 +653,8 @@ ntk watch detects the Tailwind CSS output (`assets/main.css`) changes and pushes
 ```bash
 ntk push assets/main.css
 ```
+
+**Either option:** `assets/main.css` must be committed to the repo so the theme is installable without a local toolchain. Recompile and recommit it on every CSS source change — `make release` (Option A) or `npm run build && git add assets/main.css` (Option B).
 
 ### CSS Compatibility Pipeline (Required for Tailwind themes)
 
