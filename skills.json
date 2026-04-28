@@ -94,27 +94,6 @@
       ]
     },
     {
-      "id": "next-cpk-new-campaign",
-      "name": "New CPK Campaign",
-      "version": "1.0.0",
-      "path": "next-cpk-new-campaign/SKILL.md",
-      "domain": "campaigns",
-      "description": "Scaffold a new campaign-page-kit campaign — initializes the CPK project for a brand if needed, copies a starter template, seeds campaigns.json from upstream, and downloads the CLAUDE.md context file.",
-      "triggers": [
-        "new CPK campaign",
-        "scaffold a campaign",
-        "new campaign-kit project",
-        "new funnel",
-        "campaign page kit",
-        "cpk scaffold"
-      ],
-      "prerequisites": [
-        "Node.js + npm",
-        "A CPK project root (sellmore.campaigns.cpk or equivalent)",
-        "CPK_ROOT environment variable or path to campaign root"
-      ]
-    },
-    {
       "id": "next-cpk-config-setup",
       "name": "CPK Campaign Config Setup",
       "version": "1.0.0",
@@ -131,6 +110,28 @@
       ],
       "prerequisites": [
         "A scaffolded CPK campaign (run next-cpk-new-campaign first)",
+        "Campaign Cart API key for the store",
+        "CPK_ROOT environment variable or path to campaign root"
+      ]
+    },
+    {
+      "id": "next-campaigns-setup",
+      "name": "New Campaign Setup",
+      "version": "1.0.0",
+      "path": "next-campaigns-setup/SKILL.md",
+      "domain": "campaigns",
+      "description": "End-to-end setup for a new CPK campaign — scaffolds the project, copies a starter template, seeds campaigns.json, downloads CLAUDE.md, then wires up config.js and campaigns.json with API key, store details, and analytics in one pass.",
+      "triggers": [
+        "new CPK campaign",
+        "set up a campaign",
+        "scaffold and configure",
+        "new funnel",
+        "campaign setup",
+        "new campaign from scratch"
+      ],
+      "prerequisites": [
+        "Node.js + npm",
+        "A CPK project root (sellmore.campaigns.cpk or equivalent)",
         "Campaign Cart API key for the store",
         "CPK_ROOT environment variable or path to campaign root"
       ]

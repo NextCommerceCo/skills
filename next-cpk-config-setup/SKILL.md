@@ -44,8 +44,8 @@ echo "${CPK_ROOT:-not set}"
 ```
 
 If not set, ask the user:
-> What is the path to your `sellmore.campaigns.cpk` folder?
-> (e.g. `/Users/you/projects/sellmore.campaigns.cpk`)
+> What is the path to your CPK project root?
+> (e.g. `/Users/you/projects/my-campaigns`)
 
 Use this value as `<CPK_ROOT>` for all paths below. Do not hardcode any absolute path.
 
