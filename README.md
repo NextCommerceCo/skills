@@ -16,52 +16,49 @@ Pre-built skills that give AI coding agents deep knowledge of the Next Commerce 
 
 ## Quick Start
 
-### Claude Code
+### Ask Your AI Tool to Install
+
+If you use an AI coding tool, the easiest path is to ask it to install the skill for you:
+
+> Install the Next Commerce AI skill I need from https://github.com/NextCommerceCo/skills.
+> Use the installation location for my current AI tool and operating system. If my tool
+> supports native skills, install each skill as a directory containing its `SKILL.md`.
+> If it only supports rules, prompts, or context files, add the relevant `SKILL.md`
+> there instead. Prefer HTTPS clone unless my GitHub SSH access is already configured.
+
+Tell it which skill you want, or ask it to inspect [`skills.json`](skills.json) and choose the relevant one.
+
+### Manual Install
+
+In a macOS/Linux shell, clone the skills repo:
 
 ```bash
-# Install all skills (recommended — symlinks stay up to date)
-git clone git@github.com:NextCommerceCo/skills.git ~/next-commerce-skills
+git clone https://github.com/NextCommerceCo/skills.git ~/next-commerce-skills
+```
+
+For tools with native skill support, install a skill as a directory containing `SKILL.md`.
+
+Claude Code example:
+
+```bash
+mkdir -p ~/.claude/skills
+
 for skill in ~/next-commerce-skills/*/; do
   name=$(basename "$skill")
-  [ -f "$skill/SKILL.md" ] && ln -sf "$skill" ~/.claude/skills/"$name"
+  [ -f "$skill/SKILL.md" ] && ln -sfn "$skill" ~/.claude/skills/"$name"
 done
-
-# Or install a single skill
-ln -sf ~/next-commerce-skills/next-theme-dev ~/.claude/skills/next-theme-dev
 ```
 
-Once installed, Claude Code auto-detects when a skill is relevant, or you can invoke directly with `/<skill-name>` (e.g., `/next-theme-dev`).
+Once installed, Claude Code auto-detects when a skill is relevant, or you can invoke directly with `/<skill-name>` (e.g., `/next-theme-dev`). If the skills directory did not exist before Claude Code started, restart Claude Code so it can discover the new directory.
 
-### OpenAI Codex
-
-```bash
-git clone git@github.com:NextCommerceCo/skills.git ~/next-commerce-skills
-
-# Use a skill as a system prompt
-codex --system-prompt ~/next-commerce-skills/next-theme-dev/SKILL.md
-```
-
-### Cursor
-
-Copy the skill file into your project's Cursor rules directory:
+For tools that use rules or context files, copy the relevant `SKILL.md` into the tool's project configuration. Cursor example:
 
 ```bash
 mkdir -p .cursor/rules
 cp ~/next-commerce-skills/next-theme-dev/SKILL.md .cursor/rules/next-theme-dev.md
 ```
 
-### GitHub Copilot
-
-Reference the skill in your project's Copilot instructions:
-
-```bash
-mkdir -p .github
-echo "See next-commerce-skills/next-theme-dev/SKILL.md for theme development patterns." >> .github/copilot-instructions.md
-```
-
-### Any Other AI Tool
-
-Each skill is a single `SKILL.md` file — structured markdown with no proprietary format. Load it however your tool accepts context:
+Each skill is plain markdown. Load it however your tool accepts durable instructions:
 
 - **System prompt** — paste or reference the file
 - **Context file** — point your tool at the SKILL.md path
