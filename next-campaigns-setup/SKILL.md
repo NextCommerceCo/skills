@@ -69,6 +69,7 @@ Ask for all three in a single message — do not ask one at a time:
    - `olympus-mv-two-step` — two-step flow: variant picker → checkout
    - `shop-single-step` — shop-style single-step checkout
    - `shop-three-step` — multi-step checkout (information → shipping → billing)
+   - `landing` — presell/landing page component library (not a checkout funnel; use when building a standalone landing or presell page)
 
 ---
 
@@ -112,7 +113,7 @@ If `package.json` **already exists**, skip — the project is already initialize
 ### Step 5 — Copy Starter Template
 
 Before copying, confirm the template slug is valid. Valid slugs are:
-`demeter`, `limos`, `olympus`, `olympus-mv-single-step`, `olympus-mv-two-step`, `shop-single-step`, `shop-three-step`
+`demeter`, `limos`, `olympus`, `olympus-mv-single-step`, `olympus-mv-two-step`, `shop-single-step`, `shop-three-step`, `landing`
 
 If the provided template slug is not in this list → **stop and ask the user to pick a valid template**.
 
@@ -135,12 +136,13 @@ https://raw.githubusercontent.com/NextCommerceCo/campaign-cart-starter-templates
 
 If the fetch fails or returns non-JSON, stop and warn the user.
 
-Find the entry matching `[template-slug]`. If no entry with that key exists → **stop and warn the user**. Use its `sdk_version`, `description`, and field structure as the base. Then customise:
+Find the entry matching `[template-slug]`. **Note:** the `olympus-mv-single-step` folder is keyed as `olympus-mv-single` in the upstream campaigns.json — look up `olympus-mv-single` when that template is chosen. For all other templates the key matches the folder name. If no entry is found → **stop and warn the user**. Use its `sdk_version`, `description`, and field structure as the base. Then customise:
 
 - Key: change from `[template-slug]` to `[campaign-slug]`
 - `name`: title-case derived from the campaign slug (hyphens → spaces)
 - `store_name`, `store_url`, `store_terms`, `store_privacy`, `store_contact`, `store_returns`, `store_shipping`: set to `""`
 - `store_phone`, `store_phone_tel`: set to `""`
+- `entry_url`: keep as it appears in the upstream entry (typically `"presell"` for checkout funnels)
 - `gtm_id`, `fb_pixel_id`: keep as placeholder values from the template entry
 - `sdk_version`: keep exactly as it appears in the upstream entry — do not hardcode
 
@@ -250,17 +252,19 @@ Then show next steps:
 Next steps:
 1. npm run dev  → pick [campaign-slug] and verify the page loads + SDK initialises
 2. Check the Campaigns app → confirm the API key is valid for this store
-3. QA checklist: check the SDK QA checklist in docs/
+3. npm run config  → alternative interactive config editor if you need to adjust settings later
+4. QA checklist: check the SDK QA checklist in docs/
 ```
 
 Dev server preview URLs for the chosen template:
 
 | Template | Pages |
 |----------|-------|
-| demeter | /[slug]/checkout/ · /[slug]/upsell/ · /[slug]/receipt/ |
-| limos | /[slug]/checkout/ · /[slug]/upsell/ · /[slug]/receipt/ |
-| olympus | /[slug]/checkout/ · /[slug]/upsell/ · /[slug]/receipt/ |
-| olympus-mv-single-step | /[slug]/checkout/ · /[slug]/upsell-mv/ · /[slug]/receipt/ |
-| olympus-mv-two-step | /[slug]/select/ · /[slug]/checkout/ · /[slug]/upsell-mv/ · /[slug]/receipt/ |
-| shop-single-step | /[slug]/checkout/ · /[slug]/upsell/ · /[slug]/receipt/ |
-| shop-three-step | /[slug]/information/ · /[slug]/shipping/ · /[slug]/billing/ · /[slug]/upsell/ · /[slug]/receipt/ |
+| demeter | /[slug]/presell/ · /[slug]/checkout/ · /[slug]/upsell/ · /[slug]/receipt/ |
+| limos | /[slug]/presell/ · /[slug]/checkout/ · /[slug]/upsell/ · /[slug]/receipt/ |
+| olympus | /[slug]/presell/ · /[slug]/checkout/ · /[slug]/upsell/ · /[slug]/receipt/ |
+| olympus-mv-single-step | /[slug]/presell/ · /[slug]/checkout/ · /[slug]/upsell-mv/ · /[slug]/receipt/ |
+| olympus-mv-two-step | /[slug]/presell/ · /[slug]/select/ · /[slug]/checkout/ · /[slug]/upsell-mv/ · /[slug]/receipt/ |
+| shop-single-step | /[slug]/presell/ · /[slug]/checkout/ · /[slug]/upsell/ · /[slug]/receipt/ |
+| shop-three-step | /[slug]/presell/ · /[slug]/information/ · /[slug]/shipping/ · /[slug]/billing/ · /[slug]/upsell/ · /[slug]/receipt/ |
+| landing | /[slug]/landing/ (component library — no checkout funnel) |
