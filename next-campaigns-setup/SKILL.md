@@ -55,37 +55,6 @@ If not set, ask the user:
 
 Use this value as `<CPK_ROOT>` for all paths below. Do not hardcode any absolute path.
 
-### Step 0b — Sellmore Wrapper Check
-
-With `<CPK_ROOT>` resolved, check whether the Sellmore top-level scaffold is in place:
-
-```bash
-[ -f "<CPK_ROOT>/netlify.toml" ] && echo "found" || echo "missing"
-[ -f "<CPK_ROOT>/scripts/smoke-check.js" ] && echo "found" || echo "missing"
-```
-
-If **either file is missing**, stop and offer:
-
-> The Sellmore wrapper layer (`netlify.toml`, `scripts/smoke-check.js`) is not present at `<CPK_ROOT>`.
-> These are required for the Netlify build pipeline and smoke-check validator.
-> Shall I scaffold them now from `Sellmore-Co/template`?
-
-If the user confirms, run from `<CPK_ROOT>`:
-
-```bash
-npx degit Sellmore-Co/template/netlify.toml netlify.toml --force
-npx degit Sellmore-Co/template/scripts scripts --force
-npx degit Sellmore-Co/template/CLAUDE.md CLAUDE.md
-```
-
-After scaffolding, verify `netlify.toml` and `scripts/smoke-check.js` now exist — if either is still missing, stop and warn the user before continuing.
-
-If the user declines, warn them that the build pipeline may fail on first deploy and continue anyway.
-
-If both files already exist, proceed silently.
-
----
-
 ### Step 1: Gather Campaign Details
 
 Ask for all three in a single message — do not ask one at a time:
