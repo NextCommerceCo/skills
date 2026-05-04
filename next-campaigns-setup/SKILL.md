@@ -5,7 +5,7 @@ description: |
   End-to-end setup for a new campaign-page-kit (CPK) campaign — scaffolds the
   project, copies a starter template, seeds campaigns.json, downloads CLAUDE.md,
   then immediately wires up config.js and campaigns.json with API key, store
-  details, and analytics in one pass.
+  details, optional policy links, and declared analytics in one pass.
 
   Use when: "new CPK campaign", "set up a campaign", "scaffold and configure",
   "new funnel", or when a user provides a brand name + campaign slug + template choice.
@@ -36,7 +36,13 @@ This skill works with any AI coding tool that can load a markdown file as contex
 
 ---
 
-Scaffold and fully configure a new campaign-page-kit campaign in one pass.
+Scaffold and configure a new campaign-page-kit campaign in one pass.
+
+Boundary with other campaign skills:
+- Use this skill for repo/project bootstrap: brand folder, page-kit init, starter template copy, `campaigns.json`, `CLAUDE.md`, and first config values.
+- Use `next-campaigns-build` when a CampaignSpec/design exists and pages need to be wired end-to-end from spec/API/design into page-kit.
+- Use `next-campaigns-os` for CampaignSpec lifecycle work: map inspection, multi-funnel planning, QA results, Linear/run-through orchestration, promotion decisions, and split-test config.
+- This skill may consume a CampaignSpec if one is provided, but it should not try to replace the build skill's page wiring or the OS skill's lifecycle decisions.
 
 ---
 
@@ -151,7 +157,7 @@ Find the entry matching `[template-slug]`. **Note:** the `olympus-mv-single-step
 - `store_name`, `store_url`, `store_terms`, `store_privacy`, `store_contact`, `store_returns`, `store_shipping`: set to `""`
 - `store_phone`, `store_phone_tel`: set to `""`
 - `entry_url`: keep as it appears in the upstream entry (typically `"presell"` for checkout funnels)
-- `gtm_id`, `fb_pixel_id`: keep as placeholder values from the template entry
+- `gtm_id`, `fb_pixel_id`: set to `""` unless real values are provided later. Do not preserve placeholder pixel/container IDs from the template.
 - `sdk_version`: keep exactly as it appears in the upstream entry — do not hardcode
 
 Merge this entry into `<CPK_ROOT>/[brand-name]/_data/campaigns.json` — do not replace the whole file.
@@ -175,24 +181,33 @@ If `CLAUDE.md` already exists in the brand folder, skip — do not overwrite.
 
 Ask for all of the following in a single message — do not ask one at a time:
 
+If the user supplied a CampaignSpec, pre-fill from:
+- `campaign.store_name` for store name when present
+- `campaign.tracking` for analytics intent
+- `campaign.footer_links[]` for policy/support URLs
+- `campaign.seo` for later build/QA notes only; setup does not need to write SEO tags directly
+
 **Required:**
 - **API key** — the Campaign Cart API key for this store
 - **Store name** — short display name (e.g. "Winter Gloves Co")
 - **Store URL** — the main store domain (e.g. `https://wintergloves.com`)
+
+**Recommended but optional:**
 - **Store phone** — display format (e.g. `1-800-555-0100`) and tel format (e.g. `+18005550100`)
-- **Terms URL** — full URL to terms of service page
-- **Privacy URL** — full URL to privacy policy page
-- **Contact URL** — full URL to contact page
-- **Returns URL** — full URL to returns/refund policy page
-- **Shipping URL** — full URL to shipping policy page
+- **Policy/support URLs** — terms, privacy, contact, returns/refund, shipping. Storefront policy URLs are acceptable; campaign-specific pages are not required.
 
 Validate all URLs before writing any files:
-- Each URL must start with `https://` and contain at least one `.` after the domain
-- If any URL fails this check, show which ones are invalid and ask the user to correct them before proceeding. Do not write partial data.
+- Each provided URL must start with `https://` and contain at least one `.` after the domain
+- If an optional URL is absent, write `""` for that field rather than inventing a placeholder
+- If any provided URL fails this check, show which ones are invalid and ask the user to correct or omit them before proceeding. Do not write partial data.
 
-**Optional (press enter to skip):**
+**Optional tracking contract:**
+- **Tracking status** — `unknown`, `not_configured`, `configured`, or `custom_required`
 - **GTM container ID** — e.g. `GTM-XXXXXXX`
 - **Facebook Pixel ID** — e.g. `123456789012345`
+- **Custom analytics endpoint or notes** — record in the report unless the template config already supports a matching custom analytics provider
+
+Do not make the user guess through a wall of tracking surfaces. Ask for GTM/Facebook/custom only when they already have values or the CampaignSpec declares them. If tracking is `unknown` or `not_configured`, leave provider IDs blank/disabled and record that tracking is intentionally not configured yet.
 
 ### Step 9 — Update config.js
 
@@ -200,12 +215,15 @@ Read `<CPK_ROOT>/[brand-name]/src/[campaign-slug]/assets/config.js`. Make these 
 
 1. **`apiKey`** — replace the placeholder value with the provided API key
 2. **`storeName`** — replace with a lowercase-hyphenated slug derived from the store name (e.g. "Winter Gloves Co" → `'winter-gloves-co'`). This is an analytics identifier, not a display name.
-3. **GTM** (if provided):
+3. **GTM** (only if a real ID is provided):
    - Set `gtm.enabled` to `true`
    - Set `gtm.settings.containerId` to the provided ID
-4. **Facebook Pixel** (if provided):
+4. **Facebook Pixel** (only if a real ID is provided):
    - Set `facebook.enabled` to `true`
    - Set `facebook.settings.pixelId` to the provided ID
+5. **Absent tracking**:
+   - If tracking status is `unknown` or `not_configured`, keep GTM/Facebook disabled or blank. Remove obvious placeholder IDs if the template copied them.
+   - If tracking status is `custom_required`, do not invent custom event wiring here; report it as a follow-up for `next-campaigns-build`.
 
 Do not change any other fields. Preserve all comments.
 
@@ -217,15 +235,15 @@ Update these fields:
 
 - `store_name` → provided store name
 - `store_url` → provided store URL
-- `store_phone` → provided phone display format
-- `store_phone_tel` → provided phone tel format
-- `store_terms` → provided terms URL
-- `store_privacy` → provided privacy URL
-- `store_contact` → provided contact URL
-- `store_returns` → provided returns URL
-- `store_shipping` → provided shipping URL
-- `gtm_id` → provided GTM ID (or leave as existing placeholder if skipped)
-- `fb_pixel_id` → provided pixel ID (or leave as existing placeholder if skipped)
+- `store_phone` → provided phone display format, or `""`
+- `store_phone_tel` → provided phone tel format, or `""`
+- `store_terms` → provided terms URL, or `""`
+- `store_privacy` → provided privacy URL, or `""`
+- `store_contact` → provided contact URL, or `""`
+- `store_returns` → provided returns URL, or `""`
+- `store_shipping` → provided shipping URL, or `""`
+- `gtm_id` → provided GTM ID, or `""`
+- `fb_pixel_id` → provided pixel ID, or `""`
 
 Do not change any other fields in the file.
 
@@ -247,11 +265,13 @@ Phase 2 — Configure
   config.js
     ✓ apiKey set
     ✓ storeName set to '[value]'
-    ✓ GTM enabled / left disabled
-    ✓ Facebook Pixel enabled / left disabled
+    ✓ GTM enabled with real ID / left disabled
+    ✓ Facebook Pixel enabled with real ID / left disabled
+    ✓ Tracking status: unknown / not_configured / configured / custom_required
   campaigns.json ([campaign-slug])
-    ✓ store_name, store_url, store_phone set
-    ✓ store_terms, store_privacy, store_contact, store_returns, store_shipping set
+    ✓ store_name and store_url set
+    ✓ phone set / left blank
+    ✓ policy/support URLs set / left blank
 ```
 
 Then show next steps:
