@@ -8,7 +8,7 @@ description: |
   details, optional policy links, and declared analytics in one pass.
 
   Use when: "new CPK campaign", "set up a campaign", "scaffold and configure",
-  "new funnel", or when a user provides a brand name + campaign slug + template choice.
+  "new funnel", or when a user provides a brand name + public route slug + template choice.
 allowed-tools:
   - Bash
   - Read
@@ -66,7 +66,7 @@ Use this value as `<CPK_ROOT>` for all paths below. Do not hardcode any absolute
 Ask for all three in a single message — do not ask one at a time:
 
 1. **Brand name** — the client/brand slug. Lowercase, hyphens only. Becomes the brand folder.
-2. **Campaign slug** — the product name or product name + version (e.g. `grounding-mat`, `grounding-mat-v2`). Lowercase, hyphens only.
+2. **Public route slug** — the pretty campaign URL/page-kit folder slug, usually product name + version (e.g. `grounding-mat`, `grounding-mat-v2`). Lowercase, hyphens only. This is not the Campaign Map Builder Map ID.
 3. **Starter template** — which template to base this on:
    - `demeter` — standard single-step checkout
    - `limos` — single-step checkout (alternate layout)
@@ -153,7 +153,7 @@ If the fetch fails or returns non-JSON, stop and warn the user.
 Find the entry matching `[template-slug]`. **Note:** the `olympus-mv-single-step` folder is keyed as `olympus-mv-single` in the upstream campaigns.json — look up `olympus-mv-single` when that template is chosen. For all other templates the key matches the folder name. If no entry is found → **stop and warn the user**. Use its `sdk_version`, `description`, and field structure as the base. Then customise:
 
 - Key: change from `[template-slug]` to `[campaign-slug]`
-- `name`: title-case derived from the campaign slug (hyphens → spaces)
+- `name`: title-case derived from the public route slug (hyphens → spaces)
 - `store_name`, `store_url`, `store_terms`, `store_privacy`, `store_contact`, `store_returns`, `store_shipping`: set to `""`
 - `store_phone`, `store_phone_tel`: set to `""`
 - `entry_url`: keep as it appears in the upstream entry (typically `"presell"` for checkout funnels)
@@ -183,6 +183,8 @@ Ask for all of the following in a single message — do not ask one at a time:
 
 If the user supplied a CampaignSpec, pre-fill from:
 - `campaign.store_name` for store name when present
+- `campaign.slug` for the public route slug when present
+- `spec_identity.map_id` for the report/provenance only; never use the Map ID as the page-kit folder unless the user explicitly asks
 - `campaign.tracking` for analytics intent
 - `campaign.footer_links[]` for policy/support URLs
 - `campaign.seo` for later build/QA notes only; setup does not need to write SEO tags directly
@@ -262,6 +264,9 @@ Phase 1 — Scaffold
   ✓ CLAUDE.md: copied / already present
 
 Phase 2 — Configure
+  provenance
+    ✓ Map ID: [map-id] / not provided
+    ✓ public route slug: [campaign-slug]
   config.js
     ✓ apiKey set
     ✓ storeName set to '[value]'
