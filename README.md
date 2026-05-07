@@ -30,39 +30,47 @@ Tell it which skill you want, or ask it to inspect [`skills.json`](skills.json) 
 
 ### Manual Install
 
-In a macOS/Linux shell, clone the skills repo:
+We recommend the [`skills` CLI](https://github.com/vercel-labs/skills) — a friendly skill installer utility that works across every major AI coding tool. It pulls `SKILL.md` files from a GitHub repo and drops them into the right config directory for whichever assistant you use, with built-in support for Claude Code, Cursor, Codex, GitHub Copilot, Gemini CLI, Windsurf, and 50+ other LLM-powered agents.
+
+**Install all skills from this repo:**
 
 ```bash
-git clone https://github.com/NextCommerceCo/skills.git ~/next-commerce-skills
+npx skills add NextCommerceCo/skills
 ```
 
-For tools with native skill support, install a skill as a directory containing `SKILL.md`.
-
-Claude Code example:
+**Install a single skill:**
 
 ```bash
-mkdir -p ~/.claude/skills
-
-for skill in ~/next-commerce-skills/*/; do
-  name=$(basename "$skill")
-  [ -f "$skill/SKILL.md" ] && ln -sfn "$skill" ~/.claude/skills/"$name"
-done
+npx skills add NextCommerceCo/skills -s next-theme-dev
 ```
 
-Once installed, Claude Code auto-detects when a skill is relevant, or you can invoke directly with `/<skill-name>` (e.g., `/next-theme-dev`). If the skills directory did not exist before Claude Code started, restart Claude Code so it can discover the new directory.
-
-For tools that use rules or context files, copy the relevant `SKILL.md` into the tool's project configuration. Cursor example:
+**List available skills without installing:**
 
 ```bash
-mkdir -p .cursor/rules
-cp ~/next-commerce-skills/next-theme-dev/SKILL.md .cursor/rules/next-theme-dev.md
+npx skills add NextCommerceCo/skills --list
 ```
 
-Each skill is plain markdown. Load it however your tool accepts durable instructions:
+**Target a specific agent** (auto-detected by default):
 
-- **System prompt** — paste or reference the file
-- **Context file** — point your tool at the SKILL.md path
-- **Chat upload** — drag the file into your conversation
+```bash
+npx skills add NextCommerceCo/skills -a claude-code
+```
+
+Once installed, Claude Code auto-detects when a skill is relevant, or you can invoke it directly with `/<skill-name>` (e.g. `/next-theme-dev`). If the skills directory did not exist before Claude Code started, restart Claude Code so it can discover the new directory.
+
+**Update all installed skills:**
+
+```bash
+npx skills update
+```
+
+**Update a single skill:**
+
+```bash
+npx skills update next-theme-dev
+```
+
+For tools the `skills` CLI doesn't support, each `SKILL.md` is plain markdown — load it as a system prompt, context file, or chat upload.
 
 ## Machine-Readable Index
 
@@ -74,14 +82,6 @@ Each skill lists its own requirements in the file. Common across all skills:
 
 - Access to a Next Commerce store
 - An API key with the scopes specified by the skill (create at **Dashboard > Settings > API Access**)
-
-## Update
-
-```bash
-cd ~/next-commerce-skills && git pull
-```
-
-Symlinked installations (Claude Code) pick up changes automatically. For copy-based installations (Cursor, Copilot), re-copy the updated files.
 
 ## Contributing
 
