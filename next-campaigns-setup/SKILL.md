@@ -1,11 +1,12 @@
 ---
 name: next-campaigns-setup
-version: 1.0.0
+version: 1.1.0
 description: |
-  End-to-end setup for a new campaign-page-kit (CPK) campaign — scaffolds the
-  project, copies a starter template, seeds campaigns.json, downloads CLAUDE.md,
-  then immediately wires up config.js and campaigns.json with API key, store
-  details, optional policy links, and declared analytics in one pass.
+  End-to-end setup for a new campaign-page-kit (CPK) campaign — uses
+  campaign-init --non-interactive to scaffold the project, download the starter
+  template, seed campaigns.json, and install AI context in one command, then
+  wires up config.js and campaigns.json with API key, store details, optional
+  policy links, and declared analytics in one pass.
 
   Use when: "new CPK campaign", "set up a campaign", "scaffold and configure",
   "new funnel", or when a user provides a brand name + public route slug + template choice.
@@ -95,83 +96,45 @@ If `<CPK_ROOT>/[brand-name]/src/[campaign-slug]/` already exists → **stop and 
 
 If `<CPK_ROOT>/[brand-name]/` does not exist, create it.
 
-### Step 4 — Initialize CPK Project (if needed)
+### Step 4 — Scaffold with campaign-init
 
-Check if `<CPK_ROOT>/[brand-name]/package.json` exists.
+`campaign-init --non-interactive` (available since `next-campaign-page-kit` v0.1.1) handles the full scaffold in one command: adds npm scripts, creates `_data/campaigns.json`, downloads the starter template, seeds the campaigns.json entry, and installs the AI context file.
 
-If **not**, run these commands sequentially inside the brand folder:
+**If `package.json` does not exist** in the brand folder, bootstrap first:
 
 ```bash
 cd <CPK_ROOT>/[brand-name]
 npm init -y
 npm install next-campaign-page-kit
-npx campaign-init
 ```
 
-`npx campaign-init` creates `_data/campaigns.json` and adds npm scripts to `package.json`. It does **not** create any `src/` folders.
-
-After running, verify it succeeded:
-- Check `_data/campaigns.json` exists — if not, stop and warn the user that `campaign-init` may have failed
-- Check `package.json` contains a `dev` script — if not, warn the user to run `npx campaign-init` manually
-
-If `package.json` **already exists**, skip — the project is already initialized.
-
-### Step 5 — Copy Starter Template
-
-Before copying, confirm the template slug is valid. Valid slugs are:
-`demeter`, `limos`, `olympus`, `olympus-mv-single-step`, `olympus-mv-two-step`, `shop-single-step`, `shop-three-step`, `landing`
-
-If the provided template slug is not in this list → **stop and ask the user to pick a valid template**.
-
-Run from the brand folder:
+**Then run campaign-init** (whether or not the project was just bootstrapped):
 
 ```bash
 cd <CPK_ROOT>/[brand-name]
-npx degit NextCommerceCo/campaign-cart-starter-templates/src/[template-slug] src/[campaign-slug]
+npx campaign-init --non-interactive --json \
+  --template [template-slug] \
+  --slug [campaign-slug] \
+  --name "[Campaign Display Name]" \
+  --ai-context claude \
+  $([ -f CLAUDE.md ] && echo "--keep-ai-context")
 ```
 
-If degit exits with a non-zero code or reports that the source path was not found, stop and warn the user — the template slug may not exist in the upstream repo.
+Capture the JSON output. On success (`exit 0`) it contains the campaign slug, template used, files extracted, and AI context write status — include the extracted file count in your Phase 1 report.
 
-After degit completes (even with exit code 0), verify the directory is not empty:
+**Exit code handling:**
 
-```bash
-[ "$(ls -A src/[campaign-slug])" ] || echo "EMPTY"
-```
+| Code | Meaning | Action |
+|------|---------|--------|
+| `0` | Success | Continue |
+| `2` | Template not found | Stop — ask user to pick a valid template |
+| `3` | Target slug already exists | Stop — Step 2 should have caught this; warn user |
+| `4` | Upstream fetch failed | Stop — check network, retry once |
+| `5` | Missing required flag | Stop — internal error; report which flag |
+| `6` | Invalid input | Stop — report the validation message |
+| `7` / `8` | Partial write / rollback failed | Stop — report the error; do not attempt Phase 2 |
 
-If the output is `EMPTY`, **stop and warn the user** — degit returned success but extracted nothing. This can happen when the subfolder path is wrong or a GitHub cache issue occurred. Do not continue to Phase 2.
-
-### Step 6 — Fetch the Template's campaigns.json Entry
-
-Fetch the upstream campaigns.json to get the canonical entry for the chosen template:
-
-```
-https://raw.githubusercontent.com/NextCommerceCo/campaign-cart-starter-templates/HEAD/_data/campaigns.json
-```
-
-If the fetch fails or returns non-JSON, stop and warn the user.
-
-Find the entry matching `[template-slug]`. **Note:** the `olympus-mv-single-step` folder is keyed as `olympus-mv-single` in the upstream campaigns.json — look up `olympus-mv-single` when that template is chosen. For all other templates the key matches the folder name. If no entry is found → **stop and warn the user**. Use its `sdk_version`, `description`, and field structure as the base. Then customise:
-
-- Key: change from `[template-slug]` to `[campaign-slug]`
-- `name`: title-case derived from the public route slug (hyphens → spaces)
-- `store_name`, `store_url`, `store_terms`, `store_privacy`, `store_contact`, `store_returns`, `store_shipping`: set to `""`
-- `store_phone`, `store_phone_tel`: set to `""`
-- `entry_url`: keep as it appears in the upstream entry (typically `"presell"` for checkout funnels)
-- `gtm_id`, `fb_pixel_id`: set to `""` unless real values are provided later. Do not preserve placeholder pixel/container IDs from the template.
-- `sdk_version`: keep exactly as it appears in the upstream entry — do not hardcode
-
-Merge this entry into `<CPK_ROOT>/[brand-name]/_data/campaigns.json` — do not replace the whole file.
-
-### Step 7 — Copy CLAUDE.md
-
-Download and save the AI context file into the brand project root as `CLAUDE.md`:
-
-```bash
-curl -sL "https://raw.githubusercontent.com/NextCommerceCo/campaign-cart-starter-templates/HEAD/docs/campaign-page-kit-template-context.md" \
-  -o <CPK_ROOT>/[brand-name]/CLAUDE.md
-```
-
-If `CLAUDE.md` already exists in the brand folder, skip — do not overwrite.
+Do not fall back to manual `degit` + `campaigns.json` patching + `curl CLAUDE.md`. If `campaign-init` fails, surface the error and stop.
 
 ---
 
@@ -258,10 +221,8 @@ Summarise everything done:
 ```
 Phase 1 — Scaffold
   ✓ Brand folder: created / already existed
-  ✓ CPK project: initialized / already present
-  ✓ Template copied: [template-slug] → src/[campaign-slug]/
-  ✓ campaigns.json seeded (sdk_version: [version])
-  ✓ CLAUDE.md: copied / already present
+  ✓ campaign-init: [N] files extracted, campaigns.json seeded (sdk_version: [version])
+  ✓ CLAUDE.md: written / already present (--keep-ai-context)
 
 Phase 2 — Configure
   provenance
