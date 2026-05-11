@@ -41,6 +41,7 @@ Scaffold and configure a new campaign-page-kit campaign in one pass.
 
 Boundary with other campaign skills:
 - Use this skill for repo/project bootstrap: brand folder, page-kit init, starter template copy, `campaigns.json`, `CLAUDE.md`, and first config values.
+- In the linked Campaign Runtime flow, use this skill only when `campaign-os doctor --context` returns `next.stage = setup`. Consume `campaign-runtime.build.json` and `.campaign-runtime/build-context.json`, then emit `.campaign-runtime/setup-handoff.json` for `next-campaigns-build`.
 - Use `next-campaigns-build` when a CampaignSpec/design exists and pages need to be wired end-to-end from spec/API/design into page-kit.
 - Use `next-campaigns-os` for CampaignSpec lifecycle work: map inspection, multi-funnel planning, QA results, Linear/run-through orchestration, promotion decisions, and split-test config.
 - This skill may consume a CampaignSpec if one is provided, but it should not try to replace the build skill's page wiring or the OS skill's lifecycle decisions.
@@ -135,6 +136,54 @@ Capture the JSON output. On success (`exit 0`) it contains the campaign slug, te
 | `7` / `8` | Partial write / rollback failed | Stop — report the error; do not attempt Phase 2 |
 
 Do not fall back to manual `degit` + `campaigns.json` patching + `curl CLAUDE.md`. If `campaign-init` fails, surface the error and stop.
+
+### Linked Runtime Handoff
+
+When invoked from Campaign Runtime Assembly, read the generated artifacts first:
+
+- `campaign-runtime.build.json`
+- `.campaign-runtime/build-context.json`
+- `.campaign-runtime/assembly-report.json`
+
+Only scaffold when the build context says:
+
+```json
+{
+  "scaffold": {
+    "mode": "fresh",
+    "required": true
+  }
+}
+```
+
+If the context says `mode: "existing"`, do not run setup; hand back to `next-campaigns-build`.
+
+After successful scaffold, write `.campaign-runtime/setup-handoff.json`:
+
+```json
+{
+  "schema_version": "campaign-runtime-setup-handoff/v0",
+  "stage": "setup",
+  "status": "completed",
+  "packet_path": "campaign-runtime.build.json",
+  "context_path": ".campaign-runtime/build-context.json",
+  "report_path": ".campaign-runtime/assembly-report.json",
+  "scaffold": {
+    "mode": "fresh",
+    "template_family": "<locked-family>",
+    "campaign_slug": "<public-route-slug>",
+    "campaign_dir": "src/<public-route-slug>",
+    "campaign_init_result_path": ".campaign-runtime/campaign-init-result.json",
+    "files_created": 0
+  },
+  "next": {
+    "stage": "assembly",
+    "owner": "next-campaigns-build"
+  }
+}
+```
+
+Also update only the `setup` stage in `.campaign-runtime/assembly-report.json`. Preserve OS/build/polish/QA sections.
 
 ---
 
