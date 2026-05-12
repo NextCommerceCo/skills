@@ -73,14 +73,15 @@
     },
     {
       "id": "next-bulk-subscription",
-      "name": "Bulk Subscription Partial Update",
-      "version": "1.0.0",
+      "name": "Bulk Subscription Actions",
+      "version": "1.1.0",
       "path": "next-bulk-subscription/SKILL.md",
       "domain": "operations",
-      "description": "Apply a PATCH (status, renewal date, interval, gateway, address) to a list of subscription IDs from a CSV/XLSX via the Admin API subscriptionsPartialUpdate endpoint. Handles baseline selection, dry-run, rate limiting, and verification.",
+      "description": "Apply official subscription actions (pause, cancel) or PATCH updates (renewal date, interval, gateway, address) to a list of subscription IDs from a CSV/XLSX via the Admin API. Handles baseline selection, dry-run, rate limiting, and verification.",
       "triggers": [
         "bulk subscription update",
         "bulk pause subscriptions",
+        "pause subscriptions until a date",
         "bulk cancel subscriptions",
         "shift renewal dates",
         "move renewals out by N days",

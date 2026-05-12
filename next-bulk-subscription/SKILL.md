@@ -1,19 +1,21 @@
 ---
 name: next-bulk-subscription
-version: 1.0.0
+version: 1.1.0
 description: |
-  Bulk-update Next Commerce subscriptions from a flat file (CSV/XLSX) using the
-  Admin API subscriptionsPartialUpdate endpoint. Handles status changes, renewal
-  date shifts, interval changes, address/payment updates, and any other field
-  accepted by the partial-update endpoint.
+  Bulk-manage Next Commerce subscriptions from a flat file (CSV/XLSX) using the
+  Admin API subscription action endpoints and subscriptionsPartialUpdate endpoint.
+  Handles official pause actions, cancellation actions, renewal date shifts,
+  interval changes, address/payment updates, and any other field accepted by the
+  partial-update endpoint.
 
   Walks through store identification, API key validation, CSV ingestion, update
   mode selection, dry-run validation, live execution, and results reporting.
 
-  Use when: "bulk pause subscriptions", "bulk cancel subscriptions", "shift renewal
-  dates", "move renewals out by N days", "bulk update subscription interval", "bulk
-  subscription edit", or when a merchant provides a list of subscription IDs that
-  need the same partial update applied.
+  Use when: "bulk pause subscriptions", "pause subscriptions until a date", "bulk
+  cancel subscriptions", "shift renewal dates", "move renewals out by N days",
+  "bulk update subscription interval", "bulk subscription edit", or when a
+  merchant provides a list of subscription IDs that need the same subscription
+  action or partial update applied.
 allowed-tools:
   - Bash
   - Read
@@ -25,7 +27,7 @@ allowed-tools:
   - TodoWrite
 ---
 
-# /next-bulk-subscription: Bulk Subscription Partial Update (v1)
+# /next-bulk-subscription: Bulk Subscription Actions (v1.1)
 
 ## Using This Skill
 
@@ -41,15 +43,17 @@ This skill works with any AI coding tool that can load a markdown file as contex
 
 ---
 
-Applies the same partial update (PATCH) to a list of subscription IDs. The partial
-update endpoint accepts any subset of subscription fields and is the correct tool
-for almost every "bulk change subscriptions" request a merchant brings.
+Applies the same subscription action or partial update to a list of subscription
+IDs. Use the first-class action endpoint when one exists (pause, cancel, renew,
+retry). Use the partial-update endpoint for field edits such as renewal dates,
+cadence, addresses, and payment details.
 
 **Common bulk operations:**
 
-- **Stop recurring billing temporarily** — shift `next_renewal_date` out by N days (preferred over `status: paused` until the platform team ships official pause support — see Gotchas).
+- **Pause recurring billing temporarily** — call `subscriptionsPauseCreate` with optional `pause_until` (date-only `YYYY-MM-DD`) so the platform sets the subscription lifecycle state correctly.
+- **Soft-defer recurring billing while leaving status active** — shift `next_renewal_date` out by N days when the merchant explicitly wants the subscription to remain active rather than paused.
 - **Change renewal cadence** — update `interval` + `interval_count` (e.g., monthly → every 60 days).
-- **Cancel a cohort** — set `status: canceled` with a reason.
+- **Cancel a cohort** — call `subscriptionsCancelCreate` with a reason and notification preference.
 - **Correct a gateway migration** — update `payment_details.gateway` for subs on a decommissioned gateway.
 - **Fix bad shipping addresses** — bulk-patch `shipping_address` / `billing_address`.
 
@@ -104,6 +108,7 @@ Ask the user:
 >
 > Optional columns that may be used by some update modes:
 > - `Status` — current status (useful for filtering which rows apply)
+> - `Pause Until` — date-only `YYYY-MM-DD` value for per-row pause end dates
 > - `Next Renewal Date` — current renewal timestamp (used by the CSV-baseline mode of `shift_renewal_date`)
 
 Detect the subscription ID column case-insensitively. If the column can't be auto-detected, show the headers and ask the user to specify.
@@ -113,16 +118,23 @@ Report:
 
 ### Step 4: Update Mode
 
-Ask the user what to apply. Offer these common modes; any combination is valid (they can be sent in a single PATCH body):
+Ask the user what to apply. Offer these common modes:
 
-| Mode | Body field(s) | Notes |
-|------|--------------|-------|
-| **Shift renewal date** | `next_renewal_date` | Pick baseline: CSV value, live-API value, or today. Add days offset. |
-| **Set status** | `status` | Valid values: `active`, `past_due`, `canceled`, `retrying`, `paused`. See Gotchas for `paused`. |
-| **Change interval** | `interval`, `interval_count` | e.g., `{"interval": "month", "interval_count": 2}` |
-| **Update gateway** | `payment_details.gateway` (object `{id}`) | Used for bankcard migration off a retired gateway. |
-| **Replace address** | `shipping_address` / `billing_address` | Full address object — see API docs. |
-| **Other** | Any field accepted by `subscriptionsPartialUpdate` | Freeform JSON. |
+| Mode | Endpoint | Body field(s) | Notes |
+|------|----------|---------------|-------|
+| **Pause subscriptions** | `POST /subscriptions/{id}/pause/` | `pause_until` (optional) | Preferred for actual subscription pauses. If omitted, the subscription pauses indefinitely and is auto-cancelled if not resumed within 6 months. |
+| **Shift renewal date** | `PATCH /subscriptions/{id}/` | `next_renewal_date` | Pick baseline: CSV value, live-API value, or today. Add days offset. Keeps status unchanged. |
+| **Cancel subscriptions** | `POST /subscriptions/{id}/cancel/` | `cancel_reason`, `cancel_reason_other_message`, `send_cancel_notification` | Preferred for cancellations because it records cancellation semantics. |
+| **Change interval** | `PATCH /subscriptions/{id}/` | `interval`, `interval_count` | e.g., `{"interval": "month", "interval_count": 2}` |
+| **Update gateway** | `PATCH /subscriptions/{id}/` | `payment_details.gateway` (object `{id}`) | Used for bankcard migration off a retired gateway. |
+| **Replace address** | `PATCH /subscriptions/{id}/` | `shipping_address` / `billing_address` | Full address object — see API docs. |
+| **Other partial update** | `PATCH /subscriptions/{id}/` | Any field accepted by `subscriptionsPartialUpdate` | Freeform JSON. |
+
+**For the `pause` mode**, ask:
+
+> Should these subscriptions be paused indefinitely, paused until one shared date, or paused until a per-row `Pause Until` date from the file?
+>
+> If using a date, provide it as `YYYY-MM-DD`.
 
 **For the `shift_renewal_date` mode**, ask the baseline source:
 
@@ -131,7 +143,15 @@ Ask the user what to apply. Offer these common modes; any combination is valid (
 > - **(B) CSV value** — Parse the CSV's `Next Renewal Date` column, add N, PATCH. ~1 call per sub. Stale if CSV is old.
 > - **(C) Today + N** — Uniform renewal date = `today + N` for every sub. Loses per-sub timing.
 
-Confirm the final PATCH body template with the user before writing the script. Example:
+Confirm the final action template with the user before writing the script. Examples:
+
+> I'll POST each subscription to `/pause/` with:
+> ```json
+> {"pause_until": "2026-08-01"}
+> ```
+> Skipping {M} subscription IDs per your exclusion list. Ready?
+
+Or:
 
 > I'll PATCH each subscription with:
 > ```json
@@ -145,7 +165,32 @@ Confirm the final PATCH body template with the user before writing the script. E
 
 Generate a Python script at `{working_dir}/{subdomain}_bulk_subscription.py`.
 
-### The API Pattern
+### The API Patterns
+
+Pause action:
+
+```
+POST /api/admin/subscriptions/{id}/pause/
+Content-Type: application/json
+{
+  "pause_until": "2026-08-01"
+}
+```
+
+Use `{}` for an indefinite pause.
+
+Cancel action:
+
+```
+POST /api/admin/subscriptions/{id}/cancel/
+Content-Type: application/json
+{
+  "cancel_reason": "customer_request",
+  "send_cancel_notification": false
+}
+```
+
+Partial update:
 
 ```
 PATCH /api/admin/subscriptions/{id}/
@@ -156,17 +201,19 @@ Content-Type: application/json
 }
 ```
 
-Returns HTTP **200** with the full updated subscription object. The response echoes the canonical stored value — compare to what was sent to verify.
+All three patterns return HTTP **200** with the full updated subscription object.
+The response echoes the canonical stored value — compare to what was sent to
+verify.
 
 ### Script Requirements
 
-- **Rate limiting**: 4 requests/sec max. Sleep **0.26s** between subs (1 PATCH per sub). For baseline mode that GETs first, sleep 0.5s total across both calls.
+- **Rate limiting**: 4 requests/sec max. Sleep **0.26s** between subs (1 request per sub). For baseline mode that GETs first, sleep 0.5s total across both calls.
 - **Auth headers**: `Authorization: Bearer {api_key}` + `X-29next-API-Version: 2024-04-01`
-- **Dry-run mode**: `--dry-run` flag that computes the body but does not send the PATCH. Still reports one row per subscription.
+- **Dry-run mode**: `--dry-run` flag that computes the body but does not send the POST/PATCH. Still reports one row per subscription.
 - **Limit flag**: `--limit N` to process only the first N rows (for testing).
 - **Skip list**: Hard-code or pass a set of `SKIP_IDS` (e.g., a test record already updated, or records known to be in a non-normal state).
 - **Output**: Write results to `{subdomain}_bulk_subscription_results.csv` with columns:
-  `subscription_id, status, detail`
+  `subscription_id, operation, status, detail, request_body`
 - **Status values**: `OK`, `DRY_RUN`, `SKIPPED`, `PARSE_ERROR`, `HTTP_<code>`, `EXC`
 - **Use `python3 -u`** for unbuffered output (live progress).
 - **Only stdlib + requests** (no pandas, no openpyxl — for XLSX support, convert upstream).
@@ -177,13 +224,15 @@ The API returns ISO 8601 timestamps with the store's timezone offset (e.g., `202
 
 - **If using live-API baseline**: parse the returned timestamp, add offset, format with `datetime.isoformat()`. Preserves tz.
 - **If using CSV baseline**: CSV typically loses tz (format: `2026-07-03 10:09 AM`). Assume the store's offset (observe it from a single GET at the start of the run) and apply it consistently. Do NOT assume UTC — the platform evaluates renewals in store-local time.
+- **For `pause_until`**: send a date-only `YYYY-MM-DD` value. Do not send a timestamp.
 
 ### Gotchas (encode these in the script)
 
-- **`status: paused` via API is currently broken** on the platform side. Even though the API returns 200 and the subscription shows `status: paused`, the underlying record can be corrupted. Until the platform team ships official pause support, achieve "stop recurring billing" by **shifting `next_renewal_date` out by N days** (45 days is the established default for a typical pause). Leave `status` as-is.
+- **Do not pause by PATCHing `status: paused`**. Use the official `subscriptionsPauseCreate` endpoint instead. The pause endpoint sets lifecycle fields (`status`, `paused_at`, `paused_until`) and applies platform pause semantics; a raw status patch does not.
+- **Indefinite pauses auto-cancel after 6 months if not resumed**. Confirm the merchant understands this before sending `{}` to `/pause/`.
 - **Empty / far-future `next_renewal_date`**: Some subscriptions have dates in the year 3966 (effectively already paused). The CSV may render this as an empty cell. Treat blank `Next Renewal Date` as "already paused — skip."
-- **Full entity response**: PATCH returns the full subscription object (~3–8 KB per call). If processing thousands of subs, write responses to disk rather than holding in memory.
-- **`HTTP 200 not 201`** — PATCH returns 200 on success. Don't treat 200 as an error.
+- **Full entity response**: POST/PATCH returns the full subscription object (~3–8 KB per call). If processing thousands of subs, write responses to disk rather than holding in memory.
+- **`HTTP 200 not 201`** — subscription action and update endpoints return 200 on success. Don't treat 200 as an error.
 - **Rate limit = 4 req/s**. At 0.26s sleep you're at ~3.8 req/s — safely under. For GET+PATCH baseline mode, use 0.5s.
 
 ### Execution Flow
@@ -198,7 +247,7 @@ Report counts by status (OK-candidate / SKIPPED / PARSE_ERROR) and show any pars
 **2b. Confirm and run live:**
 
 Ask the user:
-> Dry run: {OK_candidates} subs ready to PATCH, {skipped} skipped, {errors} errors. Proceed with live PATCH?
+> Dry run: {OK_candidates} subs ready for {operation}, {skipped} skipped, {errors} errors. Proceed with live run?
 > - A) Yes
 > - B) No, let me review the dry-run output first
 > - C) Limit to first N for a smaller test
@@ -214,19 +263,21 @@ python3 -u {subdomain}_bulk_subscription.py
 
 ### Spot-Check Verification
 
-After the live run, pick 1-3 random subscription IDs that reported `OK` and re-GET them to confirm the field took effect. The PATCH response can be trusted in principle, but a live GET catches any downstream state issues.
+After the live run, pick 1-3 random subscription IDs that reported `OK` and
+re-GET them to confirm the action/field took effect. The POST/PATCH response can
+be trusted in principle, but a live GET catches any downstream state issues.
 
 ```bash
 curl -s -H "Authorization: Bearer {api_key}" \
   -H "X-29next-API-Version: 2024-04-01" \
   "https://{subdomain}.29next.store/api/admin/subscriptions/{id}/" \
-  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['status'], d['next_renewal_date'])"
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status'), d.get('paused_until'), d.get('next_renewal_date'))"
 ```
 
 ### Report Results
 
-> **Bulk subscription update complete:**
-> - **OK**: {N} patched successfully
+> **Bulk subscription action complete:**
+> - **OK**: {N} completed successfully
 > - **SKIPPED**: {N} (excluded / already in target state)
 > - **PARSE_ERROR**: {N} (bad source data — listed below)
 > - **HTTP errors**: {N} (non-2xx responses)
@@ -251,12 +302,15 @@ Offer to keep or delete the generated script:
 | List subscriptions | GET | `/api/admin/subscriptions/` | `subscriptions:read` |
 | Get subscription | GET | `/api/admin/subscriptions/{id}/` | `subscriptions:read` |
 | Partial update | PATCH | `/api/admin/subscriptions/{id}/` | `subscriptions:write` |
+| Pause subscription | POST | `/api/admin/subscriptions/{id}/pause/` | `subscriptions:write` |
+| Resume subscription | POST | `/api/admin/subscriptions/{id}/resume/` | `subscriptions:write` |
+| Cancel subscription | POST | `/api/admin/subscriptions/{id}/cancel/` | `subscriptions:write` |
 | Trigger renewal | POST | `/api/admin/subscriptions/{id}/renew/` | `subscriptions:write` |
 | Trigger retry | POST | `/api/admin/subscriptions/{id}/retry/` | `subscriptions:write` |
 
 **API version**: `2024-04-01`
 
-**Docs**: [Subscription Management Guide](https://developers.nextcommerce.com/docs/admin-api/guides/subscription-management) · [subscriptionsPartialUpdate reference](https://developers.nextcommerce.com/docs/admin-api/reference/subscriptions/subscriptionsPartialUpdate)
+**Docs**: [Subscription Management Guide](https://developers.nextcommerce.com/docs/admin-api/guides/subscription-management) · [subscriptionsPauseCreate reference](https://developers.nextcommerce.com/docs/admin-api/reference/subscriptions/subscriptionsPauseCreate) · [subscriptionsPartialUpdate reference](https://developers.nextcommerce.com/docs/admin-api/reference/subscriptions/subscriptionsPartialUpdate)
 
 ---
 
@@ -264,11 +318,18 @@ Offer to keep or delete the generated script:
 
 `active`, `past_due`, `canceled`, `retrying`, `paused`
 
-**`paused` caveat**: see Gotchas — avoid until platform support lands. Use renewal-date shift instead.
+**Pause caveat**: `paused` is a valid subscription status, but bulk pause scripts
+must call `POST /subscriptions/{id}/pause/` instead of PATCHing the status field.
 
-## Example PATCH Bodies
+## Example Request Bodies
 
 ```json
+// Pause until a specific date
+{"pause_until": "2026-08-01"}
+
+// Pause indefinitely
+{}
+
 // Shift next renewal by 45 days (typical "soft pause")
 {"next_renewal_date": "2026-08-17T10:09:01-04:00"}
 
@@ -276,7 +337,7 @@ Offer to keep or delete the generated script:
 {"interval": "month", "interval_count": 2}
 
 // Cancel with reason
-{"status": "canceled", "cancel_reason": "customer_request"}
+{"cancel_reason": "customer_request", "send_cancel_notification": false}
 
 // Move to a new gateway
 {"payment_details": {"gateway": {"id": 42}}}
