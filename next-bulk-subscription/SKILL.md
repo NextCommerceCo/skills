@@ -11,11 +11,11 @@ description: |
   Walks through store identification, API key validation, CSV ingestion, update
   mode selection, dry-run validation, live execution, and results reporting.
 
-  Use when: "bulk pause subscriptions", "pause subscriptions until a date", "bulk
-  cancel subscriptions", "shift renewal dates", "move renewals out by N days",
-  "bulk update subscription interval", "bulk subscription edit", or when a
-  merchant provides a list of subscription IDs that need the same subscription
-  action or partial update applied.
+  Use when: "bulk pause subscriptions", "pause subscriptions indefinitely",
+  "pause subscriptions until a date", "bulk cancel subscriptions", "shift renewal
+  dates", "move renewals out by N days", "bulk update subscription interval",
+  "bulk subscription edit", or when a merchant provides a list of subscription IDs
+  that need the same subscription action or partial update applied.
 allowed-tools:
   - Bash
   - Read
@@ -273,6 +273,12 @@ curl -s -H "Authorization: Bearer {api_key}" \
   "https://{subdomain}.29next.store/api/admin/subscriptions/{id}/" \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status'), d.get('paused_until'), d.get('next_renewal_date'))"
 ```
+
+For pause runs, verify:
+- `status` is `paused`
+- `paused_at` is populated
+- `paused_until` is the selected date, or `null` for indefinite pauses
+- `next_renewal_date` may remain unchanged; do not treat that as a pause failure
 
 ### Report Results
 
