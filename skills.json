@@ -97,10 +97,32 @@
     {
       "id": "next-campaigns-setup",
       "name": "New Campaign Setup",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "path": "next-campaigns-setup/SKILL.md",
       "domain": "campaigns",
       "description": "End-to-end setup for a new CPK campaign — scaffolds the project, copies a starter template, seeds campaigns.json, downloads CLAUDE.md, then wires up config.js and campaigns.json with API key, store details, and analytics in one pass.",
+      "canonical_context": {
+        "role": "Public catalog entry for CPK setup only",
+        "campaigns_os_source": "https://github.com/NextCommerceCo/campaigns-os",
+        "internal_orchestration_source": "NextCommerceCo/next-campaigns-ops"
+      },
+      "related_skills": [
+        {
+          "id": "next-campaigns-os",
+          "source": "https://github.com/NextCommerceCo/campaigns-os",
+          "relationship": "Canonical public Campaigns OS lifecycle skill"
+        },
+        {
+          "id": "next-campaigns-build",
+          "source": "https://github.com/NextCommerceCo/campaigns-os",
+          "relationship": "Canonical public Campaigns OS build skill"
+        },
+        {
+          "id": "next-campaigns-qa",
+          "source": "https://github.com/NextCommerceCo/campaigns-os",
+          "relationship": "Canonical public Campaigns OS QA skill"
+        }
+      ],
       "triggers": [
         "new CPK campaign",
         "set up a campaign",

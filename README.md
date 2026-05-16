@@ -14,6 +14,12 @@ Pre-built skills that give AI coding agents deep knowledge of the Next Commerce 
 | [**Bulk Subscription Actions**](next-bulk-subscription/) | Pause, cancel, or PATCH subscription fields for a list of subscription IDs | Merchant wants to bulk-pause until a date, bulk-shift renewals, bulk-cancel, or migrate subscriptions between gateways |
 | [**New Campaign Setup**](next-campaigns-setup/) | Scaffold and fully configure a new CPK campaign — brand init, starter template, campaigns.json seed, API key, store details, and analytics in one pass | Starting a new CPK campaign for a brand |
 
+### Campaigns OS Skill Boundary
+
+This repo is the public Next Commerce skill catalog. It hosts `next-campaigns-setup`, which covers CPK repo bootstrap and first configuration.
+
+The canonical Campaigns OS lifecycle/build/QA skills live with the public [`campaigns-os`](https://github.com/NextCommerceCo/campaigns-os) package. Internal Sellmore orchestration addenda live in `next-campaigns-ops` and should wrap the public Campaigns OS contract instead of redefining CampaignSpec, Build Packet, doctor, Assembly Report, or QA semantics.
+
 ## Quick Start
 
 ### Ask Your AI Tool to Install
