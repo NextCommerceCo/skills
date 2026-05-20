@@ -7,11 +7,13 @@
     {
       "id": "next-theme-dev",
       "name": "Theme Development",
-      "version": "1.0.0",
+      "version": "1.2.0",
       "path": "next-theme-dev/SKILL.md",
       "domain": "storefronts",
-      "description": "Build, modify, and debug Next Commerce storefront themes using Django Template Language, ntk CLI, and Tailwind CSS.",
+      "description": "Build, modify, and debug Next Commerce storefront themes, including Spark, Intro Bootstrap, Theme Settings, ntk CLI, DTL templates, and storefront GraphQL.",
       "triggers": [
+        "Spark theme",
+        "Intro Bootstrap",
         "theme development",
         "ntk",
         "storefront customization",

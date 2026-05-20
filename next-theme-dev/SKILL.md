@@ -1,15 +1,13 @@
 ---
 name: next-theme-dev
-version: 1.1.0
+version: 1.2.0
 description: |
-  Next Commerce theme development — build, modify, and debug storefront themes
-  using Django Template Language, ntk CLI, and the Next Commerce platform.
-  Use this skill when working in a Next Commerce theme directory (look for
-  manifest.json, config.yml, or the standard theme directory structure with
-  assets/, configs/, layouts/, templates/, partials/). Also trigger when the
-  user mentions ntk, theme templates, storefront customization, or Next Commerce
-  themes. Proactively suggest when you detect DTL template files (.html with
-  {% extends %}, {% block %}, {% include %}) alongside a configs/ directory.
+  Next Commerce theme development for Spark, Intro Bootstrap, and custom
+  storefront themes. Use when building, modifying, or debugging themes with
+  Django Template Language, Theme Settings, ntk CLI, storefront GraphQL,
+  Tailwind/Spark Web Components, or Intro Bootstrap/SCSS patterns. Trigger
+  when working in a theme directory with manifest.json, config.yml, or standard
+  directories such as assets/, configs/, layouts/, templates/, and partials/.
 allowed-tools:
   - Bash
   - Read
@@ -74,7 +72,7 @@ Every Next Commerce theme follows this structure:
 ```
 theme/
 ├── assets/          # CSS, JS, images, fonts (served via CDN)
-├── checkout/        # Checkout template overrides
+├── checkout/        # Optional/legacy checkout overrides if the theme uses them
 ├── configs/
 │   ├── settings_schema.json   # Theme editor field definitions
 │   └── settings_data.json     # Stored setting values
@@ -85,6 +83,20 @@ theme/
 ├── sass/ or css/    # Source stylesheets (sass/ for SCSS, css/ for Tailwind)
 └── templates/       # Page templates (index.html, catalogue/, blog/, etc.)
 ```
+
+Spark does not ship checkout templates. Checkout is platform-managed, and Spark owns the storefront cart plus the handoff to `/checkout/`.
+
+### Identify the Theme Family First
+
+Do this before copying patterns between reference themes:
+
+| Theme family | Markers | Use these patterns |
+|--------------|---------|--------------------|
+| **Spark** | `css/input.css`, committed `assets/main.css`, `scripts/sass-compat.py`, `assets/js/spark-cart.js`, `assets/js/components/spark-*`, `DESIGN.md` | Tailwind v4 standalone CLI, vanilla JS/Web Components, GraphQL-first side cart, fixed-order homepage section partials, app hooks |
+| **Intro Bootstrap** | `sass/main.scss`, Bootstrap classes, `assets/js/cart.js`, `assets/js/side_cart.js`, jQuery before `{% core_js %}` | Bootstrap 5, SCSS, platform side cart scripts, jQuery/core_js integration |
+| **Custom theme** | Mixed or merchant-specific structure | Preserve the local stack. Inspect README/CLAUDE/DESIGN docs before adding tools or renaming conventions |
+
+Intro Bootstrap is a strong reference for DTL patterns, template contexts, URL names, and older storefront conventions. Spark is the modern starter direction: zero jQuery, zero Bootstrap, Tailwind CSS v4, GraphQL-first cart components, named homepage section partials, and public app-hook surfaces. Do not port stack-specific implementation details across themes unless the current theme already uses that stack.
 
 ### Template Language
 
@@ -109,26 +121,27 @@ Theme settings let merchants customize their store without code:
 - **5+ settings = own top-level section** — don't bury 14 cart settings inside a generic "Advanced" group
 - **Use merchant-friendly labels** — "Suggested Products" not "Upsells", "Cart Title" not "cart_header_title"
 - **Keep dev-only values out of the schema** — implementation details (e.g., `upsell_fallback_slots`) belong in `settings_data.json` defaults, not in the editor UI
-- **Currency thresholds:** Ship USD-only thresholds initially. Use DTL `{% if %}`/`{% elif %}` branches on `request.CURRENCY_CODE` to select the right settings per currency. Developers can extend by adding `eur_goal_1`, `gbp_goal_1`, etc.
+- **Reward thresholds:** Core Spark ships one default threshold pair (`usd_goal_1`, `usd_goal_2`) with merchant-facing labels like "Free Shipping Threshold" and "Free Gift Threshold." Do not add hard-coded currency fields to a public starter unless the merchant specifically needs them. Theme developers can extend `partials/block_cart_progress_wrapper.html` and `settings_schema.json` for store-specific currency rules.
+- **Geo/currency runtime data:** Templates can read active `currencies`, `storefront_geos`, `geo`, and `request.CURRENCY_CODE`, but `settings_schema.json` is static editor configuration. Do not assume Theme Settings can automatically generate fields from the store's configured markets.
 - **Group ordering gotcha:** Display order is determined by first-seen in `settings_schema.json`, not JSON key order. Renaming a group key makes it appear last in the editor
 
 ---
 
 ## Reference Documentation
 
-For detailed reference on template tags, objects, filters, and settings types, read these files from the developer-docs repository. These are the source of truth — always consult them before writing template code.
+For detailed reference on template tags, objects, filters, and settings types, use the public developer docs first. These are the source of truth — consult them before writing template code.
 
-| Topic | File Path |
+| Topic | Public docs |
 |-------|-----------|
-| Template tags | `developer-docs/content/docs/storefront/themes/templates/tags.mdx` |
-| Template filters | `developer-docs/content/docs/storefront/themes/templates/filters.md` |
-| Template objects | `developer-docs/content/docs/storefront/themes/templates/objects.mdx` |
-| URLs & template paths | `developer-docs/content/docs/storefront/themes/templates/urls-and-template-paths.mdx` |
-| Settings field types | `developer-docs/content/docs/storefront/themes/settings.mdx` |
-| Translations / i18n | `developer-docs/content/docs/storefront/themes/translations.mdx` |
-| Storefront GraphQL API | `developer-docs/content/docs/storefront/graphql/index.mdx` |
+| Template tags | `https://developers.nextcommerce.com/docs/storefront/themes/templates/tags` |
+| Template filters | `https://developers.nextcommerce.com/docs/storefront/themes/templates/filters` |
+| Template objects | `https://developers.nextcommerce.com/docs/storefront/themes/templates/objects` |
+| URLs & template paths | `https://developers.nextcommerce.com/docs/storefront/themes/templates/urls-and-template-paths` |
+| Settings field types | `https://developers.nextcommerce.com/docs/storefront/themes/settings` |
+| Translations / i18n | `https://developers.nextcommerce.com/docs/storefront/themes/translations` |
+| Storefront GraphQL API | `https://developers.nextcommerce.com/docs/storefront/graphql` |
 
-The developer-docs repo is typically at `/Users/devin/Developer/developer-docs/`. If it's not there, search for it or ask the user.
+If a local `developer-docs` checkout is available, it is useful for source-level docs changes and exact MDX references. Public merchant guidance should still point to `developers.nextcommerce.com`, not local absolute paths.
 
 When you need to know what variables a template has access to, the objects reference includes a **Template Contexts** table that maps every template path to its available view-specific variables, plus a **Dashboard Cross-Reference** showing where variable data is configured in the admin.
 
@@ -215,13 +228,15 @@ ntk push assets/main.css configs/settings_schema.json
 ntk push
 ```
 
-### jQuery Before core_js
+### jQuery Before core_js (Intro Bootstrap / jQuery Themes)
 
-The platform's `{% core_js %}` tag depends on jQuery. If your theme uses jQuery, load it before `{% core_js %}` in the base layout:
+Intro Bootstrap and other jQuery themes must load jQuery before the platform's `{% core_js %}` tag:
 ```django
 <script src="{{ 'jquery.min.js'|asset_url }}"></script>
 {% core_js %}
 ```
+
+Spark does not use jQuery or `{% core_js %}`. It uses `assets/js/spark-platform.js` plus Spark Web Components instead.
 
 ### CDN Caching
 
@@ -252,6 +267,7 @@ When building or modifying theme UI, enforce these rules to avoid generic "AI-ge
 - No decorative gradient blobs or abstract shapes
 - No emoji in UI elements
 - Default `text-sm` (14px) feels too small for marketing storefronts — prefer `text-base` (16px) for body copy
+- In Spark, follow the theme's own `DESIGN.md`: sharp, minimal commerce UI; no Bootstrap imports, jQuery patterns, or app-dashboard design tokens
 
 ### Text Sizing
 
@@ -267,11 +283,15 @@ Hard-won lessons from building Spark. These will silently break things if you do
 |--------|---------|
 | **Product picker returns parent PK** | `settings.gift_product` gives the parent product PK. For cart operations (addCartLines), use `.children.first.pk` to get the variant ID |
 | **Settings group ordering** | Group display order = first-seen in `settings_schema.json`, not JSON key order. Renaming a group makes it appear last |
+| **Settings schema shape** | `settings_schema.json` is top-level section -> group -> array of setting objects. Do not use ad hoc object maps for new public examples |
+| **Spark vs Intro stack mismatch** | Spark is Tailwind + vanilla Web Components. Intro Bootstrap is Bootstrap/SCSS + jQuery/core_js. Preserve the current theme's stack |
+| **Spark reward thresholds** | Spark core exposes one default reward threshold pair. Currency-specific reward rules belong in a theme-developer extension, not hard-coded starter settings |
 | **manifest.json can't be pushed** | ntk excludes `manifest.json` from push/watch. Version is set at `ntk init` only |
 | **Shadow DOM ≠ slotted styles** | Shadow DOM styles don't apply to slotted (light DOM) content. Fix: inject a `<style>` tag into `document.head` with a guard flag to prevent duplicates |
 | **connectedCallback fires early** | `connectedCallback` fires before child elements are parsed. Use a lazy `_ensureRefs()` pattern called from methods that need refs, plus `requestAnimationFrame` for initial updates |
 | **Concurrent mutation guard** | Cart mutations must use an `_isMutating` flag to prevent race conditions from rapid clicks (e.g., quantity +/+ before first response returns) |
 | **sass-compat is required** | Every Tailwind build must run through `sass-compat.py`. Platform SCSS compiler rejects: `oklch()`, `color-mix()`, `@layer`, `@property`, `:is()`/`:where()`, logical properties, media range syntax |
+| **Spark app hooks are extension surfaces** | Use existing `{% app_hook %}` slots before forking Spark templates for app integrations |
 | **Preview URL** | `https://{store}/?preview_theme={theme_id}` — useful for testing unpublished theme changes |
 | **ntk accepted directories** | Only these are recognized: assets, checkout, configs, layouts, partials, templates, locales, sass. Files outside these are silently ignored |
 | **Build artifacts must be committed** | The platform doesn't compile CSS/JS server-side and doesn't preserve binaries on push. Compiled `assets/main.css` (Tailwind) or compiled CSS (build-time SCSS) must be checked in or the theme is unstyled on install. Gitignore the toolchain (binaries, `node_modules/`), commit the artifact |
@@ -286,7 +306,7 @@ Some theme features require **both** theme settings AND dashboard configuration 
 |---------|-----------|----------------|
 | Free shipping progress bar | Settings: threshold amount, progress messages, bar UI | Requires: Conditional free shipping Offer matching the threshold |
 | Free gift auto-add | Settings: gift product picker, threshold, auto-add JS | Requires: Conditional discount Offer that makes the gift $0 |
-| Upsell products | Settings: product pickers, display logic | No Offer needed (products added at full price) |
+| Suggested products | Settings: product pickers, display logic | No Offer needed (products added at full price) |
 | Discount codes | Coupon input UI in cart | Requires: Discount code created in Dashboard |
 
 **Without the matching Offer, the theme UI will promise something it can't deliver** — e.g., the progress bar says "Free shipping at $50!" but checkout still charges shipping.
@@ -308,7 +328,7 @@ Accept any of: Figma link, screenshot, PDF, or verbal description. Extract:
 - **Component inventory** — header, footer, hero, product cards, CTAs, nav, cart drawer
 - **Static vs dynamic split** — which elements show the same content for all visitors (DTL) vs per-user content (GraphQL)
 
-If a `DESIGN.md` exists in the project, it is the **source of truth** for all visual decisions. Read it before making any UI choices.
+Identify the theme family before implementation. Spark designs should map to Tailwind tokens, Web Components, homepage section partials, and app hooks. Intro Bootstrap designs should map to Bootstrap/SCSS and the existing jQuery/platform side cart where present. If a `DESIGN.md` exists in the project, it is the **source of truth** for all visual decisions. Read it before making UI choices.
 
 ### Step 2: Asset Preparation
 
@@ -342,12 +362,13 @@ Build order:
 
 ### Step 5: Styling
 
-- Configure Tailwind with design tokens (colors, fonts, spacing)
+- Spark/Tailwind themes: configure tokens in `css/input.css`, compile to committed `assets/main.css`, and run `scripts/sass-compat.py`
+- Intro Bootstrap/SCSS themes: use the existing `sass/` entrypoint and Bootstrap variable/utility patterns
 - Wire CSS custom properties from theme settings in `layouts/base.html`:
   ```django
   <style>:root { --primary: {{ settings.primary_color|default:"#1E293B" }}; }</style>
   ```
-- **Run sass-compat.py before every push** (required — platform rejects modern CSS)
+- For Tailwind output, **run sass-compat.py before every push** (required — platform rejects modern CSS)
 - Test responsive breakpoints: mobile (375px), tablet (768px), desktop (1280px+)
 
 ### Step 6: Client-Side Features
@@ -376,8 +397,12 @@ For per-user content (cart, auth, wishlists):
 ```json
 {
   "Theme Styles": {
-    "primary_color": { "type": "color", "label": "Primary Color", "default": "#1E293B" },
-    "body_font": { "type": "text", "label": "Body Font Family", "default": "system-ui, sans-serif" }
+    "Colors": [
+      { "name": "primary_color", "type": "color", "label": "Primary Color", "default": "#1E293B" }
+    ],
+    "Typography": [
+      { "name": "body_font", "type": "text", "label": "Body Font Family", "default": "system-ui, sans-serif" }
+    ]
   }
 }
 ```
@@ -438,7 +463,9 @@ Navigation menus are managed in Dashboard > Storefront > Navigation. The theme a
 ```json
 {
   "Navigation": {
-    "main_menu": { "type": "menu", "label": "Main Navigation", "default": "main_menu" }
+    "Menus": [
+      { "name": "main_menu", "type": "menu", "label": "Main Navigation", "default": "main_menu" }
+    ]
   }
 }
 ```
@@ -506,56 +533,57 @@ fetch('/api/graphql/', {
 })
 ```
 
-Read the GraphQL reference in developer-docs for the full schema, all available queries/mutations, and example payloads.
+Read the public GraphQL reference for the full schema, all available queries/mutations, and example payloads.
 
 ### Side Cart Customization
 
-Side carts (cart drawers) are one of the most common theme customization requests. They combine server-rendered product data with client-side GraphQL for cart operations. The architecture uses a hybrid approach: DTL templates render the initial shell and product details (cache-safe), while JavaScript Web Components handle all cart mutations and live updates.
+Side carts are one of the most common theme customization requests. Start by identifying the theme family.
 
-**Architecture pattern:**
+**Intro Bootstrap / platform side cart pattern:**
+- Preserve `partials/side_cart.html`, `assets/js/cart.js`, and `assets/js/side_cart.js` unless intentionally replacing the cart stack.
+- Keep jQuery before `{% core_js %}` in `layouts/base.html`.
+- Style with Bootstrap 5 and existing SCSS partials.
+- Use DTL for the static shell and translations, and the existing JS for cart mutations.
 
-1. **GraphQL API layer** — A single JS file (`assets/js/cart-drawer.js`) containing:
-   - `graphqlFetch()` helper with CSRF authentication
-   - Shared `CART_FIELDS` fragment (all fields needed across queries/mutations)
-   - All cart mutations: `createCart`, `addCartLines`, `updateCartLines`, `removeCartLines`
-   - Cart ID management via `sessionStorage` + cookie fallback
+**Spark side cart pattern:**
+- Use `assets/js/spark-cart.js` as the GraphQL cart client.
+- Use `assets/js/spark-platform.js` instead of `{% core_js %}`.
+- Use these Web Components: `<spark-cart-drawer>`, `<spark-progress-bar>`, `<spark-upsell-item>`, `<spark-add-to-cart>`, `<spark-quantity>`.
+- Keep the shell in `partials/side_cart.html`; keep progress and suggested-product fragments in `partials/block_cart_progress_wrapper.html`, `partials/block_cart_progress_bar.html`, `partials/block_cart_upsell.html`, and `partials/block_cart_upsell_item.html`.
+- Treat `partials/block_cart_progress_wrapper.html` as the extension point for merchant-specific reward threshold logic.
 
-2. **Web Components** — Custom elements that encapsulate cart UI behavior:
-   - `<cart-drawer>` — Main container, manages open/close state, orchestrates cart operations
-   - `<cart-item>` — Individual line item with quantity controls and remove action
-   - `<upsell-item>` — Upsell product row with variant selector and add button
-   - `<custom-progress-bar>` — Multi-step incentive bar (e.g., free shipping → free gift)
-
-3. **Server-rendered shell** — DTL partial (`partials/side_cart.html`) renders:
-   - Initial cart state via `data-*` attributes on Web Components
-   - Product images/titles/prices using `purchase_info_for_product` (cache-safe)
-   - Theme settings for all configurable text, thresholds, and product pickers
-   - Progress bar initial state with currency-specific thresholds
-
-4. **Theme Settings** — Full merchant control via `configs/settings_schema.json`:
+**Spark Theme Settings shape:**
 
 ```json
 {
   "Side Cart": {
-    "cart_header_title": { "type": "text", "label": "Cart Title", "default": "Your Cart" },
-    "enable_progress_bar": { "type": "checkbox", "label": "Enable Progress Bar", "default": true },
-    "enable_upsells": { "type": "checkbox", "label": "Enable Upsells", "default": true },
-    "upsell_section_title": { "type": "text", "label": "Upsell Section Title", "default": "Often Bought Together" },
-    "upsell_product_1": { "type": "product", "label": "Upsell Product 1" },
-    "upsell_product_2": { "type": "product", "label": "Upsell Product 2" },
-    "gift_product": { "type": "product", "label": "Free Gift Product" },
-    "usd_goal_1": { "type": "number", "label": "Free Shipping Threshold (USD)", "default": 50 },
-    "usd_goal_2": { "type": "number", "label": "Free Gift Threshold (USD)", "default": 70 },
-    "step_1_message": { "type": "text", "label": "Shipping Message", "default": "You are {amount} away from FREE shipping" },
-    "step_2_message": { "type": "text", "label": "Gift Message", "default": "You are {amount} away from a FREE gift!" },
-    "cart_pay_icons": { "type": "select", "multi-select": true, "label": "Payment Icons", "options": ["visa","mc","ppal","amex"] }
+    "General": [
+      { "name": "cart_header_title", "type": "text", "label": "Cart Title", "default": "Your Cart" },
+      { "name": "sidecart_open_on_add", "type": "checkbox", "label": "Open Cart After Add", "default": true }
+    ],
+    "Rewards Progress": [
+      { "name": "enable_progress_bar", "type": "checkbox", "label": "Enable Progress Bar", "default": true },
+      { "name": "usd_goal_1", "type": "number", "label": "Free Shipping Threshold", "default": 50 },
+      { "name": "usd_goal_2", "type": "number", "label": "Free Gift Threshold", "default": 100 },
+      { "name": "gift_product", "type": "product", "label": "Free Gift Product" },
+      { "name": "step_1_message", "type": "text", "label": "Shipping Message", "default": "You are {amount} away from FREE shipping" },
+      { "name": "step_2_message", "type": "text", "label": "Gift Message", "default": "You are {amount} away from a FREE gift!" },
+      { "name": "final_step_message", "type": "text", "label": "Complete Message", "default": "You unlocked free shipping and a free gift!" }
+    ],
+    "Suggested Products": [
+      { "name": "enable_upsells", "type": "checkbox", "label": "Enable Suggested Products", "default": true },
+      { "name": "upsell_section_title", "type": "text", "label": "Section Title", "default": "You may also like" },
+      { "name": "upsell_product_1", "type": "product", "label": "Product 1" },
+      { "name": "upsell_product_2", "type": "product", "label": "Product 2" },
+      { "name": "upsell_product_3", "type": "product", "label": "Product 3" }
+    ]
   }
 }
 ```
 
 **Key implementation patterns:**
 
-- **Event bus**: Cart components communicate via custom events on `document`: `spark:cart:updated` (after any mutation), `spark:cart:added` (item added), `spark:cart:toggle` (open/close drawer). Other components listen on `document` for these events — no direct component coupling.
+- **Event bus**: Spark cart components communicate via custom events on `document`: `spark:cart:updated` (after any mutation), `spark:cart:added` (item added), `spark:cart:toggle` (open/close drawer). Other components listen on `document` for these events — no direct component coupling.
 
 - **Cart persistence**: Cart ID stored in both `sessionStorage` (fast access) and a 30-day cookie (cross-tab persistence). On page load, check `sessionStorage` first, fall back to cookie. Always sync both after cart creation.
 
@@ -565,9 +593,9 @@ Side carts (cart drawers) are one of the most common theme customization request
 
 - **Product picker PK gotcha**: `settings.gift_product` returns the parent product PK. For cart operations (`addCartLines`), use `.children.first.pk` to get the actual variant ID.
 
-- **Progress bar currency handling**: Thresholds vary by currency. Server-renders the correct threshold set using `request.CURRENCY_CODE` to select settings (e.g., `settings.usd_goal_1` vs `settings.eur_goal_1`). The `<custom-progress-bar>` element receives thresholds via `data-*` attributes and JS updates the fill/messages on cart change.
+- **Reward thresholds**: Core Spark uses one default threshold pair (`usd_goal_1`, `usd_goal_2`). Do not expose hard-coded multi-currency fields in the starter. If a merchant needs store-specific currency logic, extend the wrapper partial and schema deliberately.
 
-- **Upsell slot visibility**: Products have metadata (`cart_upsell_slots`) defining which upsell slots to show. When the cart changes, JS checks each cart product's metadata and shows/hides upsell rows accordingly. Products already in the cart have their upsell slots hidden.
+- **Suggested product visibility**: Products may have metadata defining which suggested-product slots to show. When the cart changes, JS checks each cart product's metadata and hides products already in the cart.
 
 - **Free gift auto-add/remove**: When cart total crosses the gift threshold, JS automatically adds the gift product via `addCartLines` with `isUpsell: true`. When it drops below, JS removes the gift line. The gift product is configured via a `product` type theme setting. **Note:** This only adds the product to cart — making it actually free requires a matching Offer in the dashboard (see Dashboard-Theme Bridge section).
 
@@ -581,12 +609,17 @@ Side carts (cart drawers) are one of the most common theme customization request
 
 | File | Purpose |
 |------|---------|
-| `assets/js/cart-drawer.js` | GraphQL API layer + Web Component definitions |
-| `partials/side_cart.html` | Main cart drawer partial (included in `layouts/base.html`) |
+| `assets/js/spark-cart.js` | Spark GraphQL cart client |
+| `assets/js/components/spark-cart-drawer.js` | Spark cart drawer Web Component |
+| `assets/js/components/spark-progress-bar.js` | Spark reward progress Web Component |
+| `assets/js/components/spark-upsell-item.js` | Spark suggested-product Web Component |
+| `partials/side_cart.html` | Main cart drawer shell (included in `layouts/base.html`) |
 | `partials/block_cart_progress_bar.html` | Progress bar with step indicators |
-| `partials/block_cart_upsell.html` | Individual upsell product row |
+| `partials/block_cart_progress_wrapper.html` | Default threshold selector and extension point |
+| `partials/block_cart_upsell.html` | Suggested product section |
+| `partials/block_cart_upsell_item.html` | Individual suggested product row |
 | `configs/settings_schema.json` | Add Side Cart settings section |
-| `sass/components/_sidecart.scss` or `css/sidecart.css` | Side cart styling |
+| `css/input.css` or `sass/components/_sidecart.scss` | Side cart styling, depending on theme stack |
 
 **Important constraints:**
 - No non-ASCII characters in JS files (platform processes through DTL engine)
@@ -609,9 +642,18 @@ ntk watch handles Sass compilation automatically — `.scss` files in `sass/` ar
 
 ### Tailwind Themes
 
-Two valid setups for the Tailwind v4 toolchain. The standalone CLI is preferred for new themes — no Node dependency, single binary, simpler onboarding.
+Spark uses the Tailwind v4 standalone CLI with no Node dependency. In Spark, prefer the project commands:
 
-**Option A: Standalone CLI (preferred — no Node required).** Download the platform-specific binary from `tailwindlabs/tailwindcss` releases, gitignore it, and orchestrate via `Makefile`:
+```bash
+make install-tailwind   # One-time local binary install
+ntk watch               # Watch templates/CSS, compile Tailwind, run sass-compat, push
+ntk tailwind            # One-shot Tailwind compile + sass-compat + CSS push
+make release            # Compile, run sass-compat, and stage assets/main.css
+```
+
+For custom Tailwind themes, use one of these setups:
+
+**Standalone CLI (preferred when starting fresh).** Download the platform-specific binary from `tailwindlabs/tailwindcss` releases, gitignore it, and orchestrate via `Makefile`:
 
 ```makefile
 TAILWIND = ./tailwindcss
@@ -631,7 +673,7 @@ release: css
 
 Add an `install-tailwind` Make target that detects the dev's OS/arch and curls the right release binary. The binary stays gitignored (76MB, platform-specific) but `assets/main.css` is **committed** (see "Compiled CSS Must Be Committed" critical warning).
 
-**Option B: npm-based (when the theme already has a Node toolchain).** Orchestrate via `package.json`:
+**npm-based (only when the theme already has a Node toolchain).** Orchestrate via `package.json`:
 
 ```json
 {
@@ -654,7 +696,7 @@ ntk watch detects the Tailwind CSS output (`assets/main.css`) changes and pushes
 ntk push assets/main.css
 ```
 
-**Either option:** `assets/main.css` must be committed to the repo so the theme is installable without a local toolchain. Recompile and recommit it on every CSS source change — `make release` (Option A) or `npm run build && git add assets/main.css` (Option B).
+**Either option:** `assets/main.css` must be committed to the repo so the theme is installable without a local toolchain. Recompile and recommit it on every CSS source change using the theme's release/build target.
 
 ### CSS Compatibility Pipeline (Required for Tailwind themes)
 
@@ -686,7 +728,7 @@ The compat script strips `@property` rules, converts `oklch()` to hex, and repla
 |-------|-------|-----|
 | `401 Unauthorized` | Bad API key or expired | Regenerate key in Dashboard > Settings > API Keys |
 | `404 Not Found` | Wrong theme_id or store URL | Run `ntk list` to verify, check `config.yml` |
-| `File not in valid path` | File outside the 8 recognized directories | Check file is in assets/, checkout/, configs/, layouts/, locales/, partials/, sass/, or templates/ |
+| `File not in valid path` | File outside recognized theme directories | Check file is in assets/, configs/, layouts/, locales/, partials/, sass/, templates/, or an optional checkout/ directory |
 | `Connection refused` | Store URL wrong or store offline | Verify `store` value in config.yml uses the `.29next.store` domain |
 
 ### Template Syntax Errors
