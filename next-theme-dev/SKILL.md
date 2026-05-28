@@ -39,7 +39,7 @@ Run these checks at the start of every theme task to understand the working cont
 
 ```bash
 # Check ntk installation
-which ntk 2>/dev/null && ntk --version || echo "ntk not installed — install via: pip install 29next-theme-kit"
+which ntk 2>/dev/null && ntk --version || echo "ntk not installed — install via: pip install next-theme-kit"
 
 # Check Python
 python3 --version 2>/dev/null || python --version 2>/dev/null || echo "Python not found"
