@@ -24,7 +24,7 @@
       ],
       "prerequisites": [
         "Python 3",
-        "ntk (pip install 29next-theme-kit)",
+        "ntk (pip install next-theme-kit)",
         "A Next Commerce store with API key (themes:read, themes:write scopes)"
       ]
     },

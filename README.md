@@ -12,13 +12,13 @@ Pre-built skills that give AI coding agents deep knowledge of the Next Commerce 
 | [**Bulk Fulfillment Sync**](next-bulk-fulfill/) | Update orders to Fulfilled with tracking numbers from a CSV | Your fulfillment provider shipped orders but tracking didn't sync back — orders stuck in Processing |
 | [**Bulk Fulfillment Move**](next-bulk-move/) | Move fulfillment orders between warehouse locations in bulk — by order-number file or by Product ID / SKU list | Switching fulfillment providers, or moving every FO containing a given SKU/product to a new location |
 | [**Bulk Subscription Actions**](next-bulk-subscription/) | Pause, cancel, or PATCH subscription fields for a list of subscription IDs | Merchant wants to bulk-pause until a date, bulk-shift renewals, bulk-cancel, or migrate subscriptions between gateways |
-| [**New Campaign Setup**](next-campaigns-setup/) | Scaffold and fully configure a new CPK campaign — brand init, starter template, campaigns.json seed, API key, store details, and analytics in one pass | Starting a new CPK campaign for a brand |
+| [**New Campaign Setup**](next-campaigns-setup/) | Scaffold and fully configure a new Next Commerce campaign repo — brand init, starter template, campaigns.json seed, API key, store details, and analytics in one pass | Starting a new Next Commerce campaign for a brand |
 
 ### Campaigns OS Skill Boundary
 
-This repo is the public Next Commerce skill catalog. It hosts `next-campaigns-setup`, which covers CPK repo bootstrap and first configuration.
+This repo hosts `next-campaigns-setup`, which covers Next Commerce campaign repo bootstrap and first configuration.
 
-The canonical Campaigns OS lifecycle/build/QA skills live with the public [`campaigns-os`](https://github.com/NextCommerceCo/campaigns-os) package. Internal Sellmore orchestration addenda live in `next-campaigns-ops` and should wrap the public Campaigns OS contract instead of redefining CampaignSpec, Build Packet, doctor, Assembly Report, or QA semantics.
+The canonical Campaigns OS lifecycle skills — build, polish, and QA — ship with the public [`campaigns-os`](https://github.com/NextCommerceCo/campaigns-os) package itself and install via `campaigns-os install-skills`. They're version-locked to the package's CLI and contract versions, which is why they live with the package rather than in this catalog.
 
 ## Quick Start
 
