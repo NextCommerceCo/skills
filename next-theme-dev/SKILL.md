@@ -1,6 +1,6 @@
 ---
 name: next-theme-dev
-version: 1.2.0
+version: 1.2.1
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
@@ -113,13 +113,14 @@ Templates use Django Template Language (DTL):
 Theme settings let merchants customize their store without code:
 
 - `settings_schema.json` defines the editor UI — groups of fields with types like `text`, `color`, `image_picker`, `select`, `menu`, `checkbox`
-- `settings_data.json` stores the current values
+- `settings_data.json` stores the current live Theme Editor values
 - Templates access values via `{{ settings.field_name }}`
 
 **Settings Information Architecture:**
 - **Organize by merchant mental model**, not developer taxonomy — use "Side Cart" not "Advanced > Cart Configuration"
 - **5+ settings = own top-level section** — don't bury 14 cart settings inside a generic "Advanced" group
 - **Use merchant-friendly labels** — "Suggested Products" not "Upsells", "Cart Title" not "cart_header_title"
+- **Treat `settings_data.json` as merchant state, not code** — pushing it can overwrite Theme Editor changes made in the dashboard. For new controls, add the field/default to `settings_schema.json` and make templates handle missing values with `|default` or explicit fallback logic. Only push `settings_data.json` when intentionally changing the store's saved setting values.
 - **Keep dev-only values out of the schema** — implementation details (e.g., `upsell_fallback_slots`) belong in `settings_data.json` defaults, not in the editor UI
 - **Reward thresholds:** Core Spark ships one default threshold pair (`usd_goal_1`, `usd_goal_2`) with merchant-facing labels like "Free Shipping Threshold" and "Free Gift Threshold." Do not add hard-coded currency fields to a public starter unless the merchant specifically needs them. Theme developers can extend `partials/block_cart_progress_wrapper.html` and `settings_schema.json` for store-specific currency rules.
 - **Geo/currency runtime data:** Templates can read active `currencies`, `storefront_geos`, `geo`, and `request.CURRENCY_CODE`, but `settings_schema.json` is static editor configuration. Do not assume Theme Settings can automatically generate fields from the store's configured markets.
@@ -228,6 +229,15 @@ ntk push assets/main.css configs/settings_schema.json
 ntk push
 ```
 
+Be especially careful with `configs/settings_data.json`: it is the store's saved Theme Editor state. Do not include it in a push just because you added a schema field. Prefer schema defaults plus template fallbacks:
+```django
+{% if not settings.hide_media_bar %}
+    {# media bar #}
+{% endif %}
+```
+
+Push `settings_data.json` only when the task explicitly requires updating current saved values, and call that out in the summary.
+
 ### jQuery Before core_js (Intro Bootstrap / jQuery Themes)
 
 Intro Bootstrap and other jQuery themes must load jQuery before the platform's `{% core_js %}` tag:
@@ -243,6 +253,7 @@ Spark does not use jQuery or `{% core_js %}`. It uses `assets/js/spark-platform.
 CloudFront aggressively caches assets and full pages (5 min on mapped domains):
 - **Always develop on the `.29next.store` network domain** — it bypasses full-page caching
 - Append `?skip_cache` to a URL for edge cases
+- When a page looks reverted after a push, verify the same URL with `?preview_theme={theme_id}&skip_cache=1` before assuming files or settings were lost
 - Template changes via ntk automatically bust the template cache
 - Asset changes (CSS/JS) may take a moment to propagate on CDN
 
