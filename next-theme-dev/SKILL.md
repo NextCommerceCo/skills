@@ -1,6 +1,6 @@
 ---
 name: next-theme-dev
-version: 1.2.1
+version: 1.3.0
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
@@ -305,6 +305,8 @@ Hard-won lessons from building Spark. These will silently break things if you do
 | **Spark app hooks are extension surfaces** | Use existing `{% app_hook %}` slots before forking Spark templates for app integrations |
 | **Preview URL** | `https://{store}/?preview_theme={theme_id}` — useful for testing unpublished theme changes |
 | **ntk accepted directories** | Only these are recognized: assets, checkout, configs, layouts, partials, templates, locales, sass. Files outside these are silently ignored |
+| **Asset path mapping** | A local file like `assets/img/merchant/hero.jpg` is uploaded as `assets/img/merchant/hero.jpg`, but templates reference it without the `assets/` prefix: `{{ 'img/merchant/hero.jpg'|asset_url }}` |
+| **Figma export overlays** | Figma frames often include labels, badges, card UI, shadows, or text that Spark also renders. Inspect the node tree before export; export the clean underlying image/fill when the overlay is theme UI |
 | **Build artifacts must be committed** | The platform doesn't compile CSS/JS server-side and doesn't preserve binaries on push. Compiled `assets/main.css` (Tailwind) or compiled CSS (build-time SCSS) must be checked in or the theme is unstyled on install. Gitignore the toolchain (binaries, `node_modules/`), commit the artifact |
 
 ---
@@ -346,9 +348,142 @@ Identify the theme family before implementation. Spark designs should map to Tai
 This is the **#1 time bottleneck** — design assets are merchant-specific and can't be templated.
 
 - **Fonts:** Convert to `.woff2`, create `@font-face` declarations in CSS, add font files to `assets/`
-- **Images:** Hero images, product photography, lifestyle shots — these must come from the merchant. Use placeholder images during development
+- **Images:** Hero images, product photography, lifestyle shots, product cutouts, and press logos must come from the merchant or the design source. Use placeholders only while blocked, and replace them before QA
 - **Icons:** Prefer inline SVG (smallest payload, style-able) or an icon font. Avoid individual image files for icons
-- **Optimization:** All assets serve via CDN. Keep images under 200KB, use WebP/AVIF where supported
+- **Optimization:** All assets serve via CDN. Keep routine images under 200KB when quality allows. `ntk` supports WebP, but the current accepted extension list does not include AVIF
+- **Manifest:** For merchant-specific exports, keep an export checklist or manifest mapping Figma node IDs to local filenames. Use `assets/img/<merchant>/manifest.json` when the record should travel with source/pulls; use `docs/` when the record is purely internal and should not be managed by `ntk`
+
+### Figma Asset Export Runbook
+
+Use this runbook before exporting design assets into Spark. The main rule: **do not export a visible Figma frame until you know whether it is the real asset or a composed UI artifact.**
+
+**Identify the file key and node IDs**
+
+- Figma design URLs have this shape: `https://www.figma.com/design/<file_key>/<file_name>?node-id=<node_id>`.
+- The `file_key` is the path segment after `/design/` or `/file/`.
+- The URL `node-id` usually appears with hyphens, such as `123-456`; Figma APIs and tools may return the same node as `123:456`. Preserve the exact ID returned by the tool you are using in any manifest.
+- If exporting several assets from one file, record the file URL, file key, page/frame name, node ID, local filename, intended usage, and export scale.
+
+**Inspect the node hierarchy before export**
+
+Before exporting, inspect the layer tree and answer:
+
+- Is the selected node a frame/card/section, a vector/logo layer, a masked image fill, or a nested bitmap?
+- Are badges, prices, review stars, CTA text, shadows, gradients, or decorative labels children of the node?
+- Is the asset clipped by a mask or frame that hides important subject matter on mobile?
+- Does the node contain a clean image fill that should be exported instead of the containing frame?
+- Are there hidden variants or responsive frames with cleaner desktop/mobile crops?
+
+When using Figma MCP/API tools, fetch only the relevant node context, inspect children/visibility/fills, then export the smallest node that represents the intended asset.
+
+**Export frames versus underlying fills**
+
+- Export a frame when the whole composition is meant to be one static bitmap, such as a hero collage, UGC strip, lifestyle mosaic, or editorial block with intentionally baked layout.
+- Export an underlying fill/image node when Spark will render the surrounding card, product title, price, CTA, sale badge, label, shadow, border, or responsive crop.
+- Export a vector/SVG node when it is a clean logo or icon and does not contain raster screenshots, unwanted masks, or editable text that should remain theme-rendered.
+- If the only available node is a composed product card, duplicate it in Figma or ask the designer/merchant for the source image, then hide the UI children before export.
+
+**Badge doubling warning**
+
+Always audit promotional labels in three places:
+
+- Product/source image pixels: discount badges, "best value" stickers, price callouts, review badges, or guarantee marks baked into the image.
+- Spark-rendered UI: product cards, PDP price blocks, on-sale sections, cart upsells, or custom homepage cards that add live sale labels.
+- Dashboard/product pricing: compare-at/retail price states that cause Spark to render sale pricing or badges.
+
+Only one layer should communicate the same discount. If product art already includes a "Save 50%" badge, disable/remove the Spark badge for that placement or export clean product art. If Spark needs live sale state, product art must be clean.
+
+**Media and press logos**
+
+- Export each logo as an individual transparent PNG or clean SVG, not as text typed into the theme.
+- Preserve brand proportions. Set CSS max dimensions on the strip, but do not crop logos into identical boxes unless the design intentionally normalizes them.
+- Use meaningful `alt` text for press/brand logos, such as `Women's Health`, `FOX`, or `The Verge`. If a repeated decorative logo is already announced in adjacent text, use empty `alt=""`.
+- Prefer monochrome/grayscale treatment in CSS when possible; do not permanently recolor brand logos unless the design source and brand usage allow it.
+- Verify the strip uses `<img>` elements backed by exported assets. Text fallbacks are acceptable only while blocked and should not survive final QA when the design uses real logos.
+
+**Deterministic asset names**
+
+Use lowercase, kebab-case names under a merchant folder:
+
+```text
+assets/img/<merchant>/hero.jpg
+assets/img/<merchant>/product-knee.png
+assets/img/<merchant>/logos/womens-health.png
+assets/img/<merchant>/pdp/how-pull-on.png
+```
+
+Name by storefront role, not the raw Figma layer name. Avoid spaces, version suffixes like `final-final`, and opaque export names like `Frame 184.png`. Record source node IDs in a manifest instead of encoding them into filenames.
+
+**Format selection**
+
+- **PNG:** Transparent logos, product cutouts, UI composites with alpha, or images that must preserve crisp edges.
+- **JPG/JPEG:** Opaque photography and lifestyle imagery where smaller files matter more than transparency.
+- **SVG:** Clean vector logos/icons with no unwanted embedded raster, no design-only text, and acceptable brand usage.
+- **WebP:** Opaque or transparent optimized images when the theme/storefront target supports it; `ntk` accepts `.webp`.
+- **AVIF:** Do not rely on it for theme pushes unless the local `ntk` accepted extension list has been updated; current known `ntk` patterns do not include `.avif`.
+
+**Verify dimensions, transparency, and paths**
+
+- Check actual dimensions after export and put matching `width`/`height` attributes in templates to reduce layout shift.
+- Confirm transparent logos/product cutouts have an alpha channel. A white-background logo exported as PNG is still wrong if the design expects transparency.
+- Confirm file size and visual quality after compression. Do not crush medical/product detail just to hit an arbitrary byte target.
+- Local asset files live under `assets/`, but `asset_url` paths are relative to the asset root. Example: `assets/img/relievcore/hero.jpg` renders as `{{ 'img/relievcore/hero.jpg'|asset_url }}`.
+- `ntk` pushes nested asset paths as their relative template names, such as `assets/img/relievcore/logos/fox.png`. Push exact changed files: `ntk push assets/img/relievcore/logos/fox.png partials/relievcore_home.html`.
+- Root-level `manifest.json` is not part of the `ntk` accepted patterns. JSON under `assets/**/*.json`, `configs/**/*.json`, and `locales/**/*.json` is accepted.
+
+**Manifest pattern**
+
+Use a small JSON manifest when a design export has more than a few files or when product art/logos are easy to confuse:
+
+```json
+{
+  "figma_file_key": "OtlDTYMZFVLOcVyQABYauD",
+  "merchant": "relievcore",
+  "assets": [
+    {
+      "path": "assets/img/relievcore/logos/womens-health.png",
+      "asset_url_path": "img/relievcore/logos/womens-health.png",
+      "figma_node_id": "123:456",
+      "role": "press-logo",
+      "alt": "Women's Health",
+      "expected_width": 148,
+      "expected_height": 28,
+      "requires_alpha": true,
+      "max_bytes": 50000
+    },
+    {
+      "path": "assets/img/relievcore/product-knee.png",
+      "asset_url_path": "img/relievcore/product-knee.png",
+      "figma_node_id": "234:567",
+      "role": "clean-product-art",
+      "alt": "Knee compression sleeve pair",
+      "expected_width": 374,
+      "expected_height": 312,
+      "requires_alpha": true,
+      "forbid_badges": true,
+      "clean_export_verified": true
+    }
+  ]
+}
+```
+
+The helper script at `scripts/validate-theme-assets.py` validates manifest paths, dimensions, alpha requirements, max file size, naming, expected `asset_url` paths, and explicit clean-export confirmations:
+
+```bash
+python3 /Users/devin/Developer/skills/next-theme-dev/scripts/validate-theme-assets.py \
+  --theme /path/to/theme \
+  --manifest assets/img/<merchant>/manifest.json
+```
+
+The script cannot OCR an image or prove a badge is absent. It makes that limitation explicit by requiring `clean_export_verified: true` when `forbid_badges` or `forbid_baked_text` is set.
+
+**Visual QA checks**
+
+- Open the preview URL and scroll every lazy-loaded asset section into view. Watch the Network panel or DOM for broken images.
+- Compare product cards, homepage product tiles, PDP galleries, and cart upsells for duplicated discount labels.
+- Confirm media/press logos render as images, not fallback text, and that alt text is sensible.
+- Check mobile crops at 375px and 390px widths. Product, joint/body, or logo subject matter should not be clipped out of the important region.
+- Hard-refresh or add `?skip_cache=1` after asset pushes if the CDN appears stale.
 
 ### Step 3: Settings Schema Design
 
@@ -458,6 +593,82 @@ For per-user content (cart, auth, wishlists):
 ```
 
 2. Push: `ntk push templates/catalogue/product.{slug}.html`
+
+### Custom Spark PDP Redesigns
+
+Spark PDP work is behavior preservation first, visual matching second. A static Figma PDP can look correct while silently breaking variant matching, price updates, cart submission, subscriptions, reviews, or app tracking.
+
+Before changing `templates/catalogue/product.html`, read the local Spark docs if available:
+
+- `docs/pdp-customization.md` - PDP redesign preservation checklist, QA runbook, and partialization guidance
+- `docs/pdp-variant-state.md` - selected-variant Interface for picker, price, gallery, and add-to-cart adapters
+
+**Preservation checklist:**
+
+| Surface | Preserve this |
+| --- | --- |
+| Product data JSON | Keep `{{ product.data|json_script:"product-data" }}` in `extrascripts`; `SparkVariantState` depends on `#product-data`. |
+| Variant controls | Keep real controls named `attr_<code>` from `variant_form`. Custom swatches/buttons must update those real controls and values. |
+| Price bindings | Keep a visible price node with `data-price` and a compare-at node with `data-price-retail`, hidden when empty. |
+| Quantity | Keep a real `quantity` field or `<spark-quantity name="quantity">` inside the cart form. |
+| Add-to-cart form | Keep `id="add-to-cart"`, CSRF, hidden `cart_form` fields, submit button, and POST action to `{% url 'cart:add' pk=product.pk %}`. |
+| Subscription hooks | Preserve `<spark-subscription>` when `product.get_interval` and `interval_count_choices` exist. |
+| App hooks | Preserve PDP app hooks such as `product_rating_summary`, `product_info`, `product_footer`, `product_reviews`, `product_review_cta`, `view_product`, and `add_to_cart`. |
+| Inventory states | Preserve `session.availability.is_available_to_buy` branches and selected-variant CTA disablement. |
+| Sticky/mobile CTA | The sticky CTA should click the real submit button; it should not duplicate cart logic. Check that it does not cover content on mobile. |
+| Fallbacks | Products with no image, incomplete product data, no reviews, or no JS should still render usable UI. |
+
+Missing product data, `attr_*` controls, price bindings, CSRF/quantity/cart fields, app hooks, or sold-out behavior is a hard stop before upload unless the merchant explicitly accepts that behavior change.
+
+**Safe picker pattern:** visual markup can change, but the underlying control name and value must come from `variant_form`.
+
+```django
+{% for field in variant_form %}
+    {% if 'attr' in field.id_for_label %}
+        {% for choice in field.field.choices %}
+            <label>
+                <input type="radio" name="{{ field.html_name }}" value="{{ choice.0 }}">
+                <span>{{ choice.1 }}</span>
+            </label>
+        {% endfor %}
+    {% endif %}
+{% endfor %}
+```
+
+**DOM smoke audit:** run this in the browser console after a redesign. It catches missing contracts, but it does not replace selecting variants and actually adding to cart.
+
+```js
+(function() {
+  var form = document.getElementById('add-to-cart');
+  var controls = Array.prototype.slice.call(document.querySelectorAll('[name^="attr_"]'));
+  console.table({
+    productData: !!document.getElementById('product-data'),
+    variantControls: controls.length,
+    variantNames: Array.from(new Set(controls.map(function(control) { return control.name; }))).join(', '),
+    priceNode: !!document.querySelector('[data-price]'),
+    retailPriceNode: !!document.querySelector('[data-price-retail]'),
+    addToCartForm: !!form,
+    csrf: !!(form && form.querySelector('[name="csrfmiddlewaretoken"]')),
+    quantity: !!(form && form.querySelector('[name="quantity"], spark-quantity')),
+    submitButton: !!(form && form.querySelector('button[type="submit"]')),
+    subscription: !!document.querySelector('spark-subscription'),
+    stickyCta: !!document.getElementById('sticky-atc'),
+    horizontalOverflow: document.documentElement.scrollWidth > window.innerWidth
+  });
+})();
+```
+
+**QA before push:**
+
+1. Select all variants and confirm price, compare-at price, gallery image, form action, and CTA availability update.
+2. Add to cart with quantity greater than 1 and confirm the selected child product reaches the cart.
+3. Test subscription products, sold-out products, no-image products, and products with no reviews when available.
+4. Check mobile widths around 375-430px for horizontal overflow and sticky CTA coverage.
+5. Verify review/app hook surfaces still render or remain present for apps.
+
+`configs/settings_data.json` is merchant Theme Editor state. Add controls to `settings_schema.json` and use template fallbacks for missing values. Push `settings_data.json` only for an intentional store-state change. RelievCore's `variant_picker = radio` change was design-relevant, but it was still merchant state and should be called out when pushed.
+
+Do not split Spark's PDP into partials just for one merchant design. If repeated custom PDP work justifies it, prefer stable partials for gallery/media, buy box, variant picker, quantity/cart controls, trust/benefit strip, size guide, reviews, and related products.
 
 ### Add a Partial
 
@@ -713,6 +924,27 @@ ntk push assets/main.css
 
 The platform's SCSS compiler rejects modern CSS features. **Every Tailwind build must run through `sass-compat.py`** — this is not optional. The script strips/converts: `@property` rules, `oklch()` → hex, `color-mix()`, `@layer`, logical properties (`margin-inline`), `:is()`/`:where()` pseudo-classes, and media range syntax (`width >= 768px`).
 
+Run the theme's CSS build any time you edit `css/input.css` or templates/partials that introduce Tailwind classes:
+
+```bash
+make css          # compile Tailwind and run sass-compat
+make css-check    # make css, then fail if generated CSS still has unsafe constructs
+make verify-theme # preferred pre-upload/release check when present
+```
+
+`assets/main.css` is the uploaded artifact. The platform does not compile Tailwind or preserve local binaries on `ntk push`, so a theme can look correct locally and still ship broken styling if the generated CSS is stale, missing, or contains unsupported compiler syntax. Treat `assets/main.css` drift as a bug: rebuild and commit/push it with the source change.
+
+Known risky generated CSS:
+
+- `@supports`, `@property`, `@layer`
+- `oklch()` and newer color functions
+- `color-mix()` unless the local compat helper has an explicit safe conversion
+- `:is()` / `:where()`
+- logical properties such as `margin-inline`, `padding-block`, and `inset-inline-start`
+- media range syntax such as `(width >= 768px)`
+- scientific-notation lengths such as `3.40282e38px`
+- `min()`, `max()`, and `clamp()` when debugging compiler-specific failures; do not ban these blindly unless the target platform path proves they fail
+
 Add the compat step to the build pipeline:
 
 ```json
@@ -727,7 +959,23 @@ Add the compat step to the build pipeline:
 }
 ```
 
-The compat script strips `@property` rules, converts `oklch()` to hex, and replaces `color-mix()` — ensuring broad browser support on the Next Commerce platform.
+The compat script should be boring and predictable: transform only known patterns, fail loudly when unsupported CSS remains, and never silently "fix" unfamiliar syntax by guessing. If the theme has no checker yet, add one around `scripts/sass-compat.py --check assets/main.css` or a dedicated `make css-check` target.
+
+Before upload, scan the generated artifact:
+
+```bash
+python3 scripts/sass-compat.py --check assets/main.css
+ntk push assets/main.css
+```
+
+Troubleshooting CSS failures:
+
+- **Local Tailwind/build failure:** `make css` fails before upload. Fix `css/input.css`, the local Tailwind binary, or the command setup.
+- **Platform Sass/compiler failure:** local build passes but upload/storefront CSS parsing fails. Run `make css-check`; the failure should point to an unsupported construct and file. Minimize the generated CSS if needed, then extend `sass-compat.py` only for a safe, known transform.
+- **CDN/cache issue:** pushed CSS is correct but the storefront looks stale. Test on the `.29next.store` domain, hard-refresh, or append `?skip_cache=1`.
+- **Missing uploaded compiled CSS:** templates changed but styling did not. Rebuild `assets/main.css` and push that file explicitly.
+
+Avoid dynamic Tailwind classes in DTL templates. Tailwind only emits classes it can see at build time, so `bg-{{ settings.primary_color }}` and string-built utilities disappear from `assets/main.css`. Use CSS custom properties (`bg-[var(--primary-color)]`) or static conditionals that include complete class names.
 
 ---
 
