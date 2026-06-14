@@ -7,7 +7,7 @@
     {
       "id": "next-theme-dev",
       "name": "Theme Development",
-      "version": "1.2.1",
+      "version": "1.3.0",
       "path": "next-theme-dev/SKILL.md",
       "domain": "storefronts",
       "description": "Build, modify, and debug Next Commerce storefront themes, including Spark, Intro Bootstrap, Theme Settings, ntk CLI, DTL templates, and storefront GraphQL.",
@@ -24,6 +24,7 @@
       ],
       "prerequisites": [
         "Python 3",
+        "Pillow (for asset manifest validation)",
         "ntk (pip install next-theme-kit)",
         "A Next Commerce store with API key (themes:read, themes:write scopes)"
       ]

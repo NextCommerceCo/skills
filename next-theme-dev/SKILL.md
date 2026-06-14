@@ -351,7 +351,7 @@ This is the **#1 time bottleneck** — design assets are merchant-specific and c
 - **Images:** Hero images, product photography, lifestyle shots, product cutouts, and press logos must come from the merchant or the design source. Use placeholders only while blocked, and replace them before QA
 - **Icons:** Prefer inline SVG (smallest payload, style-able) or an icon font. Avoid individual image files for icons
 - **Optimization:** All assets serve via CDN. Keep routine images under 200KB when quality allows. `ntk` supports WebP, but the current accepted extension list does not include AVIF
-- **Manifest:** For merchant-specific exports, keep an export checklist or manifest mapping Figma node IDs to local filenames. Use `assets/img/<merchant>/manifest.json` when the record should travel with source/pulls; use `docs/` when the record is purely internal and should not be managed by `ntk`
+- **Manifest:** For merchant-specific exports, keep an export checklist or manifest mapping Figma node IDs to local filenames. Prefer `docs/<merchant>-asset-manifest.json` so source metadata does not become a CDN-served storefront asset. Use `assets/img/<merchant>/manifest.json` only when the manifest is intentionally public and contains no internal design provenance.
 
 ### Figma Asset Export Runbook
 
@@ -380,7 +380,7 @@ When using Figma MCP/API tools, fetch only the relevant node context, inspect ch
 
 - Export a frame when the whole composition is meant to be one static bitmap, such as a hero collage, UGC strip, lifestyle mosaic, or editorial block with intentionally baked layout.
 - Export an underlying fill/image node when Spark will render the surrounding card, product title, price, CTA, sale badge, label, shadow, border, or responsive crop.
-- Export a vector/SVG node when it is a clean logo or icon and does not contain raster screenshots, unwanted masks, or editable text that should remain theme-rendered.
+- Export a vector/SVG node when it is a clean logo or icon and does not contain raster screenshots, unwanted masks, or text that should remain rendered by the theme rather than baked into the asset.
 - If the only available node is a composed product card, duplicate it in Figma or ask the designer/merchant for the source image, then hide the UI children before export.
 
 **Badge doubling warning**
@@ -418,7 +418,7 @@ Name by storefront role, not the raw Figma layer name. Avoid spaces, version suf
 
 - **PNG:** Transparent logos, product cutouts, UI composites with alpha, or images that must preserve crisp edges.
 - **JPG/JPEG:** Opaque photography and lifestyle imagery where smaller files matter more than transparency.
-- **SVG:** Clean vector logos/icons with no unwanted embedded raster, no design-only text, and acceptable brand usage.
+- **SVG:** Clean vector logos/icons with no unwanted embedded raster, no design-only text, and acceptable brand usage. Omit `requires_alpha` for SVG entries; the validator treats SVG transparency as not mechanically provable.
 - **WebP:** Opaque or transparent optimized images when the theme/storefront target supports it; `ntk` accepts `.webp`.
 - **AVIF:** Do not rely on it for theme pushes unless the local `ntk` accepted extension list has been updated; current known `ntk` patterns do not include `.avif`.
 
@@ -427,9 +427,9 @@ Name by storefront role, not the raw Figma layer name. Avoid spaces, version suf
 - Check actual dimensions after export and put matching `width`/`height` attributes in templates to reduce layout shift.
 - Confirm transparent logos/product cutouts have an alpha channel. A white-background logo exported as PNG is still wrong if the design expects transparency.
 - Confirm file size and visual quality after compression. Do not crush medical/product detail just to hit an arbitrary byte target.
-- Local asset files live under `assets/`, but `asset_url` paths are relative to the asset root. Example: `assets/img/relievcore/hero.jpg` renders as `{{ 'img/relievcore/hero.jpg'|asset_url }}`.
-- `ntk` pushes nested asset paths as their relative template names, such as `assets/img/relievcore/logos/fox.png`. Push exact changed files: `ntk push assets/img/relievcore/logos/fox.png partials/relievcore_home.html`.
-- Root-level `manifest.json` is not part of the `ntk` accepted patterns. JSON under `assets/**/*.json`, `configs/**/*.json`, and `locales/**/*.json` is accepted.
+- Local asset files live under `assets/`, but `asset_url` paths are relative to the asset root. Example: `assets/img/merchant-slug/hero.jpg` renders as `{{ 'img/merchant-slug/hero.jpg'|asset_url }}`.
+- `ntk` pushes nested asset paths as their relative template names, such as `assets/img/merchant-slug/logos/press-logo.png`. Push exact changed files: `ntk push assets/img/merchant-slug/logos/press-logo.png partials/home.html`.
+- Root-level `manifest.json` is not part of the `ntk` accepted patterns. JSON under `assets/**/*.json`, `configs/**/*.json`, and `locales/**/*.json` is accepted. Do not store Figma file keys, node IDs, review notes, or clean-export attestations under `assets/` unless you are comfortable publishing that metadata through the storefront CDN.
 
 **Manifest pattern**
 
@@ -437,26 +437,26 @@ Use a small JSON manifest when a design export has more than a few files or when
 
 ```json
 {
-  "figma_file_key": "OtlDTYMZFVLOcVyQABYauD",
-  "merchant": "relievcore",
+  "figma_file_key": "<figma_file_key>",
+  "merchant": "merchant-slug",
   "assets": [
     {
-      "path": "assets/img/relievcore/logos/womens-health.png",
-      "asset_url_path": "img/relievcore/logos/womens-health.png",
-      "figma_node_id": "123:456",
+      "path": "assets/img/merchant-slug/logos/press-logo.png",
+      "asset_url_path": "img/merchant-slug/logos/press-logo.png",
+      "figma_node_id": "<node_id>",
       "role": "press-logo",
-      "alt": "Women's Health",
+      "alt": "Press logo",
       "expected_width": 148,
       "expected_height": 28,
       "requires_alpha": true,
       "max_bytes": 50000
     },
     {
-      "path": "assets/img/relievcore/product-knee.png",
-      "asset_url_path": "img/relievcore/product-knee.png",
-      "figma_node_id": "234:567",
+      "path": "assets/img/merchant-slug/product-cutout.png",
+      "asset_url_path": "img/merchant-slug/product-cutout.png",
+      "figma_node_id": "<node_id>",
       "role": "clean-product-art",
-      "alt": "Knee compression sleeve pair",
+      "alt": "Product cutout",
       "expected_width": 374,
       "expected_height": 312,
       "requires_alpha": true,
@@ -470,9 +470,11 @@ Use a small JSON manifest when a design export has more than a few files or when
 The helper script at `scripts/validate-theme-assets.py` validates manifest paths, dimensions, alpha requirements, max file size, naming, expected `asset_url` paths, and explicit clean-export confirmations:
 
 ```bash
-python3 /Users/devin/Developer/skills/next-theme-dev/scripts/validate-theme-assets.py \
+cd /path/to/skills/next-theme-dev
+python3 -m pip install Pillow
+python3 scripts/validate-theme-assets.py \
   --theme /path/to/theme \
-  --manifest assets/img/<merchant>/manifest.json
+  --manifest docs/<merchant>-asset-manifest.json
 ```
 
 The script cannot OCR an image or prove a badge is absent. It makes that limitation explicit by requiring `clean_export_verified: true` when `forbid_badges` or `forbid_baked_text` is set.
