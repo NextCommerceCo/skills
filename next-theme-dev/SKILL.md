@@ -441,11 +441,11 @@ Use a small JSON manifest when a design export has more than a few files or when
   "merchant": "merchant-slug",
   "assets": [
     {
-      "path": "assets/img/merchant-slug/logos/press-logo.png",
-      "asset_url_path": "img/merchant-slug/logos/press-logo.png",
+      "path": "assets/img/merchant-slug/logos/example-magazine.png",
+      "asset_url_path": "img/merchant-slug/logos/example-magazine.png",
       "figma_node_id": "<node_id>",
       "role": "press-logo",
-      "alt": "Press logo",
+      "alt": "Example Magazine",
       "expected_width": 148,
       "expected_height": 28,
       "requires_alpha": true,
@@ -456,7 +456,7 @@ Use a small JSON manifest when a design export has more than a few files or when
       "asset_url_path": "img/merchant-slug/product-cutout.png",
       "figma_node_id": "<node_id>",
       "role": "clean-product-art",
-      "alt": "Product cutout",
+      "alt": "Compression sleeve product cutout",
       "expected_width": 374,
       "expected_height": 312,
       "requires_alpha": true,

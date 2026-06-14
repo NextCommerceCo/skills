@@ -31,7 +31,10 @@ MEDIA_EXTENSIONS = {
 
 SAFE_COMPONENT_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 NUMBER_RE = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)")
-EXTERNAL_REF_RE = re.compile(r"^(?:https?:|//|data:|javascript:)|url\(\s*['\"]?(?:https?:|//|data:|javascript:)", re.IGNORECASE)
+EXTERNAL_REF_RE = re.compile(
+    r"(?:^|url\(\s*['\"]?|@import\s+(?:url\(\s*)?['\"]?)(?:https?:|//|data:|javascript:)",
+    re.IGNORECASE,
+)
 
 
 class ImageInfo:
@@ -229,7 +232,7 @@ def read_jpeg_info(data: bytes) -> ImageInfo:
 def read_gif_info(data: bytes) -> ImageInfo:
     if not (data.startswith(b"GIF87a") or data.startswith(b"GIF89a")):
         raise ValueError("Invalid GIF signature.")
-    if not data.endswith(b";"):
+    if not data.rstrip().endswith(b";"):
         raise ValueError("GIF missing trailer.")
     width, height = struct.unpack("<HH", data[6:10])
     has_alpha = False
@@ -253,11 +256,16 @@ def read_ico_info(data: bytes) -> ImageInfo:
         raise ValueError("Invalid ICO header.")
     width = data[6] or 256
     height = data[7] or 256
+    bit_count = struct.unpack("<H", data[12:14])[0]
     size = struct.unpack("<I", data[14:18])[0]
     offset = struct.unpack("<I", data[18:22])[0]
     if offset + size > len(data):
         raise ValueError("ICO image data exceeds file size.")
-    return ImageInfo(width, height, None, "ico")
+    image_data = data[offset : offset + size]
+    if image_data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ImageInfo(width, height, read_png_info(image_data).alpha, "ico")
+    alpha = bit_count >= 32 if bit_count else None
+    return ImageInfo(width, height, alpha, "ico")
 
 
 def read_svg_info(path: Path) -> ImageInfo:
@@ -282,6 +290,8 @@ def validate_svg_safe(root: ElementTree.Element) -> None:
         element_name = local_name(element.tag)
         if element_name == "script":
             raise ValueError("SVG must not include script elements.")
+        if element_name == "style" and EXTERNAL_REF_RE.search("".join(element.itertext())):
+            raise ValueError("SVG style elements must not reference external or inline resources.")
         for raw_name, raw_value in element.attrib.items():
             name = local_name(raw_name)
             value = raw_value.strip()
