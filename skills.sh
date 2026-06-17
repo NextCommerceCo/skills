@@ -11,6 +11,7 @@ Usage:
   ./skills.sh
   ./skills.sh list
   ./skills.sh status [claude|codex|agents|all] [skill|all]
+  ./skills.sh status --target <skills-dir> [skill|all]
   ./skills.sh dry-run [claude|codex|agents|all] [skill|all]
   ./skills.sh install [claude|codex|agents|all] [skill|all]
   ./skills.sh install --target <skills-dir> [skill|all]
@@ -20,6 +21,7 @@ Examples:
   ./skills.sh status
   ./skills.sh install codex
   ./skills.sh install codex next-ops-scan
+  ./skills.sh status --target /tmp/next-skills next-ops-scan
   ./skills.sh dry-run --target /tmp/next-skills next-ops-scan
 
 Targets:
@@ -44,7 +46,10 @@ platform_target() {
 
 skill_ids() {
   find "$ROOT" -mindepth 2 -maxdepth 2 -name SKILL.md -print |
-    sed "s#^$ROOT/##; s#/SKILL.md##" |
+    while IFS= read -r path; do
+      path="${path#"$ROOT"/}"
+      printf '%s\n' "${path%/SKILL.md}"
+    done |
     sort
 }
 
@@ -85,20 +90,86 @@ copy_skill() {
   local dry_run="$3"
   local src="$ROOT/$skill"
   local dest="$target_dir/$skill"
+  local parent
+  local tmp
+  local parent_mode
+  local diff_status
   local status="unchanged"
+
+  parent="$(dirname "$dest")"
+  if [[ -d "$parent" ]]; then
+    parent_mode="$(stat -f '%Lp' "$parent" 2>/dev/null || stat -c '%a' "$parent")"
+  else
+    parent_mode="755"
+  fi
 
   if [[ ! -d "$dest" ]]; then
     status="create"
-  elif ! diff -qr "$src" "$dest" >/dev/null 2>&1; then
-    status="update"
+  else
+    if diff -qr "$src" "$dest" >/dev/null 2>&1; then
+      diff_status=0
+    else
+      diff_status=$?
+    fi
+    if [[ "$diff_status" -eq 1 ]]; then
+      status="update"
+    elif [[ "$diff_status" -gt 1 ]]; then
+      echo "Failed to compare $src and $dest" >&2
+      return 1
+    fi
+  fi
+
+  if [[ "$status" == "unchanged" ]]; then
+    printf '%-10s %s -> %s\n' "$status" "$skill" "$dest"
+    return 0
   fi
 
   printf '%-10s %s -> %s\n' "$status" "$skill" "$dest"
 
-  if [[ "$dry_run" == "false" && "$status" != "unchanged" ]]; then
-    mkdir -p "$target_dir"
-    rm -rf -- "$dest"
-    cp -R "$src" "$dest"
+  if [[ "$dry_run" == "false" ]]; then
+    if ! mkdir -p "$parent"; then
+      echo "Failed to create target parent $parent" >&2
+      return 1
+    fi
+    parent_mode="$(stat -f '%Lp' "$parent" 2>/dev/null || stat -c '%a' "$parent")"
+
+    if ! tmp="$(mktemp -d "$parent/.${skill##*/}.tmp.XXXXXX")"; then
+      echo "Failed to create staging directory in $parent" >&2
+      return 1
+    fi
+    if ! cp -Rp "$src/." "$tmp/"; then
+      rm -rf -- "$tmp"
+      echo "Failed to stage $skill for $dest" >&2
+      return 1
+    fi
+    if ! chmod -R u+rwX,go+rX "$tmp"; then
+      rm -rf -- "$tmp"
+      echo "Failed to normalize staged permissions for $tmp" >&2
+      return 1
+    fi
+    if ! chmod "$parent_mode" "$tmp"; then
+      rm -rf -- "$tmp"
+      echo "Failed to set staged directory mode for $tmp" >&2
+      return 1
+    fi
+
+    if [[ -e "$dest" ]]; then
+      if ! command -v rsync >/dev/null 2>&1; then
+        rm -rf -- "$tmp"
+        echo "rsync is required to update existing skill directory $dest without removing it first" >&2
+        return 1
+      fi
+      if ! rsync -a --delete "$tmp/" "$dest/"; then
+        rm -rf -- "$tmp"
+        echo "Failed to sync staged $skill into $dest" >&2
+        return 1
+      fi
+      rm -rf -- "$tmp"
+    elif ! mv "$tmp" "$dest"; then
+      rm -rf -- "$tmp"
+      echo "Failed to install $skill to $dest" >&2
+      return 1
+    fi
   fi
 }
 
@@ -108,28 +179,36 @@ sync_target() {
   local dry_run="$3"
   local skill
   local resolved
+  local failed=0
 
   printf '\nTarget: %s\n' "$target_dir"
   resolved="$(resolve_skills "$skill_filter")" || return 2
   while IFS= read -r skill; do
     [[ -n "$skill" ]] || continue
-    copy_skill "$skill" "$target_dir" "$dry_run"
+    if ! copy_skill "$skill" "$target_dir" "$dry_run"; then
+      failed=1
+    fi
   done <<< "$resolved"
+  return "$failed"
 }
 
 sync_platform() {
   local platform="$1"
   local skill_filter="$2"
   local dry_run="$3"
+  local failed=0
+  local target_dir
+  local rc
 
   if [[ "$platform" == "all" ]]; then
-    sync_platform claude "$skill_filter" "$dry_run"
-    sync_platform codex "$skill_filter" "$dry_run"
-    sync_platform agents "$skill_filter" "$dry_run"
-    return
+    sync_platform claude "$skill_filter" "$dry_run" || { rc=$?; [[ "$rc" -eq 2 ]] && return 2; [[ "$failed" -lt "$rc" ]] && failed="$rc"; }
+    sync_platform codex "$skill_filter" "$dry_run" || { rc=$?; [[ "$rc" -eq 2 ]] && return 2; [[ "$failed" -lt "$rc" ]] && failed="$rc"; }
+    sync_platform agents "$skill_filter" "$dry_run" || { rc=$?; [[ "$rc" -eq 2 ]] && return 2; [[ "$failed" -lt "$rc" ]] && failed="$rc"; }
+    return "$failed"
   fi
 
-  sync_target "$(platform_target "$platform")" "$skill_filter" "$dry_run"
+  target_dir="$(platform_target "$platform")" || return 2
+  sync_target "$target_dir" "$skill_filter" "$dry_run"
 }
 
 guided() {
@@ -175,7 +254,11 @@ guided() {
   read -r confirm
   case "$confirm" in
     y|Y|yes|YES)
-      sync_platform "$platform" "$skill_filter" false
+      if ! sync_platform "$platform" "$skill_filter" false; then
+        echo
+        echo "Install completed with errors." >&2
+        return 1
+      fi
       echo
       echo "Done. Restart local agent sessions so refreshed skills are loaded."
       ;;
@@ -190,22 +273,34 @@ shift || true
 
 case "$action" in
   list)
+    [[ $# -eq 0 ]] || { echo "Too many arguments for list." >&2; exit 2; }
     list_skills
     ;;
   status)
-    platform="${1:-all}"
-    skill_filter="${2:-all}"
-    sync_platform "$platform" "$skill_filter" true
+    if [[ "${1:-}" == "--target" ]]; then
+      target="${2:-}"
+      skill_filter="${3:-all}"
+      [[ -n "$target" ]] || { echo "Missing --target directory." >&2; exit 2; }
+      [[ $# -le 3 ]] || { echo "Too many arguments for status --target." >&2; exit 2; }
+      sync_target "$target" "$skill_filter" true
+    else
+      platform="${1:-all}"
+      skill_filter="${2:-all}"
+      [[ $# -le 2 ]] || { echo "Too many arguments for status." >&2; exit 2; }
+      sync_platform "$platform" "$skill_filter" true
+    fi
     ;;
   dry-run)
     if [[ "${1:-}" == "--target" ]]; then
       target="${2:-}"
       skill_filter="${3:-all}"
       [[ -n "$target" ]] || { echo "Missing --target directory." >&2; exit 2; }
+      [[ $# -le 3 ]] || { echo "Too many arguments for dry-run --target." >&2; exit 2; }
       sync_target "$target" "$skill_filter" true
     else
       platform="${1:-all}"
       skill_filter="${2:-all}"
+      [[ $# -le 2 ]] || { echo "Too many arguments for dry-run." >&2; exit 2; }
       sync_platform "$platform" "$skill_filter" true
     fi
     ;;
@@ -214,25 +309,44 @@ case "$action" in
       target="${2:-}"
       skill_filter="${3:-all}"
       [[ -n "$target" ]] || { echo "Missing --target directory." >&2; exit 2; }
-      sync_target "$target" "$skill_filter" false
+      [[ $# -le 3 ]] || { echo "Too many arguments for install --target." >&2; exit 2; }
+      if ! sync_target "$target" "$skill_filter" false; then
+        echo
+        echo "Install completed with errors." >&2
+        exit 1
+      fi
+      echo
+      echo "Done. Restart local agent sessions so refreshed skills are loaded."
     else
       platform="${1:-all}"
       skill_filter="${2:-all}"
-      sync_platform "$platform" "$skill_filter" false
+      [[ $# -le 2 ]] || { echo "Too many arguments for install." >&2; exit 2; }
+      if ! sync_platform "$platform" "$skill_filter" false; then
+        echo
+        echo "Install completed with errors." >&2
+        exit 1
+      fi
       echo
       echo "Done. Restart local agent sessions so refreshed skills are loaded."
     fi
     ;;
   claude|codex|agents|all)
     skill_filter="${1:-all}"
-    sync_platform "$action" "$skill_filter" false
+    [[ $# -le 1 ]] || { echo "Too many arguments for $action." >&2; exit 2; }
+    if ! sync_platform "$action" "$skill_filter" false; then
+      echo
+      echo "Install completed with errors." >&2
+      exit 1
+    fi
     echo
     echo "Done. Restart local agent sessions so refreshed skills are loaded."
     ;;
   guided)
+    [[ $# -eq 0 ]] || { echo "Too many arguments for guided." >&2; exit 2; }
     guided
     ;;
   help|-h|--help)
+    [[ $# -eq 0 ]] || { echo "Too many arguments for help." >&2; exit 2; }
     usage
     ;;
   *)
