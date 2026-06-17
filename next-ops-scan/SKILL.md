@@ -66,26 +66,16 @@ Ask the merchant to create a limited-scope Admin API token:
    - `orders:read`
    - fulfillment read access for delivery statuses, usually exposed as
      `fulfillments:read` or `fulfillment_orders:read`
-5. Copy the token once. Do not paste it into docs, tickets, screenshots, commits,
-   or shared notes.
+5. Keep the token private and rotate it if it is exposed.
 
-Recommended local storage:
+API tokens are sensitive. Give setup guidance that fits the user's operating
+system, shell, and AI tool. The scanner accepts either CLI flags or these
+environment variables:
 
 ```bash
 export NEXT_STORE_DOMAIN="mystore.29next.store"
-export NEXT_ADMIN_API_TOKEN="paste-token-here"
+export NEXT_ADMIN_API_TOKEN="..."
 ```
-
-For repeated local runs, store those lines in a gitignored file such as
-`.next-ops-scan.env`, run `chmod 600 .next-ops-scan.env`, then source it before
-the scan:
-
-```bash
-source .next-ops-scan.env
-```
-
-If a token is exposed, rotate it in **Settings > API Access** before reusing the
-workflow.
 
 ## Phase 2: Run the Read-Only Scanner
 

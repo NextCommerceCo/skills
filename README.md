@@ -36,10 +36,13 @@ Then ask your AI tool:
 > Run `/next-ops-scan` for my store and help me review today's risky order queues.
 
 The skill asks you to bring your own limited-scope Admin API token from
-**Dashboard > Settings > API Access**. Store it locally as `NEXT_ADMIN_API_TOKEN`
-or in a gitignored env file. The scan is read-only: it produces a Markdown
-summary and CSV, then points your team to the right manual remediation flow
-instead of refunding, canceling, fulfilling, editing, or messaging customers.
+**Dashboard > Settings > API Access**. Keep API tokens private and handle them
+according to your local environment and AI tool's security model; your AI agent
+should guide you on the safest local setup for your machine. The scanner accepts
+`NEXT_STORE_DOMAIN` and `NEXT_ADMIN_API_TOKEN` environment variables. The scan is
+read-only: it produces a Markdown summary and CSV, then points your team to the
+right manual remediation flow instead of refunding, canceling, fulfilling,
+editing, or messaging customers.
 
 ### Campaigns OS Skill Boundary
 
