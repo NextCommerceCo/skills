@@ -12,10 +12,6 @@ description: |
 allowed-tools:
   - Bash
   - Read
-  - Write
-  - Edit
-  - Glob
-  - Grep
   - AskUserQuestion
   - TodoWrite
 ---
@@ -112,7 +108,16 @@ python3 next-ops-scan/scripts/next_ops_scan.py \
   --incomplete-idle-days 0 \
   --tracking-added-days 5 \
   --in-transit-days 7 \
-  --delayed-days 3
+  --delayed-days 3 \
+  --orders-max-pages 50 \
+  --fulfillments-max-pages 25
+```
+
+If your admin dashboard uses a custom URL, pass it explicitly:
+
+```bash
+python3 next-ops-scan/scripts/next_ops_scan.py \
+  --admin-base-url "https://mystore.29next.store/dashboard"
 ```
 
 ## Phase 3: Explain Results

@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import time
+from email.utils import parsedate_to_datetime
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -41,6 +42,7 @@ class AdminClient:
         self.domain = domain
         self.token = token
         self.timeout = timeout
+        self.notes: list[str] = []
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -75,7 +77,7 @@ class AdminClient:
             except urllib.error.HTTPError as e:
                 if e.code == 429 or 500 <= e.code < 600:
                     last_err = e
-                    time.sleep(1.0 + attempt)
+                    time.sleep(retry_delay(e, attempt))
                     continue
                 raise
             except (urllib.error.URLError, TimeoutError) as e:
@@ -96,7 +98,9 @@ class AdminClient:
         params = dict(params or {})
         params.setdefault("limit", 100)
         next_url = None
+        page_count = 0
         for _ in range(max_pages):
+            page_count += 1
             data = self.get(path, params) if next_url is None else self.get_url(next_url)
             if not isinstance(data, dict):
                 return
@@ -106,6 +110,28 @@ class AdminClient:
             next_url = data.get("next")
             if not next_url:
                 return
+        if next_url:
+            self.notes.append(
+                f"Scan truncated `{path}` after {page_count} pages. "
+                "Re-run with narrower thresholds or a higher page-limit flag "
+                "if this store has a very large queue."
+            )
+
+
+def retry_delay(error: urllib.error.HTTPError, attempt: int) -> float:
+    retry_after = error.headers.get("Retry-After")
+    if retry_after:
+        try:
+            return max(0.0, float(retry_after))
+        except ValueError:
+            try:
+                retry_at = parsedate_to_datetime(retry_after)
+                if retry_at.tzinfo is None:
+                    retry_at = retry_at.replace(tzinfo=timezone.utc)
+                return max(0.0, (retry_at - datetime.now(timezone.utc)).total_seconds())
+            except (TypeError, ValueError):
+                pass
+    return min(30.0, 1.0 + (2.0 ** attempt))
 
 
 def normalize_domain(raw: str) -> str:
@@ -166,8 +192,9 @@ def related_order_number(row: dict[str, Any]) -> str:
     return str(order or "")
 
 
-def admin_order_url(domain: str, number: str) -> str:
-    return f"https://{domain}/dashboard/orders/{number}/" if number else f"https://{domain}/dashboard/orders/"
+def admin_order_url(admin_base_url: str, number: str) -> str:
+    base_url = admin_base_url.rstrip("/")
+    return f"{base_url}/orders/{number}/" if number else f"{base_url}/orders/"
 
 
 def severity_for(age: int | None, warning_days: int, critical_days: int) -> str:
@@ -184,15 +211,19 @@ def scan_incomplete_orders(
     now: datetime,
     lookback_days: int,
     idle_days: int,
+    admin_base_url: str,
+    max_pages: int,
 ) -> list[Finding]:
     findings: list[Finding] = []
     horizon = now - timedelta(days=lookback_days)
-    for order in client.paginate("orders/", {"fulfillment_status": "incomplete"}):
+    for order in client.paginate(
+        "orders/", {"fulfillment_status": "incomplete"}, max_pages=max_pages
+    ):
         if not fulfillment_status_matches(order, "incomplete"):
             continue
         placed = parse_dt(order_date(order))
         if placed and placed < horizon:
-            break
+            continue
         age = age_days(now, order_date(order))
         if age is not None and age < idle_days:
             continue
@@ -210,7 +241,7 @@ def scan_incomplete_orders(
                 status=f"incomplete/payment:{payment_status}",
                 reason="Incomplete order usually means the corresponding Shopify order was canceled." + amount_hint,
                 recommended_action="Open Order Details, review Payment Summary, and use the Refund button if money is owed back.",
-                admin_url=admin_order_url(client.domain, number),
+                admin_url=admin_order_url(admin_base_url, number),
                 docs_url=CS_GUIDE_URL,
             )
         )
@@ -223,15 +254,19 @@ def scan_rejected_orders(
     now: datetime,
     lookback_days: int,
     idle_days: int,
+    admin_base_url: str,
+    max_pages: int,
 ) -> list[Finding]:
     findings: list[Finding] = []
     horizon = now - timedelta(days=lookback_days)
-    for order in client.paginate("orders/", {"fulfillment_status": "rejected"}):
+    for order in client.paginate(
+        "orders/", {"fulfillment_status": "rejected"}, max_pages=max_pages
+    ):
         if not fulfillment_status_matches(order, "rejected"):
             continue
         placed = parse_dt(order_date(order))
         if placed and placed < horizon:
-            break
+            continue
         age = age_days(now, order_date(order))
         if age is not None and age < idle_days:
             continue
@@ -245,7 +280,7 @@ def scan_rejected_orders(
                 status="rejected",
                 reason="Shopify or Shop Sync refused the order for fulfillment.",
                 recommended_action="Review the rejection cause, correct customer data or Shopify stock/settings, then request fulfillment again if appropriate.",
-                admin_url=admin_order_url(client.domain, number),
+                admin_url=admin_order_url(admin_base_url, number),
                 docs_url=SHOP_SYNC_URL,
             )
         )
@@ -265,6 +300,8 @@ def scan_delivery_tracking(
     tracking_added_days: int,
     in_transit_days: int,
     delayed_days: int,
+    admin_base_url: str,
+    max_pages: int,
 ) -> tuple[list[Finding], list[str]]:
     status_thresholds = {
         "tracking_added": tracking_added_days,
@@ -276,7 +313,9 @@ def scan_delivery_tracking(
     notes: list[str] = []
     for status, threshold_days in status_thresholds.items():
         try:
-            rows = list(client.paginate("fulfillments/", {"status": status}, max_pages=25))
+            rows = list(
+                client.paginate("fulfillments/", {"status": status}, max_pages=max_pages)
+            )
         except urllib.error.HTTPError as e:
             notes.append(
                 f"Delivery Tracking status `{status}` not scanned: API returned HTTP {e.code}. "
@@ -299,16 +338,20 @@ def scan_delivery_tracking(
             if tracking_code:
                 reason += f" (tracking {tracking_code})"
             reason += "."
+            if status == "failed_delivery":
+                severity = "critical"
+            else:
+                severity = severity_for(age, threshold_days, threshold_days * 2)
             findings.append(
                 Finding(
                     queue="delivery_risk_review",
-                    severity="critical" if status == "failed_delivery" else severity_for(age, threshold_days, threshold_days * 2 or 1),
+                    severity=severity,
                     order_number=number,
                     age_days="" if age is None else str(age),
                     status=status,
                     reason=reason,
                     recommended_action="Contact the customer, carrier, or 3PL; reship, refund, or document the next step before the customer disputes.",
-                    admin_url=admin_order_url(client.domain, number),
+                    admin_url=admin_order_url(admin_base_url, number),
                     docs_url=DELIVERY_TRACKING_URL,
                 )
             )
@@ -391,6 +434,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Read-only Next Commerce ops scan")
     parser.add_argument("--domain", default=os.getenv("NEXT_STORE_DOMAIN"), help="Store domain or subdomain")
     parser.add_argument("--token", default=os.getenv("NEXT_ADMIN_API_TOKEN"), help="Admin API token")
+    parser.add_argument(
+        "--admin-base-url",
+        default=os.getenv("NEXT_ADMIN_BASE_URL"),
+        help="Dashboard base URL used for order links; defaults to https://<domain>/dashboard",
+    )
     parser.add_argument("--out-dir", default="next-ops-scan-output")
     parser.add_argument("--lookback-days", type=int, default=30)
     parser.add_argument("--incomplete-idle-days", type=int, default=0)
@@ -398,6 +446,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tracking-added-days", type=int, default=5)
     parser.add_argument("--in-transit-days", type=int, default=7)
     parser.add_argument("--delayed-days", type=int, default=3)
+    parser.add_argument("--orders-max-pages", type=int, default=50)
+    parser.add_argument("--fulfillments-max-pages", type=int, default=25)
     return parser.parse_args()
 
 
@@ -411,6 +461,7 @@ def main() -> int:
         return 2
 
     domain = normalize_domain(args.domain)
+    admin_base_url = args.admin_base_url or f"https://{domain}/dashboard"
     client = AdminClient(domain, args.token)
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -418,7 +469,20 @@ def main() -> int:
     try:
         client.get("orders/", {"limit": 1})
     except urllib.error.HTTPError as e:
-        print(f"Token/domain validation failed: HTTP {e.code}", file=sys.stderr)
+        if e.code in (401, 403):
+            print(
+                f"Token validation failed: HTTP {e.code}. Confirm the token is current "
+                "and includes orders read access.",
+                file=sys.stderr,
+            )
+        elif e.code == 404:
+            print(
+                f"Store/domain validation failed: HTTP 404 for {domain}. Confirm the "
+                "store subdomain or full domain.",
+                file=sys.stderr,
+            )
+        else:
+            print(f"Token/domain validation failed: HTTP {e.code}", file=sys.stderr)
         return 1
     except Exception as e:
         print(f"Token/domain validation failed: {e.__class__.__name__}: {e}", file=sys.stderr)
@@ -433,6 +497,8 @@ def main() -> int:
             now=now,
             lookback_days=args.lookback_days,
             idle_days=args.incomplete_idle_days,
+            admin_base_url=admin_base_url,
+            max_pages=args.orders_max_pages,
         )
     )
     findings.extend(
@@ -441,6 +507,8 @@ def main() -> int:
             now=now,
             lookback_days=args.lookback_days,
             idle_days=args.rejected_idle_days,
+            admin_base_url=admin_base_url,
+            max_pages=args.orders_max_pages,
         )
     )
     delivery_findings, delivery_notes = scan_delivery_tracking(
@@ -449,9 +517,12 @@ def main() -> int:
         tracking_added_days=args.tracking_added_days,
         in_transit_days=args.in_transit_days,
         delayed_days=args.delayed_days,
+        admin_base_url=admin_base_url,
+        max_pages=args.fulfillments_max_pages,
     )
     findings.extend(delivery_findings)
     notes.extend(delivery_notes)
+    notes.extend(client.notes)
 
     csv_path = out_dir / "next_ops_scan_results.csv"
     summary_path = out_dir / "next_ops_scan_summary.md"
