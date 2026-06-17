@@ -6,6 +6,7 @@ import argparse
 import csv
 import json
 import os
+import random
 import sys
 import time
 from email.utils import parsedate_to_datetime
@@ -119,19 +120,27 @@ class AdminClient:
 
 
 def retry_delay(error: urllib.error.HTTPError, attempt: int) -> float:
+    fallback_delay = jittered_backoff(attempt)
     retry_after = error.headers.get("Retry-After")
     if retry_after:
         try:
-            return max(0.0, float(retry_after))
+            delay = float(retry_after)
+            return delay if delay > 0 else fallback_delay
         except ValueError:
             try:
                 retry_at = parsedate_to_datetime(retry_after)
                 if retry_at.tzinfo is None:
                     retry_at = retry_at.replace(tzinfo=timezone.utc)
-                return max(0.0, (retry_at - datetime.now(timezone.utc)).total_seconds())
+                delay = (retry_at - datetime.now(timezone.utc)).total_seconds()
+                return delay if delay > 0 else fallback_delay
             except (TypeError, ValueError):
                 pass
-    return min(30.0, 1.0 + (2.0 ** attempt))
+    return fallback_delay
+
+
+def jittered_backoff(attempt: int) -> float:
+    base_delay = min(30.0, 1.0 + (2.0 ** attempt))
+    return base_delay + random.uniform(0.0, min(1.0, base_delay * 0.25))
 
 
 def normalize_domain(raw: str) -> str:
@@ -303,10 +312,10 @@ def scan_delivery_tracking(
     admin_base_url: str,
     max_pages: int,
 ) -> tuple[list[Finding], list[str]]:
-    status_thresholds = {
+    status_thresholds: dict[str, int | None] = {
         "tracking_added": tracking_added_days,
         "in_transit": in_transit_days,
-        "failed_delivery": 0,
+        "failed_delivery": None,
         "delayed": delayed_days,
     }
     findings: list[Finding] = []
@@ -328,12 +337,12 @@ def scan_delivery_tracking(
 
         for row in rows:
             age = age_days(now, fulfillment_timestamp(row, status))
-            if age is not None and age < threshold_days:
+            if threshold_days is not None and age is not None and age < threshold_days:
                 continue
             number = related_order_number(row)
             tracking_code = first_present(row, ["tracking_code", "tracking_number"])
             reason = f"Fulfillment is `{status}`"
-            if threshold_days:
+            if threshold_days is not None:
                 reason += f" for at least {threshold_days} days"
             if tracking_code:
                 reason += f" (tracking {tracking_code})"
