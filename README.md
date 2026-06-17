@@ -15,6 +15,32 @@ Pre-built skills that give AI coding agents deep knowledge of the Next Commerce 
 | [**Daily Ops Risk Scan**](next-ops-scan/) | Read-only scan for Incomplete orders, Rejected orders, and Delivery Tracking failures/staleness | You want a daily queue of risky orders and stuck shipments to reduce support friction and dispute risk |
 | [**New Campaign Setup**](next-campaigns-setup/) | Scaffold and fully configure a new Next Commerce campaign repo — brand init, starter template, campaigns.json seed, API key, store details, and analytics in one pass | Starting a new Next Commerce campaign for a brand |
 
+### Daily Ops Risk Scan
+
+Use [`next-ops-scan`](next-ops-scan/) when a merchant or agency wants a daily,
+read-only queue of operational issues that can turn into customer friction,
+refund misses, or disputes. It checks one store for:
+
+- Incomplete orders that likely need refund review in NEXT.
+- Rejected orders that need Shop Sync / order-data correction review.
+- Delivery Tracking failures or stale shipments when Delivery Tracking is installed.
+
+Install just this skill:
+
+```bash
+npx skills add NextCommerceCo/skills -s next-ops-scan
+```
+
+Then ask your AI tool:
+
+> Run `/next-ops-scan` for my store and help me review today's risky order queues.
+
+The skill asks you to bring your own limited-scope Admin API token from
+**Dashboard > Settings > API Access**. Store it locally as `NEXT_ADMIN_API_TOKEN`
+or in a gitignored env file. The scan is read-only: it produces a Markdown
+summary and CSV, then points your team to the right manual remediation flow
+instead of refunding, canceling, fulfilling, editing, or messaging customers.
+
 ### Campaigns OS Skill Boundary
 
 This repo hosts `next-campaigns-setup`, which covers Next Commerce campaign repo bootstrap and first configuration.
