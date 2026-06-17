@@ -98,6 +98,28 @@
       ]
     },
     {
+      "id": "next-ops-scan",
+      "name": "Daily Ops Risk Scan",
+      "version": "0.1.0",
+      "path": "next-ops-scan/SKILL.md",
+      "domain": "operations",
+      "description": "Run a read-only daily operations risk scan for one Next Commerce store, finding Incomplete orders, Rejected orders, and Delivery Tracking failures or stale shipments with manual next steps.",
+      "triggers": [
+        "daily ops scan",
+        "risk scan",
+        "find risky orders",
+        "check incomplete orders",
+        "check rejected orders",
+        "stuck shipments",
+        "delivery failures",
+        "reduce disputes"
+      ],
+      "prerequisites": [
+        "Python 3",
+        "A Next Commerce store with API key (orders:read plus fulfillment read access for delivery statuses)"
+      ]
+    },
+    {
       "id": "next-campaigns-setup",
       "name": "New Campaign Setup",
       "version": "1.1.0",
