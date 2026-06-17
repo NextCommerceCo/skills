@@ -1,14 +1,14 @@
 ---
 name: next-theme-dev
-version: 1.3.2
+version: 1.3.1
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
   Django Template Language, Theme Settings, ntk CLI, storefront GraphQL,
-  Tailwind/Spark Web Components, Figma-led storefront designs, or Intro
-  Bootstrap/SCSS patterns. Trigger when working in a theme directory with
-  manifest.json, config.yml, or standard directories such as assets/, configs/,
-  layouts/, templates/, and partials/.
+  Tailwind/Spark Web Components, or Intro Bootstrap/SCSS patterns. Also use
+  when working in a theme directory with a Figma source. Trigger when working in
+  a theme directory with manifest.json, config.yml, or standard directories such
+  as assets/, configs/, layouts/, templates/, and partials/.
 allowed-tools:
   - Bash
   - Read
@@ -346,7 +346,7 @@ Identify the theme family before implementation. Spark designs should map to Tai
 
 ### Step 1.5: Figma Fidelity Loop
 
-When a Figma source is provided, treat the Figma file as a visual spec, not merely an asset bucket. Do not require the user to repeatedly ask for closer matching. Run this loop by default until the remaining deltas are explicit.
+When a Figma source is provided, treat the Figma file as a visual spec, not merely an asset bucket. Run this loop proactively so visual deltas are found, fixed, or documented before handoff.
 
 1. **Map the design.** Identify the Figma file key, desktop/tablet/mobile frames, page/frame names, and section order. Record which storefront route/template each frame maps to.
 2. **Classify every section before building.** Decide what should be semantic HTML/CSS, what should use live platform data, what should be an exported image/vector asset, and what is intentionally a static composed frame. Text, buttons, controls, product selectors, prices, tables, FAQs, and nav/footer links should normally be rendered by the theme, not baked into a screenshot.
@@ -366,16 +366,14 @@ This is the **#1 time bottleneck** — design assets are merchant-specific and c
 
 - **Fonts:** Convert to `.woff2`, create `@font-face` declarations in CSS, add font files to `assets/`
 - **Images:** Hero images, product photography, lifestyle shots, product cutouts, and press logos must come from the merchant or the design source. Use placeholders only while blocked, and replace them before QA
-- **Figma sources:** Never ship diagnostic screenshots, frame previews, or thumbnail exports as production imagery unless the design explicitly calls for that thumbnail. Inspect the Figma layer tree and export the original image fill, vector node, or intended composed asset.
 - **Icons:** Prefer inline SVG (smallest payload, style-able) or an icon font. Avoid individual image files for icons
-- **Optimization:** All assets serve via CDN. Keep routine images under 200KB when quality allows. `ntk` supports WebP, but the current accepted extension list does not include AVIF. Optimize after confirming the correct source asset and assembling the design, not before asset selection.
+- **Optimization:** All assets serve via CDN. Keep routine images under 200KB when quality allows. `ntk` supports WebP, but the current accepted extension list does not include AVIF.
+- **Optimization timing:** Optimize after confirming the correct source asset is selected, but before assembling the design into the theme.
 - **Manifest:** For merchant-specific exports, keep an export checklist or manifest mapping Figma node IDs to local filenames. Prefer `docs/<merchant>-asset-manifest.json` so source metadata does not become a CDN-served storefront asset. Use `assets/img/<merchant>/manifest.json` only when the manifest is intentionally public and contains no internal design provenance.
 
 ### Figma Asset Export Runbook
 
 Use this runbook before exporting design assets into Spark. The main rule: **do not export a visible Figma frame until you know whether it is the real asset or a composed UI artifact.**
-
-Diagnostic screenshots, frame exports, and thumbnails are useful for orientation only. They must not become the shipped build asset unless the storefront UI is actually a thumbnail or the whole visible Figma composition is intentionally meant to be one static bitmap. When in doubt, find the original image fill or clean vector underneath the frame.
 
 **Identify the file key and node IDs**
 
@@ -589,19 +587,30 @@ For per-user content (cart, auth, wishlists):
 
 ### Add a Custom Page Template
 
-1. For the default page template, modify or create `templates/pages/page.html`. For a custom page template selectable from the dashboard/API, create `templates/pages/page.{template_name}.html`:
+1. For the default page template, modify or create `templates/pages/page.html`. For a custom page template selectable from the dashboard/API, create `templates/pages/page.<template-name>.html` (replace `<template-name>` with the actual template slug):
 ```django
 {% extends "layouts/base.html" %}
 {% block content %}
 <div class="container">
     <h1>{% if page.title %}{{ page.title }}{% else %}{{ flatpage.title }}{% endif %}</h1>
-    <div>{% if page.content %}{{ page.content|safe }}{% else %}{{ flatpage.content|safe }}{% endif %}</div>
+    {% firstof page.url flatpage.url as page_url %}
+    {% if page_url %}
+        <a href="{{ page_url }}">View page</a>
+    {% elif page.slug %}
+        {# Use this fallback only after confirming root-slug routes for the store. #}
+        <a href="/{{ page.slug }}/">View page</a>
+    {% endif %}
+    {% if page.content %}
+        <div>{{ page.content }}</div>
+    {% elif flatpage.content %}
+        <div>{{ flatpage.content }}</div>
+    {% endif %}
 </div>
 {% endblock %}
 ```
 
-2. Push: `ntk push templates/pages/page.html` or `ntk push templates/pages/page.{template_name}.html`.
-3. Create or update the Page record in the dashboard and select the custom template. If using the Admin API, set `template` to `{template_name}` for `page.{template_name}.html`; leave it blank for the default `page.html`.
+2. Push: `ntk push templates/pages/page.html` or `ntk push templates/pages/page.<template-name>.html`.
+3. Create or update the Page record in the dashboard and select the custom template. If using the Admin API, set `template` to the template slug for `page.<template-name>.html`; leave it blank for the default `page.html`.
 4. Verify the actual storefront route. Many Next Commerce flatpages route at `/<slug>/`, not `/pages/<slug>/`. Do not hardcode page links until a `curl -I` or browser check confirms the store's route shape.
 
 **Admin API page creation:** `ntk` manages theme files only; it does not create dashboard Page records. If an admin token has `content:write`, create pages through the Admin API:
@@ -609,9 +618,11 @@ For per-user content (cart, auth, wishlists):
 ```bash
 curl -sS -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"title":"Our Technology","slug":"our-technology","content":"<p>Theme-rendered page.</p>","template":"","meta_title":"Our Technology","meta_description":"..."}' \
+  -d '{"title":"Our Technology","slug":"our-technology","content":"<p>Theme-rendered page.</p>","template":"","meta_title":"Our Technology","meta_description":"Theme-rendered page."}' \
   "https://{store}.29next.store/api/admin/pages/"
 ```
+
+For a custom template file such as `templates/pages/page.story.html`, send `"template":"story"` instead of the empty default-template value.
 
 After creation, verify the route with the preview theme:
 
@@ -619,7 +630,7 @@ After creation, verify the route with the preview theme:
 curl -I "https://{store}.29next.store/{slug}/?preview_theme={theme_id}&skip_cache=1"
 ```
 
-**Context gotcha:** Some page routes expose `page.title`, `page.content`, and `page.slug`; older Spark examples use `flatpage.title`, `flatpage.content`, and `flatpage.url`. For merchant templates that need to be portable, support `page.*` first and keep `flatpage.*` as a fallback.
+**Context gotcha:** Some page routes expose `page.title`, `page.content`, `page.url`, and `page.slug`; older Spark examples use `flatpage.title`, `flatpage.content`, and `flatpage.url`. For merchant templates that need to be portable, support `page.*` first and keep `flatpage.*` as a fallback. Prefer `page.url` or `flatpage.url` when present; use `/<slug>/` only after confirming root-slug routes for the store. Admin page `content` is rich text; keep Django auto-escaping by default, and use `|safe` only for trusted admin-authored HTML after sanitizing any non-admin HTML.
 
 ### Add a Custom Product Template
 
