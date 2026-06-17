@@ -108,6 +108,29 @@ npx skills update next-theme-dev
 
 For tools the `skills` CLI doesn't support, each `SKILL.md` is plain markdown — load it as a system prompt, context file, or chat upload.
 
+### Local Guided Installer
+
+From a local checkout, `skills.sh` can preview or sync the bundled skill
+directories into common local agent profiles:
+
+```bash
+./skills.sh
+./skills.sh status
+./skills.sh install codex
+./skills.sh install codex next-ops-scan
+./skills.sh dry-run --target /tmp/next-skills next-ops-scan
+```
+
+Targets:
+
+- `claude` -> `~/.claude/skills`
+- `codex` -> `~/.codex/skills`
+- `agents` -> `~/.agents/skills`
+- `all` -> all of the above
+
+Restart local agent sessions after updating skills so the refreshed instructions
+are loaded.
+
 ## Machine-Readable Index
 
 For AI agents that need to programmatically discover available skills, [`skills.json`](skills.json) provides a structured manifest with skill IDs, descriptions, trigger phrases, and prerequisites. Agents can fetch this single file to decide which skill to load.
@@ -127,5 +150,6 @@ Each skill is a directory containing a single `SKILL.md` file. To add a new skil
 2. Add a `SKILL.md` with YAML frontmatter (`name`, `version`, `description`, `allowed-tools`) followed by the skill instructions in markdown
 3. Add a "Using This Skill" section with cross-tool usage instructions (see existing skills for the format)
 4. Add an entry to `skills.json`
-5. Update this README's skills table
-6. Open a PR
+5. Update this README's skills table and any installer notes that should mention the skill
+6. Run `./skills.sh status` to confirm the local installer can discover the skill
+7. Open a PR
