@@ -118,6 +118,7 @@ directories into common local agent profiles:
 ./skills.sh status
 ./skills.sh install codex
 ./skills.sh install codex next-ops-scan
+./skills.sh status --target /tmp/next-skills next-ops-scan
 ./skills.sh dry-run --target /tmp/next-skills next-ops-scan
 ```
 
@@ -130,6 +131,10 @@ Targets:
 
 Restart local agent sessions after updating skills so the refreshed instructions
 are loaded.
+
+Updating an existing skill directory uses `rsync` so the destination path remains
+present while files are refreshed. Install `rsync` before using `skills.sh` on
+minimal environments that do not include it by default.
 
 ## Machine-Readable Index
 
