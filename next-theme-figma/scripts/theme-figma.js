@@ -367,9 +367,16 @@ function validatePackage(dir) {
     errors.push('figma-handoff.json: no Figma URL or file key recorded');
   }
 
-  if (routes && Array.isArray(routes.routes)) {
-    if (!routes.routes.length) warnings.push('routes.json: no routes recorded');
-    for (const route of routes.routes) {
+  const routeEntries = expectArray(routes, 'routes', 'routes.json', errors);
+  const sectionEntries = expectArray(sections, 'sections', 'sections.json', errors);
+  const assetEntries = expectArray(assets, 'assets', 'assets.json', errors);
+  const divergenceEntries = expectArray(divergence, 'entries', 'spark-divergence-ledger.json', errors);
+  const viewportConfig = expectObject(coverage, 'viewports', 'viewport-coverage.json', errors);
+  const coverageEntries = expectArray(coverage, 'coverage', 'viewport-coverage.json', errors);
+
+  if (routeEntries) {
+    if (!routeEntries.length) warnings.push('routes.json: no routes recorded');
+    for (const route of routeEntries) {
       if (!route.route_id) errors.push('routes.json: route missing route_id');
       if (!route.storefront_path) errors.push(`${route.route_id || 'route'}: missing storefront_path`);
       if (!route.section_order || !route.section_order.length) {
@@ -378,9 +385,9 @@ function validatePackage(dir) {
     }
   }
 
-  if (sections && Array.isArray(sections.sections)) {
-    if (!sections.sections.length) warnings.push('sections.json: no sections recorded');
-    for (const section of sections.sections) {
+  if (sectionEntries) {
+    if (!sectionEntries.length) warnings.push('sections.json: no sections recorded');
+    for (const section of sectionEntries) {
       const id = section.section_id || 'section';
       if (!section.section_id) errors.push('sections.json: section missing section_id');
       if (!CLASSIFICATIONS.has(section.classification)) {
@@ -396,8 +403,9 @@ function validatePackage(dir) {
     }
   }
 
-  if (assets && Array.isArray(assets.assets)) {
-    for (const asset of assets.assets) {
+  if (assetEntries) {
+    if (!assetEntries.length) warnings.push('assets.json: no assets recorded');
+    for (const asset of assetEntries) {
       const id = asset.asset_id || 'asset';
       if (!ASSET_PREFIXES.has(asset.prefix)) errors.push(`${id}: invalid prefix "${asset.prefix}"`);
       if (!asset.source_node_id) warnings.push(`${id}: missing source_node_id`);
@@ -412,7 +420,9 @@ function validatePackage(dir) {
       if (typeof asset.canvas_rendered !== 'boolean') {
         warnings.push(`${id}: canvas_rendered should be true or false`);
       }
-      if (asset.optimization_status && !OPTIMIZATION_STATUSES.has(asset.optimization_status)) {
+      if (!asset.optimization_status) {
+        errors.push(`${id}: missing optimization_status`);
+      } else if (!OPTIMIZATION_STATUSES.has(asset.optimization_status)) {
         errors.push(`${id}: invalid optimization_status "${asset.optimization_status}"`);
       }
       if (typeof asset.replace_with_backend_product_media !== 'boolean') {
@@ -424,33 +434,44 @@ function validatePackage(dir) {
     }
   }
 
-  if (divergence && Array.isArray(divergence.entries)) {
-    for (const entry of divergence.entries) {
+  if (divergenceEntries) {
+    if (!divergenceEntries.length) warnings.push('spark-divergence-ledger.json: no divergence entries recorded');
+    for (const entry of divergenceEntries) {
       const id = entry.divergence_id || entry.surface || 'divergence';
       if (!entry.surface) warnings.push(`${id}: missing surface`);
       if (!entry.spark_platform_behavior) warnings.push(`${id}: missing spark_platform_behavior`);
       if (!entry.implementation_guardrail) warnings.push(`${id}: missing implementation_guardrail`);
-      if (entry.decision && !DIVERGENCE_DECISIONS.has(entry.decision)) {
+      if (!entry.decision) {
+        errors.push(`${id}: missing decision`);
+      } else if (!DIVERGENCE_DECISIONS.has(entry.decision)) {
         errors.push(`${id}: invalid decision "${entry.decision}"`);
       }
-      if (entry.status && !DIVERGENCE_STATUSES.has(entry.status)) {
+      if (!entry.status) {
+        errors.push(`${id}: missing status`);
+      } else if (!DIVERGENCE_STATUSES.has(entry.status)) {
         errors.push(`${id}: invalid status "${entry.status}"`);
       }
     }
   }
 
-  if (coverage && coverage.viewports) {
+  if (viewportConfig) {
     for (const name of ['desktop', 'tablet', 'mobile']) {
-      const vp = coverage.viewports[name];
+      const vp = viewportConfig[name];
       if (!vp || typeof vp.available !== 'boolean') {
         warnings.push(`viewport-coverage.json: ${name} availability not recorded`);
         continue;
       }
-      if (vp.expected_width && !VIEWPORT_WIDTHS[name].has(Number(vp.expected_width))) {
-        errors.push(`viewport-coverage.json: ${name} expected_width must be one of ${Array.from(VIEWPORT_WIDTHS[name]).join(', ')}`);
+      if (vp.expected_width) {
+        const width = Number(vp.expected_width);
+        if (!Number.isFinite(width)) {
+          errors.push(`viewport-coverage.json: ${name} expected_width must be a number`);
+        } else if (!VIEWPORT_WIDTHS[name].has(width)) {
+          errors.push(`viewport-coverage.json: ${name} expected_width must be one of ${Array.from(VIEWPORT_WIDTHS[name]).join(', ')}`);
+        }
       }
     }
   }
+  if (coverageEntries && !coverageEntries.length) warnings.push('viewport-coverage.json: no route coverage recorded');
 
   for (const warning of warnings) console.log(`Warning: ${warning}`);
   if (errors.length) {
@@ -567,6 +588,24 @@ function expectSchema(value, schema, label, errors) {
   if (value.schema_version !== schema) {
     errors.push(`${label}: schema_version must be "${schema}"`);
   }
+}
+
+function expectArray(value, key, label, errors) {
+  if (!value) return null;
+  if (!Array.isArray(value[key])) {
+    errors.push(`${label}: ${key} must be an array`);
+    return null;
+  }
+  return value[key];
+}
+
+function expectObject(value, key, label, errors) {
+  if (!value) return null;
+  if (!value[key] || typeof value[key] !== 'object' || Array.isArray(value[key])) {
+    errors.push(`${label}: ${key} must be an object`);
+    return null;
+  }
+  return value[key];
 }
 
 function printJson(value) {

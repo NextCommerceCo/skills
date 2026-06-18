@@ -63,7 +63,7 @@ For each asset, record:
 - `prefix`: `img`, `bg`, or `img-group`
 - `target_path`
 - `asset_url_path` for theme template usage when known
-- `format`: `png`, `jpg`, `svg`, or `webp`
+- `format`: `png`, `jpg`, `jpeg`, `svg`, or `webp`
 - `expected_dimensions`: width and height after export
 - `requires_alpha`
 - `canvas_rendered`
@@ -75,7 +75,7 @@ For each asset, record:
 ## Format Choices
 
 - PNG: transparent product cutouts, logos, UI composites with alpha, crisp edges.
-- JPG: opaque photography where size matters.
+- JPG/JPEG: opaque photography where size matters.
 - SVG: clean vector logos/icons with no unwanted text or embedded raster.
 - WebP: optimized final media when the theme/ntk target supports it.
 - AVIF: do not rely on it unless the target theme tooling accepts and uploads it.
