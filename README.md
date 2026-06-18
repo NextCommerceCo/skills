@@ -28,7 +28,7 @@ refund misses, or disputes. It checks one store for:
 Install just this skill:
 
 ```bash
-npx skills add NextCommerceCo/skills -s next-ops-scan
+npx skills add NextCommerceCo/skills -g --skill next-ops-scan
 ```
 
 Then ask your AI tool:
