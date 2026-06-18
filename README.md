@@ -8,12 +8,34 @@ Pre-built skills that give AI coding agents deep knowledge of the Next Commerce 
 
 | Skill | What It Does | When to Use |
 |-------|-------------|-------------|
+| [**Theme Figma Handoff**](next-theme-figma/) | Prepare Figma storefront designs for implementation - source validation, section classification, asset manifests, Spark divergence ledger, and visual refs | You have a Figma storefront/PDP/homepage design and need a low-inference handoff before `next-theme-dev` implements it |
 | [**Theme Development**](next-theme-dev/) | Build and customize storefront themes — DTL templates, ntk CLI, Tailwind CSS, settings, side cart | You're editing theme files, setting up a new storefront, or debugging template issues |
 | [**Bulk Fulfillment Sync**](next-bulk-fulfill/) | Update orders to Fulfilled with tracking numbers from a CSV | Your fulfillment provider shipped orders but tracking didn't sync back — orders stuck in Processing |
 | [**Bulk Fulfillment Move**](next-bulk-move/) | Move fulfillment orders between warehouse locations in bulk — by order-number file or by Product ID / SKU list | Switching fulfillment providers, or moving every FO containing a given SKU/product to a new location |
 | [**Bulk Subscription Actions**](next-bulk-subscription/) | Pause, cancel, or PATCH subscription fields for a list of subscription IDs | Merchant wants to bulk-pause until a date, bulk-shift renewals, bulk-cancel, or migrate subscriptions between gateways |
 | [**Daily Ops Risk Scan**](next-ops-scan/) | Read-only scan for Incomplete orders, Rejected orders, and Delivery Tracking failures/staleness | You want a daily queue of risky orders and stuck shipments to reduce support friction and dispute risk |
 | [**New Campaign Setup**](next-campaigns-setup/) | Scaffold and fully configure a new Next Commerce campaign repo — brand init, starter template, campaigns.json seed, API key, store details, and analytics in one pass | Starting a new Next Commerce campaign for a brand |
+
+### Theme Figma Handoff And Theme Development
+
+Use [`next-theme-figma`](next-theme-figma/) upstream of
+[`next-theme-dev`](next-theme-dev/) when a storefront implementation starts from
+Figma. `next-theme-figma` validates the design source, extracts/classifies
+assets, records Spark/platform divergences, captures desktop/tablet/mobile
+references, and writes an implementation handoff package. `next-theme-dev` then
+consumes that package for the actual DTL, Spark, CSS, ntk, and storefront QA
+work.
+
+Install just the Figma handoff skill:
+
+```bash
+npx skills add NextCommerceCo/skills -g --skill next-theme-figma
+```
+
+Then ask your AI tool:
+
+> Use `/next-theme-figma` to prepare this Spark storefront Figma design for a
+> `next-theme-dev` implementation handoff.
 
 ### Daily Ops Risk Scan
 

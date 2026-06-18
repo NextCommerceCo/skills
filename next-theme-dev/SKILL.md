@@ -1,14 +1,15 @@
 ---
 name: next-theme-dev
-version: 1.3.1
+version: 1.3.2
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
   Django Template Language, Theme Settings, ntk CLI, storefront GraphQL,
   Tailwind/Spark Web Components, or Intro Bootstrap/SCSS patterns. Also use
-  when working in a theme directory with a Figma source. Trigger when working in
-  a theme directory with manifest.json, config.yml, or standard directories such
-  as assets/, configs/, layouts/, templates/, and partials/.
+  after next-theme-figma has prepared a Figma storefront handoff package.
+  Trigger when working in a theme directory with manifest.json, config.yml, or
+  standard directories such as assets/, configs/, layouts/, templates/, and
+  partials/.
 allowed-tools:
   - Bash
   - Read
@@ -33,6 +34,13 @@ This skill works with any AI coding tool that can load a markdown file as contex
 ---
 
 ## Preamble — Environment Check
+
+If the task starts from a Figma storefront design, run `next-theme-figma` first
+when practical. That upstream skill validates the Figma source, classifies
+sections/assets, records Spark/platform divergences, captures reference
+screenshots, and produces the implementation handoff. Use this skill after that
+handoff exists to make the actual DTL, Spark, CSS, ntk, and storefront QA
+changes.
 
 Run these checks at the start of every theme task to understand the working context:
 
