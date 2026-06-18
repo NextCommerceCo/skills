@@ -22,7 +22,16 @@ const CLASSIFICATIONS = new Set([
 ]);
 
 const ASSET_PREFIXES = new Set(['img', 'bg', 'img-group']);
+const ASSET_FORMATS = new Set(['png', 'jpg', 'jpeg', 'svg', 'webp']);
+const OPTIMIZATION_STATUSES = new Set(['not-started', 'source-selected', 'optimized', 'blocked']);
+const DIVERGENCE_DECISIONS = new Set(['spark-wins', 'figma-wins-with-guardrails', 'needs-approval', 'blocked']);
+const DIVERGENCE_STATUSES = new Set(['open', 'approved', 'implemented', 'blocked', 'accepted-gap']);
 const MODES = new Set(['design-audit', 'handoff-prep', 'implementation-handoff']);
+const VIEWPORT_WIDTHS = {
+  desktop: new Set([1440]),
+  tablet: new Set([768]),
+  mobile: new Set([375, 390]),
+};
 
 main();
 
@@ -31,7 +40,7 @@ function main() {
   try {
     if (!command || command === 'help' || command === '--help' || command === '-h') {
       printHelp();
-      process.exit(command ? 0 : 1);
+      process.exit(command ? 0 : 2);
     }
 
     if (command === 'parse-url') {
@@ -355,7 +364,7 @@ function validatePackage(dir) {
   expectSchema(coverage, SCHEMA.coverage, 'viewport-coverage.json', errors);
 
   if (handoff && !handoff.figma?.url && !handoff.figma?.file_key) {
-    warnings.push('figma-handoff.json: no Figma URL or file key recorded');
+    errors.push('figma-handoff.json: no Figma URL or file key recorded');
   }
 
   if (routes && Array.isArray(routes.routes)) {
@@ -394,8 +403,23 @@ function validatePackage(dir) {
       if (!asset.source_node_id) warnings.push(`${id}: missing source_node_id`);
       if (!asset.target_path) warnings.push(`${id}: missing target_path`);
       if (!asset.format) warnings.push(`${id}: missing format`);
+      if (asset.format && !ASSET_FORMATS.has(asset.format)) {
+        errors.push(`${id}: invalid format "${asset.format}"`);
+      }
+      if (typeof asset.requires_alpha !== 'boolean') {
+        warnings.push(`${id}: requires_alpha should be true or false`);
+      }
+      if (typeof asset.canvas_rendered !== 'boolean') {
+        warnings.push(`${id}: canvas_rendered should be true or false`);
+      }
+      if (asset.optimization_status && !OPTIMIZATION_STATUSES.has(asset.optimization_status)) {
+        errors.push(`${id}: invalid optimization_status "${asset.optimization_status}"`);
+      }
+      if (typeof asset.replace_with_backend_product_media !== 'boolean') {
+        warnings.push(`${id}: replace_with_backend_product_media should be true or false`);
+      }
       if (asset.prefix === 'img-group' && asset.clean_export_verified !== true) {
-        warnings.push(`${id}: img-group should set clean_export_verified=true after source review`);
+        errors.push(`${id}: img-group requires clean_export_verified=true after source review`);
       }
     }
   }
@@ -406,6 +430,12 @@ function validatePackage(dir) {
       if (!entry.surface) warnings.push(`${id}: missing surface`);
       if (!entry.spark_platform_behavior) warnings.push(`${id}: missing spark_platform_behavior`);
       if (!entry.implementation_guardrail) warnings.push(`${id}: missing implementation_guardrail`);
+      if (entry.decision && !DIVERGENCE_DECISIONS.has(entry.decision)) {
+        errors.push(`${id}: invalid decision "${entry.decision}"`);
+      }
+      if (entry.status && !DIVERGENCE_STATUSES.has(entry.status)) {
+        errors.push(`${id}: invalid status "${entry.status}"`);
+      }
     }
   }
 
@@ -414,6 +444,10 @@ function validatePackage(dir) {
       const vp = coverage.viewports[name];
       if (!vp || typeof vp.available !== 'boolean') {
         warnings.push(`viewport-coverage.json: ${name} availability not recorded`);
+        continue;
+      }
+      if (vp.expected_width && !VIEWPORT_WIDTHS[name].has(Number(vp.expected_width))) {
+        errors.push(`viewport-coverage.json: ${name} expected_width must be one of ${Array.from(VIEWPORT_WIDTHS[name]).join(', ')}`);
       }
     }
   }
