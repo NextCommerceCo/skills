@@ -1,0 +1,4 @@
+interface:
+  display_name: "NEXT Theme Figma"
+  short_description: "Prepare Figma storefront handoffs for Spark themes"
+  default_prompt: "Use $next-theme-figma to prepare a Spark storefront Figma design for implementation handoff."

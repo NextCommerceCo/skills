@@ -5,12 +5,49 @@
   "homepage": "https://github.com/NextCommerceCo/skills",
   "skills": [
     {
+      "id": "next-theme-figma",
+      "name": "Theme Figma Handoff",
+      "version": "0.1.0",
+      "path": "next-theme-figma/SKILL.md",
+      "domain": "storefronts",
+      "description": "Prepare Figma storefront designs for NEXT Commerce and Spark theme implementation by validating source structure, classifying sections and assets, recording Spark divergences, and generating a low-inference handoff for next-theme-dev.",
+      "related_skills": [
+        {
+          "id": "next-theme-dev",
+          "relationship": "Downstream implementation skill that consumes the Figma handoff and performs DTL/Spark/theme edits"
+        }
+      ],
+      "triggers": [
+        "Figma storefront design",
+        "Spark Figma handoff",
+        "theme from Figma",
+        "PDP Figma design",
+        "homepage Figma sections",
+        "Figma asset extraction",
+        "mobile tablet desktop Figma fidelity",
+        "visual compare Figma theme",
+        "prepare handoff for next-theme-dev"
+      ],
+      "prerequisites": [
+        "Figma file or selection links with view access",
+        "Target Next Commerce store/theme/repo context",
+        "Figma MCP or REST/API access when live node inspection or screenshot export is needed",
+        "next-theme-dev for downstream theme implementation"
+      ]
+    },
+    {
       "id": "next-theme-dev",
       "name": "Theme Development",
-      "version": "1.3.1",
+      "version": "1.3.2",
       "path": "next-theme-dev/SKILL.md",
       "domain": "storefronts",
       "description": "Build, modify, and debug Next Commerce storefront themes, including Spark, Intro Bootstrap, Theme Settings, ntk CLI, DTL templates, and storefront GraphQL.",
+      "related_skills": [
+        {
+          "id": "next-theme-figma",
+          "relationship": "Upstream Figma source validation and handoff preparation before implementation"
+        }
+      ],
       "triggers": [
         "Spark theme",
         "Intro Bootstrap",
