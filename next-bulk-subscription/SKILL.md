@@ -35,11 +35,9 @@ This skill works with any AI coding tool that can load a markdown file as contex
 
 | Tool | How to Use |
 |------|-----------|
-| **Claude Code** | Install to `~/.claude/skills/next-bulk-subscription/` (see repo README). Invoke with `/next-bulk-subscription`. |
-| **OpenAI Codex** | Pass as a system prompt: `codex --system-prompt next-bulk-subscription/SKILL.md` |
-| **Cursor** | Add to `.cursor/rules/` or reference in your project's AI context files. |
-| **GitHub Copilot** | Add to `.github/copilot-instructions.md` or include via `@workspace` reference. |
-| **Other agents** | Load `SKILL.md` as context/system prompt. The instructions are tool-agnostic markdown. |
+| **Recommended** | Clone `NextCommerceCo/skills` and run `./skills.sh`; choose your local agent target and this skill. |
+| **No checkout** | Use `npx skills add NextCommerceCo/skills -g --skill next-bulk-subscription` and add `-a <agent>` when you want a specific agent. |
+| **Fallback** | Load this `SKILL.md` as a system prompt, context file, rule, or chat upload if your tool does not support native skills. |
 
 ---
 

@@ -52,69 +52,24 @@ The canonical Campaigns OS lifecycle skills — build, polish, and QA — ship w
 
 ## Quick Start
 
-### Ask Your AI Tool to Install
+### Recommended: Local Guided Installer
 
-If you use an AI coding tool, the easiest path is to ask it to install the skill for you:
+For most Next Commerce users, the most reliable path is to clone this repo and
+run the bundled installer. It previews changes before writing, supports common
+local agent profiles, and does not depend on external installer UX changing over
+time.
 
-> Install the Next Commerce AI skill I need from https://github.com/NextCommerceCo/skills.
-> Use the installation location for my current AI tool and operating system. If my tool
-> supports native skills, install each skill as a directory containing its `SKILL.md`.
-> If it only supports rules, prompts, or context files, add the relevant `SKILL.md`
-> there instead. Prefer HTTPS clone unless my GitHub SSH access is already configured.
-
-Tell it which skill you want, or ask it to inspect [`skills.json`](skills.json) and choose the relevant one.
-
-### Manual Install
-
-We recommend the [`skills` CLI](https://github.com/vercel-labs/skills) — a friendly skill installer utility that works across every major AI coding tool. It pulls `SKILL.md` files from a GitHub repo and drops them into the right config directory for whichever assistant you use, with built-in support for Claude Code, Cursor, Codex, GitHub Copilot, Gemini CLI, Windsurf, and 50+ other LLM-powered agents.
-
-**Install all skills from this repo:**
+**Clone and run the guided installer:**
 
 ```bash
-npx skills add NextCommerceCo/skills
-```
-
-**Install a single skill:**
-
-```bash
-npx skills add NextCommerceCo/skills -s next-theme-dev
-```
-
-**List available skills without installing:**
-
-```bash
-npx skills add NextCommerceCo/skills --list
-```
-
-**Target a specific agent** (auto-detected by default):
-
-```bash
-npx skills add NextCommerceCo/skills -a claude-code
-```
-
-Once installed, Claude Code auto-detects when a skill is relevant, or you can invoke it directly with `/<skill-name>` (e.g. `/next-theme-dev`). If the skills directory did not exist before Claude Code started, restart Claude Code so it can discover the new directory.
-
-**Update all installed skills:**
-
-```bash
-npx skills update
-```
-
-**Update a single skill:**
-
-```bash
-npx skills update next-theme-dev
-```
-
-For tools the `skills` CLI doesn't support, each `SKILL.md` is plain markdown — load it as a system prompt, context file, or chat upload.
-
-### Local Guided Installer
-
-From a local checkout, `skills.sh` can preview or sync the bundled skill
-directories into common local agent profiles:
-
-```bash
+git clone https://github.com/NextCommerceCo/skills.git
+cd skills
 ./skills.sh
+```
+
+**Preview or install directly:**
+
+```bash
 ./skills.sh status
 ./skills.sh install codex
 ./skills.sh install codex next-ops-scan
@@ -136,6 +91,62 @@ Updating an existing skill directory uses `rsync` so the destination path remain
 present while files are refreshed. Install `rsync` before using `skills.sh` on
 minimal environments that do not include it by default.
 
+### Ask Your AI Tool to Install
+
+If you use an AI coding tool, you can also ask it to run the local guided
+installer for you:
+
+> Install the Next Commerce AI skill I need from https://github.com/NextCommerceCo/skills.
+> Prefer cloning the repo and running `./skills.sh`, choosing the installation
+> location for my current AI tool. If a local checkout is not appropriate, use the
+> public `npx skills` installer or load the relevant `SKILL.md` as context.
+
+Tell it which skill you want, or ask it to inspect [`skills.json`](skills.json) and choose the relevant one.
+
+### No-Checkout Install
+
+If you want a one-liner without keeping a local checkout, use the
+[`skills` CLI](https://github.com/vercel-labs/skills). It can pull `SKILL.md`
+files from GitHub and install them into many agent-specific skill directories.
+
+**Install all skills globally for your detected agent:**
+
+```bash
+npx skills add NextCommerceCo/skills -g
+```
+
+**Install a single skill globally for Codex:**
+
+```bash
+npx skills add NextCommerceCo/skills -g -a codex --skill next-theme-dev
+```
+
+**List available skills without installing:**
+
+```bash
+npx skills add NextCommerceCo/skills --list
+```
+
+**Target a specific agent:**
+
+```bash
+npx skills add NextCommerceCo/skills -g -a claude-code
+```
+
+**Skip prompts for scripted installs:**
+
+```bash
+npx skills add NextCommerceCo/skills -g -a codex --skill next-ops-scan -y
+```
+
+Use `npx skills update` to refresh skills installed through the `skills` CLI.
+
+### Manual Fallback
+
+Each skill is plain markdown. If your tool does not support native skill
+directories or the installers above, load the relevant `SKILL.md` as a system
+prompt, context file, rule, or chat upload according to that tool's conventions.
+
 ## Machine-Readable Index
 
 For AI agents that need to programmatically discover available skills, [`skills.json`](skills.json) provides a structured manifest with skill IDs, descriptions, trigger phrases, and prerequisites. Agents can fetch this single file to decide which skill to load.
@@ -153,7 +164,7 @@ Each skill is a directory containing a single `SKILL.md` file. To add a new skil
 
 1. Create a directory with a descriptive name (e.g., `next-my-skill/`)
 2. Add a `SKILL.md` with YAML frontmatter (`name`, `version`, `description`, `allowed-tools`) followed by the skill instructions in markdown
-3. Add a "Using This Skill" section with cross-tool usage instructions (see existing skills for the format)
+3. Add a "Using This Skill" section that points to the repo install guidance
 4. Add an entry to `skills.json`
 5. Update this README's skills table and any installer notes that should mention the skill
 6. Run `./skills.sh status` to confirm the local installer can discover the skill
