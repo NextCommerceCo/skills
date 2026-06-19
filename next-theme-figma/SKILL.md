@@ -115,6 +115,22 @@ For every asset, record the source node ID, prefix/type, target filename, format
 
 For every place where Figma should not be implemented literally, add a Spark divergence entry. Read `references/spark-commerce-surfaces.md`; common divergences include PDP gallery/carousel behavior, product image aspect ratios, variant control names, price/availability bindings, add-to-cart form contracts, cart drawer hooks, subscriptions, reviews/apps, and cached header/account/cart state.
 
+### 5a. Optional Product Media Handoff
+
+When PDP Figma gallery images differ from the store's backend product media, offer the user an explicit follow-up path: extract the Figma product media as a backend-update manifest for `next-theme-dev`. This is a handoff step, not a theme implementation shortcut.
+
+For each product, record:
+
+- Storefront route, parent product ID, variant IDs, option labels, current backend image count, and existing backend image IDs plus `display_order` values.
+- Source Figma node IDs for each hero/carousel image, including viewport/frame provenance.
+- Whether the asset is square and product-listing-safe. If square media is required, export or canvas-render to a square source before optimization.
+- Intended display order, captions/alt text, and variant associations.
+- File format, dimensions, byte size before/after final optimization, and whether `cwebp` or another lossless/lossy pass was used.
+- Which images should replace old backend media and which old images should remain.
+- Spark divergence deltas surfaced by the handoff; use the Spark divergence guidance above for the canonical rules.
+
+Do not use page thumbnails, estimated crops, or full PDP screenshots as product listing media. Use original or canvas-rendered Figma assets only, and keep the original source export in its native format plus the optimized upload candidate in the handoff package.
+
 ### 6. Run The Visual Verification Loop
 
 Repeat until the package is close enough for implementation or all gaps are documented:
