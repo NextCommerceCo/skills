@@ -164,7 +164,7 @@
       "domain": "campaigns",
       "description": "End-to-end setup for a new CPK campaign — scaffolds the project, copies a starter template, seeds campaigns.json, downloads CLAUDE.md, then wires up config.js and campaigns.json with API key, store details, and analytics in one pass.",
       "canonical_context": {
-        "role": "Public catalog entry for CPK setup only",
+        "role": "Public catalog entry for CPK setup only; Campaigns OS runtime flows should follow the campaigns-os package handoff",
         "campaigns_os_source": "https://github.com/NextCommerceCo/campaigns-os",
         "internal_orchestration_source": "NextCommerceCo/next-campaigns-ops"
       },

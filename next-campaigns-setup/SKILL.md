@@ -39,7 +39,7 @@ Scaffold and configure a new campaign-page-kit campaign in one pass.
 
 Boundary with other campaign skills:
 - Use this skill for repo/project bootstrap: brand folder, page-kit init, starter template copy, `campaigns.json`, `CLAUDE.md`, and first config values.
-- In the linked Campaign Runtime flow, use this skill only when `campaign-os doctor --context` returns `next.stage = setup`. Consume `campaign-runtime.build.json` and `.campaign-runtime/build-context.json`, then emit `.campaign-runtime/setup-handoff.json` for `next-campaigns-build`.
+- In the linked Campaigns OS runtime flow, use this skill only when public `campaigns-os next --packet <packet>` or `campaigns-os doctor --packet <packet>` routes the handoff to setup. Consume `campaign-runtime.build.json` and `.campaign-runtime/build-context.json`, then emit `.campaign-runtime/setup-handoff.json` for `next-campaigns-build`.
 - Use `next-campaigns-build` when a CampaignSpec/design exists and pages need to be wired end-to-end from spec/API/design into page-kit.
 - Use `next-campaigns-os` for CampaignSpec lifecycle work: map inspection, multi-funnel planning, QA results, Linear/run-through orchestration, promotion decisions, and split-test config.
 - This skill may consume a CampaignSpec if one is provided, but it should not try to replace the build skill's page wiring or the OS skill's lifecycle decisions.
