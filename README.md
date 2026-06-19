@@ -70,7 +70,7 @@ messaging customers.
 
 This repo hosts a public-catalog copy of `next-campaigns-setup`, which covers Next Commerce campaign repo bootstrap and first configuration. In a Campaigns OS runtime flow, follow the public `campaigns-os` package handoff exactly and treat this catalog copy as setup guidance, not a second lifecycle doctrine.
 
-The canonical Campaigns OS lifecycle skills — orchestration, setup, build, polish, and QA — ship with the public [`campaigns-os`](https://github.com/NextCommerceCo/campaigns-os) package itself and install via `campaigns-os install-skills`. They're version-locked to the package's CLI and contract versions, which is why they live with the package rather than in this catalog.
+The canonical Campaigns OS lifecycle skills — `next-campaigns-os` orchestration, setup, build, polish, and QA — ship with the public [`campaigns-os`](https://github.com/NextCommerceCo/campaigns-os) package itself and install via `campaigns-os install-skills`. They're version-locked to the package's CLI and contract versions, which is why they live with the package rather than in this catalog.
 
 ## Quick Start
 
