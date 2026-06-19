@@ -727,6 +727,22 @@ Missing product data, `attr_*` controls, price bindings, CSRF/quantity/cart fiel
 
 Do not split Spark's PDP into partials just for one merchant design. If repeated custom PDP work justifies it, prefer stable partials for gallery/media, buy box, variant picker, quantity/cart controls, trust/benefit strip, size guide, reviews, and related products.
 
+### Update Product Media From Figma
+
+Use this recipe only when the user explicitly wants Figma PDP gallery/product imagery copied into the store's backend product listings. Product media is store data, not a theme asset, so `ntk` is not the upload path.
+
+1. Consult the local `developer-docs/` checkout or public Admin API docs before writing requests. Confirm the product image endpoints, required permissions, request schema, and whether the current token has `catalogue:write`. If the token lacks `catalogue:write`, stop before any mutating call, report the exact missing scope, and point the user to the Admin API authentication docs for minting a scoped token.
+2. Build or receive a product-media manifest from `next-theme-figma`: parent product ID, route, variant IDs, source Figma node IDs, captions, intended display order, replacement policy, and rollback notes.
+3. Export original or canvas-rendered Figma media only. Do not use thumbnails, preview screenshots, estimated crops, or full PDP screenshots. If the product listing requires square media, produce square source files before upload.
+4. Optimize after source selection is stable. Prefer WebP when supported by the store/theme pipeline; `cwebp -q 85..90` is a starting point for large PNG exports, but product/PDP media often merits `-q 95` when q85-90 shows softness or artifacts. Decide from visual review plus byte size, not a fixed quality number.
+5. Upload with the Admin API product images endpoint, usually `POST /api/admin/products/{id}/images/` with `file_name`, `caption`, and `display_order`. The current Admin API supports JSON and `multipart/form-data`; base64 JSON `attachment` is acceptable for small optimized files, but prefer multipart or further optimization when the optimized source is over about 2 MB or the API reports body-size/rate-limit headers.
+6. Treat create plus variant association as a transactional pair. As soon as a `POST` succeeds, record the new `imageId` and rollback command (`DELETE /api/admin/products/{id}/images/{imageId}/`) in the manifest. If variant associations are needed and the create endpoint does not persist them, patch each image afterward with `PATCH /api/admin/products/{id}/images/{imageId}/` and the documented `variants` payload; if any patch fails, abort the batch and roll back newly created images before touching old media.
+7. Preserve Spark PDP behavior: the gallery should read backend product media, variant pickers keep their real `attr_*` controls, and product art should not be forced into theme static assets unless it is a non-commerce decorative asset.
+8. Before deleting old product images, save a rollback manifest with old image IDs, URLs, captions, display order, and variant associations. Delete old media only after explicit user approval or when the user's current request explicitly named the existing images being replaced by URL, alt text, filename, or image ID.
+9. Verify by API and storefront preview: re-fetch `GET /api/admin/products/{id}/images/` and diff IDs, `display_order`, captions, and variants against the manifest; confirm Admin API rate-limit or `Retry-After` headers were not hit; then check PDP gallery hero and thumbnails, product listing/card imagery when relevant, desktop/mobile viewport screenshots, and browser console errors.
+
+Call out any platform-owned divergence in the final report, especially default variant image ordering or PDP galleries that do not dynamically swap images after a variant (`attr_*`) control changes.
+
 ### Add a Partial
 
 1. Create `partials/{name}.html` with the fragment
