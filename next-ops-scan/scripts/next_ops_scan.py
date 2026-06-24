@@ -20,6 +20,7 @@ from typing import Any, Iterable
 
 
 API_VERSION = "2024-04-01"
+ADMIN_API_DOCS_URL = "https://developers.nextcommerce.com/docs/admin-api"
 CS_GUIDE_URL = "https://docs.nextcommerce.com/guides/cs-operations-guide.html#daily-risk-routine"
 SHOP_SYNC_URL = "https://docs.nextcommerce.com/guides/shop-sync-onboarding.html#troubleshooting"
 DELIVERY_TRACKING_URL = "https://docs.nextcommerce.com/docs/apps/delivery-tracking"
@@ -44,6 +45,7 @@ class AdminClient:
         self.token = token
         self.timeout = timeout
         self.notes: list[str] = []
+        self.last_url = ""
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -59,10 +61,12 @@ class AdminClient:
                 {k: v for k, v in params.items() if v is not None}
             )
         url = f"https://{self.domain}/api/admin/{path.lstrip('/')}{qs}"
+        self.last_url = url
         req = urllib.request.Request(url, headers=self._headers(), method="GET")
         return self._send(req)
 
     def get_url(self, url: str) -> Any:
+        self.last_url = url
         req = urllib.request.Request(url, headers=self._headers(), method="GET")
         return self._send(req)
 
@@ -190,17 +194,6 @@ def fulfillment_status_matches(row: dict[str, Any], expected: str) -> bool:
     return isinstance(value, str) and value.lower() == expected
 
 
-def related_order_number(row: dict[str, Any]) -> str:
-    value = row.get("order_number")
-    if value:
-        return str(value)
-    order = row.get("order")
-    if isinstance(order, dict):
-        value = first_present(order, ["number", "order_number"])
-        return str(value or "")
-    return str(order or "")
-
-
 def admin_order_url(admin_base_url: str, number: str) -> str:
     base_url = admin_base_url.rstrip("/")
     return f"{base_url}/orders/{number}/" if number else f"{base_url}/orders/"
@@ -296,10 +289,15 @@ def scan_rejected_orders(
     return findings
 
 
-def fulfillment_timestamp(row: dict[str, Any], status: str) -> Any:
+def delivery_timestamp(row: dict[str, Any], status: str) -> Any:
     if status == "delayed":
         return first_present(row, ["updated_at", "date_updated", "created_at", "date_created"])
     return first_present(row, ["created_at", "date_created", "updated_at", "date_updated"])
+
+
+def delivery_status_matches(row: dict[str, Any], expected: str) -> bool:
+    value = row.get("delivery_status")
+    return not isinstance(value, str) or value.lower() == expected
 
 
 def scan_delivery_tracking(
@@ -323,12 +321,12 @@ def scan_delivery_tracking(
     for status, threshold_days in status_thresholds.items():
         try:
             rows = list(
-                client.paginate("fulfillments/", {"status": status}, max_pages=max_pages)
+                client.paginate("orders/", {"delivery_status": status}, max_pages=max_pages)
             )
         except urllib.error.HTTPError as e:
             notes.append(
                 f"Delivery Tracking status `{status}` not scanned: API returned HTTP {e.code}. "
-                "Confirm Delivery Tracking is installed and the token has fulfillment read access."
+                "Confirm Delivery Tracking is installed and the token has orders read access."
             )
             continue
         except Exception as e:
@@ -336,12 +334,14 @@ def scan_delivery_tracking(
             continue
 
         for row in rows:
-            age = age_days(now, fulfillment_timestamp(row, status))
+            if not delivery_status_matches(row, status):
+                continue
+            age = age_days(now, delivery_timestamp(row, status))
             if threshold_days is not None and age is not None and age < threshold_days:
                 continue
-            number = related_order_number(row)
+            number = order_number(row)
             tracking_code = first_present(row, ["tracking_code", "tracking_number"])
-            reason = f"Fulfillment is `{status}`"
+            reason = f"Order delivery status is `{status}`"
             if threshold_days is not None:
                 reason += f" for at least {threshold_days} days"
             if tracking_code:
@@ -456,7 +456,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--in-transit-days", type=int, default=7)
     parser.add_argument("--delayed-days", type=int, default=3)
     parser.add_argument("--orders-max-pages", type=int, default=50)
-    parser.add_argument("--fulfillments-max-pages", type=int, default=25)
+    parser.add_argument(
+        "--delivery-max-pages",
+        type=int,
+        default=None,
+        help="Maximum Orders List pages to scan for each delivery_status queue",
+    )
+    parser.add_argument(
+        "--fulfillments-max-pages",
+        type=int,
+        default=25,
+        help=argparse.SUPPRESS,
+    )
     return parser.parse_args()
 
 
@@ -472,6 +483,11 @@ def main() -> int:
     domain = normalize_domain(args.domain)
     admin_base_url = args.admin_base_url or f"https://{domain}/dashboard"
     client = AdminClient(domain, args.token)
+    delivery_max_pages = (
+        args.delivery_max_pages
+        if args.delivery_max_pages is not None
+        else args.fulfillments_max_pages
+    )
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -486,8 +502,11 @@ def main() -> int:
             )
         elif e.code == 404:
             print(
-                f"Store/domain validation failed: HTTP 404 for {domain}. Confirm the "
-                "store subdomain or full domain.",
+                f"Admin API validation failed: HTTP 404 for {client.last_url}. "
+                "The NEXT Admin API uses /api/admin/ plus "
+                "Authorization: Bearer <token>; /api/v1/ paths or "
+                "Authorization: Token commonly return storefront HTML 404 pages. "
+                f"Confirm the store domain and see {ADMIN_API_DOCS_URL}.",
                 file=sys.stderr,
             )
         else:
@@ -527,7 +546,7 @@ def main() -> int:
         in_transit_days=args.in_transit_days,
         delayed_days=args.delayed_days,
         admin_base_url=admin_base_url,
-        max_pages=args.fulfillments_max_pages,
+        max_pages=delivery_max_pages,
     )
     findings.extend(delivery_findings)
     notes.extend(delivery_notes)

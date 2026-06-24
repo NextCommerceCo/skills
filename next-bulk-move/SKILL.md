@@ -55,6 +55,19 @@ Moves fulfillment orders between warehouse locations in bulk using a flat file o
 
 ## Phase 1: Setup
 
+## Admin API Conventions
+
+Before making any store request, use the public Admin API conventions from
+https://developers.nextcommerce.com/docs/admin-api:
+
+- Base URL: `https://{subdomain}.29next.store/api/admin/`
+- Auth header: `Authorization: Bearer <api access token>`
+- Version header: `X-29next-API-Version: 2024-04-01`
+
+Do not use `/api/v1/...` paths or `Authorization: Token ...`; those are not the
+documented NEXT Admin API convention and commonly return storefront HTML 404
+pages instead of JSON.
+
 ### Step 1: Store Configuration
 
 Ask the user (if not already provided):
@@ -66,7 +79,7 @@ Set:
 STORE=https://{subdomain}.29next.store
 ```
 
-### Step 2: API Key
+### Step 2: Admin API Access Token
 
 Ask the user for their API access token:
 
@@ -74,10 +87,24 @@ Ask the user for their API access token:
 
 **Auth headers for all requests:**
 ```
-Authorization: Bearer {api_key}
+Authorization: Bearer {api_access_token}
 X-29next-API-Version: 2024-04-01
 Content-Type: application/json
 ```
+
+Validate the token against a known-good list endpoint before discovery:
+
+```bash
+curl -sS -w "\n%{http_code}" \
+  -H "Authorization: Bearer {api_access_token}" \
+  -H "X-29next-API-Version: 2024-04-01" \
+  "{STORE}/api/admin/fulfillment-orders/?limit=1"
+```
+
+- `200` = token works, proceed
+- `401` / `403` = bad token or missing scopes, ask user to check
+- `404` with `<!DOCTYPE html>` or "Page not found" = wrong URL convention;
+  re-check `/api/admin/`, `Authorization: Bearer ...`, and the store domain
 
 ### Step 3: Discover Locations
 
@@ -315,7 +342,7 @@ with open(f'{store}-bulk-move-{date}.csv', 'w', newline='') as f:
 | `/api/admin/fulfillment-orders/{id}/cancellation-request/` | POST | Request cancellation of processing FO |
 | `/api/admin/fulfillment-orders/{id}/available-locations/` | GET | Check which locations have inventory |
 
-**Auth:** `Authorization: Bearer {api_key}` + `X-29next-API-Version: 2024-04-01`
+**Auth:** `Authorization: Bearer {api_access_token}` + `X-29next-API-Version: 2024-04-01`
 
 **Rate limit:** 4 req/sec. Use 0.5s sleep between orders.
 

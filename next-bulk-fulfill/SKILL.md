@@ -51,6 +51,19 @@ provides a CSV of order numbers + tracking numbers, and this skill handles the b
 Collect the three required inputs in order. Do NOT proceed to the next input until the
 current one is confirmed.
 
+## Admin API Conventions
+
+Before making any store request, use the public Admin API conventions from
+https://developers.nextcommerce.com/docs/admin-api:
+
+- Base URL: `https://{subdomain}.29next.store/api/admin/`
+- Auth header: `Authorization: Bearer <api access token>`
+- Version header: `X-29next-API-Version: 2024-04-01`
+
+Do not use `/api/v1/...` paths or `Authorization: Token ...`; those are not the
+documented NEXT Admin API convention and commonly return storefront HTML 404
+pages instead of JSON.
+
 ### Step 1: Store Subdomain
 
 Ask the user:
@@ -64,13 +77,13 @@ curl -s -o /dev/null -w "%{http_code}" https://{subdomain}.29next.store/
 
 If the store returns a non-200 status, warn the user and ask them to confirm the subdomain.
 
-Store the base URL: `https://{subdomain}.29next.store/api/admin`
+Store the base URL: `https://{subdomain}.29next.store/api/admin/`
 
-### Step 2: API Key
+### Step 2: Admin API Access Token
 
 Ask the user:
 
-> Provide an API key for {subdomain}.29next.store.
+> Provide an Admin API access token for {subdomain}.29next.store.
 >
 > The key needs these **two scopes** (and no more):
 > - `fulfillment_orders:read` — to query fulfillment orders by order number
@@ -81,13 +94,15 @@ Ask the user:
 Validate the key works:
 ```bash
 curl -s -w "\n%{http_code}" \
-  -H "Authorization: Bearer {api_key}" \
+  -H "Authorization: Bearer {api_access_token}" \
   -H "X-29next-API-Version: 2024-04-01" \
   "https://{subdomain}.29next.store/api/admin/fulfillment-orders/?limit=1"
 ```
 
 - `200` = key works, proceed
 - `401` / `403` = bad key or missing scopes, ask user to check
+- `404` with `<!DOCTYPE html>` or "Page not found" = wrong URL convention;
+  re-check `/api/admin/`, `Authorization: Bearer ...`, and the store domain
 
 ### Step 3: CSV File
 
@@ -176,7 +191,7 @@ POST /api/admin/fulfillment-orders/{id}/fulfillments/
 ### Script Requirements
 
 - **Rate limiting**: 4 requests/sec max. At 2 calls per order, sleep 0.6s between orders.
-- **Auth headers**: `Authorization: Bearer {api_key}` + `X-29next-API-Version: 2024-04-01`
+- **Auth headers**: `Authorization: Bearer {api_access_token}` + `X-29next-API-Version: 2024-04-01`
 - **Dry-run mode**: `--dry-run` flag that runs Step 1 (GET) but skips Step 2 (POST)
 - **Notify control**: `--no-notify` flag to suppress customer notifications
 - **Limit flag**: `--limit N` to process only the first N orders (for testing)
