@@ -623,10 +623,19 @@ For per-user content (cart, auth, wishlists):
 
 ```bash
 curl -sS -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "X-29next-API-Version: 2024-04-01" \
   -H "Content-Type: application/json" \
   -d '{"title":"Our Technology","slug":"our-technology","content":"<p>Theme-rendered page.</p>","template":"","meta_title":"Our Technology","meta_description":"Theme-rendered page."}' \
   "https://{store}.29next.store/api/admin/pages/"
 ```
+
+All Admin API calls must use `https://{store}.29next.store/api/admin/`,
+`Authorization: Bearer <api access token>`, and
+`X-29next-API-Version: 2024-04-01`. Do not use `/api/v1/...` paths or
+`Authorization: Token ...`; those commonly return storefront HTML 404 pages
+instead of JSON. Confirm conventions against
+https://developers.nextcommerce.com/docs/admin-api when adding new Admin API
+requests.
 
 For a custom template file such as `templates/pages/page.story.html`, send `"template":"story"` instead of the empty default-template value.
 
@@ -731,7 +740,7 @@ Do not split Spark's PDP into partials just for one merchant design. If repeated
 
 Use this recipe only when the user explicitly wants Figma PDP gallery/product imagery copied into the store's backend product listings. Product media is store data, not a theme asset, so `ntk` is not the upload path.
 
-1. Consult the local `developer-docs/` checkout or public Admin API docs before writing requests. Confirm the product image endpoints, required permissions, request schema, and whether the current token has `catalogue:write`. If the token lacks `catalogue:write`, stop before any mutating call, report the exact missing scope, and point the user to the Admin API authentication docs for minting a scoped token.
+1. Consult the local `developer-docs/` checkout or public Admin API docs before writing requests. Confirm the product image endpoints, required permissions, request schema, and whether the current token has `catalogue:write`. Every Admin API request must use `https://{store}.29next.store/api/admin/`, `Authorization: Bearer <api access token>`, and `X-29next-API-Version: 2024-04-01`. If the token lacks `catalogue:write`, stop before any mutating call, report the exact missing scope, and point the user to the Admin API authentication docs for minting a scoped token.
 2. Build or receive a product-media manifest from `next-theme-figma`: parent product ID, route, variant IDs, source Figma node IDs, captions, intended display order, replacement policy, and rollback notes.
 3. Export original or canvas-rendered Figma media only. Do not use thumbnails, preview screenshots, estimated crops, or full PDP screenshots. If the product listing requires square media, produce square source files before upload.
 4. Optimize after source selection is stable. Prefer WebP when supported by the store/theme pipeline; `cwebp -q 85..90` is a starting point for large PNG exports, but product/PDP media often merits `-q 95` when q85-90 shows softness or artifacts. Decide from visual review plus byte size, not a fixed quality number.

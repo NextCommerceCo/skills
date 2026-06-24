@@ -61,6 +61,19 @@ cadence, addresses, and payment details.
 
 Collect the required inputs in order. Do NOT proceed until the current input is confirmed.
 
+## Admin API Conventions
+
+Before making any store request, use the public Admin API conventions from
+https://developers.nextcommerce.com/docs/admin-api:
+
+- Base URL: `https://{subdomain}.29next.store/api/admin/`
+- Auth header: `Authorization: Bearer <api access token>`
+- Version header: `X-29next-API-Version: 2024-04-01`
+
+Do not use `/api/v1/...` paths or `Authorization: Token ...`; those are not the
+documented NEXT Admin API convention and commonly return storefront HTML 404
+pages instead of JSON.
+
 ### Step 1: Store Subdomain
 
 Ask the user:
@@ -72,13 +85,13 @@ Validate the store responds:
 curl -s -o /dev/null -w "%{http_code}" https://{subdomain}.29next.store/
 ```
 
-Store base URL: `https://{subdomain}.29next.store/api/admin`.
+Store base URL: `https://{subdomain}.29next.store/api/admin/`.
 
-### Step 2: API Key
+### Step 2: Admin API Access Token
 
 Ask the user:
 
-> Provide an API key for {subdomain}.29next.store.
+> Provide an Admin API access token for {subdomain}.29next.store.
 >
 > Required scope:
 > - `subscriptions:write` (implies `subscriptions:read`)
@@ -88,12 +101,14 @@ Ask the user:
 Validate with a single GET against a known-good list endpoint:
 ```bash
 curl -s -w "\n%{http_code}" \
-  -H "Authorization: Bearer {api_key}" \
+  -H "Authorization: Bearer {api_access_token}" \
   -H "X-29next-API-Version: 2024-04-01" \
   "https://{subdomain}.29next.store/api/admin/subscriptions/?limit=1"
 ```
 - `200` = key works
 - `401` / `403` = bad key or missing scope
+- `404` with `<!DOCTYPE html>` or "Page not found" = wrong URL convention;
+  re-check `/api/admin/`, `Authorization: Bearer ...`, and the store domain
 
 ### Step 3: Input File
 
@@ -206,7 +221,7 @@ verify.
 ### Script Requirements
 
 - **Rate limiting**: 4 requests/sec max. Sleep **0.26s** between subs (1 request per sub). For baseline mode that GETs first, sleep 0.5s total across both calls.
-- **Auth headers**: `Authorization: Bearer {api_key}` + `X-29next-API-Version: 2024-04-01`
+- **Auth headers**: `Authorization: Bearer {api_access_token}` + `X-29next-API-Version: 2024-04-01`
 - **Dry-run mode**: `--dry-run` flag that computes the body but does not send the POST/PATCH. Still reports one row per subscription.
 - **Limit flag**: `--limit N` to process only the first N rows (for testing).
 - **Skip list**: Hard-code or pass a set of `SKIP_IDS` (e.g., a test record already updated, or records known to be in a non-normal state).
@@ -266,7 +281,7 @@ re-GET them to confirm the action/field took effect. The POST/PATCH response can
 be trusted in principle, but a live GET catches any downstream state issues.
 
 ```bash
-curl -s -H "Authorization: Bearer {api_key}" \
+curl -s -H "Authorization: Bearer {api_access_token}" \
   -H "X-29next-API-Version: 2024-04-01" \
   "https://{subdomain}.29next.store/api/admin/subscriptions/{id}/" \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status'), d.get('paused_until'), d.get('next_renewal_date'))"
