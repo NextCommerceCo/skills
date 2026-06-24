@@ -42,6 +42,35 @@ changes store state. It produces local files only:
 - `next_ops_scan_summary.md` - human-first action summary.
 - `next_ops_scan_results.csv` - stable machine-readable sidecar.
 
+## Admin API Conventions
+
+Use the public Admin API conventions from
+https://developers.nextcommerce.com/docs/admin-api before making any store
+request:
+
+- Base URL: `https://{store}.29next.store/api/admin/`
+- Auth header: `Authorization: Bearer <api access token>`
+- Version header: `X-29next-API-Version: 2024-04-01`
+- Orders list endpoint: `GET /api/admin/orders/`
+- Delivery status filtering uses the Orders List `delivery_status` query
+  parameter, for example `GET /api/admin/orders/?delivery_status=in_transit`.
+
+Do not use `/api/v1/...` paths or `Authorization: Token ...`; those are not the
+documented NEXT Admin API convention and commonly return storefront HTML 404
+pages instead of JSON.
+
+Optional smoke test before running the scanner:
+
+```bash
+curl -sS \
+  -H "Authorization: Bearer $NEXT_ADMIN_API_TOKEN" \
+  -H "X-29next-API-Version: 2024-04-01" \
+  "https://$NEXT_STORE_DOMAIN/api/admin/orders/?limit=1" | head -c 500
+```
+
+Expected response shape is JSON with a `results` array. If you see `<!DOCTYPE
+html>` or a "Page not found" page, re-check the URL path first.
+
 ## Phase 1: Gather Access
 
 ### Step 1: Store Domain
@@ -62,8 +91,6 @@ Ask the merchant to create a limited-scope Admin API token:
 3. Create or rotate an Admin API token for this scan.
 4. Grant only these read scopes when available:
    - `orders:read`
-   - fulfillment read access for delivery statuses, usually exposed as
-     `fulfillments:read` or `fulfillment_orders:read`
 5. Keep the token private: do not commit it, paste it into shared docs, or
    include it in screenshots. Rotate any token that is exposed.
 
@@ -97,7 +124,7 @@ python3 next-ops-scan/scripts/next_ops_scan.py \
   --in-transit-days 7 \
   --delayed-days 3 \
   --orders-max-pages 50 \
-  --fulfillments-max-pages 25
+  --delivery-max-pages 25
 ```
 
 If your admin dashboard uses a custom URL, pass it explicitly:
@@ -127,8 +154,8 @@ Output groups:
 ## Caveats
 
 - Delivery risk rows only appear when the Delivery Tracking app is installed and
-  the token can read fulfillment delivery statuses. NEXT Payments customers
-  often have Delivery Tracking by default.
+  the token can read order delivery statuses. NEXT Payments customers often have
+  Delivery Tracking by default.
 - The scan is a queue, not a risk score. The merchant decides whether to refund,
   reship, correct data, or escalate.
 - If an endpoint rejects the token, ask the user to confirm the store domain and
