@@ -32,9 +32,9 @@ This skill works with any AI coding tool that can load a markdown file as contex
 
 Runs a read-only scan of one store's daily operational risk queues:
 
-1. **Incomplete orders** likely needing refund review.
-2. **Rejected orders** needing Shop Sync / order-data correction review.
-3. **Delivery Tracking failures or staleness** when Delivery Tracking is installed.
+1. **Incomplete orders** needing refund review.
+2. **Rejected orders** needing fulfillment or order-data correction review.
+3. **Delivery Tracking failures or potentially stale records** when Delivery Tracking is installed.
 
 The skill never refunds, cancels, fulfills, moves, edits, messages customers, or
 changes store state. It produces local files only:
@@ -141,15 +141,20 @@ Use the CSV only when the user wants the full queue.
 
 Output groups:
 
-- **Refund review** - Incomplete orders. Most are true cancellations; review
-  Order Details, check Payment Summary, and use the Refund button if money is
-  owed back.
-- **Rejected order review** - Shopify / Shop Sync refused fulfillment. Correct
-  bad customer data, stock settings, or other rejection causes, then request
-  fulfillment again if appropriate.
-- **Delivery risk review** - failed, delayed, old `tracking_added`, or old
-  `in_transit` fulfillments. Contact the customer, carrier, or 3PL; reship,
-  refund, or document the next step.
+- **Refund review** - Incomplete orders. Review Order Details, check Payment
+  Summary, and use the Refund button if money is owed back. If the store syncs
+  through Shop Sync, a canceled Shopify order is one possible cause.
+- **Rejected order review** - Fulfillment was rejected. Correct bad customer
+  data, stock settings, or other rejection causes, then request fulfillment
+  again if appropriate. If the store uses Shop Sync, Shopify or Shop Sync may
+  be the source of the rejection.
+- **Delivery risk review** - failed or delayed delivery statuses, or
+  `tracking_added` / `in_transit` rows whose available timestamp exceeds the
+  threshold. The scanner prefers a delivery-status event timestamp when the
+  API supplies one; otherwise it explicitly reports the age of the order
+  record timestamp, which does not prove how long the delivery held its status.
+  Contact the customer, carrier, or 3PL; reship, refund, or document the next
+  step.
 
 ## Caveats
 
