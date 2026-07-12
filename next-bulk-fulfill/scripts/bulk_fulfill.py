@@ -26,6 +26,19 @@ VALID_CARRIERS = {"4px", "amazon", "asendia", "australia_post", "china_post",
                   "usps", "yunexpress"}
 
 
+class AuthenticatedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req: Any, fp: Any, code: int, msg: str,
+                         headers: Any, newurl: str) -> Any:
+        raise urllib.error.HTTPError(
+            req.full_url, code,
+            f"refusing authenticated redirect to {newurl}", headers, fp,
+        )
+
+
+class MalformedResponse(ValueError):
+    """The API response cannot safely authorize a fulfillment."""
+
+
 def normalize_domain(raw: str) -> str:
     value = raw.strip().removeprefix("https://").removeprefix("http://").strip("/").lower()
     if not value or any(char in value for char in "/?#@:"):
@@ -46,6 +59,7 @@ class AdminClient:
         self.base = f"https://{normalize_domain(domain)}/api/admin/"
         self.token, self.min_interval, self.timeout = token, min_interval, timeout
         self.clock, self.sleep, self._last = clock, sleep, None
+        self.opener = urllib.request.build_opener(AuthenticatedRedirectHandler())
 
     def _request(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
         if self._last is not None:
@@ -59,17 +73,37 @@ class AdminClient:
             headers={"Authorization": f"Bearer {self.token}",
                      "X-29next-API-Version": API_VERSION, "Accept": "application/json",
                      "Content-Type": "application/json"})
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+        with self.opener.open(request, timeout=self.timeout) as response:
             raw = response.read()
             return json.loads(raw) if raw else {}
 
     def list_fulfillment_orders(self, order: str) -> list[dict[str, Any]]:
         query = urllib.parse.urlencode({"order_number": order})
-        data = self._request("GET", f"fulfillment-orders/?{query}")
-        rows = data.get("results") if isinstance(data, dict) else None
-        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
-            raise ValueError("malformed fulfillment-order response")
-        return rows
+        target = f"fulfillment-orders/?{query}"
+        expected = urllib.parse.urlparse(self.base)
+        seen: set[str] = set()
+        results: list[dict[str, Any]] = []
+        while target not in seen:
+            seen.add(target)
+            data = self._request("GET", target)
+            if not isinstance(data, dict):
+                raise MalformedResponse("fulfillment-order list response is not an object")
+            rows = data.get("results")
+            if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+                raise MalformedResponse("fulfillment-order results is not a list of objects")
+            results.extend(rows)
+            next_url = data.get("next")
+            if next_url is None:
+                break
+            if not isinstance(next_url, str):
+                raise MalformedResponse("pagination link is not a string")
+            parsed = urllib.parse.urlparse(next_url)
+            if parsed.scheme != "https" or parsed.netloc != expected.netloc:
+                raise MalformedResponse(
+                    f"refusing pagination link outside the store host: {next_url}"
+                )
+            target = next_url
+        return results
 
     def fulfill(self, fulfillment_id: str, tracking: str, carrier: str,
                 notify: bool = True) -> Any:
@@ -119,7 +153,10 @@ class BulkFulfiller:
         self.carrier_map, self.sleep, self.row_delay = carrier_map or {}, sleep, row_delay
 
     def process(self, row: dict[str, str]) -> Result:
-        order, tracking = row["order_number"], row["tracking_code"]
+        order, tracking = row["order_number"].strip(), row["tracking_code"]
+        if not order:
+            return Result(order, tracking_code=tracking,
+                          action="INVALID_ORDER_NUMBER", status="error")
         explicit = row.get("carrier", "").strip().lower()
         pattern, guess = inferred_carrier(tracking)
         carrier = explicit or self.carrier_map.get(pattern, "")
@@ -131,6 +168,18 @@ class BulkFulfiller:
                           action=f"UNCONFIRMED_CARRIER:{pattern}", status="error")
         try:
             fos = self.client.list_fulfillment_orders(order)
+            for fo in fos:
+                identities = []
+                if fo.get("order_number") not in (None, ""):
+                    identities.append(fo["order_number"])
+                nested = fo.get("order")
+                if isinstance(nested, dict):
+                    identities.extend(nested[key] for key in ("number", "id")
+                                      if nested.get(key) not in (None, ""))
+                if not identities or any(str(value).strip() != order for value in identities):
+                    raise MalformedResponse(
+                        "fulfillment order does not match requested order"
+                    )
             eligible = [fo for fo in fos if fo.get("status") in {"processing", "open"}]
             if not eligible:
                 return Result(order, tracking_code=tracking, carrier=carrier,
@@ -143,6 +192,9 @@ class BulkFulfiller:
                 return Result(order, fid, tracking, carrier, "WOULD_FULFILL", "skipped")
             self.client.fulfill(fid, tracking, carrier, self.notify)
             return Result(order, fid, tracking, carrier, "FULFILLED", "success")
+        except MalformedResponse:
+            return Result(order, tracking_code=tracking, carrier=carrier,
+                          action="MALFORMED_RESPONSE", status="error")
         except Exception as exc:
             code = getattr(exc, "code", None)
             action = f"HTTP_ERROR_{code}" if code else f"ERROR_{type(exc).__name__}"

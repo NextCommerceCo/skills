@@ -1,10 +1,15 @@
 import csv
+import email.message
 import importlib.util
+import io
 import sys
 import tempfile
 import unittest
 import urllib.error
+import urllib.request
+import urllib.response
 from pathlib import Path
+from unittest import mock
 
 MODULE = Path(__file__).parents[1] / "scripts" / "bulk_subscription.py"
 spec = importlib.util.spec_from_file_location("bulk_subscription", MODULE)
@@ -49,6 +54,38 @@ class BulkSubscriptionTests(unittest.TestCase):
     def test_partial_failure_continues(self):
         client = FakeClient({"s2"}); rows, _ = self.run_bulk(client, [{"subscription_id": x} for x in ("s1", "s2", "s3")])
         self.assertEqual(3, len(client.calls)); self.assertEqual(["success", "error", "success"], [r.status for r in rows])
+
+    def test_authenticated_post_refuses_cross_host_redirect(self):
+        client = bulk.AdminClient("mystore", "secret", min_interval=0)
+        target, seen = "https://evil.example/collect", []
+
+        class RedirectTransport(urllib.request.BaseHandler):
+            handler_order = 100
+
+            def https_open(self, request):
+                seen.append(request)
+                headers = email.message.Message(); headers["Location"] = target
+                response = urllib.response.addinfourl(
+                    io.BytesIO(b""), headers, request.full_url, code=302)
+                response.msg = "Found"
+                return response
+
+        client.opener = urllib.request.build_opener(
+            bulk.AuthenticatedRedirectHandler(), RedirectTransport())
+        with self.assertRaisesRegex(urllib.error.HTTPError,
+                                    "refusing authenticated redirect to " + target):
+            client.mutate("POST", "subscriptions/s1/retry/", {})
+        self.assertEqual(1, len(seen))
+        self.assertEqual("Bearer secret", seen[0].get_header("Authorization"))
+        self.assertEqual("POST", seen[0].get_method())
+
+    def test_duplicate_successful_id_is_not_mutated_twice(self):
+        client = FakeClient()
+        rows, _ = self.run_bulk(client, [{"subscription_id": "s1"},
+                                         {"subscription_id": "s1"}])
+        self.assertEqual(1, len(client.calls))
+        self.assertEqual(["success", "skipped"], [row.status for row in rows])
+        self.assertEqual("DUPLICATE", rows[1].action)
 
 
 if __name__ == "__main__": unittest.main()

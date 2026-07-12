@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass
@@ -31,6 +32,15 @@ ACTIONS = {
 }
 
 
+class AuthenticatedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req: Any, fp: Any, code: int, msg: str,
+                         headers: Any, newurl: str) -> Any:
+        raise urllib.error.HTTPError(
+            req.full_url, code,
+            f"refusing authenticated redirect to {newurl}", headers, fp,
+        )
+
+
 def normalize_domain(raw: str) -> str:
     value = raw.strip().removeprefix("https://").removeprefix("http://").strip("/").lower()
     if not value or any(char in value for char in "/?#@:"): raise ValueError("invalid --store")
@@ -46,6 +56,7 @@ class AdminClient:
         self.base, self.token = f"https://{normalize_domain(domain)}/api/admin/", token
         self.min_interval, self.timeout, self.clock, self.sleep = min_interval, timeout, clock, sleep
         self._last = None
+        self.opener = urllib.request.build_opener(AuthenticatedRedirectHandler())
 
     def mutate(self, method: str, path: str, payload: dict[str, Any]) -> Any:
         if self._last is not None:
@@ -56,7 +67,7 @@ class AdminClient:
             data=json.dumps(payload).encode(), headers={"Authorization": f"Bearer {self.token}",
             "X-29next-API-Version": API_VERSION, "Accept": "application/json",
             "Content-Type": "application/json"})
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+        with self.opener.open(request, timeout=self.timeout) as response:
             raw = response.read(); return json.loads(raw) if raw else {}
 
 
@@ -103,14 +114,23 @@ class BulkSubscription:
         return base
 
     def run(self, rows: Iterable[dict[str, str]], output: Path, completed: set[str] | None = None) -> list[Result]:
-        completed = completed or set(); output.parent.mkdir(parents=True, exist_ok=True)
+        completed = completed or set(); processed: set[str] = set()
+        output.parent.mkdir(parents=True, exist_ok=True)
         write_header = not output.exists() or output.stat().st_size == 0; results = []
         with output.open("a", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=FIELDS)
             if write_header: writer.writeheader(); handle.flush()
             for row in rows:
-                if row["subscription_id"] in completed: continue
-                result = self.process(row); writer.writerow(asdict(result)); handle.flush(); results.append(result)
+                sid = row["subscription_id"]
+                if sid in completed: continue
+                if sid in processed:
+                    result = Result(sid, row.get("order_id", ""),
+                                    row.get("customer_id", ""), "DUPLICATE", "skipped")
+                else:
+                    result = self.process(row)
+                    if result.status == "success":
+                        processed.add(sid)
+                writer.writerow(asdict(result)); handle.flush(); results.append(result)
                 print(f"Subscription {result.subscription_id}: {result.status}", flush=True)
                 if self.row_delay: self.sleep(self.row_delay)
         return results

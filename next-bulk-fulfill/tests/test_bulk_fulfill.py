@@ -1,10 +1,13 @@
 import csv
+import email.message
 import importlib.util
 import io
 import sys
 import tempfile
 import unittest
 import urllib.error
+import urllib.request
+import urllib.response
 from pathlib import Path
 from unittest import mock
 
@@ -16,7 +19,8 @@ spec.loader.exec_module(bulk)
 
 class FakeClient:
     def __init__(self, failures=()): self.calls, self.failures = [], set(failures)
-    def list_fulfillment_orders(self, order): return [{"id": f"fo-{order}", "status": "processing"}]
+    def list_fulfillment_orders(self, order):
+        return [{"id": f"fo-{order}", "order_number": order, "status": "processing"}]
     def fulfill(self, fid, tracking, carrier, notify=True):
         self.calls.append((fid, tracking, carrier, notify))
         if fid in self.failures: raise urllib.error.HTTPError("url", 500, "bad", {}, None)
@@ -60,6 +64,92 @@ class BulkFulfillTests(unittest.TestCase):
     def test_results_exclude_pii_even_when_response_contains_it(self):
         _, output = self.run_bulk(FakeClient(), [{"order_number": "1", "tracking_code": "T1", "carrier": "ups"}])
         text = output.read_text(); self.assertNotIn("address", text.lower()); self.assertNotIn("email", text.lower()); self.assertNotIn("private@example.com", text)
+
+    def test_authenticated_request_refuses_cross_host_redirect(self):
+        client = bulk.AdminClient("mystore", "secret", min_interval=0)
+        target, seen = "https://evil.example/collect", []
+
+        class RedirectTransport(urllib.request.BaseHandler):
+            handler_order = 100
+
+            def https_open(self, request):
+                seen.append(request)
+                headers = email.message.Message(); headers["Location"] = target
+                response = urllib.response.addinfourl(
+                    io.BytesIO(b""), headers, request.full_url, code=302)
+                response.msg = "Found"
+                return response
+
+        client.opener = urllib.request.build_opener(
+            bulk.AuthenticatedRedirectHandler(), RedirectTransport())
+        with self.assertRaisesRegex(urllib.error.HTTPError,
+                                    "refusing authenticated redirect to " + target):
+            client._request("GET", "fulfillment-orders/")
+        self.assertEqual(1, len(seen))
+        self.assertEqual("Bearer secret", seen[0].get_header("Authorization"))
+
+    def test_missing_or_mismatched_order_identity_never_fulfills(self):
+        for fo in ({"id": "fo-1", "status": "processing"},
+                   {"id": "fo-1", "order_number": "other", "status": "processing"}):
+            with self.subTest(fo=fo):
+                client = FakeClient(); client.list_fulfillment_orders = lambda _order: [fo]
+                rows, _ = self.run_bulk(client, [{"order_number": "1",
+                                                  "tracking_code": "T1", "carrier": "ups"}])
+                self.assertEqual("MALFORMED_RESPONSE", rows[0].action)
+                self.assertEqual([], client.calls)
+
+    def test_empty_order_number_is_error_without_lookup(self):
+        client = mock.MagicMock()
+        rows, _ = self.run_bulk(client, [{"order_number": "   ",
+                                          "tracking_code": "T1", "carrier": "ups"}])
+        self.assertEqual("INVALID_ORDER_NUMBER", rows[0].action)
+        client.list_fulfillment_orders.assert_not_called()
+
+    def test_paginates_before_selecting_eligible_fulfillment_order(self):
+        client = bulk.AdminClient("example", "test")
+        page_two = "https://example.29next.store/api/admin/fulfillment-orders/?page=2"
+        pages = [
+            {"results": [{"id": "closed", "order_number": "1", "status": "closed"}],
+             "next": page_two},
+            {"results": [{"id": "ready", "order_number": "1", "status": "processing"}],
+             "next": None},
+        ]
+        with mock.patch.object(client, "_request", side_effect=pages) as request:
+            fos = client.list_fulfillment_orders("1")
+        self.assertEqual(["closed", "ready"], [fo["id"] for fo in fos])
+        self.assertEqual(page_two, request.call_args_list[1].args[1])
+
+        rows, _ = self.run_bulk(client=mock.Mock(
+            list_fulfillment_orders=mock.Mock(return_value=fos),
+            fulfill=mock.Mock()), rows=[{"order_number": "1", "tracking_code": "T1",
+                                        "carrier": "ups"}], execute=False)
+        self.assertEqual("ready", rows[0].fulfillment_id)
+
+    def test_cross_host_pagination_is_error_not_partial_result(self):
+        client = bulk.AdminClient("example", "test")
+        page = {"results": [{"id": "ready", "order_number": "1", "status": "processing"}],
+                "next": "https://evil.example/page=2"}
+        with mock.patch.object(client, "_request", return_value=page):
+            with self.assertRaises(bulk.MalformedResponse):
+                client.list_fulfillment_orders("1")
+
+    def test_eligible_fulfillment_orders_across_pages_require_manual_review(self):
+        client = bulk.AdminClient("example", "test")
+        page_two = "https://example.29next.store/api/admin/fulfillment-orders/?page=2"
+        pages = [
+            {"results": [{"id": "one", "order_number": "1", "status": "open"}],
+             "next": page_two},
+            {"results": [{"id": "two", "order_number": "1", "status": "processing"}],
+             "next": None},
+        ]
+        with mock.patch.object(client, "_request", side_effect=pages):
+            fos = client.list_fulfillment_orders("1")
+        fake = mock.Mock(list_fulfillment_orders=mock.Mock(return_value=fos),
+                         fulfill=mock.Mock())
+        rows, _ = self.run_bulk(fake, [{"order_number": "1", "tracking_code": "T1",
+                                        "carrier": "ups"}])
+        self.assertEqual("MANUAL_REVIEW", rows[0].action)
+        fake.fulfill.assert_not_called()
 
 
 if __name__ == "__main__": unittest.main()
