@@ -78,11 +78,15 @@ class AdminClient:
                 raise MalformedResponse("fulfillment-order results is not a list of objects")
             results.extend(page)
             next_url = data.get("next")
-            if not isinstance(next_url, str):
+            if next_url is None:
                 break
+            if not isinstance(next_url, str):
+                raise MalformedResponse("pagination link is not a string")
             parsed = urllib.parse.urlparse(next_url)
             if parsed.scheme != "https" or parsed.netloc != expected.netloc:
-                break
+                raise MalformedResponse(
+                    f"refusing pagination link outside the store host: {next_url}"
+                )
             target = next_url
         return results
 
@@ -229,6 +233,9 @@ class BulkMover:
             latest = self._validated_fo(self.client.get_fo(fid), order, fid)
         except MalformedResponse:
             return Result(order, fid, action="MALFORMED_RESPONSE", status="error",
+                          destination=str(self.destination))
+        if assigned_id(latest) != self.source:
+            return Result(order, fid, action="SOURCE_CHANGED", status="error",
                           destination=str(self.destination))
         if not self._move_authorized(latest):
             pending = (latest.get("status") == "canceled" and

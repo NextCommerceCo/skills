@@ -206,6 +206,24 @@ class BulkMoveTests(unittest.TestCase):
         self.assertEqual("error", rows[0].status)
         self.assertEqual([], client.moves)
 
+    def test_move_refused_when_source_changed_on_fresh_fetch(self):
+        ready = fo(1, 1001, actions=["move"])
+        reassigned = fo(1, 1001, actions=["move"], location=30)
+        client = FakeClient({"1001": [ready]}, {1: [reassigned]})
+        rows, _ = self.run_mover(client, ["1001"])
+        self.assertEqual("SOURCE_CHANGED", rows[0].action)
+        self.assertEqual("error", rows[0].status)
+        self.assertEqual([], client.moves)
+
+    def test_invalid_pagination_link_is_error_not_partial_result(self):
+        client = bulk_move.AdminClient("example", "test")
+        pages = [{"results": [fo(1, 1001, actions=["move"])],
+                  "next": "https://evil.example/api/admin/fulfillment-orders/?page=2"}]
+        with mock.patch.object(client, "_request", side_effect=pages) as request:
+            with self.assertRaises(bulk_move.MalformedResponse):
+                client.list_fos("1001")
+        self.assertEqual(1, request.call_count)
+
     def test_move_without_new_fo_id_is_retryable_unverified_error(self):
         ready = fo(1, 1001, actions=["move"])
         client = FakeClient({"1001": [ready]}, move_response={})
