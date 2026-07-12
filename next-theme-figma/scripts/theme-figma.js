@@ -64,9 +64,10 @@ function main() {
     }
 
     if (command === 'validate-package') {
+      const opts = parseOptions(argv);
       const target = argv.find((arg) => !arg.startsWith('--'));
       if (!target) throw new Error('validate-package requires a package directory');
-      validatePackage(path.resolve(target));
+      validatePackage(path.resolve(target), opts['non-strict'] !== true);
       return;
     }
 
@@ -84,7 +85,7 @@ Usage:
   node scripts/theme-figma.js parse-url "<figma-url-or-node-id>"
   node scripts/theme-figma.js infer-section "hero1-desktop"
   node scripts/theme-figma.js new-package --out <dir> --project <slug> [options]
-  node scripts/theme-figma.js validate-package <dir>
+  node scripts/theme-figma.js validate-package <dir> [--non-strict]
 
 new-package options:
   --figma-url URL
@@ -94,6 +95,8 @@ new-package options:
   --theme-id ID
   --mode design-audit|handoff-prep|implementation-handoff
   --routes "/,/products/example"
+  --fixture FILE
+  --force
 `);
 }
 
@@ -192,20 +195,37 @@ function createPackage(opts) {
     throw new Error(`--mode must be one of ${Array.from(MODES).join(', ')}`);
   }
 
-  const figma = opts['figma-url'] ? parseFigmaInput(opts['figma-url']) : {};
+  const fixture = opts.fixture ? readFixture(path.resolve(String(opts.fixture))) : null;
+  const figmaUrl = opts['figma-url'] || fixture?.handoff?.figma?.url || '';
+  const figma = figmaUrl ? parseFigmaInput(figmaUrl) : {};
   const generatedAt = new Date().toISOString();
   const routes = parseRoutes(opts.routes);
 
   fs.mkdirSync(out, { recursive: true });
 
-  writeJson(path.join(out, 'figma-handoff.json'), {
+  const outputFiles = [
+    'figma-handoff.json',
+    'routes.json',
+    'sections.json',
+    'assets.json',
+    'spark-divergence-ledger.json',
+    'viewport-coverage.json',
+    'validation-checklist.md',
+    'notes.md',
+  ];
+  const existing = outputFiles.filter((file) => fs.existsSync(path.join(out, file)));
+  if (existing.length && opts.force !== true) {
+    throw new Error(`refusing to overwrite existing package files (${existing.join(', ')}); pass --force to replace them`);
+  }
+
+  const handoff = fixture?.handoff || {
     schema_version: SCHEMA.handoff,
     generated_at: generatedAt,
     generator: 'next-theme-figma',
     project,
     mode,
     figma: {
-      url: opts['figma-url'] || '',
+      url: figmaUrl,
       file_key: figma.file_key || '',
       entry_node_id: figma.node_id || '',
     },
@@ -224,9 +244,10 @@ function createPackage(opts) {
       viewport_coverage: 'viewport-coverage.json',
     },
     unresolved_questions: [],
-  });
+  };
+  writeJson(path.join(out, 'figma-handoff.json'), handoff);
 
-  writeJson(path.join(out, 'routes.json'), {
+  writeJson(path.join(out, 'routes.json'), fixture?.routes || {
     schema_version: SCHEMA.routes,
     routes: routes.map((route, index) => ({
       route_id: routeId(route, index),
@@ -241,7 +262,7 @@ function createPackage(opts) {
     })),
   });
 
-  writeJson(path.join(out, 'sections.json'), {
+  writeJson(path.join(out, 'sections.json'), fixture?.sections || {
     schema_version: SCHEMA.sections,
     sections: [
       {
@@ -269,19 +290,24 @@ function createPackage(opts) {
     ],
   });
 
-  writeJson(path.join(out, 'assets.json'), {
+  writeJson(path.join(out, 'assets.json'), fixture?.assets || {
     schema_version: SCHEMA.assets,
+    figma_file_key: figma.file_key || '',
+    project,
     assets: [
       {
         asset_id: 'example-asset',
         section_id: 'example-1',
-        source_node_id: '',
+        path: '',
+        asset_url_path: '',
+        figma_node_id: '',
         source_layer_name: '',
         prefix: 'img',
-        target_path: '',
-        asset_url_path: '',
+        role: '',
+        alt: '',
         format: 'png',
-        expected_dimensions: { width: 0, height: 0 },
+        expected_width: 0,
+        expected_height: 0,
         requires_alpha: false,
         canvas_rendered: true,
         optimization_status: 'not-started',
@@ -292,7 +318,7 @@ function createPackage(opts) {
     ],
   });
 
-  writeJson(path.join(out, 'spark-divergence-ledger.json'), {
+  writeJson(path.join(out, 'spark-divergence-ledger.json'), fixture?.divergence || {
     schema_version: SCHEMA.divergence,
     entries: [
       {
@@ -310,7 +336,7 @@ function createPackage(opts) {
     ],
   });
 
-  writeJson(path.join(out, 'viewport-coverage.json'), {
+  writeJson(path.join(out, 'viewport-coverage.json'), fixture?.coverage || {
     schema_version: SCHEMA.coverage,
     viewports: {
       desktop: { expected_width: 1440, available: false },
@@ -332,7 +358,7 @@ function createPackage(opts) {
   console.log(`[next-theme-figma] package created: ${out}`);
 }
 
-function validatePackage(dir) {
+function validatePackage(dir, strict = true) {
   const errors = [];
   const warnings = [];
   const required = [
@@ -375,18 +401,22 @@ function validatePackage(dir) {
   const coverageEntries = expectArray(coverage, 'coverage', 'viewport-coverage.json', errors);
 
   if (routeEntries) {
-    if (!routeEntries.length) warnings.push('routes.json: no routes recorded');
+    if (!routeEntries.length) issue(strict, errors, warnings, 'routes.json: no routes recorded');
     for (const route of routeEntries) {
       if (!route.route_id) errors.push('routes.json: route missing route_id');
       if (!route.storefront_path) errors.push(`${route.route_id || 'route'}: missing storefront_path`);
       if (!route.section_order || !route.section_order.length) {
-        warnings.push(`${route.route_id || 'route'}: section_order is empty`);
+        issue(strict, errors, warnings, `${route.route_id || 'route'}: section_order is empty`);
+      }
+      if (!route.theme_template) issue(strict, errors, warnings, `${route.route_id || 'route'}: missing theme_template`);
+      if (!route.figma_frames || !Object.values(route.figma_frames).some((frame) => frame && frame.node_id)) {
+        issue(strict, errors, warnings, `${route.route_id || 'route'}: no Figma route frame node IDs recorded`);
       }
     }
   }
 
   if (sectionEntries) {
-    if (!sectionEntries.length) warnings.push('sections.json: no sections recorded');
+    if (!sectionEntries.length) issue(strict, errors, warnings, 'sections.json: no sections recorded');
     for (const section of sectionEntries) {
       const id = section.section_id || 'section';
       if (!section.section_id) errors.push('sections.json: section missing section_id');
@@ -396,29 +426,41 @@ function validatePackage(dir) {
       if (section.classification === 'screenshot-fallback' && !section.screenshot_fallback_approved) {
         errors.push(`${id}: screenshot-fallback requires screenshot_fallback_approved=true`);
       }
-      if (!section.classification_rationale) warnings.push(`${id}: missing classification_rationale`);
+      if (!section.classification_rationale) issue(strict, errors, warnings, `${id}: missing classification_rationale`);
       if (!section.figma_nodes || !Object.values(section.figma_nodes).some(Boolean)) {
-        warnings.push(`${id}: no Figma section node IDs recorded`);
+        issue(strict, errors, warnings, `${id}: no Figma section node IDs recorded`);
       }
+      if (!section.route_id) issue(strict, errors, warnings, `${id}: missing route_id`);
+      if (!section.implementation_target?.template) issue(strict, errors, warnings, `${id}: missing implementation target template`);
     }
   }
 
   if (assetEntries) {
-    if (!assetEntries.length) warnings.push('assets.json: no assets recorded');
+    if (!assetEntries.length) issue(strict, errors, warnings, 'assets.json: no assets recorded');
     for (const asset of assetEntries) {
       const id = asset.asset_id || 'asset';
+      if (!asset.asset_id) issue(strict, errors, warnings, 'assets.json: asset missing asset_id');
+      if (!asset.section_id) issue(strict, errors, warnings, `${id}: missing section_id`);
       if (!ASSET_PREFIXES.has(asset.prefix)) errors.push(`${id}: invalid prefix "${asset.prefix}"`);
-      if (!asset.source_node_id) warnings.push(`${id}: missing source_node_id`);
-      if (!asset.target_path) warnings.push(`${id}: missing target_path`);
-      if (!asset.format) warnings.push(`${id}: missing format`);
+      if (!asset.figma_node_id) issue(strict, errors, warnings, `${id}: missing figma_node_id`);
+      if (!asset.path) issue(strict, errors, warnings, `${id}: missing path`);
+      if (!asset.asset_url_path) issue(strict, errors, warnings, `${id}: missing asset_url_path`);
+      if (!asset.role) issue(strict, errors, warnings, `${id}: missing role`);
+      if (!asset.format) issue(strict, errors, warnings, `${id}: missing format`);
       if (asset.format && !ASSET_FORMATS.has(asset.format)) {
         errors.push(`${id}: invalid format "${asset.format}"`);
       }
       if (typeof asset.requires_alpha !== 'boolean') {
-        warnings.push(`${id}: requires_alpha should be true or false`);
+        issue(strict, errors, warnings, `${id}: requires_alpha should be true or false`);
+      }
+      if (!Number.isInteger(asset.expected_width) || asset.expected_width <= 0) {
+        issue(strict, errors, warnings, `${id}: expected_width must be a positive integer`);
+      }
+      if (!Number.isInteger(asset.expected_height) || asset.expected_height <= 0) {
+        issue(strict, errors, warnings, `${id}: expected_height must be a positive integer`);
       }
       if (typeof asset.canvas_rendered !== 'boolean') {
-        warnings.push(`${id}: canvas_rendered should be true or false`);
+        issue(strict, errors, warnings, `${id}: canvas_rendered should be true or false`);
       }
       if (!asset.optimization_status) {
         errors.push(`${id}: missing optimization_status`);
@@ -426,7 +468,10 @@ function validatePackage(dir) {
         errors.push(`${id}: invalid optimization_status "${asset.optimization_status}"`);
       }
       if (typeof asset.replace_with_backend_product_media !== 'boolean') {
-        warnings.push(`${id}: replace_with_backend_product_media should be true or false`);
+        issue(strict, errors, warnings, `${id}: replace_with_backend_product_media should be true or false`);
+      }
+      if (typeof asset.clean_export_verified !== 'boolean') {
+        issue(strict, errors, warnings, `${id}: clean_export_verified should be true or false`);
       }
       if (asset.prefix === 'img-group' && asset.clean_export_verified !== true) {
         errors.push(`${id}: img-group requires clean_export_verified=true after source review`);
@@ -435,12 +480,14 @@ function validatePackage(dir) {
   }
 
   if (divergenceEntries) {
-    if (!divergenceEntries.length) warnings.push('spark-divergence-ledger.json: no divergence entries recorded');
+    if (!divergenceEntries.length) issue(strict, errors, warnings, 'spark-divergence-ledger.json: no divergence entries recorded');
     for (const entry of divergenceEntries) {
       const id = entry.divergence_id || entry.surface || 'divergence';
-      if (!entry.surface) warnings.push(`${id}: missing surface`);
-      if (!entry.spark_platform_behavior) warnings.push(`${id}: missing spark_platform_behavior`);
-      if (!entry.implementation_guardrail) warnings.push(`${id}: missing implementation_guardrail`);
+      if (!entry.surface) issue(strict, errors, warnings, `${id}: missing surface`);
+      if (!entry.pages || !entry.pages.length) issue(strict, errors, warnings, `${id}: missing pages`);
+      if (!entry.figma_expectation) issue(strict, errors, warnings, `${id}: missing figma_expectation`);
+      if (!entry.spark_platform_behavior) issue(strict, errors, warnings, `${id}: missing spark_platform_behavior`);
+      if (!entry.implementation_guardrail) issue(strict, errors, warnings, `${id}: missing implementation_guardrail`);
       if (!entry.decision) {
         errors.push(`${id}: missing decision`);
       } else if (!DIVERGENCE_DECISIONS.has(entry.decision)) {
@@ -458,7 +505,7 @@ function validatePackage(dir) {
     for (const name of ['desktop', 'tablet', 'mobile']) {
       const vp = viewportConfig[name];
       if (!vp || typeof vp.available !== 'boolean') {
-        warnings.push(`viewport-coverage.json: ${name} availability not recorded`);
+        issue(strict, errors, warnings, `viewport-coverage.json: ${name} availability not recorded`);
         continue;
       }
       if (vp.expected_width) {
@@ -471,14 +518,26 @@ function validatePackage(dir) {
       }
     }
   }
-  if (coverageEntries && !coverageEntries.length) warnings.push('viewport-coverage.json: no route coverage recorded');
+  if (coverageEntries && !coverageEntries.length) issue(strict, errors, warnings, 'viewport-coverage.json: no route coverage recorded');
 
   for (const warning of warnings) console.log(`Warning: ${warning}`);
   if (errors.length) {
     for (const error of errors) console.log(`Error: ${error}`);
     process.exit(1);
   }
-  console.log(`[next-theme-figma] PASS with ${warnings.length} warning(s)`);
+  console.log(`[next-theme-figma] PASS (${strict ? 'strict' : 'non-strict'}) with ${warnings.length} warning(s)`);
+}
+
+function issue(strict, errors, warnings, message) {
+  (strict ? errors : warnings).push(message);
+}
+
+function readFixture(file) {
+  const fixture = JSON.parse(fs.readFileSync(file, 'utf8'));
+  for (const key of ['handoff', 'routes', 'sections', 'assets', 'divergence', 'coverage']) {
+    if (!fixture[key] || typeof fixture[key] !== 'object') throw new Error(`fixture missing ${key}`);
+  }
+  return fixture;
 }
 
 function parseRoutes(value) {

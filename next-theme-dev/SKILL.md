@@ -46,7 +46,7 @@ Run these checks at the start of every theme task to understand the working cont
 
 ```bash
 # Check ntk installation
-which ntk 2>/dev/null && ntk --version || echo "ntk not installed — install via: pip install next-theme-kit"
+if command -v ntk >/dev/null 2>&1; then python3 -m pip show next-theme-kit; else echo "ntk not installed — install via: pip install next-theme-kit"; fi
 
 # Check Python
 python3 --version 2>/dev/null || python --version 2>/dev/null || echo "Python not found"
@@ -498,7 +498,8 @@ cd /path/to/skills/next-theme-dev
 python3 -m pip install Pillow
 python3 scripts/validate-theme-assets.py \
   --theme /path/to/theme \
-  --manifest docs/<merchant>-asset-manifest.json
+  --manifest docs/<merchant>-asset-manifest.json \
+  --strict
 ```
 
 The script cannot OCR an image or prove a badge is absent. It makes that limitation explicit by requiring `clean_export_verified: true` when `forbid_badges` or `forbid_baked_text` is set.
@@ -951,7 +952,8 @@ Spark uses the Tailwind v4 standalone CLI with no Node dependency. In Spark, pre
 ```bash
 make install-tailwind   # One-time local binary install
 ntk watch               # Watch templates/CSS, compile Tailwind, run sass-compat, push
-ntk tailwind            # One-shot Tailwind compile + sass-compat + CSS push
+make css                # One-shot Tailwind compile + sass-compat
+ntk push assets/main.css # Push the compiled CSS artifact
 make release            # Compile, run sass-compat, and stage assets/main.css
 ```
 

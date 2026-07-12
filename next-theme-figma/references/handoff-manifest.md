@@ -20,6 +20,8 @@ Validate it:
 node <skill-dir>/scripts/theme-figma.js validate-package /path/to/handoff
 ```
 
+Validation is strict by default. Use `--non-strict` only for an explicitly incomplete draft. The generator refuses to overwrite existing package files; pass `--force` when replacement is intentional.
+
 ## Files
 
 The package should contain:
@@ -54,7 +56,15 @@ Assets must use one of:
 - `bg`
 - `img-group`
 
-Every asset should include source node ID, target path, format, expected dimensions, alpha needs, canvas-rendered status, optimization status, and backend media replacement intent.
+## Canonical Asset Schema
+
+`assets.json` uses the downstream `next-theme-dev` manifest shape, extended with Figma handoff decisions. Its top level contains `schema_version`, `figma_file_key`, `project`, and `assets`. Every asset contains:
+
+- Consumer fields: `path` (starting with `assets/`), `asset_url_path` (without that prefix), `figma_node_id`, `role`, `alt`, `format`, `expected_width`, `expected_height`, `requires_alpha`, and `clean_export_verified`.
+- Handoff fields: `asset_id`, `section_id`, `source_layer_name`, `prefix`, `canvas_rendered`, `optimization_status`, `replace_with_backend_product_media`, and `notes`.
+- Optional consumer checks where relevant: `max_bytes`, `forbid_badges`, `forbid_baked_text`, `decorative`, and `source`.
+
+This is intentionally the richer union of the generator and consumer contracts. Do not use the former generator-only names `target_path`, `source_node_id`, or nested `expected_dimensions`.
 
 ## Divergence Status Values
 

@@ -58,13 +58,15 @@ For each asset, record:
 
 - `asset_id`
 - `section_id`
-- `source_node_id`
+- `figma_node_id`
 - `source_layer_name`
 - `prefix`: `img`, `bg`, or `img-group`
-- `target_path`
-- `asset_url_path` for theme template usage when known
+- `path`: target file path beginning with `assets/`
+- `asset_url_path`: theme template path without the `assets/` prefix
+- `role`
+- `alt`
 - `format`: `png`, `jpg`, `jpeg`, `svg`, or `webp`
-- `expected_dimensions`: width and height after export
+- `expected_width` and `expected_height` after export
 - `requires_alpha`
 - `canvas_rendered`
 - `optimization_status`: `not-started`, `source-selected`, `optimized`, or `blocked`

@@ -1,0 +1,36 @@
+{
+  "handoff": {
+    "schema_version": "next-theme-figma/handoff/v0",
+    "generated_at": "2026-01-01T00:00:00.000Z",
+    "generator": "next-theme-figma",
+    "project": "example-store",
+    "mode": "implementation-handoff",
+    "figma": {"url": "https://www.figma.com/design/example-key/example?node-id=1-2", "file_key": "example-key", "entry_node_id": "1:2"},
+    "target": {"store": "example.29next.store", "repo": "/path/to/theme", "preview_url": "", "theme_id": "", "theme_family": "Spark"},
+    "manifests": {"routes": "routes.json", "sections": "sections.json", "assets": "assets.json", "spark_divergence_ledger": "spark-divergence-ledger.json", "viewport_coverage": "viewport-coverage.json"},
+    "unresolved_questions": []
+  },
+  "routes": {
+    "schema_version": "next-theme-figma/routes/v0",
+    "routes": [{"route_id": "home", "storefront_path": "/", "theme_template": "templates/index.html", "figma_frames": {"desktop": {"name": "home1-desktop", "node_id": "10:1", "url": ""}, "tablet": {"name": "", "node_id": "", "url": ""}, "mobile": {"name": "home1-mobile", "node_id": "10:2", "url": ""}}, "section_order": ["hero-1"], "reference_screenshots": {"desktop": "refs/home-desktop.png", "tablet": "", "mobile": "refs/home-mobile.png"}, "existing_preview_screenshots": {"desktop": "", "tablet": "", "mobile": ""}, "status": "ready", "notes": "Tablet intentionally follows responsive interpolation."}]
+  },
+  "sections": {
+    "schema_version": "next-theme-figma/sections/v0",
+    "sections": [{"section_id": "hero-1", "route_id": "home", "order": 1, "figma_names": {"desktop": "hero1-desktop", "tablet": "", "mobile": "hero1-mobile"}, "figma_nodes": {"desktop": "20:1", "tablet": "", "mobile": "20:2"}, "classification": "background-asset", "classification_rationale": "Live copy overlays an exported background.", "implementation_target": {"template": "partials/home/hero.html", "partials": [], "assets": ["hero-background"], "settings": []}, "commerce_surface": "", "asset_ids": ["hero-background"], "divergence_ids": ["header-state"], "responsive_notes": "Use the mobile crop below 768px.", "behavior_notes": "Keep heading and CTA live.", "unresolved_gaps": [], "screenshot_fallback_approved": false}]
+  },
+  "assets": {
+    "schema_version": "next-theme-figma/assets/v0",
+    "figma_file_key": "example-key",
+    "project": "example-store",
+    "assets": [{"asset_id": "hero-background", "section_id": "hero-1", "path": "assets/img/example-store/hero.svg", "asset_url_path": "img/example-store/hero.svg", "figma_node_id": "30:1", "source_layer_name": "bg: hero", "prefix": "bg", "role": "hero-background", "alt": "", "decorative": true, "format": "svg", "expected_width": 1200, "expected_height": 600, "requires_alpha": false, "canvas_rendered": false, "optimization_status": "optimized", "replace_with_backend_product_media": false, "clean_export_verified": true, "notes": "Exported background only; text remains live."}]
+  },
+  "divergence": {
+    "schema_version": "next-theme-figma/spark-divergence/v0",
+    "entries": [{"divergence_id": "header-state", "surface": "header account and cart state", "pages": ["/"], "figma_expectation": "A populated cart badge is visible.", "spark_platform_behavior": "Cached pages obtain visitor state client-side.", "decision": "spark-wins", "implementation_guardrail": "Populate cart state through the existing client-side component.", "status": "approved", "approved_by": "implementation owner", "notes": ""}]
+  },
+  "coverage": {
+    "schema_version": "next-theme-figma/viewport-coverage/v0",
+    "viewports": {"desktop": {"expected_width": 1440, "available": true}, "tablet": {"expected_width": 768, "available": false}, "mobile": {"expected_width": 375, "available": true}},
+    "coverage": [{"route_id": "home", "desktop": {"figma_ref": "refs/home-desktop.png", "preview_ref": "", "status": "ready"}, "tablet": {"figma_ref": "", "preview_ref": "", "status": "documented-missing"}, "mobile": {"figma_ref": "refs/home-mobile.png", "preview_ref": "", "status": "ready"}, "notes": "Tablet interpolation is documented."}]
+  }
+}

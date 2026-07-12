@@ -65,11 +65,20 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="Manifest path. Relative paths are resolved from --theme. Use '-' for stdin.",
     )
-    parser.add_argument(
+    strict_group = parser.add_mutually_exclusive_group()
+    strict_group.add_argument(
         "--strict",
+        dest="strict",
         action="store_true",
-        help="Treat warnings as failures.",
+        help="Treat warnings as failures (the default).",
     )
+    strict_group.add_argument(
+        "--no-strict",
+        dest="strict",
+        action="store_false",
+        help="Allow warnings without failing validation.",
+    )
+    parser.set_defaults(strict=True)
     return parser.parse_args()
 
 
