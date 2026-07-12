@@ -166,7 +166,7 @@
       "canonical_context": {
         "role": "Public catalog entry for CPK setup only; Campaigns OS runtime flows should follow the campaigns-os package handoff",
         "campaigns_os_source": "https://github.com/NextCommerceCo/campaigns-os",
-        "internal_orchestration_source": "NextCommerceCo/next-campaigns-ops"
+        "orchestration_note": "Campaigns OS runtime flows use the public package handoff"
       },
       "related_skills": [
         {

@@ -202,7 +202,7 @@ If the user supplied a CampaignSpec, pre-fill from:
 **Required:**
 - **API key** — the Campaign Cart API key for this store
 - **Store name** — short display name (e.g. "Winter Gloves Co")
-- **Store URL** — the main store domain (e.g. `https://wintergloves.com`)
+- **Store URL** — the main store domain (e.g. `https://example-store.com`)
 
 **Recommended but optional:**
 - **Store phone** — display format (e.g. `1-800-555-0100`) and tel format (e.g. `+18005550100`)
