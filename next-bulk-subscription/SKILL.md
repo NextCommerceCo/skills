@@ -67,7 +67,7 @@ Before making any store request, use the public Admin API conventions from
 https://developers.nextcommerce.com/docs/admin-api:
 
 - Base URL: `https://{subdomain}.29next.store/api/admin/`
-- Auth header: `Authorization: Bearer <api access token>`
+- Auth header: `Authorization: Bearer $NEXT_ADMIN_API_TOKEN`
 - Version header: `X-29next-API-Version: 2024-04-01`
 
 Do not use `/api/v1/...` paths or `Authorization: Token ...`; those are not the
@@ -89,19 +89,19 @@ Store base URL: `https://{subdomain}.29next.store/api/admin/`.
 
 ### Step 2: Admin API Access Token
 
-Ask the user:
+Require `NEXT_ADMIN_API_TOKEN` in the executor environment. Never ask the user to
+paste a token into conversation, accept it as a CLI argument, echo it, or write it
+into a command, script, or results file. Read and write are separate permissions;
+both `subscriptions:read` and `subscriptions:write` are required.
 
-> Provide an Admin API access token for {subdomain}.29next.store.
->
-> Required scope:
-> - `subscriptions:write` (implies `subscriptions:read`)
->
-> Create one at **{subdomain}.29next.store Dashboard > Settings > API Access**.
+```bash
+export NEXT_ADMIN_API_TOKEN
+```
 
 Validate with a single GET against a known-good list endpoint:
 ```bash
 curl -s -w "\n%{http_code}" \
-  -H "Authorization: Bearer {api_access_token}" \
+  -H "Authorization: Bearer ${NEXT_ADMIN_API_TOKEN:?NEXT_ADMIN_API_TOKEN is required}" \
   -H "X-29next-API-Version: 2024-04-01" \
   "https://{subdomain}.29next.store/api/admin/subscriptions/?limit=1"
 ```
@@ -174,9 +174,13 @@ Or:
 
 ---
 
-## Phase 2: Write the Bulk Script
+## Phase 2: Run the Bundled Executor
 
-Generate a Python script at `{working_dir}/{subdomain}_bulk_subscription.py`.
+Use `next-bulk-subscription/scripts/bulk_subscription.py`. It is stdlib-only,
+dry-run by default, reads authentication only from `NEXT_ADMIN_API_TOKEN`, resumes
+completed rows, and continues after individual failures. Its explicit `ACTIONS`
+mapping is the authority for methods, endpoint templates, and permitted payload
+fields; non-allowlisted actions and fields are refused.
 
 ### The API Patterns
 
@@ -221,15 +225,16 @@ verify.
 ### Script Requirements
 
 - **Rate limiting**: 4 requests/sec max. Sleep **0.26s** between subs (1 request per sub). For baseline mode that GETs first, sleep 0.5s total across both calls.
-- **Auth headers**: `Authorization: Bearer {api_access_token}` + `X-29next-API-Version: 2024-04-01`
+- **Auth headers**: token comes only from `NEXT_ADMIN_API_TOKEN`
 - **Dry-run mode**: `--dry-run` flag that computes the body but does not send the POST/PATCH. Still reports one row per subscription.
 - **Limit flag**: `--limit N` to process only the first N rows (for testing).
 - **Skip list**: Hard-code or pass a set of `SKIP_IDS` (e.g., a test record already updated, or records known to be in a non-normal state).
-- **Output**: Write results to `{subdomain}_bulk_subscription_results.csv` with columns:
-  `subscription_id, operation, status, detail, request_body`
+- **Output**: only `subscription_id, order_id, customer_id, action, status,
+  error_code, error_message`; never request/response bodies, addresses, payment
+  fields, customer names, or emails
 - **Status values**: `OK`, `DRY_RUN`, `SKIPPED`, `PARSE_ERROR`, `HTTP_<code>`, `EXC`
 - **Use `python3 -u`** for unbuffered output (live progress).
-- **Only stdlib + requests** (no pandas, no openpyxl — for XLSX support, convert upstream).
+- **Only Python stdlib** (for XLSX support, convert upstream).
 
 ### Timezone Handling for Date Fields
 
@@ -244,7 +249,8 @@ The API returns ISO 8601 timestamps with the store's timezone offset (e.g., `202
 - **Do not pause by PATCHing `status: paused`**. Use the official `subscriptionsPauseCreate` endpoint instead. The pause endpoint sets lifecycle fields (`status`, `paused_at`, `paused_until`) and applies platform pause semantics; a raw status patch does not.
 - **Indefinite pauses auto-cancel after 6 months if not resumed**. Confirm the merchant understands this before sending `{}` to `/pause/`.
 - **Empty / far-future `next_renewal_date`**: Some subscriptions have dates in the year 3966 (effectively already paused). The CSV may render this as an empty cell. Treat blank `Next Renewal Date` as "already paused — skip."
-- **Full entity response**: POST/PATCH returns the full subscription object (~3–8 KB per call). If processing thousands of subs, write responses to disk rather than holding in memory.
+- **Full entity response**: POST/PATCH may return address and payment data. Discard
+  the body after determining success; never write it to results or logs.
 - **`HTTP 200 not 201`** — subscription action and update endpoints return 200 on success. Don't treat 200 as an error.
 - **Rate limit = 4 req/s**. At 0.26s sleep you're at ~3.8 req/s — safely under. For GET+PATCH baseline mode, use 0.5s.
 
@@ -252,7 +258,9 @@ The API returns ISO 8601 timestamps with the store's timezone offset (e.g., `202
 
 **2a. Dry-run:**
 ```bash
-python3 -u {subdomain}_bulk_subscription.py --dry-run
+python3 -u next-bulk-subscription/scripts/bulk_subscription.py \
+  --store {subdomain} --input subscriptions.csv --action pause \
+  --payload '{"pause_until":"2026-08-01"}' --results subscription-results.csv
 ```
 
 Report counts by status (OK-candidate / SKIPPED / PARSE_ERROR) and show any parse errors so the user can fix source data before a live run.
@@ -267,7 +275,10 @@ Ask the user:
 
 Run live:
 ```bash
-python3 -u {subdomain}_bulk_subscription.py
+python3 -u next-bulk-subscription/scripts/bulk_subscription.py \
+  --store {subdomain} --input subscriptions.csv --action pause \
+  --payload '{"pause_until":"2026-08-01"}' --results subscription-results.csv \
+  --resume subscription-results.csv --execute
 ```
 
 ---
@@ -281,7 +292,7 @@ re-GET them to confirm the action/field took effect. The POST/PATCH response can
 be trusted in principle, but a live GET catches any downstream state issues.
 
 ```bash
-curl -s -H "Authorization: Bearer {api_access_token}" \
+curl -s -H "Authorization: Bearer ${NEXT_ADMIN_API_TOKEN:?NEXT_ADMIN_API_TOKEN is required}" \
   -H "X-29next-API-Version: 2024-04-01" \
   "https://{subdomain}.29next.store/api/admin/subscriptions/{id}/" \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status'), d.get('paused_until'), d.get('next_renewal_date'))"
@@ -303,8 +314,9 @@ If any errors, list the affected subscription IDs with the error detail so the u
 
 ### Clean Up
 
-Offer to keep or delete the generated script:
-> Script at `{script_path}`. Keep for re-runs, or delete?
+Keep the bundled executor. Delete transient payload/input/results artifacts by
+default after confirming the outcome unless needed for resume or audit. Run
+`unset NEXT_ADMIN_API_TOKEN` when finished.
 
 ---
 

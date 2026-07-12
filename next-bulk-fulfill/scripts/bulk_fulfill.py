@@ -1,0 +1,229 @@
+#!/usr/bin/env python3
+"""Safely create Next Commerce fulfillments from a tracking CSV."""
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any, Callable, Iterable
+
+
+API_VERSION = "2024-04-01"
+FIELDS = ["order_number", "fulfillment_id", "tracking_code", "carrier", "action", "status"]
+COMPLETED_STATUSES = {"success"}
+VALID_CARRIERS = {"4px", "amazon", "asendia", "australia_post", "china_post",
+                  "deutsche_de", "dhl", "dhl_ecommerce", "fedex", "firstmile",
+                  "gofo_express", "hermesworld_uk", "myhermes", "ontrac", "other",
+                  "royal_mail", "speedx", "swiss_post", "ulala", "uniuni", "ups",
+                  "usps", "yunexpress"}
+
+
+def normalize_domain(raw: str) -> str:
+    value = raw.strip().removeprefix("https://").removeprefix("http://").strip("/").lower()
+    if not value or any(char in value for char in "/?#@:"):
+        raise ValueError("--store must be a subdomain or .29next.store hostname")
+    if "." not in value:
+        if not value.replace("-", "").isalnum():
+            raise ValueError("--store must be a valid store subdomain")
+        return f"{value}.29next.store"
+    if not value.endswith(".29next.store"):
+        raise ValueError("refusing non-29next store host")
+    return value
+
+
+class AdminClient:
+    def __init__(self, domain: str, token: str, *, min_interval: float = 0.25,
+                 timeout: float = 30.0, clock: Callable[[], float] = time.monotonic,
+                 sleep: Callable[[float], None] = time.sleep):
+        self.base = f"https://{normalize_domain(domain)}/api/admin/"
+        self.token, self.min_interval, self.timeout = token, min_interval, timeout
+        self.clock, self.sleep, self._last = clock, sleep, None
+
+    def _request(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+        if self._last is not None:
+            delay = self.min_interval - (self.clock() - self._last)
+            if delay > 0:
+                self.sleep(delay)
+        self._last = self.clock()
+        request = urllib.request.Request(
+            urllib.parse.urljoin(self.base, path.lstrip("/")), method=method,
+            data=json.dumps(body).encode() if body is not None else None,
+            headers={"Authorization": f"Bearer {self.token}",
+                     "X-29next-API-Version": API_VERSION, "Accept": "application/json",
+                     "Content-Type": "application/json"})
+        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            raw = response.read()
+            return json.loads(raw) if raw else {}
+
+    def list_fulfillment_orders(self, order: str) -> list[dict[str, Any]]:
+        query = urllib.parse.urlencode({"order_number": order})
+        data = self._request("GET", f"fulfillment-orders/?{query}")
+        rows = data.get("results") if isinstance(data, dict) else None
+        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+            raise ValueError("malformed fulfillment-order response")
+        return rows
+
+    def fulfill(self, fulfillment_id: str, tracking: str, carrier: str,
+                notify: bool = True) -> Any:
+        return self._request("POST", f"fulfillment-orders/{fulfillment_id}/fulfillments/",
+                             {"tracking_info": [{"tracking_code": tracking,
+                                                  "carrier": carrier}], "notify": notify})
+
+
+def inferred_carrier(tracking: str) -> tuple[str, str]:
+    code = tracking.strip().upper()
+    if code.startswith("YT"): return "prefix:YT", "yunexpress"
+    if code.startswith("4PX"): return "prefix:4PX", "4px"
+    if code.startswith("92") and len(code) >= 20: return "prefix:92-length>=20", "usps"
+    if code.startswith("1Z"): return "prefix:1Z", "ups"
+    if code.isdigit() and 12 <= len(code) <= 15: return "digits:12-15", "fedex"
+    if code.startswith("JD"): return "prefix:JD", "dhl"
+    if code.isdigit() and len(code) == 10 and code.startswith("0"): return "digits:10-prefix:0", "dhl"
+    return "unmatched", "other"
+
+
+def load_carrier_map(raw: str | None) -> dict[str, str]:
+    if not raw:
+        return {}
+    path = Path(raw)
+    value = path.read_text(encoding="utf-8") if path.exists() else raw
+    data = json.loads(value)
+    if not isinstance(data, dict) or any(v not in VALID_CARRIERS for v in data.values()):
+        raise ValueError("--carrier-map must be a JSON object with valid carrier slugs")
+    return {str(k): str(v) for k, v in data.items()}
+
+
+@dataclass
+class Result:
+    order_number: str
+    fulfillment_id: str = ""
+    tracking_code: str = ""
+    carrier: str = ""
+    action: str = ""
+    status: str = ""
+
+
+class BulkFulfiller:
+    def __init__(self, client: Any, *, execute: bool = False, notify: bool = True,
+                 carrier_map: dict[str, str] | None = None,
+                 sleep: Callable[[float], None] = time.sleep, row_delay: float = 0.5):
+        self.client, self.execute, self.notify = client, execute, notify
+        self.carrier_map, self.sleep, self.row_delay = carrier_map or {}, sleep, row_delay
+
+    def process(self, row: dict[str, str]) -> Result:
+        order, tracking = row["order_number"], row["tracking_code"]
+        explicit = row.get("carrier", "").strip().lower()
+        pattern, guess = inferred_carrier(tracking)
+        carrier = explicit or self.carrier_map.get(pattern, "")
+        if explicit and explicit not in VALID_CARRIERS:
+            return Result(order, tracking_code=tracking, carrier=explicit,
+                          action="INVALID_CARRIER", status="error")
+        if not carrier:
+            return Result(order, tracking_code=tracking, carrier=guess,
+                          action=f"UNCONFIRMED_CARRIER:{pattern}", status="error")
+        try:
+            fos = self.client.list_fulfillment_orders(order)
+            eligible = [fo for fo in fos if fo.get("status") in {"processing", "open"}]
+            if not eligible:
+                return Result(order, tracking_code=tracking, carrier=carrier,
+                              action="NOT_FOUND", status="skipped")
+            if len(eligible) != 1 or eligible[0].get("id") in (None, ""):
+                return Result(order, tracking_code=tracking, carrier=carrier,
+                              action="MANUAL_REVIEW", status="error")
+            fid = str(eligible[0]["id"])
+            if not self.execute:
+                return Result(order, fid, tracking, carrier, "WOULD_FULFILL", "skipped")
+            self.client.fulfill(fid, tracking, carrier, self.notify)
+            return Result(order, fid, tracking, carrier, "FULFILLED", "success")
+        except Exception as exc:
+            code = getattr(exc, "code", None)
+            action = f"HTTP_ERROR_{code}" if code else f"ERROR_{type(exc).__name__}"
+            return Result(order, tracking_code=tracking, carrier=carrier,
+                          action=action, status="error")
+
+    def run(self, rows: Iterable[dict[str, str]], output: Path,
+            completed: set[tuple[str, str]] | None = None) -> list[Result]:
+        completed = completed or set()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        write_header = not output.exists() or output.stat().st_size == 0
+        results = []
+        with output.open("a", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=FIELDS)
+            if write_header: writer.writeheader(); handle.flush()
+            for row in rows:
+                key = (row["order_number"], row["tracking_code"])
+                if key in completed: continue
+                result = self.process(row)
+                writer.writerow(asdict(result)); handle.flush(); results.append(result)
+                print(f"Order {result.order_number}: {result.action}", flush=True)
+                if self.row_delay: self.sleep(self.row_delay)
+        return results
+
+
+def read_rows(path: Path) -> list[dict[str, str]]:
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        reader = csv.DictReader(handle)
+        normalized = {str(k).lower().replace(" ", "_"): k for k in reader.fieldnames or []}
+        order_key = normalized.get("order_number") or normalized.get("order_#")
+        tracking_key = (normalized.get("tracking_code") or normalized.get("tracking_number")
+                        or normalized.get("tracking_no") or normalized.get("tracking_#"))
+        carrier_key = normalized.get("carrier")
+        if not order_key or not tracking_key:
+            raise ValueError("input CSV requires order_number and tracking_code columns")
+        return [{"order_number": str(row.get(order_key, "")).strip(),
+                 "tracking_code": str(row.get(tracking_key, "")).strip(),
+                 "carrier": str(row.get(carrier_key, "")).strip() if carrier_key else ""}
+                for row in reader if row.get(order_key) and row.get(tracking_key)]
+
+
+def resume_completed(path: Path | None) -> set[tuple[str, str]]:
+    if path is None or not path.exists(): return set()
+    with path.open(newline="", encoding="utf-8") as handle:
+        return {(row["order_number"], row["tracking_code"]) for row in csv.DictReader(handle)
+                if row.get("status") in COMPLETED_STATUSES}
+
+
+def parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--store", required=True)
+    p.add_argument("--input", required=True, type=Path)
+    p.add_argument("--results", required=True, type=Path)
+    p.add_argument("--resume", type=Path)
+    p.add_argument("--carrier-map", help="JSON object/path confirming inferred pattern-to-carrier mappings")
+    p.add_argument("--no-notify", action="store_true")
+    p.add_argument("--limit", type=int)
+    mode = p.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", dest="execute", action="store_false")
+    mode.add_argument("--execute", action="store_true")
+    p.set_defaults(execute=False)
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    token = os.environ.get("NEXT_ADMIN_API_TOKEN")
+    if not token:
+        print("NEXT_ADMIN_API_TOKEN is required", file=sys.stderr); return 2
+    try:
+        client = AdminClient(args.store, token)
+        rows = read_rows(args.input)
+        carrier_map = load_carrier_map(args.carrier_map)
+    except (ValueError, OSError, json.JSONDecodeError) as exc:
+        parser().error(str(exc))
+    rows = rows[:args.limit] if args.limit is not None else rows
+    results = BulkFulfiller(client, execute=args.execute, notify=not args.no_notify,
+                            carrier_map=carrier_map).run(rows, args.results,
+                                                         resume_completed(args.resume))
+    return 1 if any(row.status == "error" for row in results) else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

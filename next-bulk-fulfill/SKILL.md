@@ -57,7 +57,7 @@ Before making any store request, use the public Admin API conventions from
 https://developers.nextcommerce.com/docs/admin-api:
 
 - Base URL: `https://{subdomain}.29next.store/api/admin/`
-- Auth header: `Authorization: Bearer <api access token>`
+- Auth header: `Authorization: Bearer $NEXT_ADMIN_API_TOKEN`
 - Version header: `X-29next-API-Version: 2024-04-01`
 
 Do not use `/api/v1/...` paths or `Authorization: Token ...`; those are not the
@@ -81,20 +81,19 @@ Store the base URL: `https://{subdomain}.29next.store/api/admin/`
 
 ### Step 2: Admin API Access Token
 
-Ask the user:
+Require `NEXT_ADMIN_API_TOKEN` in the executor environment. Never ask the user to
+paste a token into conversation, accept it as a CLI argument, echo it, or write it
+into a command, script, or results file. Read and write are separate permissions;
+both `fulfillment_orders:read` and `fulfillment_orders:write` are required.
 
-> Provide an Admin API access token for {subdomain}.29next.store.
->
-> The key needs these **two scopes** (and no more):
-> - `fulfillment_orders:read` — to query fulfillment orders by order number
-> - `fulfillment_orders:write` — to create fulfillments with tracking info
->
-> Create one at **{subdomain}.29next.store Dashboard > Settings > API Access**.
+```bash
+export NEXT_ADMIN_API_TOKEN
+```
 
 Validate the key works:
 ```bash
 curl -s -w "\n%{http_code}" \
-  -H "Authorization: Bearer {api_access_token}" \
+  -H "Authorization: Bearer ${NEXT_ADMIN_API_TOKEN:?NEXT_ADMIN_API_TOKEN is required}" \
   -H "X-29next-API-Version: 2024-04-01" \
   "https://{subdomain}.29next.store/api/admin/fulfillment-orders/?limit=1"
 ```
@@ -114,12 +113,12 @@ Ask the user:
 > - **Order number** (e.g., `ORDER NUMBER`, `order_number`, `Order #`)
 > - **Tracking number** (e.g., `TRACKING NUMBER`, `tracking_no`, `Tracking #`)
 >
-> Optional: Order name / customer name column (used for logging only).
+Do not include customer names, emails, addresses, or payment data in the executor
+input or results.
 
 Read the CSV and detect columns. Look for headers matching these patterns:
 - Order number: contains `order` AND (`number` or `#` or `num` or `id`)
 - Tracking number: contains `tracking` AND (`number` or `#` or `num` or `code`)
-- Customer name: contains `name` or `customer` (optional, for logging)
 
 If column detection fails, show the headers found and ask the user to specify which
 columns to use.
@@ -128,7 +127,6 @@ Report what was loaded:
 > Loaded **{N}** orders from `{filename}`. Detected columns:
 > - Order number: `{column_name}`
 > - Tracking number: `{column_name}`
-> - Customer name: `{column_name}` (or "not detected")
 
 ---
 
@@ -160,14 +158,20 @@ After detection, show a carrier summary:
 > Orders with carrier `other` will still sync — the platform won't auto-link to a
 > carrier tracking page but the tracking number will be stored.
 
-If multiple carriers are detected, confirm with the user before proceeding.
+Inference is a proposal, never authorization. Group every distinct inferred
+pattern (for example `prefix:1Z` or `digits:12-15`) and show its proposed carrier.
+Require confirmation for every distinct pattern, including `unmatched`, using an
+explicit `carrier` input column or `--carrier-map` JSON such as
+`'{"prefix:1Z":"ups","unmatched":"other"}'`. Unconfirmed rows are flagged and
+never sent.
 
 ---
 
-## Phase 3: Write and Run the Sync Script
+## Phase 3: Run the Bundled Executor
 
-Generate a Python script at `{working_dir}/{subdomain}_bulk_fulfill.py` that implements
-the two-step API flow.
+Use `next-bulk-fulfill/scripts/bulk_fulfill.py`. It is stdlib-only, dry-run by
+default, reads the token only from `NEXT_ADMIN_API_TOKEN`, continues after
+individual failures, rate-limits requests, and supports safe resume.
 
 ### The API Pattern
 
@@ -188,18 +192,17 @@ POST /api/admin/fulfillment-orders/{id}/fulfillments/
 }
 ```
 
-### Script Requirements
+### Executor Guarantees
 
 - **Rate limiting**: 4 requests/sec max. At 2 calls per order, sleep 0.6s between orders.
-- **Auth headers**: `Authorization: Bearer {api_access_token}` + `X-29next-API-Version: 2024-04-01`
-- **Dry-run mode**: `--dry-run` flag that runs Step 1 (GET) but skips Step 2 (POST)
+- **Auth headers**: token comes only from `NEXT_ADMIN_API_TOKEN`
+- **Dry-run mode**: default; runs lookup but skips POST
 - **Notify control**: `--no-notify` flag to suppress customer notifications
 - **Limit flag**: `--limit N` to process only the first N orders (for testing)
-- **Output**: Write results to `{subdomain}_bulk_fulfill_results.csv` with columns:
-  `order_number, customer_name, tracking_no, carrier, status, fo_id, note`
-- **Status values**: `OK`, `NOT_FOUND`, `MULTIPLE_FOUND`, `API_ERROR`, `DRY_RUN_OK`
+- **Output**: only `order_number, fulfillment_id, tracking_code, carrier, action, status`;
+  never API bodies, customer data, addresses, or payment data
 - **Use `python3 -u`** for unbuffered output (real-time progress)
-- **Only import stdlib + requests** (no pandas, no openpyxl)
+- **Only Python stdlib**
 
 ### Gotchas (encode these in the script)
 
@@ -214,7 +217,9 @@ POST /api/admin/fulfillment-orders/{id}/fulfillments/
 
 **3a. Run dry-run first:**
 ```bash
-python3 -u {subdomain}_bulk_fulfill.py --dry-run
+python3 -u next-bulk-fulfill/scripts/bulk_fulfill.py \
+  --store {subdomain} --input orders.csv --results bulk-fulfill-results.csv \
+  --carrier-map carrier-map.json
 ```
 
 Report results to the user:
@@ -238,8 +243,10 @@ Ask the user:
 
 Then run:
 ```bash
-python3 -u {subdomain}_bulk_fulfill.py        # Option A
-python3 -u {subdomain}_bulk_fulfill.py --no-notify  # Option B
+python3 -u next-bulk-fulfill/scripts/bulk_fulfill.py \
+  --store {subdomain} --input orders.csv --results bulk-fulfill-results.csv \
+  --resume bulk-fulfill-results.csv --carrier-map carrier-map.json --execute
+# Add --no-notify for option B.
 ```
 
 ---
@@ -262,15 +269,16 @@ Show the final summary:
 For any MULTIPLE_FOUND orders, provide the order numbers and FO IDs so the user can
 resolve them in the store admin:
 > **Orders needing manual review:**
-> - Order {number} ({customer_name}): FO IDs {id1}, {id2} — has multiple fulfillment
+> - Order {number}: FO IDs {id1}, {id2} — has multiple fulfillment
 >   orders, needs manual fulfillment in the admin dashboard
 
 For any API_ERROR orders, show the error details from the results CSV.
 
 ### Clean Up
 
-After confirming results are satisfactory, offer to clean up the generated script:
-> Script saved at `{script_path}`. Want me to keep it for future use or delete it?
+Keep the bundled executor. Delete transient carrier-map/input/results artifacts by
+default after the outcome is confirmed unless needed for resume or audit. Run
+`unset NEXT_ADMIN_API_TOKEN` when finished.
 
 ---
 
