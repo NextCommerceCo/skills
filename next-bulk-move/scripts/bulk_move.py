@@ -198,6 +198,8 @@ class BulkMover:
                 return Result(order, action="NOT_FOUND", status="skipped", destination=str(self.destination))
             if not source_fos and any(assigned_id(fo) == self.destination for fo in fos):
                 return Result(order, action="ALREADY_MOVED", status="skipped", destination=str(self.destination))
+            if not source_fos:
+                return Result(order, action="WRONG_LOCATION", status="skipped", destination=str(self.destination))
             if len(source_fos) != 1:
                 return Result(order, action="MANUAL_REVIEW", status="error", destination=str(self.destination))
             fo = source_fos[0]
@@ -207,6 +209,9 @@ class BulkMover:
                 return self._move(order, fo, "CANCEL+MOVED")
             if state == "open" and supported(fo, "move"):
                 return self._move(order, fo, "MOVED")
+            if state == "open":
+                return Result(order, fid, action="MOVE_UNSUPPORTED", status="error",
+                              destination=str(self.destination))
             if state == "processing":
                 if str(fo.get("request_status") or "") in {
                     "cancel_rejected", "cancellation_rejected"

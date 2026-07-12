@@ -91,6 +91,22 @@ class BulkMoveTests(unittest.TestCase):
         self.assertEqual([], client.moves)
         self.assertEqual("LOCATION_UNAVAILABLE", rows[0].action)
 
+    def test_open_fo_without_move_support_is_retryable_error(self):
+        client = FakeClient({"1001": [fo(1, 1001, "open", actions=["cancel"])]})
+        rows, output = self.run_mover(client, ["1001"])
+        self.assertEqual([], client.moves)
+        self.assertEqual("MOVE_UNSUPPORTED", rows[0].action)
+        self.assertEqual("error", rows[0].status)
+        self.assertNotIn("1001", bulk_move.resume_completed(output))
+
+    def test_fo_at_unrelated_location_is_wrong_location_and_completed(self):
+        client = FakeClient({"1001": [fo(1, 1001, location=30, actions=["move"])]})
+        rows, output = self.run_mover(client, ["1001"])
+        self.assertEqual([], client.moves)
+        self.assertEqual("WRONG_LOCATION", rows[0].action)
+        self.assertEqual("skipped", rows[0].status)
+        self.assertIn("1001", bulk_move.resume_completed(output))
+
     def test_each_order_is_listed_only_once_without_location_preflight(self):
         client = FakeClient({"1001": [fo(1, 1001, actions=["move"])]})
         self.run_mover(client, ["1001"])

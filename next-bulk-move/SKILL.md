@@ -190,6 +190,7 @@ From the results, classify:
 |-----------|---------------|--------|
 | No FOs found | `NOT_FOUND` | Skip — order doesn't exist or has no FOs |
 | FO at source location, `status: open` | `READY` | Can move directly |
+| FO at source, `status: open`, `move` not in `supported_actions` | `MOVE_UNSUPPORTED` | Record as an error and retry/manual-review — do not mark done |
 | FO at source location, `status: processing` | `NEEDS_CANCEL` | Request cancellation, poll until accepted and movable, then move |
 | FO already at destination location | `ALREADY_MOVED` | Skip — already at target |
 | FO at source, `status: closed` | `ALREADY_FULFILLED` | Skip — already shipped |
