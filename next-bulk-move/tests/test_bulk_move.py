@@ -1,8 +1,11 @@
 import csv
+import email.message
+import io
 import importlib.util
 import tempfile
 import unittest
 import urllib.error
+import urllib.response
 from pathlib import Path
 from unittest import mock
 
@@ -66,6 +69,14 @@ class BulkMoveTests(unittest.TestCase):
         self.assertEqual([], client.cancels)
         self.assertEqual(["1"], client.moves)
         self.assertEqual("CANCEL+MOVED", rows[0].action)
+
+    def test_rejected_cancellation_is_terminal_without_post_or_poll(self):
+        rejected = fo(1, 1001, "processing", actions=[], request_status="cancel_rejected")
+        client = FakeClient({"1001": [rejected]})
+        rows, _ = self.run_mover(client, ["1001"])
+        self.assertEqual([], client.cancels)
+        self.assertEqual([], client.moves)
+        self.assertEqual("CANCEL_REJECTED", rows[0].action)
 
     def test_accepted_canceled_movable_fo_is_resumed(self):
         accepted = fo(1, 1001, "canceled", actions=["move"], request_status="cancel_accepted")
@@ -162,10 +173,37 @@ class BulkMoveTests(unittest.TestCase):
                                       clock=lambda: now[0], sleep=sleep)
         response = mock.MagicMock()
         response.__enter__.return_value.read.return_value = b"{}"
-        with mock.patch.object(bulk_move.urllib.request, "urlopen", return_value=response):
+        with mock.patch.object(client.opener, "open", return_value=response):
             client._request("GET", "one/")
             client._request("GET", "two/")
         self.assertEqual([0.25], delays)
+
+    def test_authenticated_request_refuses_cross_host_redirect(self):
+        client = bulk_move.AdminClient("mystore", "secret", min_interval=0)
+        target = "https://evil.example/collect"
+        seen = []
+
+        class RedirectTransport(urllib.request.BaseHandler):
+            handler_order = 100
+
+            def https_open(self, request):
+                seen.append(request)
+                headers = email.message.Message()
+                headers["Location"] = target
+                response = urllib.response.addinfourl(
+                    io.BytesIO(b""), headers, request.full_url, code=302
+                )
+                response.msg = "Found"
+                return response
+
+        client.opener = urllib.request.build_opener(
+            bulk_move.AuthenticatedRedirectHandler(), RedirectTransport()
+        )
+        with self.assertRaisesRegex(urllib.error.HTTPError,
+                                    "refusing authenticated redirect to " + target):
+            client._request("GET", "fulfillment-orders/")
+        self.assertEqual(1, len(seen))
+        self.assertEqual("Bearer secret", seen[0].get_header("Authorization"))
 
     def test_list_fos_paginates_and_multiple_source_fos_require_review(self):
         client = bulk_move.AdminClient("example", "test")

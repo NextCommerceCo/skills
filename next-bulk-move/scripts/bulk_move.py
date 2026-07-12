@@ -21,6 +21,15 @@ FIELDS = ["order_number", "original_fo_id", "new_fo_id", "action", "status", "de
 COMPLETED_STATUSES = {"success", "skipped"}
 
 
+class AuthenticatedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req: Any, fp: Any, code: int, msg: str,
+                         headers: Any, newurl: str) -> Any:
+        raise urllib.error.HTTPError(
+            req.full_url, code,
+            f"refusing authenticated redirect to {newurl}", headers, fp,
+        )
+
+
 class AdminClient:
     def __init__(self, domain: str, token: str, timeout: float = 30.0, *,
                  allow_host: bool = False, min_interval: float = 0.25,
@@ -31,6 +40,7 @@ class AdminClient:
         self.timeout = timeout
         self.min_interval, self.clock, self.sleep = min_interval, clock, sleep
         self._last_request_at: float | None = None
+        self.opener = urllib.request.build_opener(AuthenticatedRedirectHandler())
 
     def _request(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
         if self._last_request_at is not None:
@@ -44,7 +54,7 @@ class AdminClient:
             headers={"Authorization": f"Bearer {self.token}", "X-29next-API-Version": API_VERSION,
                      "Accept": "application/json", "Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+        with self.opener.open(request, timeout=self.timeout) as response:
             payload = response.read()
             return json.loads(payload) if payload else {}
 
@@ -198,6 +208,11 @@ class BulkMover:
             if state == "open" and supported(fo, "move"):
                 return self._move(order, fo, "MOVED")
             if state == "processing":
+                if str(fo.get("request_status") or "") in {
+                    "cancel_rejected", "cancellation_rejected"
+                }:
+                    return Result(order, fid, action="CANCEL_REJECTED", status="error",
+                                  destination=str(self.destination))
                 availability = self._destination_availability(fo)
                 if availability is not True:
                     action = "LOCATION_UNAVAILABLE" if availability is False else "LOCATION_UNVERIFIED"
