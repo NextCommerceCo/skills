@@ -40,8 +40,25 @@ class AdminClient:
 
     def list_fos(self, order_number: str) -> list[dict[str, Any]]:
         query = urllib.parse.urlencode({"order_number": order_number})
-        data = self._request("GET", f"fulfillment-orders/?{query}")
-        return list(data.get("results", [])) if isinstance(data, dict) else list(data)
+        target = f"fulfillment-orders/?{query}"
+        expected = urllib.parse.urlparse(self.base)
+        seen: set[str] = set()
+        results: list[dict[str, Any]] = []
+        while target not in seen:
+            seen.add(target)
+            data = self._request("GET", target)
+            if not isinstance(data, dict):
+                results.extend(data)
+                break
+            results.extend(data.get("results", []))
+            next_url = data.get("next")
+            if not isinstance(next_url, str):
+                break
+            parsed = urllib.parse.urlparse(next_url)
+            if parsed.scheme != "https" or parsed.netloc != expected.netloc:
+                break
+            target = next_url
+        return results
 
     def get_fo(self, fo_id: str) -> dict[str, Any]:
         return self._request("GET", f"fulfillment-orders/{fo_id}/")
@@ -132,7 +149,7 @@ class BulkMover:
                 ids = location_ids(self.client.available_locations(str(fo.get("id"))))
             except Exception:
                 ids = set()
-        return self.destination in (ids or self.known_locations)
+        return self.destination in ids
 
     def _move(self, order: str, fo: dict[str, Any], action: str) -> Result:
         fid = str(fo.get("id") or "")
@@ -156,6 +173,9 @@ class BulkMover:
                 return Result(order, action="MANUAL_REVIEW", status="error", destination=str(self.destination))
             fo = source_fos[0]
             fid, state = str(fo.get("id") or ""), str(fo.get("status") or "")
+            if (state == "canceled" and fo.get("request_status") == "cancel_accepted"
+                    and supported(fo, "move")):
+                return self._move(order, fo, "CANCEL+MOVED")
             if state == "open" and supported(fo, "move"):
                 return self._move(order, fo, "MOVED")
             if state == "processing":
@@ -261,6 +281,8 @@ def parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
+    if args.source == args.destination:
+        parser().error("--source and --destination must be different")
     token = os.environ.get("NEXT_ADMIN_API_TOKEN")
     if not token:
         print("NEXT_ADMIN_API_TOKEN is required", file=sys.stderr)

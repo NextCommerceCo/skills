@@ -239,10 +239,10 @@ Process orders in sequence. **Rate limit: 0.5s sleep between orders** (~2 req/se
 
 Before every move, verify that `DEST_LOCATION_ID` is available for that FO.
 Prefer available/supported location data embedded on the FO, otherwise query
-`/fulfillment-orders/{fo_id}/available-locations/`, then use the store locations
-list. If `/locations/` is empty, use the documented fallback set derived from
-`assigned_location` values across the target FOs. If the destination cannot be
-validated, record `LOCATION_UNAVAILABLE` and do not request cancellation or move.
+`/fulfillment-orders/{fo_id}/available-locations/`. The store locations list and
+locations assigned to other FOs prove only that a location exists; they must not
+authorize a move for this FO. If per-FO availability cannot be validated, record
+`LOCATION_UNAVAILABLE` and do not request cancellation or move.
 
 ### For READY Orders (status: open)
 

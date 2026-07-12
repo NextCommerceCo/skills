@@ -4,6 +4,7 @@ import tempfile
 import unittest
 import urllib.error
 from pathlib import Path
+from unittest import mock
 
 MODULE = Path(__file__).parents[1] / "scripts" / "bulk_move.py"
 spec = importlib.util.spec_from_file_location("bulk_move", MODULE)
@@ -58,9 +59,24 @@ class BulkMoveTests(unittest.TestCase):
         self.assertEqual(["1"], client.moves)
         self.assertEqual("CANCEL+MOVED", rows[0].action)
 
+    def test_accepted_canceled_movable_fo_is_resumed(self):
+        accepted = fo(1, 1001, "canceled", actions=["move"], request_status="cancel_accepted")
+        client = FakeClient({"1001": [accepted]})
+        rows, _ = self.run_mover(client, ["1001"])
+        self.assertEqual(["1"], client.moves)
+        self.assertEqual("CANCEL+MOVED", rows[0].action)
+
     def test_unavailable_destination_is_not_moved(self):
         client = FakeClient({"1001": [fo(1, 1001, actions=["move"], available=(30,))]})
         rows, _ = self.run_mover(client, ["1001"])
+        self.assertEqual([], client.moves)
+        self.assertEqual("LOCATION_UNAVAILABLE", rows[0].action)
+
+    def test_empty_per_fo_availability_does_not_cancel_or_move(self):
+        processing = fo(1, 1001, "processing", actions=[], available=())
+        client = FakeClient({"1001": [processing]})
+        rows, _ = self.run_mover(client, ["1001"])
+        self.assertEqual([], client.cancels)
         self.assertEqual([], client.moves)
         self.assertEqual("LOCATION_UNAVAILABLE", rows[0].action)
 
@@ -95,6 +111,34 @@ class BulkMoveTests(unittest.TestCase):
         self.assertEqual([], client.cancels)
         self.assertEqual([], client.moves)
         self.assertEqual("WOULD_CANCEL+MOVE", rows[0].action)
+
+    def test_same_source_and_destination_exits_before_api_calls(self):
+        calls = []
+        argv = ["--store", "example", "--input", "missing.csv", "--source", "10",
+                "--destination", "10", "--results", "results.csv"]
+        with mock.patch.object(bulk_move, "AdminClient", side_effect=lambda *args: calls.append(args)), \
+                mock.patch.dict(bulk_move.os.environ, {"NEXT_ADMIN_API_TOKEN": "test"}):
+            with self.assertRaises(SystemExit) as raised:
+                bulk_move.main(argv)
+        self.assertEqual(2, raised.exception.code)
+        self.assertEqual([], calls)
+
+    def test_list_fos_paginates_and_multiple_source_fos_require_review(self):
+        client = bulk_move.AdminClient("example", "test")
+        page_two = "https://example.29next.store/api/admin/fulfillment-orders/?page=2"
+        pages = [
+            {"results": [fo(1, 1001, actions=["move"])], "next": page_two},
+            {"results": [fo(2, 1001, actions=["move"])], "next": None},
+        ]
+        with mock.patch.object(client, "_request", side_effect=pages) as request:
+            fos = client.list_fos("1001")
+        self.assertEqual(["1", "2"], [str(item["id"]) for item in fos])
+        self.assertEqual(page_two, request.call_args_list[1].args[1])
+
+        fake = FakeClient({"1001": fos})
+        rows, _ = self.run_mover(fake, ["1001"])
+        self.assertEqual("MANUAL_REVIEW", rows[0].action)
+        self.assertEqual([], fake.moves)
 
 
 if __name__ == "__main__":
