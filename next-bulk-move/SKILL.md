@@ -41,7 +41,7 @@ This skill works with any AI coding tool that can load a markdown file as contex
 
 Moves fulfillment orders between warehouse locations in bulk using a flat file of order numbers.
 
-**When this happens:** A merchant is switching fulfillment providers (e.g., EcommOps → DLX) and has a batch of open/processing orders that need to be reassigned to the new location before the new provider can begin fulfilling them.
+**When this happens:** A merchant is switching fulfillment providers (e.g., Provider A → Provider B) and has a batch of open/processing orders that need to be reassigned to the new location before the new provider can begin fulfilling them.
 
 ---
 
@@ -61,7 +61,7 @@ Before making any store request, use the public Admin API conventions from
 https://developers.nextcommerce.com/docs/admin-api:
 
 - Base URL: `https://{subdomain}.29next.store/api/admin/`
-- Auth header: `Authorization: Bearer <api access token>`
+- Auth header: `Authorization: Bearer $NEXT_ADMIN_API_TOKEN`
 - Version header: `X-29next-API-Version: 2024-04-01`
 
 Do not use `/api/v1/...` paths or `Authorization: Token ...`; those are not the
@@ -72,7 +72,7 @@ pages instead of JSON.
 
 Ask the user (if not already provided):
 
-> "What is the store subdomain? (e.g., `bareearth` for bareearth.29next.store)"
+> "What is the store subdomain? (e.g., `examplestore` for examplestore.29next.store)"
 
 Set:
 ```
@@ -81,22 +81,22 @@ STORE=https://{subdomain}.29next.store
 
 ### Step 2: Admin API Access Token
 
-Ask the user for their API access token:
+Require the executor environment to contain an API access token with
+`fulfillment_orders:read`, `fulfillment_orders:write`, and `locations:read`
+scopes. Never ask the user to paste a token into conversation, accept one as a
+CLI argument, echo one, or write one into a command, script, or results file.
 
-> "Provide an Admin API access token for `{STORE}`. Required scopes: `fulfillment_orders:read`, `fulfillment_orders:write`, `locations:read`."
+Set it outside generated artifacts, such as in the invoking shell's environment:
 
-**Auth headers for all requests:**
-```
-Authorization: Bearer {api_access_token}
-X-29next-API-Version: 2024-04-01
-Content-Type: application/json
+```bash
+export NEXT_ADMIN_API_TOKEN
 ```
 
 Validate the token against a known-good list endpoint before discovery:
 
 ```bash
 curl -sS -w "\n%{http_code}" \
-  -H "Authorization: Bearer {api_access_token}" \
+  -H "Authorization: Bearer ${NEXT_ADMIN_API_TOKEN:?NEXT_ADMIN_API_TOKEN is required}" \
   -H "X-29next-API-Version: 2024-04-01" \
   "{STORE}/api/admin/fulfillment-orders/?limit=1"
 ```
@@ -125,8 +125,8 @@ Display the results as a table:
 ID    | Name
 ------|------------------
 1     | Store Location
-2     | EcommOps China
-35    | DLX
+10    | Provider A
+20    | Provider B
 ```
 
 Ask the user to confirm source and destination:
@@ -141,23 +141,16 @@ Two supported input modes. Pick based on what the user provides.
 
 **Mode A — Order number file (XLSX/CSV).** Minimum required column: **Order Number**.
 
-```python
-import pandas as pd
-
-# XLSX
-df = pd.read_excel('input.xlsx')
-# CSV
-# df = pd.read_csv('input.csv')
-
-order_numbers = df['Order Number'].dropna().astype(int).tolist()
-```
+The bundled executor accepts CSV using Python's standard library. If the source
+is XLSX, export it to CSV first. Preserve an `Order Number` or `order_number`
+column and do not add customer names, addresses, or other PII.
 
 Report:
 > "Found **{N}** order numbers in the file."
 
 **Mode B — Product ID / SKU list.** Use when the user wants to move every FO containing specific items (e.g., discontinued SKU, supplier change for one product) without pre-computing an order list.
 
-Query the filter directly — the API now supports `product_id` and `sku` on the fulfillment-orders list (shipped via [oscar-prime#2241](https://github.com/NextCommerceCo/oscar-prime/issues/2241)):
+Query the filter directly — the fulfillment-orders list endpoint supports `product_id` and `sku` filters:
 
 ```
 GET {STORE}/api/admin/fulfillment-orders/?sku=SKU-A,SKU-B&location_id={SOURCE_LOCATION_ID}
@@ -191,7 +184,7 @@ From the results, classify:
 |-----------|---------------|--------|
 | No FOs found | `NOT_FOUND` | Skip — order doesn't exist or has no FOs |
 | FO at source location, `status: open` | `READY` | Can move directly |
-| FO at source location, `status: processing` | `NEEDS_CANCEL` | Must send cancellation request, then move |
+| FO at source location, `status: processing` | `NEEDS_CANCEL` | Request cancellation, poll until accepted and movable, then move |
 | FO already at destination location | `ALREADY_MOVED` | Skip — already at target |
 | FO at source, `status: closed` | `ALREADY_FULFILLED` | Skip — already shipped |
 | FO at source, `status: canceled` | `CANCELED` | Skip — already canceled |
@@ -219,11 +212,37 @@ WRONG_LOCATION:      {N} — not at source location
 Ask:
 > "Proceed with moving **{READY + NEEDS_CANCEL}** orders from **{source_name}** to **{dest_name}**? (yes/no)"
 
+Use the bundled deterministic executor for order-number CSVs. It is dry-run by
+default, reads the token only from `NEXT_ADMIN_API_TOKEN`, appends progress to a
+PII-free results CSV, and supports safe resume. Convert XLSX inputs to CSV before
+using the stdlib-only executor.
+
+```bash
+python3 next-bulk-move/scripts/bulk_move.py \
+  --store examplestore --input orders.csv --source 10 --destination 20 \
+  --results bulk-move-results.csv
+```
+
+Review the dry-run CSV, obtain confirmation, then explicitly enable mutations:
+
+```bash
+python3 next-bulk-move/scripts/bulk_move.py \
+  --store examplestore --input orders.csv --source 10 --destination 20 \
+  --results bulk-move-results.csv --resume bulk-move-results.csv --execute
+```
+
 ---
 
 ## Phase 3: Execute Moves
 
 Process orders in sequence. **Rate limit: 0.5s sleep between orders** (~2 req/sec effective, well under the 4 req/sec limit).
+
+Before every move, verify that `DEST_LOCATION_ID` is available for that FO.
+Prefer available/supported location data embedded on the FO, otherwise query
+`/fulfillment-orders/{fo_id}/available-locations/`, then use the store locations
+list. If `/locations/` is empty, use the documented fallback set derived from
+`assigned_location` values across the target FOs. If the destination cannot be
+validated, record `LOCATION_UNAVAILABLE` and do not request cancellation or move.
 
 ### For READY Orders (status: open)
 
@@ -240,7 +259,7 @@ Success: HTTP 200 with `moved_fulfillment_order` (new FO at destination) and `or
 
 ### For NEEDS_CANCEL Orders (status: processing)
 
-Two steps — cancel then move the **same FO ID**:
+Three steps — request cancellation, poll, then (only when safe) move the **same FO ID**:
 
 **Step A — Send cancellation request:**
 ```
@@ -248,9 +267,20 @@ POST {STORE}/api/admin/fulfillment-orders/{fo_id}/cancellation-request/
 {}
 ```
 
-The FO transitions from `processing` → `canceled` with `request_status: cancel_accepted`. Critically, `move` appears in the FO's `supported_actions` after cancellation.
+This response only confirms that the cancellation was requested. It does not
+mean the fulfillment location accepted it.
 
-**Step B — Move the same FO immediately:**
+**Step B — Poll the same FO with bounded retries:**
+```
+GET {STORE}/api/admin/fulfillment-orders/{fo_id}/
+```
+
+Continue only when the re-fetched FO has both
+`request_status: cancel_accepted` and `move` in `supported_actions`. A rejected
+request is `CANCEL_REJECTED`; an unaccepted request at the retry limit is
+`CANCEL_PENDING`. In either case, do not move.
+
+**Step C — Move the accepted, movable FO:**
 ```
 POST {STORE}/api/admin/fulfillment-orders/{fo_id}/move/
 {
@@ -258,17 +288,18 @@ POST {STORE}/api/admin/fulfillment-orders/{fo_id}/move/
 }
 ```
 
-No need to re-fetch — move the same FO ID directly after the cancellation request succeeds. The move creates a new FO at the destination and closes the original.
-
-**If the cancellation request fails** (HTTP error), flag the order as `CANCEL_FAILED` for manual review.
+Never move based on the cancellation-request response alone. Once the re-fetch
+proves acceptance and move support, the move creates a new FO at the destination
+and closes the original. If any request fails, record the failure and continue
+with the next order.
 
 ### Progress Logging
 
 Print live progress (flush stdout):
 ```
-[1/94] Order 292738 — CANCEL+MOVED (FO 115969 → new FO 125832 at DLX)
-[2/94] Order 292786 — CANCEL+MOVED (FO 115992 → new FO 125833 at DLX)
-[3/94] Order 293621 — SKIPPED (already at destination)
+[1/3] Order 1001 — CANCEL+MOVED (FO 501 → new FO 601 at Provider B)
+[2/3] Order 1002 — MOVED (FO 502 → new FO 602 at Provider B)
+[3/3] Order 1003 — SKIPPED (already at destination)
 ...
 ```
 
@@ -294,13 +325,15 @@ Errors:              {N}
 If there are failures, list them:
 ```
 Orders needing manual follow-up:
-- Order 293621 (FO 12345) — cancellation request failed: HTTP 400 ...
+- Order 1001 (FO 501) — cancellation request failed: HTTP 400 ...
 - ...
 ```
 
 ### CSV Export
 
-Export a CSV log of all actions taken for audit/reference. Save to the same directory as the input file with a timestamped name:
+The executor appends and flushes a CSV row after each order, making the file
+suitable for audit and `--resume`. Keep it beside the input with a timestamped
+name if desired:
 
 ```
 {store}-bulk-move-{YYYY-MM-DD}.csv
@@ -313,22 +346,12 @@ Columns:
 | `order_number` | The order number from the input file |
 | `original_fo_id` | The FO ID at the source location before the move |
 | `new_fo_id` | The new FO ID created at the destination (blank if not moved) |
-| `source_location` | Source location name |
-| `dest_location` | Destination location name |
-| `action` | What was done: `cancel+moved`, `moved`, `already_moved`, `already_fulfilled`, `not_found`, `multiple_fos`, `error` |
+| `action` | Operational result such as `CANCEL+MOVED`, `MOVED`, `CANCEL_PENDING`, or `LOCATION_UNAVAILABLE` |
 | `status` | `success`, `skipped`, or `error` |
-| `detail` | Error message or additional context (blank on success) |
+| `destination` | Destination location ID |
 
-```python
-import csv
-with open(f'{store}-bulk-move-{date}.csv', 'w', newline='') as f:
-    writer = csv.DictWriter(f, fieldnames=[
-        'order_number', 'original_fo_id', 'new_fo_id',
-        'source_location', 'dest_location', 'action', 'status', 'detail'
-    ])
-    writer.writeheader()
-    writer.writerows(rows)
-```
+These are operational fields only. Do not add customer PII, credentials, or
+raw API response bodies to the results file.
 
 ---
 
@@ -342,7 +365,7 @@ with open(f'{store}-bulk-move-{date}.csv', 'w', newline='') as f:
 | `/api/admin/fulfillment-orders/{id}/cancellation-request/` | POST | Request cancellation of processing FO |
 | `/api/admin/fulfillment-orders/{id}/available-locations/` | GET | Check which locations have inventory |
 
-**Auth:** `Authorization: Bearer {api_access_token}` + `X-29next-API-Version: 2024-04-01`
+**Auth:** `Authorization: Bearer $NEXT_ADMIN_API_TOKEN` + `X-29next-API-Version: 2024-04-01`. The token remains environment-only.
 
 **Rate limit:** 4 req/sec. Use 0.5s sleep between orders.
 
@@ -352,8 +375,9 @@ with open(f'{store}-bulk-move-{date}.csv', 'w', newline='') as f:
 
 ## Gotchas
 
-- **Cancellation → canceled, not open:** The cancellation request transitions a processing FO to `canceled` status (not back to `open`). But `move` becomes a supported action on the canceled FO — move it directly using the same FO ID. Do NOT re-fetch looking for an open FO.
-- **Move the same FO ID after cancel:** After cancellation, call `/move/` on the same FO ID immediately. The move creates a NEW FO at the destination (with a new ID) and sets the original to `closed`.
+- **Cancellation request is not acceptance:** Always re-fetch with bounded polling. Move only after `request_status: cancel_accepted` and `move` appears in `supported_actions`. Pending or rejected requests must never move.
+- **Move the same FO ID only after proof:** Once polling proves acceptance and move support, call `/move/` on that FO ID. The move creates a new FO at the destination and sets the original to `closed`.
+- **Validate the destination first:** Before cancellation or movement, prove the destination is available using FO availability data, the available-locations endpoint, the store locations list, or its assigned-location fallback. Otherwise record `LOCATION_UNAVAILABLE`.
 - **`/locations/` may return empty:** The locations list endpoint requires `locations:read` scope and may return empty if locations are managed by fulfillment services. Fallback: discover locations from FO data by querying `/fulfillment-orders/` and extracting unique `assigned_location` values.
 - **HTTP 200 on move, not 201:** The move endpoint returns 200 despite being a POST. Don't treat 200 as an error.
 - **Multiple FOs per order:** An order with items from different warehouses has multiple FOs. Don't guess which one to move — flag for manual review. If the user supplied a SKU/product filter (Mode B), the server-side filter already disambiguates; no manual review needed.
