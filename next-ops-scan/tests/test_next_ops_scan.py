@@ -1,4 +1,9 @@
+import email.message
 import importlib.util
+import io
+import urllib.error
+import urllib.request
+import urllib.response
 from datetime import datetime, timezone
 from pathlib import Path
 import sys
@@ -102,6 +107,33 @@ class NextOpsScanTests(unittest.TestCase):
         self.assertNotEqual(rejected.reason, "Shopify or Shop Sync refused the order for fulfillment.")
         self.assertIn("If this store syncs orders to Shopify", incomplete.reason)
         self.assertIn("If this store syncs orders to Shopify", rejected.reason)
+
+    def test_authenticated_request_refuses_cross_host_redirect(self):
+        client = scan.AdminClient("store.29next.store", "secret")
+        target = "https://attacker.example/collect"
+        seen = []
+
+        class RedirectTransport(urllib.request.BaseHandler):
+            handler_order = 100
+
+            def https_open(self, request):
+                seen.append(request)
+                headers = email.message.Message()
+                headers["Location"] = target
+                response = urllib.response.addinfourl(
+                    io.BytesIO(b""), headers, request.full_url, code=302
+                )
+                response.msg = "Found"
+                return response
+
+        client.opener = urllib.request.build_opener(
+            scan.AuthenticatedRedirectHandler(), RedirectTransport()
+        )
+        with self.assertRaisesRegex(urllib.error.HTTPError,
+                                    "refusing authenticated redirect to " + target):
+            client.get("orders/")
+        self.assertEqual(1, len(seen))
+        self.assertEqual("Bearer secret", seen[0].get_header("Authorization"))
 
     def test_guidance_urls_are_pinned(self):
         self.assertEqual(

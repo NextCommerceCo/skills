@@ -39,6 +39,18 @@ class Finding:
     docs_url: str
 
 
+class AuthenticatedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Refuse redirects on authenticated requests so the Bearer token can
+    never be forwarded to a host the pagination guard did not approve."""
+
+    def redirect_request(self, req: Any, fp: Any, code: int, msg: str,
+                         headers: Any, newurl: str) -> Any:
+        raise urllib.error.HTTPError(
+            req.full_url, code,
+            f"refusing authenticated redirect to {newurl}", headers, fp,
+        )
+
+
 class AdminClient:
     def __init__(self, domain: str, token: str, *, timeout: float = 30.0):
         self.domain = domain
@@ -46,6 +58,7 @@ class AdminClient:
         self.timeout = timeout
         self.notes: list[str] = []
         self.last_url = ""
+        self.opener = urllib.request.build_opener(AuthenticatedRedirectHandler())
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -80,7 +93,7 @@ class AdminClient:
         last_err: Exception | None = None
         for attempt in range(retries + 1):
             try:
-                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                with self.opener.open(req, timeout=self.timeout) as resp:
                     body = resp.read()
                     if not body:
                         return None
