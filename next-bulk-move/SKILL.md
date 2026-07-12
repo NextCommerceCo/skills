@@ -82,8 +82,10 @@ STORE=https://{subdomain}.29next.store
 The executor accepts only a bare subdomain or a hostname ending in
 `.29next.store` by default. For a store intentionally configured on a custom
 admin domain, pass `--allow-host` with the custom `--store` hostname. This is an
-explicit trust override because the executor sends `NEXT_ADMIN_API_TOKEN` to
-that host.
+explicit, operator-confirmed trust override: `--allow-host` requires the exact
+normalized hostname as its value (for example, `--store admin.example.com
+--allow-host admin.example.com`). The executor refuses a mismatch and prints a
+prominent warning because it will send `NEXT_ADMIN_API_TOKEN` to that host.
 
 ### Step 2: Admin API Access Token
 
@@ -256,6 +258,12 @@ authorize a move for this FO. If per-FO availability cannot be validated, record
 `LOCATION_UNAVAILABLE` only when per-FO availability data was successfully
 obtained and excludes the destination.
 
+Immediately before every move POST, re-fetch the FO by ID. Require the response
+ID and order number to match the requested FO and order, and re-confirm that it
+is either `open` and movable or `canceled` with `request_status:
+cancel_accepted` and movable. Missing identity/state fields or substitutions are
+`MALFORMED_RESPONSE` errors; stale authorization must never be used.
+
 ### For READY Orders (status: open)
 
 Single step — move directly:
@@ -267,7 +275,10 @@ POST {STORE}/api/admin/fulfillment-orders/{fo_id}/move/
 }
 ```
 
-Success: HTTP 200 with `moved_fulfillment_order` (new FO at destination) and `original_fulfillment_order` (old FO, now closed).
+Success: HTTP 200 with `moved_fulfillment_order` (new FO at destination) and
+`original_fulfillment_order` (old FO, now closed). A response without
+`moved_fulfillment_order.id` is `MOVE_UNVERIFIED`, not success, and remains
+retryable.
 
 ### For NEEDS_CANCEL Orders (status: processing)
 
@@ -282,8 +293,10 @@ POST {STORE}/api/admin/fulfillment-orders/{fo_id}/cancellation-request/
 This response only confirms that the cancellation was requested. It does not
 mean the fulfillment location accepted it.
 
-If the FO already has a pending/requested cancellation status, do not submit a
-duplicate request; resume directly at Step B.
+Submit this mutation only when `request_status` is null or absent. If the FO
+already has a pending/requested or any other non-null unrecognized cancellation
+status, do not submit a duplicate request; resume directly at Step B. Rejected
+statuses remain terminal.
 
 **Step B — Poll the same FO with bounded retries:**
 ```
@@ -293,7 +306,9 @@ GET {STORE}/api/admin/fulfillment-orders/{fo_id}/
 Continue only when the re-fetched FO has both
 `request_status: cancel_accepted` and `move` in `supported_actions`. A rejected
 request is `CANCEL_REJECTED`; an unaccepted request at the retry limit is
-`CANCEL_PENDING`. In either case, do not move.
+`CANCEL_PENDING`. An accepted cancellation for which `move` has not propagated
+into `supported_actions` is `MOVE_PENDING`. All remain retryable errors; do not
+move or classify the canceled FO as skipped.
 
 **Step C — Move the accepted, movable FO:**
 ```
@@ -368,6 +383,13 @@ Columns:
 These are operational fields only. Do not add customer PII, credentials, or
 raw API response bodies to the results file.
 
+### Idempotency limits
+
+The Admin API mutations carry no idempotency key. The executor therefore relies
+on fresh re-fetch proof before each mutation and records uncertain outcomes as
+retryable error rows. If a response is lost, resume safely re-derives the FO
+state from the API rather than trusting the CSV as mutation state.
+
 ---
 
 ## API Reference
@@ -394,6 +416,7 @@ requests.
 
 - **Cancellation request is not acceptance:** Always re-fetch with bounded polling. Move only after `request_status: cancel_accepted` and `move` appears in `supported_actions`. Pending or rejected requests must never move.
 - **Move the same FO ID only after proof:** Once polling proves acceptance and move support, call `/move/` on that FO ID. The move creates a new FO at the destination and sets the original to `closed`.
+- **Treat API identity as untrusted:** Every discovery or polling response used for authorization must match the requested order number and, for detail requests, the requested FO ID. Missing required fields and substitutions are `MALFORMED_RESPONSE` errors.
 - **Validate the destination first:** Before cancellation or movement, prove the destination is available for that specific FO using embedded FO availability data or the available-locations endpoint for that FO. The store location list and locations assigned to other FOs may only discover candidate IDs; they never authorize a move. If per-FO proof cannot be obtained, record `LOCATION_UNVERIFIED` and stop. If proof is obtained and excludes the destination, record `LOCATION_UNAVAILABLE` and stop.
 - **`/locations/` may return empty:** The locations list endpoint requires `locations:read` scope and may return empty if locations are managed by fulfillment services. Fallback: discover locations from FO data by querying `/fulfillment-orders/` and extracting unique `assigned_location` values.
 - **HTTP 200 on move, not 201:** The move endpoint returns 200 despite being a POST. Don't treat 200 as an error.

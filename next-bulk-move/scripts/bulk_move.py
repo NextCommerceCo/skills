@@ -30,9 +30,13 @@ class AuthenticatedRedirectHandler(urllib.request.HTTPRedirectHandler):
         )
 
 
+class MalformedResponse(ValueError):
+    """The API response cannot safely authorize an operation."""
+
+
 class AdminClient:
     def __init__(self, domain: str, token: str, timeout: float = 30.0, *,
-                 allow_host: bool = False, min_interval: float = 0.25,
+                 allow_host: str | None = None, min_interval: float = 0.25,
                  clock: Callable[[], float] = time.monotonic,
                  sleep: Callable[[float], None] = time.sleep):
         self.base = f"https://{normalize_domain(domain, allow_host=allow_host)}/api/admin/"
@@ -68,9 +72,11 @@ class AdminClient:
             seen.add(target)
             data = self._request("GET", target)
             if not isinstance(data, dict):
-                results.extend(data)
-                break
-            results.extend(data.get("results", []))
+                raise MalformedResponse("fulfillment-order list response is not an object")
+            page = data.get("results")
+            if not isinstance(page, list) or not all(isinstance(row, dict) for row in page):
+                raise MalformedResponse("fulfillment-order results is not a list of objects")
+            results.extend(page)
             next_url = data.get("next")
             if not isinstance(next_url, str):
                 break
@@ -106,7 +112,7 @@ class Result:
     destination: str = ""
 
 
-def normalize_domain(raw: str, *, allow_host: bool = False) -> str:
+def normalize_domain(raw: str, *, allow_host: str | None = None) -> str:
     value = raw.strip().removeprefix("https://").removeprefix("http://").strip("/").lower()
     if not value or any(char in value for char in "/?#@:"):
         raise ValueError("--store must be a hostname without a path, port, or credentials")
@@ -114,9 +120,14 @@ def normalize_domain(raw: str, *, allow_host: bool = False) -> str:
         if not value.replace("-", "").isalnum():
             raise ValueError("--store must be a valid store subdomain")
         return f"{value}.29next.store"
-    if value.endswith(".29next.store") or allow_host:
+    if value.endswith(".29next.store"):
         return value
-    raise ValueError("refusing non-29next store host; use --allow-host only for an intentional custom admin domain")
+    if allow_host is not None:
+        allowed = allow_host.strip().lower()
+        if allowed == value:
+            return value
+        raise ValueError("--allow-host must exactly match the normalized --store hostname")
+    raise ValueError("refusing non-29next store host; pass its exact hostname to --allow-host for an intentional override")
 
 
 def rows_from(value: Any) -> list[dict[str, Any]]:
@@ -149,7 +160,8 @@ def assigned_id(fo: dict[str, Any]) -> int | None:
 
 
 def supported(fo: dict[str, Any], action: str) -> bool:
-    return action in (fo.get("supported_actions") or [])
+    actions = fo.get("supported_actions")
+    return isinstance(actions, (list, tuple)) and action in actions
 
 
 def new_fo_id(response: Any) -> str:
@@ -167,6 +179,32 @@ class BulkMover:
         self.execute, self.poll_attempts, self.poll_delay = execute, poll_attempts, poll_delay
         self.order_delay = order_delay
         self.sleep = sleep
+
+    @staticmethod
+    def _validated_fo(value: Any, order: str, fid: str | None = None) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise MalformedResponse("fulfillment order is not an object")
+        required = {"id", "order_number", "status", "assigned_location", "supported_actions"}
+        if not required.issubset(value) or value.get("id") in (None, ""):
+            raise MalformedResponse("fulfillment order is missing required fields")
+        if str(value.get("order_number")) != str(order):
+            raise MalformedResponse("fulfillment order does not match requested order")
+        if fid is not None and str(value.get("id")) != str(fid):
+            raise MalformedResponse("fulfillment order does not match requested id")
+        if not isinstance(value.get("assigned_location"), dict) or assigned_id(value) is None:
+            raise MalformedResponse("fulfillment order has no valid assigned location")
+        if value.get("status") in (None, ""):
+            raise MalformedResponse("fulfillment order has no status")
+        return value
+
+    @staticmethod
+    def _move_authorized(fo: dict[str, Any]) -> bool:
+        state = fo.get("status")
+        return supported(fo, "move") and (
+            state == "open" or
+            (state == "canceled" and fo.get("request_status") == "cancel_accepted")
+        )
+
     def _destination_availability(self, fo: dict[str, Any]) -> bool | None:
         embedded = fo.get("available_locations") or fo.get("supported_locations")
         ids = location_ids(embedded)
@@ -187,12 +225,29 @@ class BulkMover:
             return Result(order, fid, action=action, status="error", destination=str(self.destination))
         if not self.execute:
             return Result(order, fid, action=f"WOULD_{action}", status="skipped", destination=str(self.destination))
+        try:
+            latest = self._validated_fo(self.client.get_fo(fid), order, fid)
+        except MalformedResponse:
+            return Result(order, fid, action="MALFORMED_RESPONSE", status="error",
+                          destination=str(self.destination))
+        if not self._move_authorized(latest):
+            pending = (latest.get("status") == "canceled" and
+                       latest.get("request_status") == "cancel_accepted")
+            return Result(order, fid, action="MOVE_PENDING" if pending else "MOVE_UNSUPPORTED",
+                          status="error", destination=str(self.destination))
         response = self.client.move(fid, self.destination)
-        return Result(order, fid, new_fo_id(response), action, "success", str(self.destination))
+        moved_id = new_fo_id(response)
+        if not moved_id:
+            return Result(order, fid, action="MOVE_UNVERIFIED", status="error",
+                          destination=str(self.destination))
+        return Result(order, fid, moved_id, action, "success", str(self.destination))
 
     def process_order(self, order: str) -> Result:
         try:
             fos = self.client.list_fos(order)
+            if not isinstance(fos, list):
+                raise MalformedResponse("fulfillment-order results is not a list")
+            fos = [self._validated_fo(item, order) for item in fos]
             source_fos = [fo for fo in fos if assigned_id(fo) == self.source]
             if not fos:
                 return Result(order, action="NOT_FOUND", status="skipped", destination=str(self.destination))
@@ -207,6 +262,9 @@ class BulkMover:
             if (state == "canceled" and fo.get("request_status") == "cancel_accepted"
                     and supported(fo, "move")):
                 return self._move(order, fo, "CANCEL+MOVED")
+            if state == "canceled" and fo.get("request_status") == "cancel_accepted":
+                return Result(order, fid, action="MOVE_PENDING", status="error",
+                              destination=str(self.destination))
             if state == "open" and supported(fo, "move"):
                 return self._move(order, fo, "MOVED")
             if state == "open":
@@ -224,22 +282,33 @@ class BulkMover:
                     return Result(order, fid, action=action, status="error", destination=str(self.destination))
                 if not self.execute:
                     return Result(order, fid, action="WOULD_CANCEL+MOVE", status="skipped", destination=str(self.destination))
-                if str(fo.get("request_status") or "") not in {
-                    "cancel_pending", "cancel_requested", "cancellation_pending", "cancellation_requested"
-                }:
-                    self.client.request_cancellation(fid)
                 latest = fo
+                if fo.get("request_status") is None:
+                    latest = self._validated_fo(self.client.get_fo(fid), order, fid)
+                    fresh_request_status = latest.get("request_status")
+                    if fresh_request_status in {"cancel_rejected", "cancellation_rejected"}:
+                        return Result(order, fid, action="CANCEL_REJECTED", status="error",
+                                      destination=str(self.destination))
+                    if latest.get("status") == "processing" and fresh_request_status is None:
+                        self.client.request_cancellation(fid)
                 for attempt in range(self.poll_attempts):
-                    latest = self.client.get_fo(fid)
+                    latest = self._validated_fo(self.client.get_fo(fid), order, fid)
                     request_status = latest.get("request_status")
                     if request_status in {"cancel_rejected", "cancellation_rejected"}:
                         return Result(order, fid, action="CANCEL_REJECTED", status="error", destination=str(self.destination))
                     if request_status == "cancel_accepted" and supported(latest, "move"):
                         return self._move(order, latest, "CANCEL+MOVED")
+                    if request_status == "cancel_accepted":
+                        if attempt + 1 == self.poll_attempts:
+                            return Result(order, fid, action="MOVE_PENDING", status="error",
+                                          destination=str(self.destination))
                     if attempt + 1 < self.poll_attempts:
                         self.sleep(self.poll_delay)
                 return Result(order, fid, action="CANCEL_PENDING", status="error", destination=str(self.destination))
             return Result(order, fid, action=f"SKIPPED_{state.upper() or 'UNKNOWN'}", status="skipped", destination=str(self.destination))
+        except MalformedResponse:
+            return Result(order, action="MALFORMED_RESPONSE", status="error",
+                          destination=str(self.destination))
         except Exception as exc:
             code = getattr(exc, "code", None)
             action = f"HTTP_ERROR_{code}" if code else f"ERROR_{type(exc).__name__}"
@@ -290,8 +359,8 @@ def resume_completed(path: Path | None) -> set[str]:
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--store", required=True, help="Store subdomain or domain")
-    p.add_argument("--allow-host", action="store_true",
-                   help="Allow an intentional custom admin hostname outside .29next.store")
+    p.add_argument("--allow-host", metavar="HOST",
+                   help="Confirm the exact custom admin hostname outside .29next.store")
     p.add_argument("--input", required=True, type=Path, help="CSV containing order_number")
     p.add_argument("--source", required=True, type=int, help="Source location ID")
     p.add_argument("--destination", required=True, type=int, help="Destination location ID")
@@ -318,9 +387,12 @@ def main(argv: list[str] | None = None) -> int:
         print("NEXT_ADMIN_API_TOKEN is required", file=sys.stderr)
         return 2
     try:
-        client = AdminClient(args.store, token, allow_host=args.allow_host)
+        host = normalize_domain(args.store, allow_host=args.allow_host)
     except ValueError as exc:
         parser().error(str(exc))
+    if args.allow_host is not None:
+        print(f"WARNING: Admin API token will be sent to custom host {host}", file=sys.stderr)
+    client = AdminClient(host, token, allow_host=args.allow_host)
     mover = BulkMover(client, args.source, args.destination,
                       execute=args.execute, poll_attempts=args.poll_attempts,
                       poll_delay=args.poll_delay, order_delay=args.order_delay)

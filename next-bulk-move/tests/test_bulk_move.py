@@ -24,17 +24,29 @@ def fo(fid, order, status="open", location=10, actions=None, request_status=None
 
 
 class FakeClient:
-    def __init__(self, orders, polls=None, fail_moves=()):
+    def __init__(self, orders, polls=None, fail_moves=(), move_response=None):
         self.orders, self.polls = orders, {str(k): list(v) for k, v in (polls or {}).items()}
         self.fail_moves, self.moves, self.cancels, self.lists = set(fail_moves), [], [], []
+        self.move_response = move_response
+        self.last_get = {}
     def list_fos(self, order): self.lists.append(str(order)); return self.orders.get(str(order), [])
     def available_locations(self, fid): return []
     def request_cancellation(self, fid): self.cancels.append(str(fid)); return {}
-    def get_fo(self, fid): return self.polls[str(fid)].pop(0)
+    def get_fo(self, fid):
+        queued = self.polls.get(str(fid), [])
+        if queued:
+            self.last_get[str(fid)] = queued.pop(0)
+            return self.last_get[str(fid)]
+        if str(fid) in self.last_get:
+            return self.last_get[str(fid)]
+        return next(item for rows in self.orders.values() for item in rows
+                    if str(item.get("id")) == str(fid))
     def move(self, fid, destination):
         self.moves.append(str(fid))
         if str(fid) in self.fail_moves:
             raise urllib.error.HTTPError("url", 500, "failure", {}, None)
+        if self.move_response is not None:
+            return self.move_response
         return {"moved_fulfillment_order": {"id": f"new-{fid}"}}
 
 
@@ -168,7 +180,79 @@ class BulkMoveTests(unittest.TestCase):
         self.assertEqual("mystore.29next.store", bulk_move.normalize_domain("mystore.29next.store"))
         with self.assertRaisesRegex(ValueError, "refusing non-29next"):
             bulk_move.normalize_domain("evil.example")
-        self.assertEqual("evil.example", bulk_move.normalize_domain("evil.example", allow_host=True))
+        self.assertEqual("evil.example", bulk_move.normalize_domain(
+            "evil.example", allow_host="evil.example"))
+        with self.assertRaisesRegex(ValueError, "exactly match"):
+            bulk_move.normalize_domain("evil.example", allow_host="other.example")
+
+    def test_custom_host_requires_exact_cli_value_and_warns(self):
+        argv = ["--store", "EVIL.EXAMPLE", "--allow-host", "evil.example",
+                "--input", "missing.csv", "--source", "10", "--destination", "20",
+                "--results", "results.csv"]
+        with mock.patch.object(bulk_move.BulkMover, "run", return_value=[]), \
+                mock.patch.object(bulk_move, "read_orders", return_value=[]), \
+                mock.patch.dict(bulk_move.os.environ, {"NEXT_ADMIN_API_TOKEN": "test"}), \
+                mock.patch("sys.stderr", new_callable=io.StringIO) as stderr:
+            self.assertEqual(0, bulk_move.main(argv))
+        self.assertIn("WARNING: Admin API token will be sent to custom host evil.example",
+                      stderr.getvalue())
+
+    def test_fresh_proof_rejects_identity_or_state_substitution(self):
+        ready = fo(1, 1001, actions=["move"])
+        substituted = fo(2, 1001, actions=["move"])
+        client = FakeClient({"1001": [ready]}, {1: [substituted]})
+        rows, _ = self.run_mover(client, ["1001"])
+        self.assertEqual("MALFORMED_RESPONSE", rows[0].action)
+        self.assertEqual("error", rows[0].status)
+        self.assertEqual([], client.moves)
+
+    def test_move_without_new_fo_id_is_retryable_unverified_error(self):
+        ready = fo(1, 1001, actions=["move"])
+        client = FakeClient({"1001": [ready]}, move_response={})
+        rows, _ = self.run_mover(client, ["1001"])
+        self.assertEqual(["1"], client.moves)
+        self.assertEqual("MOVE_UNVERIFIED", rows[0].action)
+        self.assertEqual("error", rows[0].status)
+
+    def test_cancel_accepted_without_move_action_stays_retryable(self):
+        accepted = fo(1, 1001, "canceled", actions=[], request_status="cancel_accepted")
+        client = FakeClient({"1001": [accepted]})
+        rows, _ = self.run_mover(client, ["1001"])
+        self.assertEqual("MOVE_PENDING", rows[0].action)
+        self.assertEqual("error", rows[0].status)
+
+    def test_unknown_request_status_polls_without_duplicate_cancellation(self):
+        processing = fo(1, 1001, "processing", request_status="vendor_unknown")
+        accepted = fo(1, 1001, "canceled", actions=["move"], request_status="cancel_accepted")
+        client = FakeClient({"1001": [processing]}, {1: [accepted, accepted]})
+        rows, _ = self.run_mover(client, ["1001"])
+        self.assertEqual([], client.cancels)
+        self.assertEqual("CANCEL+MOVED", rows[0].action)
+
+    def test_malformed_discovery_row_or_payload_is_error(self):
+        malformed = fo(1, 1001, actions=["move"])
+        del malformed["assigned_location"]
+        for payload in ([malformed], {}):
+            with self.subTest(payload=payload):
+                client = FakeClient({"1001": payload})
+                rows, _ = self.run_mover(client, ["1001"])
+                self.assertEqual("MALFORMED_RESPONSE", rows[0].action)
+                self.assertEqual("error", rows[0].status)
+
+    def test_non_sequence_supported_actions_does_not_authorize_move(self):
+        ready = fo(1, 1001, actions=["move"])
+        ready["supported_actions"] = "move"
+        client = FakeClient({"1001": [ready]})
+        rows, _ = self.run_mover(client, ["1001"])
+        self.assertEqual("MOVE_UNSUPPORTED", rows[0].action)
+        self.assertEqual([], client.moves)
+
+    def test_skill_documents_idempotency_limits(self):
+        skill = (MODULE.parents[1] / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("### Idempotency limits", skill)
+        self.assertIn("carry no idempotency key", skill)
+        self.assertIn("re-derives the FO", skill)
+        self.assertIn("state from the API rather than trusting the CSV", skill)
 
     def test_evil_store_exits_before_issuing_any_request(self):
         argv = ["--store", "evil.example", "--input", "missing.csv", "--source", "10",
