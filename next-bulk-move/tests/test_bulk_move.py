@@ -23,9 +23,8 @@ def fo(fid, order, status="open", location=10, actions=None, request_status=None
 class FakeClient:
     def __init__(self, orders, polls=None, fail_moves=()):
         self.orders, self.polls = orders, {str(k): list(v) for k, v in (polls or {}).items()}
-        self.fail_moves, self.moves, self.cancels = set(fail_moves), [], []
-    def list_locations(self): return [{"id": 10}, {"id": 20}]
-    def list_fos(self, order): return self.orders.get(str(order), [])
+        self.fail_moves, self.moves, self.cancels, self.lists = set(fail_moves), [], [], []
+    def list_fos(self, order): self.lists.append(str(order)); return self.orders.get(str(order), [])
     def available_locations(self, fid): return []
     def request_cancellation(self, fid): self.cancels.append(str(fid)); return {}
     def get_fo(self, fid): return self.polls[str(fid)].pop(0)
@@ -59,6 +58,15 @@ class BulkMoveTests(unittest.TestCase):
         self.assertEqual(["1"], client.moves)
         self.assertEqual("CANCEL+MOVED", rows[0].action)
 
+    def test_pending_cancellation_skips_duplicate_post_then_polls_and_moves(self):
+        pending = fo(1, 1001, "processing", actions=[], request_status="cancel_requested")
+        accepted = fo(1, 1001, "canceled", actions=["move"], request_status="cancel_accepted")
+        client = FakeClient({"1001": [pending]}, {1: [accepted]})
+        rows, _ = self.run_mover(client, ["1001"])
+        self.assertEqual([], client.cancels)
+        self.assertEqual(["1"], client.moves)
+        self.assertEqual("CANCEL+MOVED", rows[0].action)
+
     def test_accepted_canceled_movable_fo_is_resumed(self):
         accepted = fo(1, 1001, "canceled", actions=["move"], request_status="cancel_accepted")
         client = FakeClient({"1001": [accepted]})
@@ -72,13 +80,18 @@ class BulkMoveTests(unittest.TestCase):
         self.assertEqual([], client.moves)
         self.assertEqual("LOCATION_UNAVAILABLE", rows[0].action)
 
+    def test_each_order_is_listed_only_once_without_location_preflight(self):
+        client = FakeClient({"1001": [fo(1, 1001, actions=["move"])]})
+        self.run_mover(client, ["1001"])
+        self.assertEqual(["1001"], client.lists)
+
     def test_empty_per_fo_availability_does_not_cancel_or_move(self):
         processing = fo(1, 1001, "processing", actions=[], available=())
         client = FakeClient({"1001": [processing]})
         rows, _ = self.run_mover(client, ["1001"])
         self.assertEqual([], client.cancels)
         self.assertEqual([], client.moves)
-        self.assertEqual("LOCATION_UNAVAILABLE", rows[0].action)
+        self.assertEqual("LOCATION_UNVERIFIED", rows[0].action)
 
     def test_partial_failure_continues(self):
         client = FakeClient({str(n): [fo(n, n, actions=["move"])] for n in (1, 2, 3)}, fail_moves={"2"})
@@ -122,6 +135,37 @@ class BulkMoveTests(unittest.TestCase):
                 bulk_move.main(argv)
         self.assertEqual(2, raised.exception.code)
         self.assertEqual([], calls)
+
+    def test_store_host_allowlist_and_explicit_override(self):
+        self.assertEqual("mystore.29next.store", bulk_move.normalize_domain("mystore"))
+        self.assertEqual("mystore.29next.store", bulk_move.normalize_domain("mystore.29next.store"))
+        with self.assertRaisesRegex(ValueError, "refusing non-29next"):
+            bulk_move.normalize_domain("evil.example")
+        self.assertEqual("evil.example", bulk_move.normalize_domain("evil.example", allow_host=True))
+
+    def test_evil_store_exits_before_issuing_any_request(self):
+        argv = ["--store", "evil.example", "--input", "missing.csv", "--source", "10",
+                "--destination", "20", "--results", "results.csv"]
+        with mock.patch.object(bulk_move.urllib.request, "urlopen") as request, \
+                mock.patch.dict(bulk_move.os.environ, {"NEXT_ADMIN_API_TOKEN": "test"}):
+            with self.assertRaises(SystemExit) as raised:
+                bulk_move.main(argv)
+        self.assertEqual(2, raised.exception.code)
+        request.assert_not_called()
+
+    def test_request_level_rate_limit_sleeps_between_requests(self):
+        now, delays = [10.0], []
+        def sleep(delay):
+            delays.append(delay)
+            now[0] += delay
+        client = bulk_move.AdminClient("mystore", "test", min_interval=0.25,
+                                      clock=lambda: now[0], sleep=sleep)
+        response = mock.MagicMock()
+        response.__enter__.return_value.read.return_value = b"{}"
+        with mock.patch.object(bulk_move.urllib.request, "urlopen", return_value=response):
+            client._request("GET", "one/")
+            client._request("GET", "two/")
+        self.assertEqual([0.25], delays)
 
     def test_list_fos_paginates_and_multiple_source_fos_require_review(self):
         client = bulk_move.AdminClient("example", "test")

@@ -22,12 +22,22 @@ COMPLETED_STATUSES = {"success", "skipped"}
 
 
 class AdminClient:
-    def __init__(self, domain: str, token: str, timeout: float = 30.0):
-        self.base = f"https://{normalize_domain(domain)}/api/admin/"
+    def __init__(self, domain: str, token: str, timeout: float = 30.0, *,
+                 allow_host: bool = False, min_interval: float = 0.25,
+                 clock: Callable[[], float] = time.monotonic,
+                 sleep: Callable[[float], None] = time.sleep):
+        self.base = f"https://{normalize_domain(domain, allow_host=allow_host)}/api/admin/"
         self.token = token
         self.timeout = timeout
+        self.min_interval, self.clock, self.sleep = min_interval, clock, sleep
+        self._last_request_at: float | None = None
 
     def _request(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+        if self._last_request_at is not None:
+            delay = self.min_interval - (self.clock() - self._last_request_at)
+            if delay > 0:
+                self.sleep(delay)
+        self._last_request_at = self.clock()
         data = json.dumps(body).encode() if body is not None else None
         request = urllib.request.Request(
             urllib.parse.urljoin(self.base, path.lstrip("/")), data=data, method=method,
@@ -86,9 +96,17 @@ class Result:
     destination: str = ""
 
 
-def normalize_domain(raw: str) -> str:
-    value = raw.strip().removeprefix("https://").removeprefix("http://").strip("/")
-    return value if "." in value else f"{value}.29next.store"
+def normalize_domain(raw: str, *, allow_host: bool = False) -> str:
+    value = raw.strip().removeprefix("https://").removeprefix("http://").strip("/").lower()
+    if not value or any(char in value for char in "/?#@:"):
+        raise ValueError("--store must be a hostname without a path, port, or credentials")
+    if "." not in value:
+        if not value.replace("-", "").isalnum():
+            raise ValueError("--store must be a valid store subdomain")
+        return f"{value}.29next.store"
+    if value.endswith(".29next.store") or allow_host:
+        return value
+    raise ValueError("refusing non-29next store host; use --allow-host only for an intentional custom admin domain")
 
 
 def rows_from(value: Any) -> list[dict[str, Any]]:
@@ -139,22 +157,24 @@ class BulkMover:
         self.execute, self.poll_attempts, self.poll_delay = execute, poll_attempts, poll_delay
         self.order_delay = order_delay
         self.sleep = sleep
-        self.known_locations: set[int] = set()
-
-    def _destination_available(self, fo: dict[str, Any]) -> bool:
+    def _destination_availability(self, fo: dict[str, Any]) -> bool | None:
         embedded = fo.get("available_locations") or fo.get("supported_locations")
         ids = location_ids(embedded)
         if not ids:
             try:
                 ids = location_ids(self.client.available_locations(str(fo.get("id"))))
             except Exception:
-                ids = set()
+                return None
+        if not ids:
+            return None
         return self.destination in ids
 
     def _move(self, order: str, fo: dict[str, Any], action: str) -> Result:
         fid = str(fo.get("id") or "")
-        if not self._destination_available(fo):
-            return Result(order, fid, action="LOCATION_UNAVAILABLE", status="error", destination=str(self.destination))
+        availability = self._destination_availability(fo)
+        if availability is not True:
+            action = "LOCATION_UNAVAILABLE" if availability is False else "LOCATION_UNVERIFIED"
+            return Result(order, fid, action=action, status="error", destination=str(self.destination))
         if not self.execute:
             return Result(order, fid, action=f"WOULD_{action}", status="skipped", destination=str(self.destination))
         response = self.client.move(fid, self.destination)
@@ -163,7 +183,6 @@ class BulkMover:
     def process_order(self, order: str) -> Result:
         try:
             fos = self.client.list_fos(order)
-            self.known_locations.update(x for x in (assigned_id(fo) for fo in fos) if x is not None)
             source_fos = [fo for fo in fos if assigned_id(fo) == self.source]
             if not fos:
                 return Result(order, action="NOT_FOUND", status="skipped", destination=str(self.destination))
@@ -179,11 +198,16 @@ class BulkMover:
             if state == "open" and supported(fo, "move"):
                 return self._move(order, fo, "MOVED")
             if state == "processing":
-                if not self._destination_available(fo):
-                    return Result(order, fid, action="LOCATION_UNAVAILABLE", status="error", destination=str(self.destination))
+                availability = self._destination_availability(fo)
+                if availability is not True:
+                    action = "LOCATION_UNAVAILABLE" if availability is False else "LOCATION_UNVERIFIED"
+                    return Result(order, fid, action=action, status="error", destination=str(self.destination))
                 if not self.execute:
                     return Result(order, fid, action="WOULD_CANCEL+MOVE", status="skipped", destination=str(self.destination))
-                self.client.request_cancellation(fid)
+                if str(fo.get("request_status") or "") not in {
+                    "cancel_pending", "cancel_requested", "cancellation_pending", "cancellation_requested"
+                }:
+                    self.client.request_cancellation(fid)
                 latest = fo
                 for attempt in range(self.poll_attempts):
                     latest = self.client.get_fo(fid)
@@ -207,22 +231,6 @@ class BulkMover:
         output.parent.mkdir(parents=True, exist_ok=True)
         write_header = not output.exists() or output.stat().st_size == 0
         results: list[Result] = []
-        try:
-            self.known_locations.update(location_ids(self.client.list_locations()))
-        except Exception:
-            pass
-        if not self.known_locations:
-            # Documented fallback for stores whose locations endpoint is empty:
-            # derive the known set from assigned locations across the target FOs.
-            for order in orders:
-                if order not in completed:
-                    try:
-                        self.known_locations.update(
-                            x for x in (assigned_id(fo) for fo in self.client.list_fos(order))
-                            if x is not None
-                        )
-                    except Exception:
-                        continue
         with output.open("a", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=FIELDS)
             if write_header:
@@ -262,6 +270,8 @@ def resume_completed(path: Path | None) -> set[str]:
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--store", required=True, help="Store subdomain or domain")
+    p.add_argument("--allow-host", action="store_true",
+                   help="Allow an intentional custom admin hostname outside .29next.store")
     p.add_argument("--input", required=True, type=Path, help="CSV containing order_number")
     p.add_argument("--source", required=True, type=int, help="Source location ID")
     p.add_argument("--destination", required=True, type=int, help="Destination location ID")
@@ -287,7 +297,11 @@ def main(argv: list[str] | None = None) -> int:
     if not token:
         print("NEXT_ADMIN_API_TOKEN is required", file=sys.stderr)
         return 2
-    mover = BulkMover(AdminClient(args.store, token), args.source, args.destination,
+    try:
+        client = AdminClient(args.store, token, allow_host=args.allow_host)
+    except ValueError as exc:
+        parser().error(str(exc))
+    mover = BulkMover(client, args.source, args.destination,
                       execute=args.execute, poll_attempts=args.poll_attempts,
                       poll_delay=args.poll_delay, order_delay=args.order_delay)
     rows = mover.run(read_orders(args.input), args.results, resume_completed(args.resume))

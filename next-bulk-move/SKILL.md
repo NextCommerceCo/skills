@@ -79,6 +79,12 @@ Set:
 STORE=https://{subdomain}.29next.store
 ```
 
+The executor accepts only a bare subdomain or a hostname ending in
+`.29next.store` by default. For a store intentionally configured on a custom
+admin domain, pass `--allow-host` with the custom `--store` hostname. This is an
+explicit trust override because the executor sends `NEXT_ADMIN_API_TOKEN` to
+that host.
+
 ### Step 2: Admin API Access Token
 
 Require the executor environment to contain an API access token with
@@ -235,14 +241,19 @@ python3 next-bulk-move/scripts/bulk_move.py \
 
 ## Phase 3: Execute Moves
 
-Process orders in sequence. **Rate limit: 0.5s sleep between orders** (~2 req/sec effective, well under the 4 req/sec limit).
+Process orders in sequence. **Rate limit: every HTTP request is gated to at
+least 0.25s after the preceding request** (at most 4 req/sec), including list,
+polling, availability, cancellation, and move requests. The additional default
+0.5s delay between orders is only pacing, not the rate-limit mechanism.
 
 Before every move, verify that `DEST_LOCATION_ID` is available for that FO.
 Prefer available/supported location data embedded on the FO, otherwise query
 `/fulfillment-orders/{fo_id}/available-locations/`. The store locations list and
 locations assigned to other FOs prove only that a location exists; they must not
 authorize a move for this FO. If per-FO availability cannot be validated, record
-`LOCATION_UNAVAILABLE` and do not request cancellation or move.
+`LOCATION_UNVERIFIED` and do not request cancellation or move. Use
+`LOCATION_UNAVAILABLE` only when per-FO availability data was successfully
+obtained and excludes the destination.
 
 ### For READY Orders (status: open)
 
@@ -269,6 +280,9 @@ POST {STORE}/api/admin/fulfillment-orders/{fo_id}/cancellation-request/
 
 This response only confirms that the cancellation was requested. It does not
 mean the fulfillment location accepted it.
+
+If the FO already has a pending/requested cancellation status, do not submit a
+duplicate request; resume directly at Step B.
 
 **Step B — Poll the same FO with bounded retries:**
 ```
@@ -346,7 +360,7 @@ Columns:
 | `order_number` | The order number from the input file |
 | `original_fo_id` | The FO ID at the source location before the move |
 | `new_fo_id` | The new FO ID created at the destination (blank if not moved) |
-| `action` | Operational result such as `CANCEL+MOVED`, `MOVED`, `CANCEL_PENDING`, or `LOCATION_UNAVAILABLE` |
+| `action` | Operational result such as `CANCEL+MOVED`, `MOVED`, `CANCEL_PENDING`, `LOCATION_UNAVAILABLE`, or `LOCATION_UNVERIFIED` |
 | `status` | `success`, `skipped`, or `error` |
 | `destination` | Destination location ID |
 
@@ -367,7 +381,9 @@ raw API response bodies to the results file.
 
 **Auth:** `Authorization: Bearer $NEXT_ADMIN_API_TOKEN` + `X-29next-API-Version: 2024-04-01`. The token remains environment-only.
 
-**Rate limit:** 4 req/sec. Use 0.5s sleep between orders.
+**Rate limit:** 4 req/sec. Gate each request with a minimum 0.25s interval; a
+per-order delay alone is insufficient because one order can issue several
+requests.
 
 **Required scopes:** `fulfillment_orders:read`, `fulfillment_orders:write`, `locations:read`
 
@@ -377,7 +393,7 @@ raw API response bodies to the results file.
 
 - **Cancellation request is not acceptance:** Always re-fetch with bounded polling. Move only after `request_status: cancel_accepted` and `move` appears in `supported_actions`. Pending or rejected requests must never move.
 - **Move the same FO ID only after proof:** Once polling proves acceptance and move support, call `/move/` on that FO ID. The move creates a new FO at the destination and sets the original to `closed`.
-- **Validate the destination first:** Before cancellation or movement, prove the destination is available using FO availability data, the available-locations endpoint, the store locations list, or its assigned-location fallback. Otherwise record `LOCATION_UNAVAILABLE`.
+- **Validate the destination first:** Before cancellation or movement, prove the destination is available for that specific FO using embedded FO availability data or the available-locations endpoint for that FO. The store location list and locations assigned to other FOs may only discover candidate IDs; they never authorize a move. If per-FO proof cannot be obtained, record `LOCATION_UNVERIFIED` and stop. If proof is obtained and excludes the destination, record `LOCATION_UNAVAILABLE` and stop.
 - **`/locations/` may return empty:** The locations list endpoint requires `locations:read` scope and may return empty if locations are managed by fulfillment services. Fallback: discover locations from FO data by querying `/fulfillment-orders/` and extracting unique `assigned_location` values.
 - **HTTP 200 on move, not 201:** The move endpoint returns 200 despite being a POST. Don't treat 200 as an error.
 - **Multiple FOs per order:** An order with items from different warehouses has multiple FOs. Don't guess which one to move — flag for manual review. If the user supplied a SKU/product filter (Mode B), the server-side filter already disambiguates; no manual review needed.
