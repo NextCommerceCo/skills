@@ -46,7 +46,7 @@ Run these checks at the start of every theme task to understand the working cont
 
 ```bash
 # Check ntk installation
-if command -v ntk >/dev/null 2>&1; then python3 -m pip show next-theme-kit; else echo "ntk not installed — install via: pip install next-theme-kit"; fi
+if command -v ntk >/dev/null 2>&1; then command -v ntk; python3 -m pip show next-theme-kit 2>/dev/null || echo "Package metadata unavailable (common with pipx/uv installs); ntk command is installed."; else echo "ntk not installed — install via pip, pipx, or uv"; fi
 
 # Check Python
 python3 --version 2>/dev/null || python --version 2>/dev/null || echo "Python not found"

@@ -36,6 +36,19 @@ EXTERNAL_REF_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Keep this list aligned with the consumer fields documented under
+# "Canonical Asset Schema" in next-theme-figma/references/handoff-manifest.md.
+CANONICAL_REQUIRED_ASSET_FIELDS = (
+    "asset_url_path",
+    "role",
+    "alt",
+    "format",
+    "expected_width",
+    "expected_height",
+    "requires_alpha",
+    "clean_export_verified",
+)
+
 
 class ImageInfo:
     def __init__(
@@ -373,8 +386,18 @@ def validate_asset(
     index: int,
     errors: List[str],
     warnings: List[str],
+    strict: bool,
 ) -> None:
     label = f"assets[{index}]"
+    missing_fields = [
+        field
+        for field in CANONICAL_REQUIRED_ASSET_FIELDS
+        if field not in entry or entry[field] is None
+    ]
+    destination = errors if strict else warnings
+    for field in missing_fields:
+        destination.append(f"{label}: missing canonical required field {field}.")
+
     rel_path_value = entry.get("path")
     if not rel_path_value:
         errors.append(f"{label}: missing required path.")
@@ -548,7 +571,7 @@ def main() -> int:
         if not isinstance(entry, dict):
             errors.append(f"assets[{index}]: entry must be an object.")
             continue
-        validate_asset(entry, defaults, theme_root, index, errors, warnings)
+        validate_asset(entry, defaults, theme_root, index, errors, warnings, args.strict)
 
     for warning in warnings:
         print(f"WARNING: {warning}")

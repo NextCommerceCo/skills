@@ -290,33 +290,7 @@ function createPackage(opts) {
     ],
   });
 
-  writeJson(path.join(out, 'assets.json'), fixture?.assets || {
-    schema_version: SCHEMA.assets,
-    figma_file_key: figma.file_key || '',
-    project,
-    assets: [
-      {
-        asset_id: 'example-asset',
-        section_id: 'example-1',
-        path: '',
-        asset_url_path: '',
-        figma_node_id: '',
-        source_layer_name: '',
-        prefix: 'img',
-        role: '',
-        alt: '',
-        format: 'png',
-        expected_width: 0,
-        expected_height: 0,
-        requires_alpha: false,
-        canvas_rendered: true,
-        optimization_status: 'not-started',
-        replace_with_backend_product_media: false,
-        clean_export_verified: false,
-        notes: 'Replace this example or delete it.',
-      },
-    ],
-  });
+  writeJson(path.join(out, 'assets.json'), buildAssetsManifest(project, figma, fixture?.assets));
 
   writeJson(path.join(out, 'spark-divergence-ledger.json'), fixture?.divergence || {
     schema_version: SCHEMA.divergence,
@@ -356,6 +330,72 @@ function createPackage(opts) {
   writeText(path.join(out, 'notes.md'), notesTemplate(project));
 
   console.log(`[next-theme-figma] package created: ${out}`);
+}
+
+function buildAssetsManifest(project, figma, supplied) {
+  const source = supplied || {
+    schema_version: SCHEMA.assets,
+    figma_file_key: figma.file_key || '',
+    project,
+    assets: [
+      {
+        asset_id: 'example-asset',
+        section_id: 'example-1',
+        path: '',
+        asset_url_path: '',
+        figma_node_id: '',
+        source_layer_name: '',
+        prefix: 'img',
+        role: '',
+        alt: '',
+        format: 'png',
+        expected_width: 0,
+        expected_height: 0,
+        requires_alpha: false,
+        canvas_rendered: true,
+        optimization_status: 'not-started',
+        replace_with_backend_product_media: false,
+        clean_export_verified: false,
+        notes: 'Replace this example or delete it.',
+      },
+    ],
+  };
+
+  return {
+    schema_version: source.schema_version || SCHEMA.assets,
+    figma_file_key: source.figma_file_key || figma.file_key || '',
+    project: source.project || project,
+    assets: (source.assets || []).map((asset) => normalizeAsset(asset)),
+  };
+}
+
+function normalizeAsset(asset) {
+  const assetPath = String(asset.path || '');
+  const extension = path.posix.extname(assetPath).slice(1).toLowerCase();
+  const normalized = {
+    asset_id: asset.asset_id || '',
+    section_id: asset.section_id || '',
+    path: assetPath,
+    asset_url_path: asset.asset_url_path ?? assetPath.replace(/^assets\//, ''),
+    figma_node_id: asset.figma_node_id || '',
+    source_layer_name: asset.source_layer_name || '',
+    prefix: asset.prefix || 'img',
+    role: asset.role || '',
+    alt: asset.alt ?? '',
+    format: asset.format || extension || 'png',
+    expected_width: asset.expected_width ?? 0,
+    expected_height: asset.expected_height ?? 0,
+    requires_alpha: asset.requires_alpha ?? false,
+    canvas_rendered: asset.canvas_rendered ?? true,
+    optimization_status: asset.optimization_status || 'not-started',
+    replace_with_backend_product_media: asset.replace_with_backend_product_media ?? false,
+    clean_export_verified: asset.clean_export_verified ?? false,
+    notes: asset.notes || '',
+  };
+  for (const key of ['max_bytes', 'forbid_badges', 'forbid_baked_text', 'decorative', 'source']) {
+    if (Object.prototype.hasOwnProperty.call(asset, key)) normalized[key] = asset[key];
+  }
+  return normalized;
 }
 
 function validatePackage(dir, strict = true) {

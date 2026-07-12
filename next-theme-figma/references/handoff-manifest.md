@@ -64,6 +64,12 @@ Assets must use one of:
 - Handoff fields: `asset_id`, `section_id`, `source_layer_name`, `prefix`, `canvas_rendered`, `optimization_status`, `replace_with_backend_product_media`, and `notes`.
 - Optional consumer checks where relevant: `max_bytes`, `forbid_badges`, `forbid_baked_text`, `decorative`, and `source`.
 
+The downstream validator's `CANONICAL_REQUIRED_ASSET_FIELDS` constant is the
+required consumer subset: `asset_url_path`, `role`, `alt`, `format`,
+`expected_width`, `expected_height`, `requires_alpha`, and
+`clean_export_verified`. Missing keys are strict errors and non-strict warnings;
+an empty value may still fail the field's semantic validation.
+
 This is intentionally the richer union of the generator and consumer contracts. Do not use the former generator-only names `target_path`, `source_node_id`, or nested `expected_dimensions`.
 
 ## Divergence Status Values
