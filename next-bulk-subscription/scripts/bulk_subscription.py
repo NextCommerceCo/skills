@@ -164,25 +164,36 @@ def verify_mutation(resp: Any, sid: str, payload: dict[str, Any],
     if not isinstance(resp, dict):
         return False, "mutation response was not an object"
     nested = resp.get("subscription")
-    subject = resp
-    if (resp.get("id") is None and resp.get("subscription_id") is None and
-            isinstance(nested, dict)):
-        subject = nested
-    returned_id = subject.get("id", subject.get("subscription_id"))
+    views = [resp]
+    if isinstance(nested, dict) and nested is not resp:
+        views.append(nested)
+
+    def first_value(key: str) -> Any:
+        # Treat an explicit null/"" the same as a missing key: dict.get's default
+        # only fires for absent keys, so {"id": null, "subscription_id": "s1"}
+        # must still resolve the real identity.
+        for view in views:
+            value = view.get(key)
+            if value not in (None, ""):
+                return value
+        return None
+
+    def present(key: str) -> bool:
+        return any(view.get(key) not in (None, "") for view in views)
+
+    returned_id = first_value("id") or first_value("subscription_id")
     if returned_id is None:
         return False, "response did not include a subscription identity to confirm"
     if str(returned_id) != str(sid):
         return False, f"response identity {returned_id} does not match requested {sid}"
-    views = [subject]
-    if isinstance(nested, dict) and nested is not subject:
-        views.append(nested)
 
     # For update every requested field must be present and equal; for pause a
     # requested pause_until must be echoed and equal (a bare paused status does
-    # not prove the requested resume date was applied).
+    # not prove the requested resume date was applied). Presence is checked across
+    # both the top object and a nested `subscription` wrapper.
     require_present = {"update": set(payload), "pause": {"pause_until"} & set(payload)}
     for field, want in payload.items():
-        if field in require_present.get(action, set()) and field not in subject:
+        if field in require_present.get(action, set()) and not present(field):
             return False, f"{action} response did not confirm field {field}"
         echoed = [view[field] for view in views if field in view]
         if any(str(value) != str(want) for value in echoed):

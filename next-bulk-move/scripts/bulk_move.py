@@ -37,6 +37,26 @@ class MalformedResponse(ValueError):
     """The API response cannot safely authorize an operation."""
 
 
+def safe_pagination_url(next_url: Any, current_url: str,
+                        base: urllib.parse.ParseResult) -> str:
+    """Resolve a pagination `next` link and confirm it stays on the store's API
+    base before the bearer token is sent to it. Relative links are resolved
+    against the current URL; the default https port is ignored; the path must
+    stay under the API base path so a same-host different-path link is refused.
+    """
+    if not isinstance(next_url, str) or not next_url.strip():
+        raise MalformedResponse("pagination link is not a usable string")
+    resolved = urllib.parse.urljoin(current_url, next_url)
+    parsed = urllib.parse.urlparse(resolved)
+    if (parsed.scheme != "https" or parsed.hostname != base.hostname
+            or parsed.port not in (None, 443)
+            or not parsed.path.startswith(base.path)):
+        raise MalformedResponse(
+            f"refusing pagination link outside the store API base: {next_url}"
+        )
+    return resolved
+
+
 class AdminClient:
     def __init__(self, domain: str, token: str, timeout: float = 30.0, *,
                  allow_host: str | None = None, min_interval: float = 0.25,
@@ -88,14 +108,7 @@ class AdminClient:
             next_url = data.get("next")
             if next_url is None:
                 break
-            if not isinstance(next_url, str):
-                raise MalformedResponse("pagination link is not a string")
-            parsed = urllib.parse.urlparse(next_url)
-            if parsed.scheme != "https" or parsed.netloc != expected.netloc:
-                raise MalformedResponse(
-                    f"refusing pagination link outside the store host: {next_url}"
-                )
-            target = next_url
+            target = safe_pagination_url(next_url, canonical_target, expected)
         return results
 
     def get_fo(self, fo_id: str) -> dict[str, Any]:
@@ -408,7 +421,16 @@ class BulkMover:
                     return Result(order, fid, action="CANCEL_UNCONFIRMED", status="error",
                                   destination=str(self.destination))
                 return Result(order, fid, action="CANCEL_PENDING", status="error", destination=str(self.destination))
-            return Result(order, fid, action=f"SKIPPED_{state.upper() or 'UNKNOWN'}", status="skipped", destination=str(self.destination))
+            # Only genuinely terminal states are safe to skip (resume-complete);
+            # an unrecognized state is ambiguous and must stay retryable so work
+            # is not silently dropped.
+            terminal_states = {"closed", "canceled", "cancelled", "fulfilled",
+                               "complete", "completed"}
+            if state in terminal_states:
+                return Result(order, fid, action=f"SKIPPED_{state.upper()}",
+                              status="skipped", destination=str(self.destination))
+            return Result(order, fid, action=f"UNKNOWN_STATE_{state.upper() or 'BLANK'}",
+                          status="error", destination=str(self.destination))
         except MalformedResponse:
             return Result(order, action="MALFORMED_RESPONSE", status="error",
                           destination=str(self.destination))

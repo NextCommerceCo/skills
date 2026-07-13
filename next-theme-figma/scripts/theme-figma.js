@@ -492,9 +492,14 @@ function validatePackage(dir, strict = true) {
       if (asset.format && !ASSET_FORMATS.has(asset.format)) {
         errors.push(`${id}: invalid format "${asset.format}"`);
       }
-      if (asset.format !== 'svg' && typeof asset.requires_alpha !== 'boolean') {
+      // Branch on the path extension, matching next-theme-dev's validator
+      // (which keys the requires_alpha exemption off the file suffix, not the
+      // declared format) so the two halves of the contract agree.
+      const isSvg = typeof asset.path === 'string'
+        && asset.path.toLowerCase().endsWith('.svg');
+      if (!isSvg && typeof asset.requires_alpha !== 'boolean') {
         issue(strict, errors, warnings, `${id}: requires_alpha should be true or false`);
-      } else if (asset.format === 'svg'
+      } else if (isSvg
           && Object.prototype.hasOwnProperty.call(asset, 'requires_alpha')
           && typeof asset.requires_alpha !== 'boolean') {
         errors.push(`${id}: requires_alpha should be true or false when present`);

@@ -157,6 +157,15 @@ class BulkFulfillTests(unittest.TestCase):
         self.assertEqual("NEEDS_VERIFICATION", rows[0].action)
         self.assertEqual("error", rows[0].status)
 
+    def test_safe_pagination_url_handles_relative_and_default_port(self):
+        base = bulk.urllib.parse.urlparse("https://mystore.29next.store/api/admin/")
+        cur = "https://mystore.29next.store/api/admin/fulfillment-orders/?order_number=1"
+        self.assertIn("page=2", bulk.safe_pagination_url("?order_number=1&page=2", cur, base))
+        self.assertIn("fulfillment-orders", bulk.safe_pagination_url(
+            "https://mystore.29next.store:443/api/admin/fulfillment-orders/?page=2", cur, base))
+        with self.assertRaises(bulk.MalformedResponse):
+            bulk.safe_pagination_url("https://evil.example/api/admin/x/", cur, base)
+
     def test_partial_failure_continues(self):
         client = FakeClient({"fo-2"}); rows, _ = self.run_bulk(client, [{"order_number": str(n), "tracking_code": f"T{n}", "carrier": "ups"} for n in (1, 2, 3)])
         self.assertEqual(3, len(client.calls)); self.assertEqual(["success", "error", "success"], [r.status for r in rows])

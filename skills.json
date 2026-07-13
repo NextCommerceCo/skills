@@ -246,8 +246,9 @@
       "safety": {
         "mutates_remote": false,
         "writes_local": true,
-        "requires_approval": false,
-        "network": "outbound-template-fetch"
+        "requires_approval": true,
+        "network": "outbound-template-fetch",
+        "notes": "Writes a Campaign Cart API key and store details into local plaintext config (config.js/campaigns.json); review before running."
       }
     }
   ]

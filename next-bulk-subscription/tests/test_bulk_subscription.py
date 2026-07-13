@@ -115,6 +115,27 @@ class BulkSubscriptionTests(unittest.TestCase):
                                 action="pause", payload={"pause_until": "2026-08-01"})
         self.assertEqual("NEEDS_VERIFICATION", rows[0].error_code)
 
+    def test_null_id_with_subscription_id_still_resolves_identity(self):
+        class NullIdClient(FakeClient):
+            def mutate(self, method, endpoint, payload):
+                self.calls.append((method, endpoint, payload))
+                sid = endpoint.strip("/").split("/")[1]
+                return {"id": None, "subscription_id": sid, "status": "paused",
+                        "pause_until": payload.get("pause_until")}
+        rows, _ = self.run_bulk(NullIdClient(), [{"subscription_id": "s1"}],
+                                action="pause", payload={"pause_until": "2026-08-01"})
+        self.assertEqual("success", rows[0].status)
+
+    def test_update_fields_in_nested_subscription_are_accepted(self):
+        class NestedClient(FakeClient):
+            def mutate(self, method, endpoint, payload):
+                self.calls.append((method, endpoint, payload))
+                sid = endpoint.strip("/").split("/")[1]
+                return {"id": sid, "subscription": {"id": sid, **payload}}
+        rows, _ = self.run_bulk(NestedClient(), [{"subscription_id": "s1"}],
+                                action="update", payload={"interval": "monthly"})
+        self.assertEqual("success", rows[0].status)
+
     def test_non_allowlisted_action_refused(self):
         with self.assertRaisesRegex(ValueError, "not allowlisted"):
             bulk.BulkSubscription(FakeClient(), "delete", {}, execute=True)

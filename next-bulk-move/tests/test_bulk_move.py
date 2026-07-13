@@ -164,6 +164,30 @@ class BulkMoveTests(unittest.TestCase):
         # A DUPLICATE row must not make the order resume-terminal on its own.
         self.assertIn("1001", bulk_move.resume_completed(output))  # via the real MOVED row
 
+    def test_safe_pagination_url_accepts_relative_and_default_port(self):
+        base = bulk_move.urllib.parse.urlparse("https://mystore.29next.store/api/admin/")
+        cur = "https://mystore.29next.store/api/admin/fulfillment-orders/?order_number=1"
+        rel = bulk_move.safe_pagination_url("?order_number=1&page=2", cur, base)
+        self.assertTrue(rel.startswith("https://mystore.29next.store/api/admin/"))
+        port = bulk_move.safe_pagination_url(
+            "https://mystore.29next.store:443/api/admin/fulfillment-orders/?page=2", cur, base)
+        self.assertIn("fulfillment-orders", port)
+
+    def test_safe_pagination_url_refuses_other_path_or_host(self):
+        base = bulk_move.urllib.parse.urlparse("https://mystore.29next.store/api/admin/")
+        cur = "https://mystore.29next.store/api/admin/fulfillment-orders/"
+        for bad in ("https://mystore.29next.store/admin/users/",
+                    "https://evil.example/api/admin/x/"):
+            with self.assertRaises(bulk_move.MalformedResponse):
+                bulk_move.safe_pagination_url(bad, cur, base)
+
+    def test_unknown_fo_state_is_retryable_error(self):
+        client = FakeClient({"1001": [fo(1, 1001, "weird_state", actions=[])]})
+        rows, output = self.run_mover(client, ["1001"])
+        self.assertEqual("error", rows[0].status)
+        self.assertTrue(rows[0].action.startswith("UNKNOWN_STATE"))
+        self.assertNotIn("1001", bulk_move.resume_completed(output))
+
     def test_each_order_is_listed_only_once_without_location_preflight(self):
         client = FakeClient({"1001": [fo(1, 1001, actions=["move"])]})
         self.run_mover(client, ["1001"])

@@ -79,14 +79,21 @@ class AdminClient:
         return self._send(req)
 
     def get_url(self, url: str) -> Any:
-        parsed = urllib.parse.urlparse(url)
-        if parsed.scheme != "https" or parsed.hostname != self.domain:
+        # Resolve a relative `next` link against the last request; pin scheme,
+        # host (ignoring the default port), and the /api/admin/ base path before
+        # forwarding the bearer token.
+        base = self.last_url or f"https://{self.domain}/api/admin/"
+        resolved = urllib.parse.urljoin(base, url)
+        parsed = urllib.parse.urlparse(resolved)
+        if (parsed.scheme != "https" or parsed.hostname != self.domain
+                or parsed.port not in (None, 443)
+                or not parsed.path.startswith("/api/admin/")):
             raise ValueError(
-                "Refusing pagination URL outside the configured store domain: "
-                f"expected https://{self.domain}, got {url}"
+                "Refusing pagination URL outside the configured store API base: "
+                f"expected https://{self.domain}/api/admin/, got {url}"
             )
-        self.last_url = url
-        req = urllib.request.Request(url, headers=self._headers(), method="GET")
+        self.last_url = resolved
+        req = urllib.request.Request(resolved, headers=self._headers(), method="GET")
         return self._send(req)
 
     def _send(self, req: urllib.request.Request, *, retries: int = 2) -> Any:
@@ -237,9 +244,14 @@ def scan_incomplete_orders(
 ) -> list[Finding]:
     findings: list[Finding] = []
     horizon = now - timedelta(days=lookback_days)
-    for order in client.paginate(
-        "orders/", {"fulfillment_status": "incomplete"}, max_pages=max_pages
-    ):
+    try:
+        orders = list(client.paginate(
+            "orders/", {"fulfillment_status": "incomplete"}, max_pages=max_pages))
+    except Exception as e:
+        client.notes.append(
+            f"Incomplete-order queue not scanned: {e.__class__.__name__}: {e}")
+        return findings
+    for order in orders:
         if not fulfillment_status_matches(order, "incomplete"):
             continue
         placed = parse_dt(order_date(order))
@@ -284,9 +296,14 @@ def scan_rejected_orders(
 ) -> list[Finding]:
     findings: list[Finding] = []
     horizon = now - timedelta(days=lookback_days)
-    for order in client.paginate(
-        "orders/", {"fulfillment_status": "rejected"}, max_pages=max_pages
-    ):
+    try:
+        orders = list(client.paginate(
+            "orders/", {"fulfillment_status": "rejected"}, max_pages=max_pages))
+    except Exception as e:
+        client.notes.append(
+            f"Rejected-order queue not scanned: {e.__class__.__name__}: {e}")
+        return findings
+    for order in orders:
         if not fulfillment_status_matches(order, "rejected"):
             continue
         placed = parse_dt(order_date(order))

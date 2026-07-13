@@ -42,6 +42,25 @@ class MalformedResponse(ValueError):
     """The API response cannot safely authorize a fulfillment."""
 
 
+def safe_pagination_url(next_url: Any, current_url: str,
+                        base: urllib.parse.ParseResult) -> str:
+    """Resolve a pagination `next` link and confirm it stays on the store's API
+    base before the bearer token is sent to it. Relative links resolve against
+    the current URL; the default https port is ignored; the path must stay under
+    the API base path so a same-host different-path link is refused."""
+    if not isinstance(next_url, str) or not next_url.strip():
+        raise MalformedResponse("pagination link is not a usable string")
+    resolved = urllib.parse.urljoin(current_url, next_url)
+    parsed = urllib.parse.urlparse(resolved)
+    if (parsed.scheme != "https" or parsed.hostname != base.hostname
+            or parsed.port not in (None, 443)
+            or not parsed.path.startswith(base.path)):
+        raise MalformedResponse(
+            f"refusing pagination link outside the store API base: {next_url}"
+        )
+    return resolved
+
+
 def normalize_domain(raw: str) -> str:
     value = raw.strip().removeprefix("https://").removeprefix("http://").strip("/").lower()
     if not value or any(char in value for char in "/?#@:"):
@@ -103,14 +122,7 @@ class AdminClient:
             next_url = data.get("next")
             if next_url is None:
                 break
-            if not isinstance(next_url, str):
-                raise MalformedResponse("pagination link is not a string")
-            parsed = urllib.parse.urlparse(next_url)
-            if parsed.scheme != "https" or parsed.netloc != expected.netloc:
-                raise MalformedResponse(
-                    f"refusing pagination link outside the store host: {next_url}"
-                )
-            target = next_url
+            target = safe_pagination_url(next_url, canonical_target, expected)
         return results
 
     def fulfill(self, fulfillment_id: str, tracking: str, carrier: str,
@@ -125,8 +137,10 @@ def verify_fulfillment(resp: Any, fulfillment_id: str, tracking: str) -> bool:
 
     An empty/malformed/unrelated 2xx body would otherwise be recorded terminal
     and permanently skipped on resume even though nothing was fulfilled. Accept
-    only a response that echoes the fulfillment-order id or an exact tracking
-    value in a recognized tracking field.
+    only fulfillment-specific proof: an exact tracking value in a recognized
+    tracking field, or a distinct created-fulfillment id. Echoing the source
+    fulfillment-order id alone is NOT accepted (it does not prove a shipment was
+    created).
     """
     if not isinstance(resp, dict):
         return False

@@ -44,7 +44,14 @@ SUPPRESSION_RE = re.compile(
     r"public-safety:\s*allow\b(?:\s+([a-z0-9_-]+(?:\s+[a-z0-9_-]+)*))?",
     re.IGNORECASE,
 )
-ZERO_WIDTH_TRANSLATION = str.maketrans("", "", "\u200b\u200c\u200d\ufeff")
+# Invisible/zero-width characters used to break \b boundaries and slip tokens
+# past the rules: ZWSP/ZWNJ/ZWJ/BOM plus SOFT HYPHEN, WORD JOINER, MONGOLIAN
+# VOWEL SEPARATOR, and the variation selectors.
+ZERO_WIDTH_CHARS = "".join(chr(c) for c in (
+    0x200B, 0x200C, 0x200D, 0xFEFF,  # ZWSP, ZWNJ, ZWJ, BOM
+    0x00AD, 0x2060, 0x180E,          # SOFT HYPHEN, WORD JOINER, MONGOLIAN VOWEL SEP
+)) + "".join(chr(c) for c in range(0xFE00, 0xFE10))  # variation selectors
+ZERO_WIDTH_TRANSLATION = str.maketrans("", "", ZERO_WIDTH_CHARS)
 NEXTCOMMERCE_REPO_RE = re.compile(
     r"(?:https?://github\.com/)?NextCommerceCo/([A-Za-z0-9_.-]+)", re.IGNORECASE
 )
@@ -141,8 +148,13 @@ def looks_high_entropy(value: str) -> bool:
         and re.search(r"[_-]", value)
     ):
         return entropy >= 4.0
+    # Path-shaped values (e.g. img/example-store/hero) are not secrets, but only
+    # exempt them when every path segment is itself low-entropy — otherwise an
+    # opaque token that merely contains "/" and "-" would slip through.
     if "/" in value and "-" in value:
-        return False
+        segments = [seg for seg in value.split("/") if seg]
+        if segments and not any(looks_high_entropy(seg) for seg in segments):
+            return False
     classes = sum(
         bool(re.search(pattern, value))
         for pattern in (r"[a-z]", r"[A-Z]", r"\d", r"[_+/=-]")
@@ -172,11 +184,24 @@ def looks_like_bearer_token(value: str) -> bool:
     return not is_placeholder(value) and len(value) >= 12
 
 
+def decode_until_stable(line: str, max_passes: int = 5) -> str:
+    """Repeatedly HTML-unescape and percent-decode until the string stops
+    changing, so double-encoded evasions (e.g. %252F, &amp;#x2F;) fully resolve.
+    Bounded to avoid pathological loops."""
+    current = line
+    for _ in range(max_passes):
+        decoded = html.unescape(urllib.parse.unquote(current))
+        if decoded == current:
+            break
+        current = decoded
+    return current
+
+
 def scan_text(text: str, path: str = "<text>") -> list[Hit]:
     hits: list[Hit] = []
 
     for line_number, line in enumerate(text.splitlines(), 1):
-        normalized = html.unescape(urllib.parse.unquote(line)).translate(ZERO_WIDTH_TRANSLATION)
+        normalized = decode_until_stable(line).translate(ZERO_WIDTH_TRANSLATION)
         variants = tuple(dict.fromkeys((line, normalized)))
         rules_allowed: set[str] = set()
         has_unknown_suppression = False
