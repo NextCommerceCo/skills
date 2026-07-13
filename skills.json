@@ -33,7 +33,13 @@
         "Target Next Commerce store/theme/repo context",
         "Figma MCP or REST/API access when live node inspection or screenshot export is needed",
         "next-theme-dev for downstream theme implementation"
-      ]
+      ],
+      "safety": {
+        "mutates_remote": false,
+        "writes_local": true,
+        "requires_approval": false,
+        "network": "figma-api-optional-readonly"
+      }
     },
     {
       "id": "next-theme-dev",
@@ -60,11 +66,17 @@
         "DTL templates"
       ],
       "prerequisites": [
-        "Python 3",
-        "Pillow (for asset manifest validation)",
+        "Python 3 (standard library only; Pillow optional for richer asset validation)",
         "ntk (pip install next-theme-kit)",
-        "A Next Commerce store with API key (themes:read, themes:write scopes)"
-      ]
+        "A Next Commerce store with an API key (themes:read, themes:write scopes)"
+      ],
+      "safety": {
+        "mutates_remote": true,
+        "writes_local": true,
+        "requires_approval": true,
+        "network": "next-storefront-theme-api",
+        "notes": "ntk push/watch mutate the live store theme and are approval-gated."
+      }
     },
     {
       "id": "next-bulk-fulfill",
@@ -82,10 +94,18 @@
         "tracking numbers didn't sync"
       ],
       "prerequisites": [
-        "Python 3",
-        "requests library (pip install requests)",
-        "A Next Commerce store with API key (fulfillment_orders:read, fulfillment_orders:write scopes)"
-      ]
+        "Python 3 (standard library only; no third-party packages)",
+        "A Next Commerce store with an API key (fulfillment_orders:read, fulfillment_orders:write scopes)",
+        "NEXT_ADMIN_API_TOKEN set in the executor environment"
+      ],
+      "safety": {
+        "mutates_remote": true,
+        "writes_local": true,
+        "requires_approval": true,
+        "network": "next-admin-api",
+        "token_env": "NEXT_ADMIN_API_TOKEN",
+        "notes": "Creates fulfillments only under --execute; dry-run is the default."
+      }
     },
     {
       "id": "next-bulk-move",
@@ -105,11 +125,18 @@
         "move fulfillment orders by product"
       ],
       "prerequisites": [
-        "Python 3",
-        "requests library (pip install requests)",
-        "pandas library (pip install pandas)",
-        "A Next Commerce store with API key (fulfillment_orders:read, fulfillment_orders:write, locations:read scopes)"
-      ]
+        "Python 3 (standard library only; no third-party packages)",
+        "A Next Commerce store with an API key (fulfillment_orders:read, fulfillment_orders:write, locations:read scopes)",
+        "NEXT_ADMIN_API_TOKEN set in the executor environment"
+      ],
+      "safety": {
+        "mutates_remote": true,
+        "writes_local": true,
+        "requires_approval": true,
+        "network": "next-admin-api",
+        "token_env": "NEXT_ADMIN_API_TOKEN",
+        "notes": "Cancels/moves fulfillment orders only under --execute; dry-run is the default."
+      }
     },
     {
       "id": "next-bulk-subscription",
@@ -129,10 +156,18 @@
         "bulk subscription edit"
       ],
       "prerequisites": [
-        "Python 3",
-        "requests library (pip install requests)",
-        "A Next Commerce store with API key (subscriptions:write scope)"
-      ]
+        "Python 3 (standard library only; no third-party packages)",
+        "A Next Commerce store with an API key (subscriptions:read, subscriptions:write scopes)",
+        "NEXT_ADMIN_API_TOKEN set in the executor environment"
+      ],
+      "safety": {
+        "mutates_remote": true,
+        "writes_local": true,
+        "requires_approval": true,
+        "network": "next-admin-api",
+        "token_env": "NEXT_ADMIN_API_TOKEN",
+        "notes": "Runs allowlisted subscription actions only under --execute; dry-run is the default."
+      }
     },
     {
       "id": "next-ops-scan",
@@ -152,9 +187,18 @@
         "reduce disputes"
       ],
       "prerequisites": [
-        "Python 3",
-        "A Next Commerce store with API key (orders:read plus fulfillment read access for delivery statuses)"
-      ]
+        "Python 3 (standard library only; no third-party packages)",
+        "A Next Commerce store with an API key (orders:read plus fulfillment read access for delivery statuses)",
+        "NEXT_ADMIN_API_TOKEN set in the executor environment"
+      ],
+      "safety": {
+        "mutates_remote": false,
+        "writes_local": true,
+        "requires_approval": false,
+        "network": "next-admin-api-readonly",
+        "token_env": "NEXT_ADMIN_API_TOKEN",
+        "notes": "Read-only scan; writes a local results CSV."
+      }
     },
     {
       "id": "next-campaigns-setup",
@@ -198,7 +242,13 @@
         "A CPK project root (sellmore.campaigns.cpk or equivalent)",
         "Campaign Cart API key for the store",
         "CPK_ROOT environment variable or path to campaign root"
-      ]
+      ],
+      "safety": {
+        "mutates_remote": false,
+        "writes_local": true,
+        "requires_approval": false,
+        "network": "none"
+      }
     }
   ]
 }

@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# These jobs are hermetic: only offline unit tests (fake transports/fixtures),
+# the public-safety scanner, and syntax checks run here. No skill ever contacts
+# a live NEXT Admin API, Figma, or store from CI.
+jobs:
+  public-safety:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Public-safety scan (private refs, customer evidence, secrets, PII)
+        run: python3 scripts/check_public_safety.py
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Manifest is valid JSON
+        run: python3 -c "import json; json.load(open('skills.json'))"
+      - name: Python syntax check
+        run: |
+          find . -path ./.git -prune -o -name '*.py' -print \
+            | xargs -I{} python3 -m py_compile {}
+      - name: Node syntax check
+        run: node --check next-theme-figma/scripts/theme-figma.js
+      - name: Offline unit tests (no live API calls)
+        run: |
+          set -e
+          for d in \
+            next-bulk-move/tests \
+            next-bulk-fulfill/tests \
+            next-bulk-subscription/tests \
+            next-ops-scan/tests \
+            next-theme-figma/tests \
+            scripts/tests; do
+            echo "== $d =="
+            python3 -m unittest discover -s "$d"
+          done
