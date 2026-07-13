@@ -171,6 +171,25 @@ class BulkFulfillTests(unittest.TestCase):
                 self.assertEqual("MALFORMED_RESPONSE", rows[0].action)
                 self.assertEqual([], client.calls)
 
+    def test_resume_reads_foreign_header_fails_closed(self):
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        stale = Path(td.name) / "stale.csv"
+        stale.write_text("foo,bar\n1,2\n", encoding="utf-8")
+        with self.assertRaises(ValueError):
+            bulk.resume_state(stale, None)
+
+    def test_unresolved_attempt_wins_over_older_success_across_journals(self):
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        old = Path(td.name) / "old.csv"; new = Path(td.name) / "new.csv"
+        for path, action, status in ((old, "FULFILLED", "success"),
+                                     (new, "ATTEMPTED", "attempted")):
+            with path.open("w", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=bulk.FIELDS); w.writeheader()
+                w.writerow({"order_number": "1", "tracking_code": "T1",
+                            "action": action, "status": status})
+        state = bulk.resume_state(old, new)
+        self.assertIn(("1", "T1"), state.needs_verification)
+
     def test_incompatible_results_header_fails_closed(self):
         td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
         output = Path(td.name) / "results.csv"

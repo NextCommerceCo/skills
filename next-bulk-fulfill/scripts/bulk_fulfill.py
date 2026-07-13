@@ -327,7 +327,8 @@ def resume_state(*paths: Path | None) -> ResumeState:
         state = resume_completed(path)
         attempted |= state.needs_verification
         completed |= (set(state) - state.needs_verification)
-    attempted -= completed
+    # Journal ordering across files is unknown, so an unresolved attempt in ANY
+    # journal must win over an older success elsewhere: never subtract it out.
     return ResumeState(completed, needs_verification=attempted)
 
 
@@ -336,6 +337,16 @@ def resume_completed(path: Path | None) -> ResumeState:
     completed: set[tuple[str, str]] = set()
     attempted: set[tuple[str, str]] = set()
     with path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.reader(handle)
+        header = next(reader, [])
+        if header and header != FIELDS:
+            # Fail closed: a foreign header makes DictReader emit empty keys, so
+            # prior successes/attempts would be invisible and re-POSTed.
+            raise ValueError(
+                f"resume journal {path} has an incompatible header; "
+                "point --resume at a matching journal or omit it"
+            )
+        handle.seek(0)
         for row in csv.DictReader(handle):
             key = (row.get("order_number", ""), row.get("tracking_code", ""))
             if not all(key): continue

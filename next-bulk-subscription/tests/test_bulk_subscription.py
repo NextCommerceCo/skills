@@ -217,6 +217,25 @@ class BulkSubscriptionTests(unittest.TestCase):
         key = ("s1", "pause", bulk.fingerprint({"pause_until": "2026-08-01"}))
         self.assertIn(key, state)
 
+    def test_resume_reads_foreign_header_fails_closed(self):
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        stale = Path(td.name) / "stale.csv"
+        stale.write_text("foo,bar\n1,2\n", encoding="utf-8")
+        with self.assertRaises(ValueError):
+            bulk.resume_state(stale, None)
+
+    def test_unresolved_attempt_wins_over_older_success_across_journals(self):
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        fp = bulk.fingerprint({})
+        old = Path(td.name) / "old.csv"; new = Path(td.name) / "new.csv"
+        for path, status in ((old, "success"), (new, "attempted")):
+            with path.open("w", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=bulk.FIELDS); w.writeheader()
+                w.writerow({"subscription_id": "s1", "action": "renew",
+                            "payload_fingerprint": fp, "status": status})
+        state = bulk.resume_state(old, new)
+        self.assertIn(("s1", "renew", fp), state.needs_verification)
+
     def test_incompatible_results_header_fails_closed(self):
         td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
         output = Path(td.name) / "results.csv"
