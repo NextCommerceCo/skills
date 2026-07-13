@@ -216,7 +216,7 @@ def verify_mutation(resp: Any, sid: str, payload: dict[str, Any],
         if "paused" in normalized:
             return False, "resume response status still indicates paused"
         confirmed_effect = True
-    if action in {"pause", "cancel"} and not confirmed_effect:
+    if action in {"pause", "cancel", "resume"} and not confirmed_effect:
         return False, f"{action} response did not confirm the requested effect"
     return True, ""
 

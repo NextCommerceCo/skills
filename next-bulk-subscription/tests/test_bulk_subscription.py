@@ -44,6 +44,18 @@ class BulkSubscriptionTests(unittest.TestCase):
                                       "--results", "o.csv", "--action", "pause",
                                       "--execute", "--limit", "-1"])
 
+    def test_resume_identity_only_response_is_needs_verification(self):
+        class IdentityOnlyClient(FakeClient):
+            def mutate(self, method, endpoint, payload):
+                self.calls.append((method, endpoint, payload))
+                sid = endpoint.split("/")[1]
+                return {"id": sid}  # no status/effect signal for resume
+        client = IdentityOnlyClient()
+        rows, _ = self.run_bulk(client, [{"subscription_id": "s1"}],
+                                action="resume", payload={})
+        self.assertEqual("error", rows[0].status)
+        self.assertEqual("NEEDS_VERIFICATION", rows[0].error_code)
+
     def test_resume_response_still_paused_is_needs_verification(self):
         class StillPausedClient(FakeClient):
             def mutate(self, method, endpoint, payload):
