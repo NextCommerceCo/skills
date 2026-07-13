@@ -120,6 +120,22 @@ class BulkFulfillTests(unittest.TestCase):
         self.assertEqual("error", rows[0].status)
         self.assertEqual([], client.calls)
 
+    def test_empty_tracking_cell_is_retained_and_flagged(self):
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        source = Path(td.name) / "input.csv"
+        with source.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=["order_number", "tracking_code",
+                                                        "carrier"])
+            writer.writeheader()
+            writer.writerow({"order_number": "1", "tracking_code": "", "carrier": ""})
+        parsed = bulk.read_rows(source)
+        self.assertEqual(1, len(parsed))  # empty tracking must not drop the row
+        client = FakeClient()
+        rows, _ = self.run_bulk(client, parsed)
+        self.assertEqual("MISSING_TRACKING", rows[0].action)
+        self.assertEqual("error", rows[0].status)
+        self.assertEqual([], client.calls)
+
     def test_paginates_before_selecting_eligible_fulfillment_order(self):
         client = bulk.AdminClient("example", "test")
         page_two = "https://example.29next.store/api/admin/fulfillment-orders/?page=2"

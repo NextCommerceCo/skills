@@ -236,7 +236,7 @@ def read_rows(path: Path) -> list[dict[str, str]]:
         return [{"order_number": str(row.get(order_key, "")).strip(),
                  "tracking_code": str(row.get(tracking_key, "")).strip(),
                  "carrier": str(row.get(carrier_key, "")).strip() if carrier_key else ""}
-                for row in reader if row.get(order_key) and row.get(tracking_key)]
+                for row in reader if str(row.get(order_key, "")).strip()]
 
 
 def resume_completed(path: Path | None) -> set[tuple[str, str]]:
