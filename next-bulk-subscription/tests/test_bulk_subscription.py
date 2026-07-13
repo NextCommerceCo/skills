@@ -203,6 +203,20 @@ class BulkSubscriptionTests(unittest.TestCase):
         self.assertEqual(["success", "success"], [row.status for row in rows])
 
 
+    def test_resume_state_merges_active_results_journal(self):
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        active = Path(td.name) / "results.csv"
+        with active.open("w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=bulk.FIELDS); w.writeheader()
+            w.writerow({"subscription_id": "s1", "action": "pause",
+                        "payload_fingerprint": bulk.fingerprint({"pause_until": "2026-08-01"}),
+                        "status": "success"})
+        # Older --resume file is empty/missing; the active --results journal must
+        # still be consulted so a re-run does not repeat s1.
+        state = bulk.resume_state(None, active)
+        key = ("s1", "pause", bulk.fingerprint({"pause_until": "2026-08-01"}))
+        self.assertIn(key, state)
+
     def test_unconfirmed_response_is_not_recorded_as_success(self):
         class NonConfirmingClient(FakeClient):
             def mutate(self, method, endpoint, payload):

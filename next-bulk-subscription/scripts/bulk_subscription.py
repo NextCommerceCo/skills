@@ -101,6 +101,30 @@ def validate_action(action: str, payload: dict[str, Any]) -> tuple[str, str]:
     return method, endpoint
 
 
+def fsync_dir(directory: Path) -> None:
+    fd = os.open(str(directory), os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass  # some filesystems disallow directory fsync; best effort
+    finally:
+        os.close(fd)
+
+
+def resume_state(*paths: Path | None) -> ResumeState:
+    """Merge resume state across every journal that could hold this run's history
+    (typically both --resume and the active --results file), so re-running the
+    same command cannot repeat a non-idempotent mutation recorded in --results."""
+    completed: set[tuple[str, str, str]] = set()
+    attempted: set[tuple[str, str, str]] = set()
+    for path in paths:
+        state = resume_completed(path)
+        attempted |= state.needs_verification
+        completed |= (set(state) - state.needs_verification)
+    attempted -= completed  # a success in any journal resolves an attempt
+    return ResumeState(completed, needs_verification=attempted)
+
+
 def fingerprint(payload: dict[str, Any]) -> str:
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"),
                            ensure_ascii=True)
@@ -198,10 +222,16 @@ class BulkSubscription:
         needs_verification = getattr(completed, "needs_verification", set())
         encountered: set[tuple[str, str, str]] = set()
         output.parent.mkdir(parents=True, exist_ok=True)
-        write_header = not output.exists() or output.stat().st_size == 0; results = []
+        new_file = not output.exists() or output.stat().st_size == 0
+        results = []
         with output.open("a", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=FIELDS)
-            if write_header: writer.writeheader(); handle.flush()
+            if new_file:
+                writer.writeheader(); handle.flush(); os.fsync(handle.fileno())
+                # A new journal's parent-directory entry is not durable until the
+                # directory itself is synced; without this a crash could lose the
+                # whole journal and let --resume repeat a non-idempotent mutation.
+                fsync_dir(output.parent)
             for row in rows:
                 sid = row["subscription_id"]
                 payload = self.payload_for(row)
@@ -309,7 +339,7 @@ def main(argv: list[str] | None = None) -> int:
         rows = read_rows(args.input)
     except (ValueError, OSError, json.JSONDecodeError) as exc: parser().error(str(exc))
     rows = rows[:args.limit] if args.limit is not None else rows
-    results = worker.run(rows, args.results, resume_completed(args.resume))
+    results = worker.run(rows, args.results, resume_state(args.resume, args.results))
     return 1 if any(row.status == "error" for row in results) else 0
 
 

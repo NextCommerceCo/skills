@@ -227,11 +227,15 @@ class BulkFulfiller:
         needs_verification = getattr(completed, "needs_verification", set())
         in_run_encountered: set[tuple[str, str]] = set()
         output.parent.mkdir(parents=True, exist_ok=True)
-        write_header = not output.exists() or output.stat().st_size == 0
+        new_file = not output.exists() or output.stat().st_size == 0
         results = []
         with output.open("a", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=FIELDS)
-            if write_header: writer.writeheader(); handle.flush()
+            if new_file:
+                writer.writeheader(); handle.flush(); os.fsync(handle.fileno())
+                # Make the new journal's directory entry durable so a crash can't
+                # lose the whole journal and let --resume repeat a fulfillment.
+                fsync_dir(output.parent)
             for row in rows:
                 order = str(row["order_number"]).strip()
                 tracking = str(row["tracking_code"]).strip()
@@ -293,6 +297,30 @@ def read_rows(path: Path) -> list[dict[str, str]]:
                 for row in reader if str(row.get(order_key) or "").strip()]
 
 
+def fsync_dir(directory: Path) -> None:
+    fd = os.open(str(directory), os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass  # some filesystems disallow directory fsync; best effort
+    finally:
+        os.close(fd)
+
+
+def resume_state(*paths: Path | None) -> ResumeState:
+    """Merge resume state across every journal that could hold this run's history
+    (typically both --resume and the active --results file), so re-running the
+    same command cannot repeat a fulfillment recorded only in --results."""
+    completed: set[tuple[str, str]] = set()
+    attempted: set[tuple[str, str]] = set()
+    for path in paths:
+        state = resume_completed(path)
+        attempted |= state.needs_verification
+        completed |= (set(state) - state.needs_verification)
+    attempted -= completed
+    return ResumeState(completed, needs_verification=attempted)
+
+
 def resume_completed(path: Path | None) -> ResumeState:
     if path is None or not path.exists(): return ResumeState()
     completed: set[tuple[str, str]] = set()
@@ -339,7 +367,7 @@ def main(argv: list[str] | None = None) -> int:
     rows = rows[:args.limit] if args.limit is not None else rows
     results = BulkFulfiller(client, execute=args.execute, notify=not args.no_notify,
                             carrier_map=carrier_map).run(rows, args.results,
-                                                         resume_completed(args.resume))
+                                                         resume_state(args.resume, args.results))
     return 1 if any(row.status == "error" for row in results) else 0
 
 

@@ -171,6 +171,15 @@ class BulkFulfillTests(unittest.TestCase):
                 self.assertEqual("MALFORMED_RESPONSE", rows[0].action)
                 self.assertEqual([], client.calls)
 
+    def test_resume_state_merges_active_results_journal(self):
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        active = Path(td.name) / "results.csv"
+        with active.open("w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=bulk.FIELDS); w.writeheader()
+            w.writerow({"order_number": "1", "tracking_code": "T1", "status": "success"})
+        state = bulk.resume_state(None, active)
+        self.assertIn(("1", "T1"), state)
+
     def test_nested_order_id_differs_from_number_still_matches(self):
         fo = {"id": "fo-1", "order_number": "1001", "status": "processing",
               "order": {"id": 42, "number": "1001"}}
