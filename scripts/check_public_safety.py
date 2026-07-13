@@ -271,12 +271,14 @@ def scan_repository(root: Path) -> list[Hit]:
         # A tracked path is public metadata even when its contents are binary or
         # otherwise skipped, so scan the repository-relative name itself.
         hits.extend(scan_text(display_path, display_path))
-        if relative.suffix.lower() in BINARY_MEDIA_EXTENSIONS:
-            continue
         try:
             mode = full_path.lstat().st_mode
+            # Handle symlinks BEFORE the media-extension skip: a symlink named
+            # image.png still has a Git-tracked target string that must be scanned.
             if stat.S_ISLNK(mode):
                 hits.extend(scan_text(os.readlink(full_path), display_path))
+                continue
+            if relative.suffix.lower() in BINARY_MEDIA_EXTENSIONS:
                 continue
             data = full_path.read_bytes()
         except OSError as error:

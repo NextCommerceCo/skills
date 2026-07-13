@@ -24,7 +24,10 @@ class FakeClient:
     def fulfill(self, fid, tracking, carrier, notify=True):
         self.calls.append((fid, tracking, carrier, notify))
         if fid in self.failures: raise urllib.error.HTTPError("url", 500, "bad", {}, None)
-        return {"shipping_address": {"email": "private@example.com"}}
+        # Confirming response echoes the fulfillment-order id + tracking, plus PII
+        # the results CSV must still redact.
+        return {"id": fid, "tracking_code": tracking,
+                "shipping_address": {"email": "private@example.com"}}
 
 
 class BulkFulfillTests(unittest.TestCase):
@@ -214,6 +217,18 @@ class BulkFulfillTests(unittest.TestCase):
         worker = bulk.BulkFulfiller(FakeClient(), execute=True, row_delay=0, sleep=lambda _: None)
         with self.assertRaises(ValueError):
             worker.run([{"order_number": "1", "tracking_code": "T1", "carrier": "ups"}], output)
+
+    def test_unconfirmed_fulfillment_response_is_needs_verification(self):
+        class BlankRespClient(FakeClient):
+            def fulfill(self, fid, tracking, carrier, notify=True):
+                self.calls.append((fid, tracking, carrier, notify))
+                return {}  # 2xx but confirms neither id nor tracking
+        client = BlankRespClient()
+        rows, _ = self.run_bulk(client, [{"order_number": "1", "tracking_code": "T1",
+                                          "carrier": "ups"}])
+        self.assertEqual(1, len(client.calls))
+        self.assertEqual("NEEDS_VERIFICATION", rows[0].action)
+        self.assertEqual("error", rows[0].status)
 
     def test_resume_state_merges_active_results_journal(self):
         td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)

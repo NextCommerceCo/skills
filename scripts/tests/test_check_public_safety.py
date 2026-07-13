@@ -183,6 +183,21 @@ class RepositoryScanTests(unittest.TestCase):
             {(hit.path, hit.rule_id) for hit in hits},
         )
 
+    def test_media_suffixed_symlink_target_is_still_scanned(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            initialize_git_repository(root)
+            target = "../oscar-prime/logo.png"  # public-safety: allow private-repo customer-token
+            (root / "logo.png").symlink_to(target)
+            track(root, "logo.png")
+
+            hits = safety.scan_repository(root)
+
+        self.assertIn(
+            ("logo.png", "private-repo"),
+            {(hit.path, hit.rule_id) for hit in hits},
+        )
+
     def test_binary_media_extension_is_skipped(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

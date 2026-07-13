@@ -117,6 +117,27 @@ class AdminClient:
                                                   "carrier": carrier}], "notify": notify})
 
 
+def verify_fulfillment(resp: Any, fulfillment_id: str, tracking: str) -> bool:
+    """Confirm a 2xx fulfillment actually applied before recording success.
+
+    An empty/malformed/unrelated 2xx body would otherwise be recorded terminal
+    and permanently skipped on resume even though nothing was fulfilled. Accept
+    only a response that echoes the fulfillment-order id or the tracking code.
+    """
+    if not isinstance(resp, dict):
+        return False
+    haystack = json.dumps(resp)
+    if tracking and tracking in haystack:
+        return True
+    for key in ("fulfillment_order", "fulfillment_order_id", "id"):
+        value = resp.get(key)
+        if isinstance(value, dict):
+            value = value.get("id")
+        if value not in (None, "") and str(value) == str(fulfillment_id):
+            return True
+    return False
+
+
 def inferred_carrier(tracking: str) -> tuple[str, str]:
     code = tracking.strip().upper()
     if code.startswith("YT"): return "prefix:YT", "yunexpress"
@@ -210,7 +231,10 @@ class BulkFulfiller:
             if before_mutation is not None:
                 before_mutation(Result(order, fid, tracking, carrier,
                                        "ATTEMPTED", "attempted"))
-            self.client.fulfill(fid, tracking, carrier, self.notify)
+            resp = self.client.fulfill(fid, tracking, carrier, self.notify)
+            if not verify_fulfillment(resp, fid, tracking):
+                return Result(order, fid, tracking, carrier,
+                              "NEEDS_VERIFICATION", "error")
             return Result(order, fid, tracking, carrier, "FULFILLED", "success")
         except MalformedResponse:
             return Result(order, tracking_code=tracking, carrier=carrier,
