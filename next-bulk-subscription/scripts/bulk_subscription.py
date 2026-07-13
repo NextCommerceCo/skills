@@ -225,7 +225,12 @@ class BulkSubscription:
                 else:
                     encountered.add(key)
                     def record_attempt(attempt: Result) -> None:
+                        # Durably persist the attempt BEFORE the non-idempotent
+                        # request so a crash/power loss cannot let --resume repeat
+                        # a renew/retry/etc. flush() alone only reaches the OS
+                        # cache; fsync() forces it to disk.
                         writer.writerow(asdict(attempt)); handle.flush()
+                        os.fsync(handle.fileno())
 
                     result = self.process(row, payload, record_attempt)
                 writer.writerow(asdict(result)); handle.flush(); results.append(result)

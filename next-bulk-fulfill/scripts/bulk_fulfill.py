@@ -260,7 +260,12 @@ class BulkFulfiller:
                 else:
                     in_run_encountered.add(key)
                     def record_attempt(attempt: Result) -> None:
+                        # Durably persist the attempt BEFORE the fulfillment POST
+                        # so a crash/power loss cannot let --resume create a
+                        # duplicate fulfillment. flush() only reaches the OS cache;
+                        # fsync() forces it to disk.
                         writer.writerow(asdict(attempt)); handle.flush()
+                        os.fsync(handle.fileno())
 
                     result = self.process(row, record_attempt)
                 writer.writerow(asdict(result)); handle.flush(); results.append(result)
