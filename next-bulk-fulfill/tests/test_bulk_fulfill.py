@@ -42,8 +42,10 @@ class BulkFulfillTests(unittest.TestCase):
             self.assertEqual(2, bulk.main(argv))
 
     def test_dry_run_issues_zero_mutating_calls(self):
-        client = FakeClient(); rows, _ = self.run_bulk(client, [{"order_number": "1", "tracking_code": "1Z123", "carrier": "ups"}], execute=False)
+        client = FakeClient(); rows, output = self.run_bulk(client, [{"order_number": "1", "tracking_code": "1Z123", "carrier": "ups"}], execute=False)
         self.assertEqual([], client.calls); self.assertEqual("WOULD_FULFILL", rows[0].action)
+        with output.open(newline="") as handle:
+            self.assertNotIn("ATTEMPTED", [row["action"] for row in csv.DictReader(handle)])
 
     def test_unconfirmed_inferred_carrier_is_not_sent(self):
         client = FakeClient(); rows, _ = self.run_bulk(client, [{"order_number": "1", "tracking_code": "1Z123", "carrier": ""}])
@@ -56,6 +58,53 @@ class BulkFulfillTests(unittest.TestCase):
             w.writerow({"order_number": "1", "tracking_code": "T1", "status": "success"})
         client = FakeClient(); self.run_bulk(client, [{"order_number": "1", "tracking_code": "T1", "carrier": "ups"}, {"order_number": "2", "tracking_code": "T2", "carrier": "ups"}], resume=prior)
         self.assertEqual(["fo-2"], [x[0] for x in client.calls])
+
+    def test_resume_attempted_requires_verification_without_post(self):
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        prior = Path(td.name) / "prior.csv"
+        with prior.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=bulk.FIELDS); writer.writeheader()
+            writer.writerow({"order_number": "1", "tracking_code": "T1",
+                             "carrier": "ups", "action": "ATTEMPTED",
+                             "status": "attempted"})
+        self.assertIn(("1", "T1"), bulk.resume_completed(prior))
+        client = FakeClient()
+        rows, _ = self.run_bulk(client, [{"order_number": "1",
+                                         "tracking_code": "T1", "carrier": "ups"}],
+                                resume=prior)
+        self.assertEqual([], client.calls)
+        self.assertEqual(["NEEDS_VERIFICATION"], [row.action for row in rows])
+        self.assertEqual(["error"], [row.status for row in rows])
+
+    def test_success_writes_attempted_then_success_and_resume_skips(self):
+        client = FakeClient()
+        _, output = self.run_bulk(client, [{"order_number": "1",
+                                            "tracking_code": "T1", "carrier": "ups"}])
+        with output.open(newline="") as handle:
+            written = list(csv.DictReader(handle))
+        self.assertEqual(["ATTEMPTED", "FULFILLED"],
+                         [row["action"] for row in written])
+        resumed = FakeClient()
+        rows, _ = self.run_bulk(resumed, [{"order_number": "1",
+                                           "tracking_code": "T1", "carrier": "ups"}],
+                                resume=output)
+        self.assertEqual([], resumed.calls)
+        self.assertEqual([], rows)
+
+    def test_resume_duplicate_row_does_not_block_live_fulfillment(self):
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        prior = Path(td.name) / "prior.csv"
+        with prior.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=bulk.FIELDS); writer.writeheader()
+            writer.writerow({"order_number": "1", "tracking_code": "T1",
+                             "carrier": "ups", "action": "DUPLICATE",
+                             "status": "skipped"})
+        client = FakeClient()
+        rows, _ = self.run_bulk(client, [{"order_number": "1",
+                                         "tracking_code": "T1", "carrier": "ups"}],
+                                resume=prior)
+        self.assertEqual(1, len(client.calls))
+        self.assertEqual("FULFILLED", rows[0].action)
 
     def test_partial_failure_continues(self):
         client = FakeClient({"fo-2"}); rows, _ = self.run_bulk(client, [{"order_number": str(n), "tracking_code": f"T{n}", "carrier": "ups"} for n in (1, 2, 3)])

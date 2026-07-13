@@ -44,8 +44,10 @@ class BulkSubscriptionTests(unittest.TestCase):
         text = output.read_text(); self.assertNotIn("Secret St", text); self.assertNotIn("4242", text); self.assertNotIn("address", text.lower()); self.assertNotIn("card", text.lower())
 
     def test_dry_run_zero_mutating_calls(self):
-        client = FakeClient(); rows, _ = self.run_bulk(client, [{"subscription_id": "s1"}], execute=False)
+        client = FakeClient(); rows, output = self.run_bulk(client, [{"subscription_id": "s1"}], execute=False)
         self.assertEqual([], client.calls); self.assertEqual("dry_run", rows[0].status)
+        with output.open(newline="") as handle:
+            self.assertNotIn("attempted", [row["status"] for row in csv.DictReader(handle)])
 
     def test_resume_skips_completed(self):
         td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup); prior = Path(td.name) / "prior.csv"
@@ -56,6 +58,34 @@ class BulkSubscriptionTests(unittest.TestCase):
                             {"pause_until": "2026-08-01"}), "status": "success"})
         client = FakeClient(); self.run_bulk(client, [{"subscription_id": "s1"}, {"subscription_id": "s2"}], resume=prior)
         self.assertEqual(1, len(client.calls)); self.assertIn("s2", client.calls[0][1])
+
+    def test_resume_attempted_requires_verification_without_post(self):
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        prior = Path(td.name) / "prior.csv"
+        payload_id = bulk.fingerprint({"pause_until": "2026-08-01"})
+        with prior.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=bulk.FIELDS); writer.writeheader()
+            writer.writerow({"subscription_id": "s1", "action": "pause",
+                             "payload_fingerprint": payload_id,
+                             "status": "attempted"})
+        self.assertIn(("s1", "pause", payload_id), bulk.resume_completed(prior))
+        client = FakeClient()
+        rows, _ = self.run_bulk(client, [{"subscription_id": "s1"}], resume=prior)
+        self.assertEqual([], client.calls)
+        self.assertEqual(["NEEDS_VERIFICATION"], [row.error_code for row in rows])
+        self.assertEqual(["error"], [row.status for row in rows])
+
+    def test_success_writes_attempted_then_success_and_resume_skips(self):
+        client = FakeClient()
+        _, output = self.run_bulk(client, [{"subscription_id": "s1"}])
+        with output.open(newline="") as handle:
+            written = list(csv.DictReader(handle))
+        self.assertEqual(["attempted", "success"],
+                         [row["status"] for row in written])
+        resumed = FakeClient()
+        rows, _ = self.run_bulk(resumed, [{"subscription_id": "s1"}], resume=output)
+        self.assertEqual([], resumed.calls)
+        self.assertEqual([], rows)
 
     def test_csv_pause_until_overrides_shared_payload_per_row(self):
         td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)

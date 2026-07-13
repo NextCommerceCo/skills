@@ -85,6 +85,14 @@ class Result:
     error_message: str = ""
 
 
+class ResumeState(set[tuple[str, str, str]]):
+    def __init__(self, completed: Iterable[tuple[str, str, str]] = (), *,
+                 needs_verification: Iterable[tuple[str, str, str]] = ()):
+        unresolved = set(needs_verification)
+        super().__init__(set(completed) | unresolved)
+        self.needs_verification = unresolved
+
+
 def validate_action(action: str, payload: dict[str, Any]) -> tuple[str, str]:
     if action not in ACTIONS: raise ValueError(f"action is not allowlisted: {action}")
     method, endpoint, allowed = ACTIONS[action]
@@ -121,7 +129,8 @@ class BulkSubscription:
         validate_action(self.action, payload)
         return payload
 
-    def process(self, row: dict[str, Any], payload: dict[str, Any] | None = None) -> Result:
+    def process(self, row: dict[str, Any], payload: dict[str, Any] | None = None,
+                before_mutation: Callable[[Result], None] | None = None) -> Result:
         sid = row["subscription_id"]
         payload = self.payload_for(row) if payload is None else payload
         base = Result(sid, row.get("order_id", ""), row.get("customer_id", ""),
@@ -134,6 +143,11 @@ class BulkSubscription:
         if not self.execute:
             base.status = "dry_run"; return base
         try:
+            if before_mutation is not None:
+                before_mutation(Result(
+                    base.subscription_id, base.order_id, base.customer_id,
+                    base.action, base.payload_fingerprint, "attempted",
+                ))
             self.client.mutate(self.method, self.endpoint.format(id=urllib.parse.quote(sid, safe="")),
                                payload)
             base.status = "success"
@@ -146,7 +160,8 @@ class BulkSubscription:
 
     def run(self, rows: Iterable[dict[str, Any]], output: Path,
             completed: set[tuple[str, str, str]] | None = None) -> list[Result]:
-        completed = completed or set()
+        if completed is None: completed = set()
+        needs_verification = getattr(completed, "needs_verification", set())
         encountered: set[tuple[str, str, str]] = set()
         output.parent.mkdir(parents=True, exist_ok=True)
         write_header = not output.exists() or output.stat().st_size == 0; results = []
@@ -158,6 +173,16 @@ class BulkSubscription:
                 payload = self.payload_for(row)
                 payload_id = fingerprint(payload)
                 key = (sid, self.action, payload_id)
+                if key in needs_verification:
+                    result = Result(
+                        sid, row.get("order_id", ""), row.get("customer_id", ""),
+                        self.action, payload_id, "error", "NEEDS_VERIFICATION",
+                        "prior attempt has no recorded success; verify manually",
+                    )
+                    writer.writerow(asdict(result)); handle.flush(); results.append(result)
+                    print(f"Subscription {result.subscription_id}: {result.status}", flush=True)
+                    if self.row_delay: self.sleep(self.row_delay)
+                    continue
                 if key in completed: continue
                 if key in encountered:
                     result = Result(sid, row.get("order_id", ""),
@@ -165,7 +190,10 @@ class BulkSubscription:
                                     payload_id, "skipped")
                 else:
                     encountered.add(key)
-                    result = self.process(row, payload)
+                    def record_attempt(attempt: Result) -> None:
+                        writer.writerow(asdict(attempt)); handle.flush()
+
+                    result = self.process(row, payload, record_attempt)
                 writer.writerow(asdict(result)); handle.flush(); results.append(result)
                 print(f"Subscription {result.subscription_id}: {result.status}", flush=True)
                 if self.row_delay: self.sleep(self.row_delay)
@@ -201,14 +229,21 @@ def read_rows(path: Path) -> list[dict[str, Any]]:
         return rows
 
 
-def resume_completed(path: Path | None) -> set[tuple[str, str, str]]:
-    if path is None or not path.exists(): return set()
+def resume_completed(path: Path | None) -> ResumeState:
+    if path is None or not path.exists(): return ResumeState()
+    completed: set[tuple[str, str, str]] = set()
+    attempted: set[tuple[str, str, str]] = set()
     with path.open(newline="", encoding="utf-8") as handle:
-        return {(row["subscription_id"], row["action"], row["payload_fingerprint"])
-                for row in csv.DictReader(handle)
-                if row.get("status") in COMPLETED_STATUSES
-                and row.get("subscription_id") and row.get("action")
-                and row.get("payload_fingerprint")}
+        for row in csv.DictReader(handle):
+            key = (row.get("subscription_id", ""), row.get("action", ""),
+                   row.get("payload_fingerprint", ""))
+            if not all(key): continue
+            if row.get("status") in COMPLETED_STATUSES:
+                completed.add(key)
+                attempted.discard(key)
+            elif (row.get("status") or "").lower() == "attempted":
+                attempted.add(key)
+    return ResumeState(completed, needs_verification=attempted)
 
 
 def parser() -> argparse.ArgumentParser:

@@ -19,7 +19,6 @@ from typing import Any, Callable, Iterable
 API_VERSION = "2024-04-01"
 FIELDS = ["order_number", "fulfillment_id", "tracking_code", "carrier", "action", "status"]
 COMPLETED_STATUSES = {"success"}
-TERMINAL_ACTIONS = {"NOT_FOUND", "DUPLICATE"}
 VALID_CARRIERS = {"4px", "amazon", "asendia", "australia_post", "china_post",
                   "deutsche_de", "dhl", "dhl_ecommerce", "fedex", "firstmile",
                   "gofo_express", "hermesworld_uk", "myhermes", "ontrac", "other",
@@ -151,6 +150,14 @@ class Result:
     status: str = ""
 
 
+class ResumeState(set[tuple[str, str]]):
+    def __init__(self, completed: Iterable[tuple[str, str]] = (), *,
+                 needs_verification: Iterable[tuple[str, str]] = ()):
+        unresolved = set(needs_verification)
+        super().__init__(set(completed) | unresolved)
+        self.needs_verification = unresolved
+
+
 class BulkFulfiller:
     def __init__(self, client: Any, *, execute: bool = False, notify: bool = True,
                  carrier_map: dict[str, str] | None = None,
@@ -158,7 +165,8 @@ class BulkFulfiller:
         self.client, self.execute, self.notify = client, execute, notify
         self.carrier_map, self.sleep, self.row_delay = carrier_map or {}, sleep, row_delay
 
-    def process(self, row: dict[str, str]) -> Result:
+    def process(self, row: dict[str, str],
+                before_mutation: Callable[[Result], None] | None = None) -> Result:
         order = row["order_number"].strip()
         tracking = row["tracking_code"].strip()
         if not order:
@@ -199,6 +207,9 @@ class BulkFulfiller:
             fid = str(eligible[0]["id"])
             if not self.execute:
                 return Result(order, fid, tracking, carrier, "WOULD_FULFILL", "skipped")
+            if before_mutation is not None:
+                before_mutation(Result(order, fid, tracking, carrier,
+                                       "ATTEMPTED", "attempted"))
             self.client.fulfill(fid, tracking, carrier, self.notify)
             return Result(order, fid, tracking, carrier, "FULFILLED", "success")
         except MalformedResponse:
@@ -212,7 +223,8 @@ class BulkFulfiller:
 
     def run(self, rows: Iterable[dict[str, str]], output: Path,
             completed: set[tuple[str, str]] | None = None) -> list[Result]:
-        completed = completed or set()
+        if completed is None: completed = set()
+        needs_verification = getattr(completed, "needs_verification", set())
         in_run_encountered: set[tuple[str, str]] = set()
         output.parent.mkdir(parents=True, exist_ok=True)
         write_header = not output.exists() or output.stat().st_size == 0
@@ -224,6 +236,18 @@ class BulkFulfiller:
                 order = str(row["order_number"]).strip()
                 tracking = str(row["tracking_code"]).strip()
                 key = (order, tracking)
+                if key in needs_verification:
+                    result = Result(
+                        order,
+                        tracking_code=tracking,
+                        carrier=str(row.get("carrier", "")).strip().lower(),
+                        action="NEEDS_VERIFICATION",
+                        status="error",
+                    )
+                    writer.writerow(asdict(result)); handle.flush(); results.append(result)
+                    print(f"Order {result.order_number}: {result.action}", flush=True)
+                    if self.row_delay: self.sleep(self.row_delay)
+                    continue
                 if key in completed: continue
                 if key in in_run_encountered:
                     result = Result(
@@ -235,7 +259,10 @@ class BulkFulfiller:
                     )
                 else:
                     in_run_encountered.add(key)
-                    result = self.process(row)
+                    def record_attempt(attempt: Result) -> None:
+                        writer.writerow(asdict(attempt)); handle.flush()
+
+                    result = self.process(row, record_attempt)
                 writer.writerow(asdict(result)); handle.flush(); results.append(result)
                 print(f"Order {result.order_number}: {result.action}", flush=True)
                 if self.row_delay: self.sleep(self.row_delay)
@@ -258,12 +285,20 @@ def read_rows(path: Path) -> list[dict[str, str]]:
                 for row in reader if str(row.get(order_key, "")).strip()]
 
 
-def resume_completed(path: Path | None) -> set[tuple[str, str]]:
-    if path is None or not path.exists(): return set()
+def resume_completed(path: Path | None) -> ResumeState:
+    if path is None or not path.exists(): return ResumeState()
+    completed: set[tuple[str, str]] = set()
+    attempted: set[tuple[str, str]] = set()
     with path.open(newline="", encoding="utf-8") as handle:
-        return {(row["order_number"], row["tracking_code"]) for row in csv.DictReader(handle)
-                if (row.get("status") in COMPLETED_STATUSES or
-                    row.get("action") in TERMINAL_ACTIONS)}
+        for row in csv.DictReader(handle):
+            key = (row.get("order_number", ""), row.get("tracking_code", ""))
+            if not all(key): continue
+            if row.get("status") in COMPLETED_STATUSES:
+                completed.add(key)
+                attempted.discard(key)
+            elif (row.get("action") or "").upper() == "ATTEMPTED":
+                attempted.add(key)
+    return ResumeState(completed, needs_verification=attempted)
 
 
 def parser() -> argparse.ArgumentParser:
