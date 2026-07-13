@@ -17,6 +17,7 @@ allowed-tools:
   - Edit
   - Grep
   - Glob
+  - AskUserQuestion
 ---
 
 # Next Commerce Theme Development
@@ -224,9 +225,18 @@ Tailwind scans source files at build time to determine which classes to include.
 
 The platform processes all theme files through the DTL engine, including `.js` files. Non-ASCII characters (curly quotes, em dashes, emoji) in JS files cause encoding errors. Stick to plain ASCII in all JavaScript.
 
+### Live Theme Mutation Approval Gate
+
+`ntk push` and `ntk watch` both mutate the live store theme. Before running either
+command, use `AskUserQuestion` to show the operator the exact store, theme, and
+files or watch scope, then obtain explicit confirmation. Do not push or start a
+watch session without that confirmation; approval for one command or watch
+session does not authorize a later one.
+
 ### ntk Push: Only Changed Files
 
-Always push specific files, never the entire theme:
+After the operator confirms the live mutation, push specific files, never the
+entire theme:
 ```bash
 # Good
 ntk push templates/index.html
@@ -492,6 +502,9 @@ Use a small JSON manifest when a design export has more than a few files or when
 ```
 
 The helper script at `scripts/validate-theme-assets.py` validates manifest paths, dimensions, alpha requirements, max file size, naming, expected `asset_url` paths, and explicit clean-export confirmations:
+
+Pillow is required when the manifest contains PNG, JPEG, GIF, ICO, or WebP
+assets. SVG-only manifests can be validated without Pillow.
 
 ```bash
 cd /path/to/skills/next-theme-dev

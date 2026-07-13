@@ -178,9 +178,11 @@ Or:
 
 Use `next-bulk-subscription/scripts/bulk_subscription.py`. It is stdlib-only,
 dry-run by default, reads authentication only from `NEXT_ADMIN_API_TOKEN`, resumes
-completed rows, and continues after individual failures. Its explicit `ACTIONS`
-mapping is the authority for methods, endpoint templates, and permitted payload
-fields; non-allowlisted actions and fields are refused.
+only rows completed with the same action and payload fingerprint, and continues
+after individual failures. Allowlisted per-row CSV fields such as `pause_until`
+and `next_renewal_date` override the shared `--payload` default when nonblank.
+Its explicit `ACTIONS` mapping is the authority for methods, endpoint templates,
+and permitted payload fields; non-allowlisted actions and fields are refused.
 
 ### The API Patterns
 
@@ -229,9 +231,11 @@ verify.
 - **Dry-run mode**: `--dry-run` flag that computes the body but does not send the POST/PATCH. Still reports one row per subscription.
 - **Limit flag**: `--limit N` to process only the first N rows (for testing).
 - **Skip list**: Hard-code or pass a set of `SKIP_IDS` (e.g., a test record already updated, or records known to be in a non-normal state).
-- **Output**: only `subscription_id, order_id, customer_id, action, status,
-  error_code, error_message`; never request/response bodies, addresses, payment
-  fields, customer names, or emails
+- **Output**: only `subscription_id, order_id, customer_id, action,
+  payload_fingerprint, status, error_code, error_message`; the fingerprint is a
+  one-way SHA-256 of the canonical request payload for safe resume matching.
+  Never write request/response bodies, addresses, payment fields, customer names,
+  or emails.
 - **Status values**: `OK`, `DRY_RUN`, `SKIPPED`, `PARSE_ERROR`, `HTTP_<code>`, `EXC`
 - **Use `python3 -u`** for unbuffered output (live progress).
 - **Only Python stdlib** (for XLSX support, convert upstream).

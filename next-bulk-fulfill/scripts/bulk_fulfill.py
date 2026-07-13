@@ -153,10 +153,13 @@ class BulkFulfiller:
         self.carrier_map, self.sleep, self.row_delay = carrier_map or {}, sleep, row_delay
 
     def process(self, row: dict[str, str]) -> Result:
-        order, tracking = row["order_number"].strip(), row["tracking_code"]
+        order = row["order_number"].strip()
+        tracking = row["tracking_code"].strip()
         if not order:
             return Result(order, tracking_code=tracking,
                           action="INVALID_ORDER_NUMBER", status="error")
+        if not tracking:
+            return Result(order, action="MISSING_TRACKING", status="error")
         explicit = row.get("carrier", "").strip().lower()
         pattern, guess = inferred_carrier(tracking)
         carrier = explicit or self.carrier_map.get(pattern, "")

@@ -53,7 +53,7 @@ class AuthenticatedRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 class AdminClient:
     def __init__(self, domain: str, token: str, *, timeout: float = 30.0):
-        self.domain = domain
+        self.domain = normalize_domain(domain)
         self.token = token
         self.timeout = timeout
         self.notes: list[str] = []
@@ -167,7 +167,7 @@ def jittered_backoff(attempt: int) -> float:
 
 
 def normalize_domain(raw: str) -> str:
-    raw = raw.strip().removeprefix("https://").removeprefix("http://").strip("/")
+    raw = raw.strip().removeprefix("https://").removeprefix("http://").strip("/").lower()
     if "." not in raw:
         return f"{raw}.29next.store"
     return raw

@@ -292,6 +292,9 @@ class BulkMover:
                 latest = fo
                 if fo.get("request_status") is None:
                     latest = self._validated_fo(self.client.get_fo(fid), order, fid)
+                    if assigned_id(latest) != self.source:
+                        return Result(order, fid, action="SOURCE_CHANGED", status="error",
+                                      destination=str(self.destination))
                     fresh_request_status = latest.get("request_status")
                     if fresh_request_status in {"cancel_rejected", "cancellation_rejected"}:
                         return Result(order, fid, action="CANCEL_REJECTED", status="error",

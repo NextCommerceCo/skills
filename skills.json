@@ -66,7 +66,7 @@
         "DTL templates"
       ],
       "prerequisites": [
-        "Python 3 (standard library only; Pillow optional for richer asset validation)",
+        "Python 3 (standard library only for theme work; Pillow required to validate raster assets)",
         "ntk (pip install next-theme-kit)",
         "A Next Commerce store with an API key (themes:read, themes:write scopes)"
       ],
@@ -247,7 +247,7 @@
         "mutates_remote": false,
         "writes_local": true,
         "requires_approval": false,
-        "network": "none"
+        "network": "outbound-template-fetch"
       }
     }
   ]

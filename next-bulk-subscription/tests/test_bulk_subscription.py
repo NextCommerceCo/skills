@@ -27,9 +27,12 @@ class FakeClient:
 
 
 class BulkSubscriptionTests(unittest.TestCase):
-    def run_bulk(self, client, rows, execute=True, resume=None):
+    def run_bulk(self, client, rows, execute=True, resume=None, action="pause", payload=None):
         td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup); output = Path(td.name) / "results.csv"
-        worker = bulk.BulkSubscription(client, "pause", {"pause_until": "2026-08-01"}, execute=execute, row_delay=0, sleep=lambda _: None)
+        if payload is None:
+            payload = {"pause_until": "2026-08-01"}
+        worker = bulk.BulkSubscription(client, action, payload, execute=execute,
+                                       row_delay=0, sleep=lambda _: None)
         results = worker.run(rows, output, bulk.resume_completed(resume)); return results, output
 
     def test_non_allowlisted_action_refused(self):
@@ -47,9 +50,59 @@ class BulkSubscriptionTests(unittest.TestCase):
     def test_resume_skips_completed(self):
         td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup); prior = Path(td.name) / "prior.csv"
         with prior.open("w", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=bulk.FIELDS); w.writeheader(); w.writerow({"subscription_id": "s1", "status": "success"})
+            w = csv.DictWriter(f, fieldnames=bulk.FIELDS); w.writeheader()
+            w.writerow({"subscription_id": "s1", "action": "pause",
+                        "payload_fingerprint": bulk.fingerprint(
+                            {"pause_until": "2026-08-01"}), "status": "success"})
         client = FakeClient(); self.run_bulk(client, [{"subscription_id": "s1"}, {"subscription_id": "s2"}], resume=prior)
         self.assertEqual(1, len(client.calls)); self.assertIn("s2", client.calls[0][1])
+
+    def test_csv_pause_until_overrides_shared_payload_per_row(self):
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        source = Path(td.name) / "subscriptions.csv"
+        with source.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=["subscription_id", "pause_until"])
+            writer.writeheader()
+            writer.writerow({"subscription_id": "s1", "pause_until": "2026-08-01"})
+            writer.writerow({"subscription_id": "s2", "pause_until": "2026-09-15"})
+        client = FakeClient()
+        self.run_bulk(client, bulk.read_rows(source),
+                      payload={"pause_until": "2026-07-20"})
+        self.assertEqual(
+            [{"pause_until": "2026-08-01"}, {"pause_until": "2026-09-15"}],
+            [call[2] for call in client.calls],
+        )
+
+    def test_renew_action_posts_to_documented_endpoint(self):
+        client = FakeClient()
+        self.run_bulk(client, [{"subscription_id": "s1"}], action="renew", payload={})
+        self.assertEqual(
+            [("POST", "subscriptions/s1/renew/", {})],
+            client.calls,
+        )
+
+    def test_resume_pause_does_not_skip_cancel(self):
+        pause_client = FakeClient()
+        _, prior = self.run_bulk(pause_client, [{"subscription_id": "s1"}])
+        cancel_client = FakeClient()
+        self.run_bulk(cancel_client, [{"subscription_id": "s1"}], resume=prior,
+                      action="cancel", payload={})
+        self.assertEqual(
+            [("POST", "subscriptions/s1/cancel/", {})],
+            cancel_client.calls,
+        )
+
+    def test_resume_requires_matching_payload(self):
+        pause_client = FakeClient()
+        _, prior = self.run_bulk(pause_client, [{"subscription_id": "s1"}],
+                                 payload={"pause_until": "2026-08-01"})
+        changed_client = FakeClient()
+        self.run_bulk(changed_client, [{"subscription_id": "s1"}], resume=prior,
+                      payload={"pause_until": "2026-09-01"})
+        self.assertEqual(
+            {"pause_until": "2026-09-01"},
+            changed_client.calls[0][2],
+        )
 
     def test_partial_failure_continues(self):
         client = FakeClient({"s2"}); rows, _ = self.run_bulk(client, [{"subscription_id": x} for x in ("s1", "s2", "s3")])

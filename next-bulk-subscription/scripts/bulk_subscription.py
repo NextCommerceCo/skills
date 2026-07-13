@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import sys
@@ -16,8 +17,8 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 API_VERSION = "2024-04-01"
-FIELDS = ["subscription_id", "order_id", "customer_id", "action", "status",
-          "error_code", "error_message"]
+FIELDS = ["subscription_id", "order_id", "customer_id", "action",
+          "payload_fingerprint", "status", "error_code", "error_message"]
 COMPLETED_STATUSES = {"success"}
 # action: (method, endpoint template, allowed payload fields)
 ACTIONS = {
@@ -25,6 +26,7 @@ ACTIONS = {
     "resume": ("POST", "subscriptions/{id}/resume/", frozenset()),
     "cancel": ("POST", "subscriptions/{id}/cancel/", frozenset({
         "cancel_reason", "cancel_reason_other_message", "send_cancel_notification"})),
+    "renew": ("POST", "subscriptions/{id}/renew/", frozenset()),
     "retry": ("POST", "subscriptions/{id}/retry/", frozenset()),
     "update": ("PATCH", "subscriptions/{id}/", frozenset({
         "next_renewal_date", "interval", "interval_count", "payment_details",
@@ -77,6 +79,7 @@ class Result:
     order_id: str = ""
     customer_id: str = ""
     action: str = ""
+    payload_fingerprint: str = ""
     status: str = ""
     error_code: str = ""
     error_message: str = ""
@@ -90,6 +93,20 @@ def validate_action(action: str, payload: dict[str, Any]) -> tuple[str, str]:
     return method, endpoint
 
 
+def fingerprint(payload: dict[str, Any]) -> str:
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"),
+                           ensure_ascii=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def csv_payload_value(raw: Any) -> Any:
+    value = str(raw).strip()
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
+
+
 class BulkSubscription:
     def __init__(self, client: Any, action: str, payload: dict[str, Any], *, execute: bool = False,
                  sleep: Callable[[float], None] = time.sleep, row_delay: float = 0.26):
@@ -97,14 +114,23 @@ class BulkSubscription:
         self.client, self.action, self.payload, self.execute = client, action, payload, execute
         self.sleep, self.row_delay = sleep, row_delay
 
-    def process(self, row: dict[str, str]) -> Result:
+    def payload_for(self, row: dict[str, Any]) -> dict[str, Any]:
+        payload = dict(self.payload)
+        allowed = ACTIONS[self.action][2]
+        payload.update({field: row[field] for field in allowed if field in row})
+        validate_action(self.action, payload)
+        return payload
+
+    def process(self, row: dict[str, Any], payload: dict[str, Any] | None = None) -> Result:
         sid = row["subscription_id"]
-        base = Result(sid, row.get("order_id", ""), row.get("customer_id", ""), self.action)
+        payload = self.payload_for(row) if payload is None else payload
+        base = Result(sid, row.get("order_id", ""), row.get("customer_id", ""),
+                      self.action, fingerprint(payload))
         if not self.execute:
             base.status = "dry_run"; return base
         try:
             self.client.mutate(self.method, self.endpoint.format(id=urllib.parse.quote(sid, safe="")),
-                               self.payload)
+                               payload)
             base.status = "success"
         except Exception as exc:
             code = getattr(exc, "code", None)
@@ -113,7 +139,8 @@ class BulkSubscription:
             base.error_message = str(getattr(exc, "reason", "request failed"))[:240]
         return base
 
-    def run(self, rows: Iterable[dict[str, str]], output: Path, completed: set[str] | None = None) -> list[Result]:
+    def run(self, rows: Iterable[dict[str, Any]], output: Path,
+            completed: set[tuple[str, str, str]] | None = None) -> list[Result]:
         completed = completed or set(); processed: set[str] = set()
         output.parent.mkdir(parents=True, exist_ok=True)
         write_header = not output.exists() or output.stat().st_size == 0; results = []
@@ -122,12 +149,15 @@ class BulkSubscription:
             if write_header: writer.writeheader(); handle.flush()
             for row in rows:
                 sid = row["subscription_id"]
-                if sid in completed: continue
+                payload = self.payload_for(row)
+                payload_id = fingerprint(payload)
+                if (sid, self.action, payload_id) in completed: continue
                 if sid in processed:
                     result = Result(sid, row.get("order_id", ""),
-                                    row.get("customer_id", ""), "DUPLICATE", "skipped")
+                                    row.get("customer_id", ""), "DUPLICATE",
+                                    payload_id, "skipped")
                 else:
-                    result = self.process(row)
+                    result = self.process(row, payload)
                     if result.status == "success":
                         processed.add(sid)
                 writer.writerow(asdict(result)); handle.flush(); results.append(result)
@@ -136,23 +166,43 @@ class BulkSubscription:
         return results
 
 
-def read_rows(path: Path) -> list[dict[str, str]]:
+def read_rows(path: Path) -> list[dict[str, Any]]:
     with path.open(newline="", encoding="utf-8-sig") as handle:
         reader = csv.DictReader(handle)
         keys = {str(k).lower().replace(" ", "_"): k for k in reader.fieldnames or []}
         sid = keys.get("subscription_id") or keys.get("id") or keys.get("sub_id")
         if not sid: raise ValueError("input CSV requires subscription_id")
-        return [{"subscription_id": str(row.get(sid, "")).strip(),
-                 "order_id": str(row.get(keys.get("order_id", ""), "")).strip(),
-                 "customer_id": str(row.get(keys.get("customer_id", ""), "")).strip()}
-                for row in reader if row.get(sid)]
+        payload_keys = {
+            field: keys[field]
+            for field in set().union(*(details[2] for details in ACTIONS.values()))
+            if field in keys
+        }
+        rows = []
+        for source in reader:
+            subscription_id = str(source.get(sid, "")).strip()
+            if not subscription_id:
+                continue
+            row: dict[str, Any] = {
+                "subscription_id": subscription_id,
+                "order_id": str(source.get(keys.get("order_id", ""), "")).strip(),
+                "customer_id": str(source.get(keys.get("customer_id", ""), "")).strip(),
+            }
+            for field, key in payload_keys.items():
+                raw = source.get(key, "")
+                if raw is not None and str(raw).strip():
+                    row[field] = csv_payload_value(raw)
+            rows.append(row)
+        return rows
 
 
-def resume_completed(path: Path | None) -> set[str]:
+def resume_completed(path: Path | None) -> set[tuple[str, str, str]]:
     if path is None or not path.exists(): return set()
     with path.open(newline="", encoding="utf-8") as handle:
-        return {row["subscription_id"] for row in csv.DictReader(handle)
-                if row.get("status") in COMPLETED_STATUSES}
+        return {(row["subscription_id"], row["action"], row["payload_fingerprint"])
+                for row in csv.DictReader(handle)
+                if row.get("status") in COMPLETED_STATUSES
+                and row.get("subscription_id") and row.get("action")
+                and row.get("payload_fingerprint")}
 
 
 def parser() -> argparse.ArgumentParser:

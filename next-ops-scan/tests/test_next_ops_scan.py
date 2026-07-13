@@ -19,8 +19,8 @@ SPEC.loader.exec_module(scan)
 
 
 class RecordingClient(scan.AdminClient):
-    def __init__(self, pages):
-        super().__init__("store.29next.store", "secret")
+    def __init__(self, pages, domain="store.29next.store"):
+        super().__init__(domain, "secret")
         self.pages = iter(pages)
         self.requests = []
 
@@ -62,6 +62,20 @@ class NextOpsScanTests(unittest.TestCase):
         self.assertEqual([row["number"] for row in rows], ["1", "2"])
         self.assertEqual(client.requests[1].full_url, next_url)
         self.assertEqual(client.requests[1].get_header("Authorization"), "Bearer secret")
+
+    def test_pagination_normalizes_uppercase_configured_domain(self):
+        next_url = "https://store.29next.store/api/admin/orders/?page=2"
+        client = RecordingClient(
+            [
+                {"results": [{"number": "1"}], "next": next_url},
+                {"results": [{"number": "2"}], "next": None},
+            ],
+            domain="STORE.29NEXT.STORE",
+        )
+        rows = list(client.paginate("orders/"))
+        self.assertEqual("store.29next.store", client.domain)
+        self.assertEqual([row["number"] for row in rows], ["1", "2"])
+        self.assertEqual(client.requests[1].full_url, next_url)
 
     def test_delivery_reason_labels_order_timestamp_honestly(self):
         client = FakeScanClient(
