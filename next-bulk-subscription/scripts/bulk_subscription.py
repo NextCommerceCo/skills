@@ -337,7 +337,10 @@ def resume_completed(path: Path | None) -> ResumeState:
             if row.get("status") in COMPLETED_STATUSES:
                 completed.add(key)
                 attempted.discard(key)
-            elif (row.get("status") or "").lower() == "attempted":
+            elif ((row.get("status") or "").lower() == "attempted"
+                  or (row.get("error_code") or "").upper() == "NEEDS_VERIFICATION"
+                  or (row.get("status") or "").upper() == "NEEDS_VERIFICATION"
+                  or (row.get("action") or "").upper() == "NEEDS_VERIFICATION"):
                 attempted.add(key)
     return ResumeState(completed, needs_verification=attempted)
 

@@ -244,7 +244,7 @@ def scan_text(text: str, path: str = "<text>") -> list[Hit]:
     return hits
 
 
-def tracked_text_files(root: Path) -> list[Path]:
+def tracked_files(root: Path) -> list[Path]:
     result = subprocess.run(
         ["git", "ls-files", "-z"],
         cwd=root,
@@ -257,7 +257,7 @@ def tracked_text_files(root: Path) -> list[Path]:
         if not raw_path:
             continue
         relative = Path(raw_path.decode("utf-8", errors="surrogateescape"))
-        if ".git" in relative.parts or relative.suffix.lower() in BINARY_MEDIA_EXTENSIONS:
+        if ".git" in relative.parts:
             continue
         paths.append(relative)
     return sorted(paths, key=lambda path: path.as_posix())
@@ -265,9 +265,14 @@ def tracked_text_files(root: Path) -> list[Path]:
 
 def scan_repository(root: Path) -> list[Hit]:
     hits: list[Hit] = []
-    for relative in tracked_text_files(root):
+    for relative in tracked_files(root):
         full_path = root / relative
         display_path = relative.as_posix()
+        # A tracked path is public metadata even when its contents are binary or
+        # otherwise skipped, so scan the repository-relative name itself.
+        hits.extend(scan_text(display_path, display_path))
+        if relative.suffix.lower() in BINARY_MEDIA_EXTENSIONS:
+            continue
         try:
             mode = full_path.lstat().st_mode
             if stat.S_ISLNK(mode):

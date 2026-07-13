@@ -158,6 +158,62 @@ class BulkMoveTests(unittest.TestCase):
         self.run_mover(client, ["1001", "1002"], resume=resume)
         self.assertEqual(["2"], client.moves)
 
+    def test_resume_attempted_requires_verification_without_post(self):
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        prior = Path(td.name) / "prior.csv"
+        with prior.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=bulk_move.FIELDS)
+            writer.writeheader()
+            writer.writerow({"order_number": "1001", "original_fo_id": "1",
+                             "action": "ATTEMPTED", "status": "attempted",
+                             "destination": "20"})
+        state = bulk_move.resume_completed(prior)
+        self.assertIn("1001", state.needs_verification)
+        client = FakeClient({"1001": [fo(1, 1001, actions=["move"])]})
+        rows, _ = self.run_mover(client, ["1001"], resume=prior)
+        self.assertEqual([], client.cancels)
+        self.assertEqual([], client.moves)
+        self.assertEqual("NEEDS_VERIFICATION", rows[0].action)
+        self.assertEqual("error", rows[0].status)
+
+    def test_attempt_is_written_and_fsynced_before_each_mutation(self):
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        output = Path(td.name) / "results.csv"
+        events = []
+
+        class InspectingClient(FakeClient):
+            def request_cancellation(self, fid):
+                with output.open(newline="") as handle:
+                    actions = [row["action"] for row in csv.DictReader(handle)]
+                events.append(("cancel", actions))
+                return super().request_cancellation(fid)
+
+            def move(self, fid, destination):
+                with output.open(newline="") as handle:
+                    actions = [row["action"] for row in csv.DictReader(handle)]
+                events.append(("move", actions))
+                return super().move(fid, destination)
+
+        pending = fo(1, 1001, "processing", actions=[])
+        accepted = fo(1, 1001, "canceled", actions=["move"],
+                      request_status="cancel_accepted")
+        client = InspectingClient({"1001": [pending]}, {1: [pending, accepted]})
+        mover = bulk_move.BulkMover(client, 10, 20, execute=True, order_delay=0,
+                                    sleep=lambda _: None)
+        real_fsync = bulk_move.os.fsync
+
+        def record_fsync(fd):
+            events.append(("fsync", fd))
+            return real_fsync(fd)
+
+        with mock.patch.object(bulk_move.os, "fsync", side_effect=record_fsync):
+            mover.run(["1001"], output)
+        for mutation in ("cancel", "move"):
+            mutation_index = next(i for i, event in enumerate(events)
+                                  if event[0] == mutation)
+            self.assertEqual("ATTEMPTED", events[mutation_index][1][-1])
+            self.assertEqual("fsync", events[mutation_index - 1][0])
+
     def test_resume_does_not_treat_dry_run_as_completed(self):
         td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
         resume = Path(td.name) / "prior.csv"
@@ -168,10 +224,27 @@ class BulkMoveTests(unittest.TestCase):
 
     def test_dry_run_makes_no_mutating_requests(self):
         client = FakeClient({"1001": [fo(1, 1001, "processing", actions=[])]})
-        rows, _ = self.run_mover(client, ["1001"], execute=False)
+        rows, output = self.run_mover(client, ["1001"], execute=False)
         self.assertEqual([], client.cancels)
         self.assertEqual([], client.moves)
         self.assertEqual("WOULD_CANCEL+MOVE", rows[0].action)
+        with output.open(newline="") as handle:
+            self.assertNotIn("ATTEMPTED",
+                             [row["action"] for row in csv.DictReader(handle)])
+
+    def test_resume_state_merges_results_and_unresolved_attempt_wins(self):
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        old = Path(td.name) / "old.csv"
+        active = Path(td.name) / "active.csv"
+        for path, action, status in ((old, "MOVED", "success"),
+                                     (active, "ATTEMPTED", "attempted")):
+            with path.open("w", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=bulk_move.FIELDS)
+                writer.writeheader()
+                writer.writerow({"order_number": "1001", "action": action,
+                                 "status": status})
+        state = bulk_move.resume_state(old, active)
+        self.assertIn("1001", state.needs_verification)
 
     def test_same_source_and_destination_exits_before_api_calls(self):
         calls = []

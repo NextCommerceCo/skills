@@ -78,6 +78,22 @@ class BulkSubscriptionTests(unittest.TestCase):
         self.assertEqual(["NEEDS_VERIFICATION"], [row.error_code for row in rows])
         self.assertEqual(["error"], [row.status for row in rows])
 
+    def test_resume_needs_verification_row_stays_unresolved_without_post(self):
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        prior = Path(td.name) / "prior.csv"
+        payload_id = bulk.fingerprint({"pause_until": "2026-08-01"})
+        with prior.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=bulk.FIELDS); writer.writeheader()
+            writer.writerow({"subscription_id": "s1", "action": "pause",
+                             "payload_fingerprint": payload_id, "status": "error",
+                             "error_code": "NEEDS_VERIFICATION"})
+        state = bulk.resume_completed(prior)
+        self.assertIn(("s1", "pause", payload_id), state.needs_verification)
+        client = FakeClient()
+        rows, _ = self.run_bulk(client, [{"subscription_id": "s1"}], resume=prior)
+        self.assertEqual([], client.calls)
+        self.assertEqual("NEEDS_VERIFICATION", rows[0].error_code)
+
     def test_success_writes_attempted_then_success_and_resume_skips(self):
         client = FakeClient()
         _, output = self.run_bulk(client, [{"subscription_id": "s1"}])

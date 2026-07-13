@@ -194,6 +194,37 @@ class RepositoryScanTests(unittest.TestCase):
 
             self.assertEqual([], safety.scan_repository(root))
 
+    def test_tracked_private_repo_path_is_scanned(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            initialize_git_repository(root)
+            (root / "docs").mkdir()
+            (root / "docs" / "oscar-prime-notes.md").write_text("clean\n",  # public-safety: allow private-repo customer-token
+                                                                   encoding="utf-8")
+            track(root, "docs/oscar-prime-notes.md")  # public-safety: allow private-repo customer-token
+
+            hits = safety.scan_repository(root)
+
+        self.assertIn(
+            ("docs/oscar-prime-notes.md", "private-repo"),  # public-safety: allow private-repo customer-token
+            {(hit.path, hit.rule_id) for hit in hits},
+        )
+
+    def test_tracked_customer_token_binary_path_is_scanned(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            initialize_git_repository(root)
+            (root / "assets").mkdir()
+            (root / "assets" / "bareearth.png").write_bytes(b"\x89PNG\r\n")  # public-safety: allow customer-token
+            track(root, "assets/bareearth.png")  # public-safety: allow customer-token
+
+            hits = safety.scan_repository(root)
+
+        self.assertIn(
+            ("assets/bareearth.png", "customer-token"),  # public-safety: allow customer-token
+            {(hit.path, hit.rule_id) for hit in hits},
+        )
+
     def test_nul_sniffed_file_is_skipped(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

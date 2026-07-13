@@ -121,6 +121,14 @@ class Result:
     destination: str = ""
 
 
+class ResumeState(set[str]):
+    def __init__(self, completed: Iterable[str] = (), *,
+                 needs_verification: Iterable[str] = ()):
+        unresolved = set(needs_verification)
+        super().__init__(set(completed) | unresolved)
+        self.needs_verification = unresolved
+
+
 def normalize_domain(raw: str, *, allow_host: str | None = None) -> str:
     value = raw.strip().removeprefix("https://").removeprefix("http://").strip("/").lower()
     if not value or any(char in value for char in "/?#@:"):
@@ -226,7 +234,8 @@ class BulkMover:
             return None
         return self.destination in ids
 
-    def _move(self, order: str, fo: dict[str, Any], action: str) -> Result:
+    def _move(self, order: str, fo: dict[str, Any], action: str,
+              before_mutation: Callable[[Result], None] | None = None) -> Result:
         fid = str(fo.get("id") or "")
         availability = self._destination_availability(fo)
         if availability is not True:
@@ -247,6 +256,9 @@ class BulkMover:
                        latest.get("request_status") == "cancel_accepted")
             return Result(order, fid, action="MOVE_PENDING" if pending else "MOVE_UNSUPPORTED",
                           status="error", destination=str(self.destination))
+        if before_mutation is not None:
+            before_mutation(Result(order, fid, action="ATTEMPTED", status="attempted",
+                                   destination=str(self.destination)))
         response = self.client.move(fid, self.destination)
         moved_id = new_fo_id(response)
         if not moved_id:
@@ -254,7 +266,8 @@ class BulkMover:
                           destination=str(self.destination))
         return Result(order, fid, moved_id, action, "success", str(self.destination))
 
-    def process_order(self, order: str) -> Result:
+    def process_order(self, order: str,
+                      before_mutation: Callable[[Result], None] | None = None) -> Result:
         try:
             fos = self.client.list_fos(order)
             if not isinstance(fos, list):
@@ -273,12 +286,12 @@ class BulkMover:
             fid, state = str(fo.get("id") or ""), str(fo.get("status") or "")
             if (state == "canceled" and fo.get("request_status") == "cancel_accepted"
                     and supported(fo, "move")):
-                return self._move(order, fo, "CANCEL+MOVED")
+                return self._move(order, fo, "CANCEL+MOVED", before_mutation)
             if state == "canceled" and fo.get("request_status") == "cancel_accepted":
                 return Result(order, fid, action="MOVE_PENDING", status="error",
                               destination=str(self.destination))
             if state == "open" and supported(fo, "move"):
-                return self._move(order, fo, "MOVED")
+                return self._move(order, fo, "MOVED", before_mutation)
             if state == "open":
                 return Result(order, fid, action="MOVE_UNSUPPORTED", status="error",
                               destination=str(self.destination))
@@ -305,6 +318,11 @@ class BulkMover:
                         return Result(order, fid, action="CANCEL_REJECTED", status="error",
                                       destination=str(self.destination))
                     if latest.get("status") == "processing" and fresh_request_status is None:
+                        if before_mutation is not None:
+                            before_mutation(Result(
+                                order, fid, action="ATTEMPTED", status="attempted",
+                                destination=str(self.destination),
+                            ))
                         self.client.request_cancellation(fid)
                 for attempt in range(self.poll_attempts):
                     latest = self._validated_fo(self.client.get_fo(fid), order, fid)
@@ -312,7 +330,7 @@ class BulkMover:
                     if request_status in {"cancel_rejected", "cancellation_rejected"}:
                         return Result(order, fid, action="CANCEL_REJECTED", status="error", destination=str(self.destination))
                     if request_status == "cancel_accepted" and supported(latest, "move"):
-                        return self._move(order, latest, "CANCEL+MOVED")
+                        return self._move(order, latest, "CANCEL+MOVED", before_mutation)
                     if request_status == "cancel_accepted":
                         if attempt + 1 == self.poll_attempts:
                             return Result(order, fid, action="MOVE_PENDING", status="error",
@@ -330,19 +348,43 @@ class BulkMover:
             return Result(order, action=action, status="error", destination=str(self.destination))
 
     def run(self, orders: Iterable[str], output: Path, completed: set[str] | None = None) -> list[Result]:
-        completed = completed or set()
+        if completed is None:
+            completed = set()
+        needs_verification = getattr(completed, "needs_verification", set())
         orders = list(orders)
         output.parent.mkdir(parents=True, exist_ok=True)
-        write_header = not output.exists() or output.stat().st_size == 0
+        new_file = not output.exists() or output.stat().st_size == 0
+        if not new_file:
+            with output.open(newline="", encoding="utf-8") as existing:
+                header = next(csv.reader(existing), [])
+            if header != FIELDS:
+                raise ValueError(
+                    f"results file {output} has an incompatible header; "
+                    "use a fresh --results path or the matching journal"
+                )
         results: list[Result] = []
         with output.open("a", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=FIELDS)
-            if write_header:
-                writer.writeheader(); handle.flush()
+            if new_file:
+                writer.writeheader(); handle.flush(); os.fsync(handle.fileno())
+                fsync_dir(output.parent)
             for order in orders:
+                if order in needs_verification:
+                    result = Result(order, action="NEEDS_VERIFICATION", status="error",
+                                    destination=str(self.destination))
+                    writer.writerow(asdict(result)); handle.flush(); results.append(result)
+                    print(f"Order {order}: {result.action}", flush=True)
+                    if self.order_delay:
+                        self.sleep(self.order_delay)
+                    continue
                 if order in completed:
                     continue
-                result = self.process_order(order)
+
+                def record_attempt(attempt: Result) -> None:
+                    writer.writerow(asdict(attempt)); handle.flush()
+                    os.fsync(handle.fileno())
+
+                result = self.process_order(order, record_attempt)
                 writer.writerow(asdict(result)); handle.flush()
                 results.append(result)
                 print(f"Order {order}: {result.action}", flush=True)
@@ -360,9 +402,31 @@ def read_orders(path: Path) -> list[str]:
         return [str(row[key]).strip() for row in reader if str(row.get(key, "")).strip()]
 
 
-def resume_completed(path: Path | None) -> set[str]:
+def fsync_dir(directory: Path) -> None:
+    fd = os.open(str(directory), os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    except OSError:
+        pass
+    finally:
+        os.close(fd)
+
+
+def resume_state(*paths: Path | None) -> ResumeState:
+    completed: set[str] = set()
+    attempted: set[str] = set()
+    for path in paths:
+        state = resume_completed(path)
+        attempted |= state.needs_verification
+        completed |= (set(state) - state.needs_verification)
+    return ResumeState(completed, needs_verification=attempted)
+
+
+def resume_completed(path: Path | None) -> ResumeState:
     if path is None or not path.exists():
-        return set()
+        return ResumeState()
+    completed: set[str] = set()
+    attempted: set[str] = set()
     with path.open(newline="", encoding="utf-8") as handle:
         reader = csv.reader(handle)
         header = next(reader, [])
@@ -375,11 +439,18 @@ def resume_completed(path: Path | None) -> set[str]:
                 "point --resume at a bulk-move results file or omit it"
             )
         handle.seek(0)
-        return {
-            row["order_number"] for row in csv.DictReader(handle)
-            if row.get("status") in COMPLETED_STATUSES
-            and not row.get("action", "").startswith("WOULD_")
-        }
+        for row in csv.DictReader(handle):
+            order = row.get("order_number", "")
+            if not order:
+                continue
+            action = (row.get("action") or "").upper()
+            if (row.get("status") in COMPLETED_STATUSES
+                    and not action.startswith("WOULD_")):
+                completed.add(order)
+                attempted.discard(order)
+            elif action in {"ATTEMPTED", "NEEDS_VERIFICATION"}:
+                attempted.add(order)
+    return ResumeState(completed, needs_verification=attempted)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -423,7 +494,8 @@ def main(argv: list[str] | None = None) -> int:
                       execute=args.execute, poll_attempts=args.poll_attempts,
                       poll_delay=args.poll_delay, order_delay=args.order_delay)
     try:
-        rows = mover.run(read_orders(args.input), args.results, resume_completed(args.resume))
+        rows = mover.run(read_orders(args.input), args.results,
+                         resume_state(args.resume, args.results))
     except (ValueError, OSError) as exc:
         print(str(exc), file=sys.stderr); return 2
     return 1 if any(row.status == "error" for row in rows) else 0

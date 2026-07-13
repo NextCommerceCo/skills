@@ -76,6 +76,23 @@ class BulkFulfillTests(unittest.TestCase):
         self.assertEqual(["NEEDS_VERIFICATION"], [row.action for row in rows])
         self.assertEqual(["error"], [row.status for row in rows])
 
+    def test_resume_needs_verification_row_stays_unresolved_without_post(self):
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        prior = Path(td.name) / "prior.csv"
+        with prior.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=bulk.FIELDS); writer.writeheader()
+            writer.writerow({"order_number": "1", "tracking_code": "T1",
+                             "carrier": "ups", "action": "NEEDS_VERIFICATION",
+                             "status": "error"})
+        state = bulk.resume_completed(prior)
+        self.assertIn(("1", "T1"), state.needs_verification)
+        client = FakeClient()
+        rows, _ = self.run_bulk(client, [{"order_number": "1",
+                                          "tracking_code": "T1", "carrier": "ups"}],
+                                resume=prior)
+        self.assertEqual([], client.calls)
+        self.assertEqual("NEEDS_VERIFICATION", rows[0].action)
+
     def test_success_writes_attempted_then_success_and_resume_skips(self):
         client = FakeClient()
         _, output = self.run_bulk(client, [{"order_number": "1",
