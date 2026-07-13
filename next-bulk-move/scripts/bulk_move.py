@@ -19,6 +19,9 @@ from typing import Any, Callable, Iterable
 API_VERSION = "2024-04-01"
 FIELDS = ["order_number", "original_fo_id", "new_fo_id", "action", "status", "destination"]
 COMPLETED_STATUSES = {"success", "skipped"}
+# Observed pending outcomes reached via a fresh re-fetch (no mutation whose result
+# is in doubt): re-running is safe, so these must NOT stay blocked as attempts.
+RETRYABLE_PENDING_ACTIONS = {"CANCEL_PENDING", "MOVE_PENDING"}
 
 
 class AuthenticatedRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -529,6 +532,12 @@ def resume_completed(path: Path | None) -> ResumeState:
                 continue
             if row.get("status") in COMPLETED_STATUSES:
                 completed.add(order)
+                attempted.discard(order)
+            elif action in RETRYABLE_PENDING_ACTIONS:
+                # Observed pending states, not uncertain outcomes: the cancellation
+                # request is in flight (re-run re-polls and never re-POSTs a pending
+                # request) or the move was never issued. Safe to reprocess, so clear
+                # any attempt marker rather than blocking on NEEDS_VERIFICATION.
                 attempted.discard(order)
             elif action in {"ATTEMPTED", "NEEDS_VERIFICATION"}:
                 attempted.add(order)

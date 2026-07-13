@@ -212,6 +212,30 @@ class BulkMoveTests(unittest.TestCase):
         self.assertEqual("NEEDS_VERIFICATION", rows[0].action)
         self.assertEqual("error", rows[0].status)
 
+    def test_resume_pending_outcome_is_retried_not_blocked(self):
+        # A journal ending in ATTEMPTED then CANCEL_PENDING is a state-confirmed
+        # pending outcome (cancellation in flight), not an uncertain mutation, so
+        # a resumed run must reprocess it — here the FO is now movable and moves.
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        prior = Path(td.name) / "prior.csv"
+        with prior.open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=bulk_move.FIELDS)
+            writer.writeheader()
+            writer.writerow({"order_number": "1001", "original_fo_id": "1",
+                             "action": "ATTEMPTED", "status": "attempted",
+                             "destination": "20"})
+            writer.writerow({"order_number": "1001", "original_fo_id": "1",
+                             "action": "CANCEL_PENDING", "status": "error",
+                             "destination": "20"})
+        state = bulk_move.resume_completed(prior)
+        self.assertNotIn("1001", state.needs_verification)
+        self.assertNotIn("1001", state)
+        accepted = fo(1, 1001, "canceled", actions=["move"], request_status="cancel_accepted")
+        client = FakeClient({"1001": [accepted]})
+        rows, _ = self.run_mover(client, ["1001"], resume=prior)
+        self.assertEqual(["1"], client.moves)
+        self.assertEqual("CANCEL+MOVED", rows[0].action)
+
     def test_attempt_is_written_and_fsynced_before_each_mutation(self):
         td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
         output = Path(td.name) / "results.csv"
