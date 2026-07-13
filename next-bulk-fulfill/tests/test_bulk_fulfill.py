@@ -73,6 +73,18 @@ class BulkFulfillTests(unittest.TestCase):
         self.assertEqual("skipped", rows[1].status)
         self.assertIn(("1", "T1"), bulk.resume_completed(output))
 
+    def test_duplicate_after_fulfill_error_is_not_mutated_twice(self):
+        client = FakeClient({"fo-1"})
+        input_rows = [
+            {"order_number": "1", "tracking_code": "T1", "carrier": "ups"},
+            {"order_number": "1", "tracking_code": "T1", "carrier": "ups"},
+        ]
+        rows, _ = self.run_bulk(client, input_rows)
+        self.assertEqual(1, len(client.calls))
+        self.assertEqual(["HTTP_ERROR_500", "DUPLICATE"],
+                         [row.action for row in rows])
+        self.assertEqual("skipped", rows[1].status)
+
     def test_results_exclude_pii_even_when_response_contains_it(self):
         _, output = self.run_bulk(FakeClient(), [{"order_number": "1", "tracking_code": "T1", "carrier": "ups"}])
         text = output.read_text(); self.assertNotIn("address", text.lower()); self.assertNotIn("email", text.lower()); self.assertNotIn("private@example.com", text)

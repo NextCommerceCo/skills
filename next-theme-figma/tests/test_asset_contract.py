@@ -106,6 +106,20 @@ class AssetContractTest(unittest.TestCase):
             self.assertEqual(non_strict.returncode, 0, non_strict.stderr + non_strict.stdout)
             self.assertIn("missing canonical required field asset_url_path", non_strict.stdout)
 
+    def test_downstream_strict_rejects_blank_canonical_string(self):
+        with tempfile.TemporaryDirectory() as temp:
+            self.run_downstream_asset(Path(temp), "icon.svg", "svg")
+            manifest = Path(temp) / "assets.json"
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            data["assets"][0]["asset_url_path"] = "   "
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            result = subprocess.run([
+                "python3", str(VALIDATOR), "--theme", str(Path(temp) / "theme"),
+                "--manifest", str(manifest), "--strict",
+            ], text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("missing canonical required field asset_url_path", result.stderr)
+
     def test_downstream_alpha_requirement_is_raster_only(self):
         with tempfile.TemporaryDirectory() as temp:
             svg = self.run_downstream_asset(Path(temp), "icon.svg", "svg")
@@ -145,7 +159,7 @@ class AssetContractTest(unittest.TestCase):
                 "source_layer_name": "bg: hero",
                 "prefix": "bg",
                 "role": "hero-background",
-                "alt": "",
+                "alt": "Example hero background",
                 "expected_width": 1200,
                 "expected_height": 600,
                 "optimization_status": "optimized",

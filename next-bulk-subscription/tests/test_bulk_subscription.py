@@ -152,5 +152,22 @@ class BulkSubscriptionTests(unittest.TestCase):
         self.assertEqual(["success", "skipped"], [row.status for row in rows])
         self.assertEqual("DUPLICATE", rows[1].action)
 
+    def test_duplicate_after_mutation_error_is_not_mutated_twice(self):
+        client = FakeClient({"s1"})
+        rows, _ = self.run_bulk(client, [{"subscription_id": "s1"},
+                                         {"subscription_id": "s1"}])
+        self.assertEqual(1, len(client.calls))
+        self.assertEqual(["error", "skipped"], [row.status for row in rows])
+        self.assertEqual("DUPLICATE", rows[1].action)
+
+    def test_same_id_with_distinct_payloads_is_mutated_twice(self):
+        client = FakeClient()
+        rows, _ = self.run_bulk(client, [
+            {"subscription_id": "s1", "pause_until": "2026-08-01"},
+            {"subscription_id": "s1", "pause_until": "2026-09-01"},
+        ])
+        self.assertEqual(2, len(client.calls))
+        self.assertEqual(["success", "success"], [row.status for row in rows])
+
 
 if __name__ == "__main__": unittest.main()

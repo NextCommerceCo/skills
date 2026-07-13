@@ -213,7 +213,7 @@ class BulkFulfiller:
     def run(self, rows: Iterable[dict[str, str]], output: Path,
             completed: set[tuple[str, str]] | None = None) -> list[Result]:
         completed = completed or set()
-        in_run_completed: set[tuple[str, str]] = set()
+        in_run_encountered: set[tuple[str, str]] = set()
         output.parent.mkdir(parents=True, exist_ok=True)
         write_header = not output.exists() or output.stat().st_size == 0
         results = []
@@ -225,7 +225,7 @@ class BulkFulfiller:
                 tracking = str(row["tracking_code"]).strip()
                 key = (order, tracking)
                 if key in completed: continue
-                if key in in_run_completed:
+                if key in in_run_encountered:
                     result = Result(
                         order,
                         tracking_code=tracking,
@@ -234,10 +234,8 @@ class BulkFulfiller:
                         status="skipped",
                     )
                 else:
+                    in_run_encountered.add(key)
                     result = self.process(row)
-                    if (result.status in COMPLETED_STATUSES or
-                            result.action in TERMINAL_ACTIONS):
-                        in_run_completed.add(key)
                 writer.writerow(asdict(result)); handle.flush(); results.append(result)
                 print(f"Order {result.order_number}: {result.action}", flush=True)
                 if self.row_delay: self.sleep(self.row_delay)

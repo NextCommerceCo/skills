@@ -146,7 +146,8 @@ class BulkSubscription:
 
     def run(self, rows: Iterable[dict[str, Any]], output: Path,
             completed: set[tuple[str, str, str]] | None = None) -> list[Result]:
-        completed = completed or set(); processed: set[str] = set()
+        completed = completed or set()
+        encountered: set[tuple[str, str, str]] = set()
         output.parent.mkdir(parents=True, exist_ok=True)
         write_header = not output.exists() or output.stat().st_size == 0; results = []
         with output.open("a", newline="", encoding="utf-8") as handle:
@@ -156,15 +157,15 @@ class BulkSubscription:
                 sid = row["subscription_id"]
                 payload = self.payload_for(row)
                 payload_id = fingerprint(payload)
-                if (sid, self.action, payload_id) in completed: continue
-                if sid in processed:
+                key = (sid, self.action, payload_id)
+                if key in completed: continue
+                if key in encountered:
                     result = Result(sid, row.get("order_id", ""),
                                     row.get("customer_id", ""), "DUPLICATE",
                                     payload_id, "skipped")
                 else:
+                    encountered.add(key)
                     result = self.process(row, payload)
-                    if result.status == "success":
-                        processed.add(sid)
                 writer.writerow(asdict(result)); handle.flush(); results.append(result)
                 print(f"Subscription {result.subscription_id}: {result.status}", flush=True)
                 if self.row_delay: self.sleep(self.row_delay)

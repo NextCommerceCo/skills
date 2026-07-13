@@ -57,6 +57,12 @@ CANONICAL_REQUIRED_ASSET_FIELDS = (
     "requires_alpha",
     "clean_export_verified",
 )
+CANONICAL_REQUIRED_STRING_FIELDS = {
+    "asset_url_path",
+    "role",
+    "alt",
+    "format",
+}
 
 
 class ImageInfo:
@@ -407,7 +413,9 @@ def validate_asset(
     missing_fields = [
         field
         for field in CANONICAL_REQUIRED_ASSET_FIELDS
-        if field not in entry or entry[field] is None
+        if (field not in entry or entry[field] is None or
+            (field in CANONICAL_REQUIRED_STRING_FIELDS and
+             (not isinstance(entry[field], str) or not entry[field].strip())))
         if not (field == "requires_alpha" and suffix == ".svg")
     ]
     destination = errors if strict else warnings
