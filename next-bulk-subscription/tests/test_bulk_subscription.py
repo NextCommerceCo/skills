@@ -81,6 +81,18 @@ class BulkSubscriptionTests(unittest.TestCase):
             client.calls,
         )
 
+    def test_empty_update_is_flagged_without_mutation(self):
+        client = FakeClient()
+        rows, _ = self.run_bulk(
+            client,
+            [{"subscription_id": "s1"}],
+            action="update",
+            payload={},
+        )
+        self.assertEqual([], client.calls)
+        self.assertEqual("error", rows[0].status)
+        self.assertEqual("EMPTY_UPDATE", rows[0].error_code)
+
     def test_resume_pause_does_not_skip_cancel(self):
         pause_client = FakeClient()
         _, prior = self.run_bulk(pause_client, [{"subscription_id": "s1"}])

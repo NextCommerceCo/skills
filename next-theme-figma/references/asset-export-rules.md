@@ -67,7 +67,7 @@ For each asset, record:
 - `alt`
 - `format`: `png`, `jpg`, `jpeg`, `svg`, or `webp`
 - `expected_width` and `expected_height` after export
-- `requires_alpha`
+- `requires_alpha` for raster assets; omit it for SVG assets
 - `canvas_rendered`
 - `optimization_status`: `not-started`, `source-selected`, `optimized`, or `blocked`
 - `replace_with_backend_product_media`

@@ -385,13 +385,15 @@ function normalizeAsset(asset) {
     format: asset.format || extension || 'png',
     expected_width: asset.expected_width ?? 0,
     expected_height: asset.expected_height ?? 0,
-    requires_alpha: asset.requires_alpha ?? false,
     canvas_rendered: asset.canvas_rendered ?? true,
     optimization_status: asset.optimization_status || 'not-started',
     replace_with_backend_product_media: asset.replace_with_backend_product_media ?? false,
     clean_export_verified: asset.clean_export_verified ?? false,
     notes: asset.notes || '',
   };
+  if (normalized.format !== 'svg') {
+    normalized.requires_alpha = asset.requires_alpha ?? false;
+  }
   for (const key of ['max_bytes', 'forbid_badges', 'forbid_baked_text', 'decorative', 'source']) {
     if (Object.prototype.hasOwnProperty.call(asset, key)) normalized[key] = asset[key];
   }
@@ -490,8 +492,12 @@ function validatePackage(dir, strict = true) {
       if (asset.format && !ASSET_FORMATS.has(asset.format)) {
         errors.push(`${id}: invalid format "${asset.format}"`);
       }
-      if (typeof asset.requires_alpha !== 'boolean') {
+      if (asset.format !== 'svg' && typeof asset.requires_alpha !== 'boolean') {
         issue(strict, errors, warnings, `${id}: requires_alpha should be true or false`);
+      } else if (asset.format === 'svg'
+          && Object.prototype.hasOwnProperty.call(asset, 'requires_alpha')
+          && typeof asset.requires_alpha !== 'boolean') {
+        errors.push(`${id}: requires_alpha should be true or false when present`);
       }
       if (!Number.isInteger(asset.expected_width) || asset.expected_width <= 0) {
         issue(strict, errors, warnings, `${id}: expected_width must be a positive integer`);

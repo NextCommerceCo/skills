@@ -22,7 +22,7 @@
     "schema_version": "next-theme-figma/assets/v0",
     "figma_file_key": "example-key",
     "project": "example-store",
-    "assets": [{"asset_id": "hero-background", "section_id": "hero-1", "path": "assets/img/example-store/hero.svg", "asset_url_path": "img/example-store/hero.svg", "figma_node_id": "30:1", "source_layer_name": "bg: hero", "prefix": "bg", "role": "hero-background", "alt": "", "decorative": true, "format": "svg", "expected_width": 1200, "expected_height": 600, "requires_alpha": false, "canvas_rendered": false, "optimization_status": "optimized", "replace_with_backend_product_media": false, "clean_export_verified": true, "notes": "Exported background only; text remains live."}]
+    "assets": [{"asset_id": "hero-background", "section_id": "hero-1", "path": "assets/img/example-store/hero.svg", "asset_url_path": "img/example-store/hero.svg", "figma_node_id": "30:1", "source_layer_name": "bg: hero", "prefix": "bg", "role": "hero-background", "alt": "", "decorative": true, "format": "svg", "expected_width": 1200, "expected_height": 600, "canvas_rendered": false, "optimization_status": "optimized", "replace_with_backend_product_media": false, "clean_export_verified": true, "notes": "Exported background only; text remains live."}]
   },
   "divergence": {
     "schema_version": "next-theme-figma/spark-divergence/v0",

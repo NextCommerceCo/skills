@@ -60,15 +60,16 @@ Assets must use one of:
 
 `assets.json` uses the downstream `next-theme-dev` manifest shape, extended with Figma handoff decisions. Its top level contains `schema_version`, `figma_file_key`, `project`, and `assets`. Every asset contains:
 
-- Consumer fields: `path` (starting with `assets/`), `asset_url_path` (without that prefix), `figma_node_id`, `role`, `alt`, `format`, `expected_width`, `expected_height`, `requires_alpha`, and `clean_export_verified`.
+- Consumer fields: `path` (starting with `assets/`), `asset_url_path` (without that prefix), `figma_node_id`, `role`, `alt`, `format`, `expected_width`, `expected_height`, and `clean_export_verified`. Raster assets also require `requires_alpha`; omit it for SVG assets.
 - Handoff fields: `asset_id`, `section_id`, `source_layer_name`, `prefix`, `canvas_rendered`, `optimization_status`, `replace_with_backend_product_media`, and `notes`.
 - Optional consumer checks where relevant: `max_bytes`, `forbid_badges`, `forbid_baked_text`, `decorative`, and `source`.
 
 The downstream validator's `CANONICAL_REQUIRED_ASSET_FIELDS` constant is the
 required consumer subset: `asset_url_path`, `role`, `alt`, `format`,
-`expected_width`, `expected_height`, `requires_alpha`, and
-`clean_export_verified`. Missing keys are strict errors and non-strict warnings;
-an empty value may still fail the field's semantic validation.
+`expected_width`, `expected_height`, and `clean_export_verified`, plus
+`requires_alpha` for raster assets only. Missing required keys are strict errors
+and non-strict warnings; an empty value may still fail the field's semantic
+validation.
 
 This is intentionally the richer union of the generator and consumer contracts. Do not use the former generator-only names `target_path`, `source_node_id`, or nested `expected_dimensions`.
 

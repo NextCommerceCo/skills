@@ -61,6 +61,18 @@ class BulkFulfillTests(unittest.TestCase):
         client = FakeClient({"fo-2"}); rows, _ = self.run_bulk(client, [{"order_number": str(n), "tracking_code": f"T{n}", "carrier": "ups"} for n in (1, 2, 3)])
         self.assertEqual(3, len(client.calls)); self.assertEqual(["success", "error", "success"], [r.status for r in rows])
 
+    def test_duplicate_order_and_tracking_is_fulfilled_once(self):
+        client = FakeClient()
+        input_rows = [
+            {"order_number": "1", "tracking_code": "T1", "carrier": "ups"},
+            {"order_number": "1", "tracking_code": "T1", "carrier": "ups"},
+        ]
+        rows, output = self.run_bulk(client, input_rows)
+        self.assertEqual(1, len(client.calls))
+        self.assertEqual(["FULFILLED", "DUPLICATE"], [row.action for row in rows])
+        self.assertEqual("skipped", rows[1].status)
+        self.assertIn(("1", "T1"), bulk.resume_completed(output))
+
     def test_results_exclude_pii_even_when_response_contains_it(self):
         _, output = self.run_bulk(FakeClient(), [{"order_number": "1", "tracking_code": "T1", "carrier": "ups"}])
         text = output.read_text(); self.assertNotIn("address", text.lower()); self.assertNotIn("email", text.lower()); self.assertNotIn("private@example.com", text)
@@ -163,6 +175,18 @@ class BulkFulfillTests(unittest.TestCase):
         with mock.patch.object(client, "_request", return_value=page):
             with self.assertRaises(bulk.MalformedResponse):
                 client.list_fulfillment_orders("1")
+
+    def test_repeated_pagination_url_is_error_not_partial_result(self):
+        client = bulk.AdminClient("example", "test")
+        page_two = "https://example.29next.store/api/admin/fulfillment-orders/?page=2"
+        pages = [
+            {"results": [{"id": "one"}], "next": page_two},
+            {"results": [{"id": "two"}], "next": page_two},
+        ]
+        with mock.patch.object(client, "_request", side_effect=pages) as request:
+            with self.assertRaisesRegex(bulk.MalformedResponse, "already-seen"):
+                client.list_fulfillment_orders("1")
+        self.assertEqual(2, request.call_count)
 
     def test_eligible_fulfillment_orders_across_pages_require_manual_review(self):
         client = bulk.AdminClient("example", "test")

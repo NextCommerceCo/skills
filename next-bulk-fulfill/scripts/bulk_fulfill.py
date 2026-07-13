@@ -19,6 +19,7 @@ from typing import Any, Callable, Iterable
 API_VERSION = "2024-04-01"
 FIELDS = ["order_number", "fulfillment_id", "tracking_code", "carrier", "action", "status"]
 COMPLETED_STATUSES = {"success"}
+TERMINAL_ACTIONS = {"NOT_FOUND", "DUPLICATE"}
 VALID_CARRIERS = {"4px", "amazon", "asendia", "australia_post", "china_post",
                   "deutsche_de", "dhl", "dhl_ecommerce", "fedex", "firstmile",
                   "gofo_express", "hermesworld_uk", "myhermes", "ontrac", "other",
@@ -83,8 +84,13 @@ class AdminClient:
         expected = urllib.parse.urlparse(self.base)
         seen: set[str] = set()
         results: list[dict[str, Any]] = []
-        while target not in seen:
-            seen.add(target)
+        while True:
+            canonical_target = urllib.parse.urljoin(self.base, target)
+            if canonical_target in seen:
+                raise MalformedResponse(
+                    f"pagination link repeats an already-seen page: {target}"
+                )
+            seen.add(canonical_target)
             data = self._request("GET", target)
             if not isinstance(data, dict):
                 raise MalformedResponse("fulfillment-order list response is not an object")
@@ -207,6 +213,7 @@ class BulkFulfiller:
     def run(self, rows: Iterable[dict[str, str]], output: Path,
             completed: set[tuple[str, str]] | None = None) -> list[Result]:
         completed = completed or set()
+        in_run_completed: set[tuple[str, str]] = set()
         output.parent.mkdir(parents=True, exist_ok=True)
         write_header = not output.exists() or output.stat().st_size == 0
         results = []
@@ -214,9 +221,23 @@ class BulkFulfiller:
             writer = csv.DictWriter(handle, fieldnames=FIELDS)
             if write_header: writer.writeheader(); handle.flush()
             for row in rows:
-                key = (row["order_number"], row["tracking_code"])
+                order = str(row["order_number"]).strip()
+                tracking = str(row["tracking_code"]).strip()
+                key = (order, tracking)
                 if key in completed: continue
-                result = self.process(row)
+                if key in in_run_completed:
+                    result = Result(
+                        order,
+                        tracking_code=tracking,
+                        carrier=str(row.get("carrier", "")).strip().lower(),
+                        action="DUPLICATE",
+                        status="skipped",
+                    )
+                else:
+                    result = self.process(row)
+                    if (result.status in COMPLETED_STATUSES or
+                            result.action in TERMINAL_ACTIONS):
+                        in_run_completed.add(key)
                 writer.writerow(asdict(result)); handle.flush(); results.append(result)
                 print(f"Order {result.order_number}: {result.action}", flush=True)
                 if self.row_delay: self.sleep(self.row_delay)
@@ -243,7 +264,8 @@ def resume_completed(path: Path | None) -> set[tuple[str, str]]:
     if path is None or not path.exists(): return set()
     with path.open(newline="", encoding="utf-8") as handle:
         return {(row["order_number"], row["tracking_code"]) for row in csv.DictReader(handle)
-                if row.get("status") in COMPLETED_STATUSES}
+                if (row.get("status") in COMPLETED_STATUSES or
+                    row.get("action") in TERMINAL_ACTIONS)}
 
 
 def parser() -> argparse.ArgumentParser:

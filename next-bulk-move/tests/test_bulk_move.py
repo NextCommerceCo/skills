@@ -234,6 +234,18 @@ class BulkMoveTests(unittest.TestCase):
                 client.list_fos("1001")
         self.assertEqual(1, request.call_count)
 
+    def test_repeated_pagination_url_is_error_not_partial_result(self):
+        client = bulk_move.AdminClient("example", "test")
+        page_two = "https://example.29next.store/api/admin/fulfillment-orders/?page=2"
+        pages = [
+            {"results": [fo(1, 1001, actions=["move"])], "next": page_two},
+            {"results": [fo(2, 1001, actions=["move"])], "next": page_two},
+        ]
+        with mock.patch.object(client, "_request", side_effect=pages) as request:
+            with self.assertRaisesRegex(bulk_move.MalformedResponse, "already-seen"):
+                client.list_fos("1001")
+        self.assertEqual(2, request.call_count)
+
     def test_move_without_new_fo_id_is_retryable_unverified_error(self):
         ready = fo(1, 1001, actions=["move"])
         client = FakeClient({"1001": [ready]}, move_response={})

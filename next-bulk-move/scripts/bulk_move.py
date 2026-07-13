@@ -68,8 +68,13 @@ class AdminClient:
         expected = urllib.parse.urlparse(self.base)
         seen: set[str] = set()
         results: list[dict[str, Any]] = []
-        while target not in seen:
-            seen.add(target)
+        while True:
+            canonical_target = urllib.parse.urljoin(self.base, target)
+            if canonical_target in seen:
+                raise MalformedResponse(
+                    f"pagination link repeats an already-seen page: {target}"
+                )
+            seen.add(canonical_target)
             data = self._request("GET", target)
             if not isinstance(data, dict):
                 raise MalformedResponse("fulfillment-order list response is not an object")

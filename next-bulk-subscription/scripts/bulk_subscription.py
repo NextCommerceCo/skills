@@ -126,6 +126,11 @@ class BulkSubscription:
         payload = self.payload_for(row) if payload is None else payload
         base = Result(sid, row.get("order_id", ""), row.get("customer_id", ""),
                       self.action, fingerprint(payload))
+        if self.action == "update" and not payload:
+            base.status = "error"
+            base.error_code = "EMPTY_UPDATE"
+            base.error_message = "update payload has no recognized fields"
+            return base
         if not self.execute:
             base.status = "dry_run"; return base
         try:

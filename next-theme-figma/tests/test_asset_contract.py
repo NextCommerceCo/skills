@@ -16,7 +16,7 @@ VALIDATOR = DEV / "scripts" / "validate-theme-assets.py"
 CANONICAL_ASSET_KEYS = {
     "asset_id", "section_id", "path", "asset_url_path", "figma_node_id",
     "source_layer_name", "prefix", "role", "alt", "format",
-    "expected_width", "expected_height", "requires_alpha", "canvas_rendered",
+    "expected_width", "expected_height", "canvas_rendered",
     "optimization_status", "replace_with_backend_product_media",
     "clean_export_verified",
 }
@@ -26,6 +26,37 @@ class AssetContractTest(unittest.TestCase):
     def load_fixture(self, name):
         return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
 
+    def run_downstream_asset(self, temp, filename, declared_format, *, requires_alpha=None,
+                             contents=None):
+        theme = temp / "theme"
+        asset = theme / "assets" / "img" / "example-store" / filename
+        asset.parent.mkdir(parents=True)
+        if contents is None:
+            contents = '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>'
+        asset.write_text(contents, encoding="utf-8")
+        entry = {
+            "path": f"assets/img/example-store/{filename}",
+            "asset_url_path": f"img/example-store/{filename}",
+            "figma_node_id": "30:1",
+            "role": "icon",
+            "alt": "Example icon",
+            "format": declared_format,
+            "expected_width": 1,
+            "expected_height": 1,
+            "clean_export_verified": True,
+        }
+        if requires_alpha is not None:
+            entry["requires_alpha"] = requires_alpha
+        manifest = temp / "assets.json"
+        manifest.write_text(json.dumps({
+            "figma_file_key": "example-key",
+            "assets": [entry],
+        }), encoding="utf-8")
+        return subprocess.run([
+            "python3", str(VALIDATOR), "--theme", str(theme),
+            "--manifest", str(manifest), "--strict",
+        ], text=True, capture_output=True)
+
     def test_committed_fixtures_use_canonical_asset_schema(self):
         for name in ("complete-package.json", "placeholder-package.json"):
             with self.subTest(name=name):
@@ -33,6 +64,11 @@ class AssetContractTest(unittest.TestCase):
                 self.assertEqual(fixture["assets"]["schema_version"], "next-theme-figma/assets/v0")
                 self.assertTrue(fixture["assets"]["assets"])
                 self.assertTrue(CANONICAL_ASSET_KEYS <= fixture["assets"]["assets"][0].keys())
+                asset = fixture["assets"]["assets"][0]
+                if asset["format"] == "svg":
+                    self.assertNotIn("requires_alpha", asset)
+                else:
+                    self.assertIsInstance(asset.get("requires_alpha"), bool)
                 self.assertNotIn("target_path", fixture["assets"]["assets"][0])
                 self.assertNotIn("source_node_id", fixture["assets"]["assets"][0])
                 self.assertNotIn("expected_dimensions", fixture["assets"]["assets"][0])
@@ -70,6 +106,26 @@ class AssetContractTest(unittest.TestCase):
             self.assertEqual(non_strict.returncode, 0, non_strict.stderr + non_strict.stdout)
             self.assertIn("missing canonical required field asset_url_path", non_strict.stdout)
 
+    def test_downstream_alpha_requirement_is_raster_only(self):
+        with tempfile.TemporaryDirectory() as temp:
+            svg = self.run_downstream_asset(Path(temp), "icon.svg", "svg")
+            self.assertEqual(svg.returncode, 0, svg.stderr + svg.stdout)
+
+        with tempfile.TemporaryDirectory() as temp:
+            raster = self.run_downstream_asset(
+                Path(temp), "icon.png", "png", contents="not a png"
+            )
+            self.assertNotEqual(raster.returncode, 0, raster.stderr + raster.stdout)
+            self.assertIn(
+                "missing canonical required field requires_alpha", raster.stderr
+            )
+
+    def test_format_mismatch_fails_strict(self):
+        with tempfile.TemporaryDirectory() as temp:
+            result = self.run_downstream_asset(Path(temp), "icon.svg", "jpg")
+        self.assertNotEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("declared format jpg does not match path extension svg", result.stderr)
+
     @unittest.skipUnless(shutil.which("node"), "node is required for generator contract execution")
     def test_complete_generator_output_passes_both_validators(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -106,7 +162,7 @@ class AssetContractTest(unittest.TestCase):
             generated_assets = json.loads((package / "assets.json").read_text(encoding="utf-8"))
             self.assertEqual(generated_assets["assets"][0]["asset_url_path"], "img/example-store/hero.svg")
             self.assertEqual(generated_assets["assets"][0]["format"], "svg")
-            self.assertIs(generated_assets["assets"][0]["requires_alpha"], False)
+            self.assertNotIn("requires_alpha", generated_assets["assets"][0])
             self.assertIs(generated_assets["assets"][0]["clean_export_verified"], False)
 
             own = subprocess.run(["node", str(GENERATOR), "validate-package", str(package)], text=True, capture_output=True)
