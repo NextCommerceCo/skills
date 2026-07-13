@@ -111,6 +111,23 @@ def fsync_dir(directory: Path) -> None:
         os.close(fd)
 
 
+def mkdir_durable(directory: Path) -> None:
+    """Create a directory tree and sync every new entry plus its old parent."""
+    missing: list[Path] = []
+    ancestor = directory
+    while not ancestor.exists():
+        missing.append(ancestor)
+        parent = ancestor.parent
+        if parent == ancestor:
+            break
+        ancestor = parent
+    directory.mkdir(parents=True, exist_ok=True)
+    if missing:
+        for created in missing:
+            fsync_dir(created)
+        fsync_dir(ancestor)
+
+
 def resume_state(*paths: Path | None) -> ResumeState:
     """Merge resume state across every journal that could hold this run's history
     (typically both --resume and the active --results file), so re-running the
@@ -146,21 +163,56 @@ def verify_mutation(resp: Any, sid: str, payload: dict[str, Any],
     """
     if not isinstance(resp, dict):
         return False, "mutation response was not an object"
+    nested = resp.get("subscription")
     subject = resp
-    if resp.get("id") is None and resp.get("subscription_id") is None:
-        nested = resp.get("subscription")
-        if isinstance(nested, dict):
-            subject = nested
+    if (resp.get("id") is None and resp.get("subscription_id") is None and
+            isinstance(nested, dict)):
+        subject = nested
     returned_id = subject.get("id", subject.get("subscription_id"))
     if returned_id is None:
         return False, "response did not include a subscription identity to confirm"
     if str(returned_id) != str(sid):
         return False, f"response identity {returned_id} does not match requested {sid}"
+    views = [subject]
+    if isinstance(nested, dict) and nested is not subject:
+        views.append(nested)
+    confirmed_effect = False
     for field, want in payload.items():
         if action == "update" and field not in subject:
             return False, f"update response did not confirm field {field}"
-        if field in subject and str(subject[field]) != str(want):
+        echoed = [view[field] for view in views if field in view]
+        if any(str(value) != str(want) for value in echoed):
             return False, f"field {field} was not applied as requested"
+        if echoed:
+            confirmed_effect = True
+
+    statuses = [view[field] for view in views for field in ("status", "state")
+                if view.get(field) not in (None, "")]
+    normalized = {str(value).strip().lower() for value in statuses}
+    if action == "pause" and statuses:
+        if normalized != {"paused"}:
+            return False, "pause response status did not indicate paused"
+        confirmed_effect = True
+    if action == "pause":
+        pause_values = [view["pause_until"] for view in views
+                        if "pause_until" in view]
+        if pause_values and "pause_until" not in payload:
+            if any(value not in (None, "") for value in pause_values):
+                return False, "pause response included an unrequested pause_until"
+            confirmed_effect = True
+    if action == "cancel" and statuses:
+        if not normalized.issubset({"canceled", "cancelled"}):
+            return False, "cancel response status did not indicate canceled"
+        confirmed_effect = True
+    if action == "renew":
+        renewal_dates = [view["next_renewal_date"] for view in views
+                         if "next_renewal_date" in view]
+        if any(value in (None, "") for value in renewal_dates):
+            return False, "renew response included an empty next renewal date"
+        if statuses and not normalized.issubset({"active", "renewed"}):
+            return False, "renew response status did not indicate an active renewal"
+    if action in {"pause", "cancel"} and not confirmed_effect:
+        return False, f"{action} response did not confirm the requested effect"
     return True, ""
 
 
@@ -227,7 +279,7 @@ class BulkSubscription:
         if completed is None: completed = set()
         needs_verification = getattr(completed, "needs_verification", set())
         encountered: set[tuple[str, str, str]] = set()
-        output.parent.mkdir(parents=True, exist_ok=True)
+        mkdir_durable(output.parent)
         new_file = not output.exists() or output.stat().st_size == 0
         if not new_file:
             # Fail closed: an existing journal with a foreign/older header can't be

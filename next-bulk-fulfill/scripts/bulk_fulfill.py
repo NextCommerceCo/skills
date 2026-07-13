@@ -122,12 +122,23 @@ def verify_fulfillment(resp: Any, fulfillment_id: str, tracking: str) -> bool:
 
     An empty/malformed/unrelated 2xx body would otherwise be recorded terminal
     and permanently skipped on resume even though nothing was fulfilled. Accept
-    only a response that echoes the fulfillment-order id or the tracking code.
+    only a response that echoes the fulfillment-order id or an exact tracking
+    value in a recognized tracking field.
     """
     if not isinstance(resp, dict):
         return False
-    haystack = json.dumps(resp)
-    if tracking and tracking in haystack:
+    def tracking_values(value: Any) -> Iterable[Any]:
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                if key in {"tracking_code", "tracking_number"}:
+                    yield nested
+                elif isinstance(nested, (dict, list)):
+                    yield from tracking_values(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                yield from tracking_values(nested)
+
+    if tracking and any(str(value) == tracking for value in tracking_values(resp)):
         return True
     for key in ("fulfillment_order", "fulfillment_order_id", "id"):
         value = resp.get(key)
@@ -250,7 +261,7 @@ class BulkFulfiller:
         if completed is None: completed = set()
         needs_verification = getattr(completed, "needs_verification", set())
         in_run_encountered: set[tuple[str, str]] = set()
-        output.parent.mkdir(parents=True, exist_ok=True)
+        mkdir_durable(output.parent)
         new_file = not output.exists() or output.stat().st_size == 0
         if not new_file:
             # Fail closed on a foreign/older journal header so appending can't
@@ -339,6 +350,23 @@ def fsync_dir(directory: Path) -> None:
         pass  # some filesystems disallow directory fsync; best effort
     finally:
         os.close(fd)
+
+
+def mkdir_durable(directory: Path) -> None:
+    """Create a directory tree and sync every new entry plus its old parent."""
+    missing: list[Path] = []
+    ancestor = directory
+    while not ancestor.exists():
+        missing.append(ancestor)
+        parent = ancestor.parent
+        if parent == ancestor:
+            break
+        ancestor = parent
+    directory.mkdir(parents=True, exist_ok=True)
+    if missing:
+        for created in missing:
+            fsync_dir(created)
+        fsync_dir(ancestor)
 
 
 def resume_state(*paths: Path | None) -> ResumeState:

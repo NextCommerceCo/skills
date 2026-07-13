@@ -295,5 +295,28 @@ class BulkSubscriptionTests(unittest.TestCase):
         self.assertEqual("error", rows[0].status)
         self.assertEqual("NEEDS_VERIFICATION", rows[0].error_code)
 
+    def test_pause_requires_and_validates_an_effect_confirmation(self):
+        class ResponseClient(FakeClient):
+            def __init__(self, response):
+                super().__init__(); self.response = response
+
+            def mutate(self, method, endpoint, payload):
+                self.calls.append((method, endpoint, payload))
+                return self.response
+
+        row = {"subscription_id": "s1"}
+        cases = (
+            ({"id": "s1"}, "error"),
+            ({"id": "s1", "status": "paused",
+              "pause_until": "2026-08-01"}, "success"),
+            ({"id": "s1", "status": "active"}, "error"),
+        )
+        for response, expected in cases:
+            with self.subTest(response=response):
+                rows, _ = self.run_bulk(ResponseClient(response), [row])
+                self.assertEqual(expected, rows[0].status)
+                if expected == "error":
+                    self.assertEqual("NEEDS_VERIFICATION", rows[0].error_code)
+
 
 if __name__ == "__main__": unittest.main()

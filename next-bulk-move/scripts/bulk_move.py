@@ -181,11 +181,50 @@ def supported(fo: dict[str, Any], action: str) -> bool:
     return isinstance(actions, (list, tuple)) and action in actions
 
 
-def new_fo_id(response: Any) -> str:
-    if isinstance(response, dict):
-        moved = response.get("moved_fulfillment_order") or {}
-        return str(moved.get("id") or "")
-    return ""
+def verify_move_response(response: Any, fid: str, order: str,
+                         destination: int) -> str:
+    """Return the moved FO id only when the response confirms this move."""
+    if not isinstance(response, dict):
+        return ""
+    moved = response.get("moved_fulfillment_order")
+    if not isinstance(moved, dict) or moved.get("id") in (None, ""):
+        return ""
+
+    source_values: list[Any] = []
+    for key in ("original_fulfillment_order", "source_fulfillment_order",
+                "fulfillment_order"):
+        value = response.get(key)
+        if isinstance(value, dict):
+            source_values.append(value.get("id"))
+            if (value.get("order_number") not in (None, "") and
+                    str(value["order_number"]) != str(order)):
+                return ""
+        elif value not in (None, ""):
+            source_values.append(value)
+    for key in ("original_fulfillment_order_id", "source_fulfillment_order_id",
+                "fulfillment_order_id"):
+        if response.get(key) not in (None, ""):
+            source_values.append(response[key])
+    if not source_values or any(str(value) != str(fid) for value in source_values):
+        return ""
+
+    for key in ("original_order_number", "order_number"):
+        if (response.get(key) not in (None, "") and
+                str(response[key]) != str(order)):
+            return ""
+
+    locations: list[Any] = []
+    assigned = moved.get("assigned_location")
+    if isinstance(assigned, dict) and assigned.get("id") not in (None, ""):
+        locations.append(assigned["id"])
+    if moved.get("location_id") not in (None, ""):
+        locations.append(moved["location_id"])
+    try:
+        if not locations or any(int(value) != destination for value in locations):
+            return ""
+    except (TypeError, ValueError):
+        return ""
+    return str(moved["id"])
 
 
 class BulkMover:
@@ -256,11 +295,16 @@ class BulkMover:
                        latest.get("request_status") == "cancel_accepted")
             return Result(order, fid, action="MOVE_PENDING" if pending else "MOVE_UNSUPPORTED",
                           status="error", destination=str(self.destination))
+        availability = self._destination_availability(latest)
+        if availability is not True:
+            action = "LOCATION_UNAVAILABLE" if availability is False else "LOCATION_UNVERIFIED"
+            return Result(order, fid, action=action, status="error",
+                          destination=str(self.destination))
         if before_mutation is not None:
             before_mutation(Result(order, fid, action="ATTEMPTED", status="attempted",
                                    destination=str(self.destination)))
         response = self.client.move(fid, self.destination)
-        moved_id = new_fo_id(response)
+        moved_id = verify_move_response(response, fid, order, self.destination)
         if not moved_id:
             return Result(order, fid, action="MOVE_UNVERIFIED", status="error",
                           destination=str(self.destination))
@@ -318,6 +362,12 @@ class BulkMover:
                         return Result(order, fid, action="CANCEL_REJECTED", status="error",
                                       destination=str(self.destination))
                     if latest.get("status") == "processing" and fresh_request_status is None:
+                        availability = self._destination_availability(latest)
+                        if availability is not True:
+                            action = ("LOCATION_UNAVAILABLE" if availability is False
+                                      else "LOCATION_UNVERIFIED")
+                            return Result(order, fid, action=action, status="error",
+                                          destination=str(self.destination))
                         if before_mutation is not None:
                             before_mutation(Result(
                                 order, fid, action="ATTEMPTED", status="attempted",
@@ -353,7 +403,7 @@ class BulkMover:
         needs_verification = getattr(completed, "needs_verification", set())
         in_run_encountered: set[str] = set()
         orders = list(orders)
-        output.parent.mkdir(parents=True, exist_ok=True)
+        mkdir_durable(output.parent)
         new_file = not output.exists() or output.stat().st_size == 0
         if not new_file:
             with output.open(newline="", encoding="utf-8") as existing:
@@ -422,6 +472,23 @@ def fsync_dir(directory: Path) -> None:
         pass
     finally:
         os.close(fd)
+
+
+def mkdir_durable(directory: Path) -> None:
+    """Create a directory tree and sync every new entry plus its old parent."""
+    missing: list[Path] = []
+    ancestor = directory
+    while not ancestor.exists():
+        missing.append(ancestor)
+        parent = ancestor.parent
+        if parent == ancestor:
+            break
+        ancestor = parent
+    directory.mkdir(parents=True, exist_ok=True)
+    if missing:
+        for created in missing:
+            fsync_dir(created)
+        fsync_dir(ancestor)
 
 
 def resume_state(*paths: Path | None) -> ResumeState:

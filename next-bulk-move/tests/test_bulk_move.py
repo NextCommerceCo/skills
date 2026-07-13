@@ -47,7 +47,18 @@ class FakeClient:
             raise urllib.error.HTTPError("url", 500, "failure", {}, None)
         if self.move_response is not None:
             return self.move_response
-        return {"moved_fulfillment_order": {"id": f"new-{fid}"}}
+        original = self.last_get.get(str(fid))
+        if original is None:
+            original = next(item for rows in self.orders.values() for item in rows
+                            if str(item.get("id")) == str(fid))
+        return {
+            "original_fulfillment_order": {
+                "id": fid, "order_number": original["order_number"],
+            },
+            "moved_fulfillment_order": {
+                "id": f"new-{fid}", "assigned_location": {"id": destination},
+            },
+        }
 
 
 class BulkMoveTests(unittest.TestCase):
@@ -100,6 +111,23 @@ class BulkMoveTests(unittest.TestCase):
     def test_unavailable_destination_is_not_moved(self):
         client = FakeClient({"1001": [fo(1, 1001, actions=["move"], available=(30,))]})
         rows, _ = self.run_mover(client, ["1001"])
+        self.assertEqual([], client.moves)
+        self.assertEqual("LOCATION_UNAVAILABLE", rows[0].action)
+
+    def test_destination_disappearing_on_fresh_fetch_is_not_moved(self):
+        stale = fo(1, 1001, actions=["move"], available=(20,))
+        fresh = fo(1, 1001, actions=["move"], available=(30,))
+        client = FakeClient({"1001": [stale]}, {1: [fresh]})
+        rows, _ = self.run_mover(client, ["1001"])
+        self.assertEqual([], client.moves)
+        self.assertEqual("LOCATION_UNAVAILABLE", rows[0].action)
+
+    def test_fresh_availability_required_before_cancel(self):
+        stale = fo(1, 1001, "processing", available=(20,))
+        fresh = fo(1, 1001, "processing", available=(30,))
+        client = FakeClient({"1001": [stale]}, {1: [fresh]})
+        rows, _ = self.run_mover(client, ["1001"])
+        self.assertEqual([], client.cancels)
         self.assertEqual([], client.moves)
         self.assertEqual("LOCATION_UNAVAILABLE", rows[0].action)
 
@@ -343,6 +371,43 @@ class BulkMoveTests(unittest.TestCase):
         self.assertEqual(["1"], client.moves)
         self.assertEqual("MOVE_UNVERIFIED", rows[0].action)
         self.assertEqual("error", rows[0].status)
+
+    def test_move_response_must_confirm_source_and_destination(self):
+        ready = fo(1, 1001, actions=["move"])
+        responses = (
+            {"original_fulfillment_order": {"id": 1, "order_number": 1001},
+             "moved_fulfillment_order": {"id": "new-1"}},
+            {"original_fulfillment_order": {"id": 1, "order_number": 1001},
+             "moved_fulfillment_order": {
+                 "id": "new-1", "assigned_location": {"id": 30}}},
+            {"original_fulfillment_order": {"id": 999, "order_number": 1001},
+             "moved_fulfillment_order": {
+                 "id": "new-1", "assigned_location": {"id": 20}}},
+        )
+        for response in responses:
+            with self.subTest(response=response):
+                client = FakeClient({"1001": [ready]}, move_response=response)
+                rows, _ = self.run_mover(client, ["1001"])
+                self.assertEqual(["1"], client.moves)
+                self.assertEqual("MOVE_UNVERIFIED", rows[0].action)
+                self.assertEqual("error", rows[0].status)
+
+    def test_nested_results_directories_are_fsynced_through_existing_parent(self):
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        root = Path(td.name)
+        output = root / "one" / "two" / "results.csv"
+        mover = bulk_move.BulkMover(FakeClient({}), 10, 20, execute=False,
+                                    order_delay=0, sleep=lambda _: None)
+        synced = []
+        real_fsync_dir = bulk_move.fsync_dir
+
+        def record(directory):
+            synced.append(Path(directory))
+            real_fsync_dir(directory)
+
+        with mock.patch.object(bulk_move, "fsync_dir", side_effect=record):
+            mover.run([], output)
+        self.assertEqual([output.parent, output.parent.parent, root], synced[:3])
 
     def test_cancel_accepted_without_move_action_stays_retryable(self):
         accepted = fo(1, 1001, "canceled", actions=[], request_status="cancel_accepted")

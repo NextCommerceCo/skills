@@ -230,6 +230,23 @@ class BulkFulfillTests(unittest.TestCase):
         self.assertEqual("NEEDS_VERIFICATION", rows[0].action)
         self.assertEqual("error", rows[0].status)
 
+    def test_exact_tracking_response_fields(self):
+        class ResponseClient(FakeClient):
+            def __init__(self, response):
+                super().__init__(); self.response = response
+
+            def fulfill(self, fid, tracking, carrier, notify=True):
+                self.calls.append((fid, tracking, carrier, notify))
+                return self.response
+
+        row = {"order_number": "1", "tracking_code": "1", "carrier": "ups"}
+        unconfirmed, _ = self.run_bulk(
+            ResponseClient({"message": "batch 1 was not applied"}), [row])
+        confirmed, _ = self.run_bulk(
+            ResponseClient({"tracking_info": [{"tracking_code": "1"}]}), [row])
+        self.assertEqual("NEEDS_VERIFICATION", unconfirmed[0].action)
+        self.assertEqual("FULFILLED", confirmed[0].action)
+
     def test_resume_state_merges_active_results_journal(self):
         td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
         active = Path(td.name) / "results.csv"
