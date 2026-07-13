@@ -21,12 +21,21 @@ class FakeClient:
     def __init__(self, failures=()): self.calls, self.failures = [], set(failures)
     def mutate(self, method, endpoint, payload):
         self.calls.append((method, endpoint, payload))
-        sid = endpoint.split("/")[1]
+        parts = endpoint.strip("/").split("/")
+        sid = parts[1]
         if sid in self.failures: raise urllib.error.HTTPError("url", 422, "bad", {}, None)
-        # Confirming response: echoes the subscription id and applied fields,
-        # plus PII the results CSV must still redact.
-        return {"id": sid, **payload,
+        action = parts[2] if len(parts) > 2 else "update"
+        # Confirming response: echoes id + applied fields and a lifecycle status
+        # proving the action took effect, plus PII the results CSV must redact.
+        status = {"pause": "paused", "cancel": "canceled",
+                  "resume": "active", "renew": "active"}.get(action)
+        resp = {"id": sid, **payload,
                 "shipping_address": {"line1": "Secret St"}, "card_last4": "4242"}
+        if status:
+            resp["status"] = status
+        if action == "renew" and "next_renewal_date" not in resp:
+            resp["next_renewal_date"] = "2026-09-01T00:00:00Z"
+        return resp
 
 
 class BulkSubscriptionTests(unittest.TestCase):
@@ -66,6 +75,35 @@ class BulkSubscriptionTests(unittest.TestCase):
         rows, _ = self.run_bulk(client, [{"subscription_id": "s1"}],
                                 action="resume", payload={})
         self.assertEqual("error", rows[0].status)
+        self.assertEqual("NEEDS_VERIFICATION", rows[0].error_code)
+
+    def test_renew_identity_only_response_is_needs_verification(self):
+        class IdOnly(FakeClient):
+            def mutate(self, method, endpoint, payload):
+                self.calls.append((method, endpoint, payload))
+                return {"id": endpoint.strip("/").split("/")[1]}
+        rows, _ = self.run_bulk(IdOnly(), [{"subscription_id": "s1"}],
+                                action="renew", payload={})
+        self.assertEqual("NEEDS_VERIFICATION", rows[0].error_code)
+
+    def test_cancel_notification_echo_only_is_needs_verification(self):
+        class EchoOnly(FakeClient):
+            def mutate(self, method, endpoint, payload):
+                self.calls.append((method, endpoint, payload))
+                return {"id": endpoint.strip("/").split("/")[1],
+                        "send_cancel_notification": True}
+        rows, _ = self.run_bulk(EchoOnly(), [{"subscription_id": "s1"}],
+                                action="cancel",
+                                payload={"send_cancel_notification": True})
+        self.assertEqual("NEEDS_VERIFICATION", rows[0].error_code)
+
+    def test_pause_null_date_only_is_needs_verification(self):
+        class NullDate(FakeClient):
+            def mutate(self, method, endpoint, payload):
+                self.calls.append((method, endpoint, payload))
+                return {"id": endpoint.strip("/").split("/")[1], "pause_until": None}
+        rows, _ = self.run_bulk(NullDate(), [{"subscription_id": "s1"}],
+                                action="pause", payload={})
         self.assertEqual("NEEDS_VERIFICATION", rows[0].error_code)
 
     def test_non_allowlisted_action_refused(self):

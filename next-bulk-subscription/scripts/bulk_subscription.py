@@ -176,48 +176,38 @@ def verify_mutation(resp: Any, sid: str, payload: dict[str, Any],
     views = [subject]
     if isinstance(nested, dict) and nested is not subject:
         views.append(nested)
-    confirmed_effect = False
+
+    # For update, every requested field must be present and equal.
     for field, want in payload.items():
         if action == "update" and field not in subject:
             return False, f"update response did not confirm field {field}"
         echoed = [view[field] for view in views if field in view]
         if any(str(value) != str(want) for value in echoed):
             return False, f"field {field} was not applied as requested"
-        if echoed:
-            confirmed_effect = True
 
-    statuses = [view[field] for view in views for field in ("status", "state")
-                if view.get(field) not in (None, "")]
-    normalized = {str(value).strip().lower() for value in statuses}
-    if action == "pause" and statuses:
-        if normalized != {"paused"}:
-            return False, "pause response status did not indicate paused"
-        confirmed_effect = True
-    if action == "pause":
-        pause_values = [view["pause_until"] for view in views
-                        if "pause_until" in view]
-        if pause_values and "pause_until" not in payload:
-            if any(value not in (None, "") for value in pause_values):
-                return False, "pause response included an unrequested pause_until"
-            confirmed_effect = True
-    if action == "cancel" and statuses:
-        if not normalized.issubset({"canceled", "cancelled"}):
-            return False, "cancel response status did not indicate canceled"
-        confirmed_effect = True
-    if action == "renew":
-        renewal_dates = [view["next_renewal_date"] for view in views
-                         if "next_renewal_date" in view]
-        if any(value in (None, "") for value in renewal_dates):
-            return False, "renew response included an empty next renewal date"
-        if statuses and not normalized.issubset({"active", "renewed"}):
-            return False, "renew response status did not indicate an active renewal"
-    if action == "resume" and statuses:
-        # Reactivating a paused subscription must not still report paused.
-        if "paused" in normalized:
-            return False, "resume response status still indicates paused"
-        confirmed_effect = True
-    if action in {"pause", "cancel", "resume"} and not confirmed_effect:
-        return False, f"{action} response did not confirm the requested effect"
+    normalized = {str(view[field]).strip().lower()
+                  for view in views for field in ("status", "state")
+                  if view.get(field) not in (None, "")}
+
+    # Lifecycle actions require POSITIVE proof of the expected end state. A 2xx
+    # body that only echoes an identity, a notification preference, or a null
+    # field is not proof; and a contradictory state fails closed. update is
+    # confirmed by its field checks above; renew accepts an active/renewed status
+    # or a concrete next_renewal_date.
+    expected = {"pause": {"paused"}, "cancel": {"canceled", "cancelled"},
+                "resume": {"active", "renewed"}, "renew": {"active", "renewed"}}
+    if action in expected:
+        contradictory = set().union(*expected.values()) - expected[action]
+        if normalized & contradictory:
+            return False, f"{action} response reported a contradictory state {sorted(normalized)}"
+        if normalized & expected[action]:
+            return True, ""
+        if action == "renew":
+            renewal_dates = [view.get("next_renewal_date") for view in views
+                             if "next_renewal_date" in view]
+            if renewal_dates and all(v not in (None, "") for v in renewal_dates):
+                return True, ""
+        return False, f"{action} response did not confirm the expected state"
     return True, ""
 
 
