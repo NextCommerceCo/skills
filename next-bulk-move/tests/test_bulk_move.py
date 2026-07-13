@@ -212,6 +212,17 @@ class BulkMoveTests(unittest.TestCase):
         self.assertEqual("NEEDS_VERIFICATION", rows[0].action)
         self.assertEqual("error", rows[0].status)
 
+    def test_empty_string_request_status_issues_cancellation(self):
+        # API serializes an absent request_status as "" (not None): must still
+        # take the cancellation path, not poll forever on a no-op.
+        processing = fo(1, 1001, "processing", actions=[], request_status="")
+        accepted = fo(1, 1001, "canceled", actions=["move"], request_status="cancel_accepted")
+        client = FakeClient({"1001": [processing]}, {1: [processing, accepted]})
+        rows, _ = self.run_mover(client, ["1001"])
+        self.assertEqual(["1"], client.cancels)
+        self.assertEqual(["1"], client.moves)
+        self.assertEqual("CANCEL+MOVED", rows[0].action)
+
     def test_cancellation_never_observed_pending_is_unconfirmed_and_blocked(self):
         # We issue the cancellation but every poll still returns request_status
         # None (propagation lag): the POST outcome is unknown, so the run must

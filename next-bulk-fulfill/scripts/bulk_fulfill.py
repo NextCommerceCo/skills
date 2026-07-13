@@ -19,6 +19,9 @@ from typing import Any, Callable, Iterable
 API_VERSION = "2024-04-01"
 FIELDS = ["order_number", "fulfillment_id", "tracking_code", "carrier", "action", "status"]
 COMPLETED_STATUSES = {"success"}
+CANCELLATION_STATES = {"cancel_requested", "cancellation_requested",
+                       "cancel_pending", "cancellation_pending",
+                       "cancel_accepted", "cancellation_accepted"}
 VALID_CARRIERS = {"4px", "amazon", "asendia", "australia_post", "china_post",
                   "deutsche_de", "dhl", "dhl_ecommerce", "fedex", "firstmile",
                   "gofo_express", "hermesworld_uk", "myhermes", "ontrac", "other",
@@ -230,6 +233,12 @@ class BulkFulfiller:
                         "fulfillment order does not match requested order"
                     )
             eligible = [fo for fo in fos if fo.get("status") in {"processing", "open"}]
+            # A fulfillment order with a cancellation in flight must not be
+            # fulfilled: shipping it would race the cancellation. Flag for review.
+            if any(str(fo.get("request_status") or "").lower() in CANCELLATION_STATES
+                   for fo in eligible):
+                return Result(order, tracking_code=tracking, carrier=carrier,
+                              action="CANCELLATION_IN_PROGRESS", status="error")
             if not eligible:
                 return Result(order, tracking_code=tracking, carrier=carrier,
                               action="NOT_FOUND", status="skipped")

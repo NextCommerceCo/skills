@@ -360,7 +360,7 @@ class BulkMover:
                 # in flight; a resumed run will see it and skip re-POSTing.
                 observed_pending = fo.get("request_status") not in (
                     None, "", "cancel_accepted", "cancel_rejected", "cancellation_rejected")
-                if fo.get("request_status") is None:
+                if fo.get("request_status") in (None, ""):
                     latest = self._validated_fo(self.client.get_fo(fid), order, fid)
                     if assigned_id(latest) != self.source:
                         return Result(order, fid, action="SOURCE_CHANGED", status="error",
@@ -371,7 +371,7 @@ class BulkMover:
                                       destination=str(self.destination))
                     if fresh_request_status not in (None, "", "cancel_accepted"):
                         observed_pending = True
-                    if latest.get("status") == "processing" and fresh_request_status is None:
+                    if latest.get("status") == "processing" and fresh_request_status in (None, ""):
                         availability = self._destination_availability(latest)
                         if availability is not True:
                             action = ("LOCATION_UNAVAILABLE" if availability is False
