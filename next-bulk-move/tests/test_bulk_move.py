@@ -128,6 +128,14 @@ class BulkMoveTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             bulk_move.resume_completed(stale)
 
+    def test_duplicate_input_order_is_moved_once(self):
+        client = FakeClient({"1001": [fo(1, 1001, actions=["move"])]})
+        rows, output = self.run_mover(client, ["1001", "1001"])
+        self.assertEqual(["1"], client.moves)
+        self.assertEqual(["MOVED", "DUPLICATE"], [r.action for r in rows])
+        # A DUPLICATE row must not make the order resume-terminal on its own.
+        self.assertIn("1001", bulk_move.resume_completed(output))  # via the real MOVED row
+
     def test_each_order_is_listed_only_once_without_location_preflight(self):
         client = FakeClient({"1001": [fo(1, 1001, actions=["move"])]})
         self.run_mover(client, ["1001"])

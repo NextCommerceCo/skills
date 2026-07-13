@@ -351,6 +351,7 @@ class BulkMover:
         if completed is None:
             completed = set()
         needs_verification = getattr(completed, "needs_verification", set())
+        in_run_encountered: set[str] = set()
         orders = list(orders)
         output.parent.mkdir(parents=True, exist_ok=True)
         new_file = not output.exists() or output.stat().st_size == 0
@@ -379,6 +380,17 @@ class BulkMover:
                     continue
                 if order in completed:
                     continue
+                if order in in_run_encountered:
+                    # A duplicate input row must never issue a second cancellation
+                    # or move: those POSTs are non-idempotent.
+                    result = Result(order, action="DUPLICATE", status="skipped",
+                                    destination=str(self.destination))
+                    writer.writerow(asdict(result)); handle.flush(); results.append(result)
+                    print(f"Order {order}: {result.action}", flush=True)
+                    if self.order_delay:
+                        self.sleep(self.order_delay)
+                    continue
+                in_run_encountered.add(order)
 
                 def record_attempt(attempt: Result) -> None:
                     writer.writerow(asdict(attempt)); handle.flush()
@@ -444,8 +456,11 @@ def resume_completed(path: Path | None) -> ResumeState:
             if not order:
                 continue
             action = (row.get("action") or "").upper()
-            if (row.get("status") in COMPLETED_STATUSES
-                    and not action.startswith("WOULD_")):
+            if action in {"WOULD_", "DUPLICATE"} or action.startswith("WOULD_"):
+                # DUPLICATE is an in-run-only marker (and dry-run WOULD_* is not a
+                # real mutation), so neither may make an order resume-terminal.
+                continue
+            if row.get("status") in COMPLETED_STATUSES:
                 completed.add(order)
                 attempted.discard(order)
             elif action in {"ATTEMPTED", "NEEDS_VERIFICATION"}:
