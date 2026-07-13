@@ -38,6 +38,12 @@ class BulkSubscriptionTests(unittest.TestCase):
                                        row_delay=0, sleep=lambda _: None)
         results = worker.run(rows, output, bulk.resume_completed(resume)); return results, output
 
+    def test_negative_limit_is_rejected(self):
+        with self.assertRaises(SystemExit):
+            bulk.parser().parse_args(["--store", "s", "--input", "i.csv",
+                                      "--results", "o.csv", "--action", "pause",
+                                      "--execute", "--limit", "-1"])
+
     def test_non_allowlisted_action_refused(self):
         with self.assertRaisesRegex(ValueError, "not allowlisted"):
             bulk.BulkSubscription(FakeClient(), "delete", {}, execute=True)

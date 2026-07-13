@@ -421,6 +421,13 @@ def resume_completed(path: Path | None) -> ResumeState:
     return ResumeState(completed, needs_verification=attempted)
 
 
+def nonneg_int(raw: str) -> int:
+    value = int(raw)
+    if value < 0:
+        raise argparse.ArgumentTypeError("--limit must be zero or a positive integer")
+    return value
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--store", required=True)
@@ -429,7 +436,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--resume", type=Path)
     p.add_argument("--carrier-map", help="JSON object/path confirming inferred pattern-to-carrier mappings")
     p.add_argument("--no-notify", action="store_true")
-    p.add_argument("--limit", type=int)
+    p.add_argument("--limit", type=nonneg_int)
     mode = p.add_mutually_exclusive_group()
     mode.add_argument("--dry-run", dest="execute", action="store_false")
     mode.add_argument("--execute", action="store_true")

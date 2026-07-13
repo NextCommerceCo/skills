@@ -39,6 +39,14 @@ class BulkFulfillTests(unittest.TestCase):
         results = worker.run(rows, output, bulk.resume_completed(resume))
         return results, output
 
+    def test_negative_limit_is_rejected(self):
+        argv = ["--store", "shop", "--input", "in.csv", "--results", "out.csv",
+                "--execute", "--limit", "-1"]
+        with mock.patch.dict(bulk.os.environ, {"NEXT_ADMIN_API_TOKEN": "t"}, clear=True), \
+             mock.patch("sys.stderr", new_callable=io.StringIO):
+            with self.assertRaises(SystemExit):
+                bulk.parser().parse_args(argv)
+
     def test_missing_env_refuses_before_reading_input(self):
         argv = ["--store", "shop", "--input", "missing.csv", "--results", "out.csv"]
         with mock.patch.dict(bulk.os.environ, {}, clear=True), mock.patch("sys.stderr", new_callable=io.StringIO):
