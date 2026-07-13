@@ -150,10 +150,10 @@ Use the local generator to avoid blank-page drift:
 
 ```bash
 node <skill-dir>/scripts/theme-figma.js new-package \
-  --out /path/to/handoff/uvbrite-figma \
-  --project uvbrite \
+  --out /path/to/handoff/example-store-figma \
+  --project example-store \
   --figma-url "<figma-url>" \
-  --store uvbrite.29next.store \
+  --store example.29next.store \
   --repo /path/to/theme-worktree \
   --mode implementation-handoff
 ```
@@ -161,8 +161,10 @@ node <skill-dir>/scripts/theme-figma.js new-package \
 Fill the generated JSON/Markdown files, then validate:
 
 ```bash
-node <skill-dir>/scripts/theme-figma.js validate-package /path/to/handoff/uvbrite-figma
+node <skill-dir>/scripts/theme-figma.js validate-package /path/to/handoff/example-store-figma
 ```
+
+Validation is strict by default: placeholder or incomplete routes, nodes, assets, and divergence entries fail. Use `--non-strict` only while drafting. `new-package` refuses to replace its package files unless `--force` is supplied explicitly.
 
 A complete handoff includes:
 

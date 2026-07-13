@@ -49,7 +49,7 @@ cadence, addresses, and payment details.
 **Common bulk operations:**
 
 - **Pause recurring billing temporarily** — call `subscriptionsPauseCreate` with optional `pause_until` (date-only `YYYY-MM-DD`) so the platform sets the subscription lifecycle state correctly.
-- **Soft-defer recurring billing while leaving status active** — shift `next_renewal_date` out by N days when the merchant explicitly wants the subscription to remain active rather than paused.
+- **Set a renewal date while leaving status active** — provide the final `next_renewal_date` explicitly in the CSV or shared CLI payload.
 - **Change renewal cadence** — update `interval` + `interval_count` (e.g., monthly → every 60 days).
 - **Cancel a cohort** — call `subscriptionsCancelCreate` with a reason and notification preference.
 - **Correct a gateway migration** — update `payment_details.gateway` for subs on a decommissioned gateway.
@@ -67,7 +67,7 @@ Before making any store request, use the public Admin API conventions from
 https://developers.nextcommerce.com/docs/admin-api:
 
 - Base URL: `https://{subdomain}.29next.store/api/admin/`
-- Auth header: `Authorization: Bearer <api access token>`
+- Auth header: `Authorization: Bearer $NEXT_ADMIN_API_TOKEN`
 - Version header: `X-29next-API-Version: 2024-04-01`
 
 Do not use `/api/v1/...` paths or `Authorization: Token ...`; those are not the
@@ -89,19 +89,19 @@ Store base URL: `https://{subdomain}.29next.store/api/admin/`.
 
 ### Step 2: Admin API Access Token
 
-Ask the user:
+Require `NEXT_ADMIN_API_TOKEN` in the executor environment. Never ask the user to
+paste a token into conversation, accept it as a CLI argument, echo it, or write it
+into a command, script, or results file. Read and write are separate permissions;
+both `subscriptions:read` and `subscriptions:write` are required.
 
-> Provide an Admin API access token for {subdomain}.29next.store.
->
-> Required scope:
-> - `subscriptions:write` (implies `subscriptions:read`)
->
-> Create one at **{subdomain}.29next.store Dashboard > Settings > API Access**.
+```bash
+export NEXT_ADMIN_API_TOKEN
+```
 
 Validate with a single GET against a known-good list endpoint:
 ```bash
 curl -s -w "\n%{http_code}" \
-  -H "Authorization: Bearer {api_access_token}" \
+  -H "Authorization: Bearer ${NEXT_ADMIN_API_TOKEN:?NEXT_ADMIN_API_TOKEN is required}" \
   -H "X-29next-API-Version: 2024-04-01" \
   "https://{subdomain}.29next.store/api/admin/subscriptions/?limit=1"
 ```
@@ -122,7 +122,7 @@ Ask the user:
 > Optional columns that may be used by some update modes:
 > - `Status` — current status (useful for filtering which rows apply)
 > - `Pause Until` — date-only `YYYY-MM-DD` value for per-row pause end dates
-> - `Next Renewal Date` — current renewal timestamp (used by the CSV-baseline mode of `shift_renewal_date`)
+> - `Next Renewal Date` — final renewal timestamp to apply for that row
 
 Detect the subscription ID column case-insensitively. If the column can't be auto-detected, show the headers and ask the user to specify.
 
@@ -136,7 +136,7 @@ Ask the user what to apply. Offer these common modes:
 | Mode | Endpoint | Body field(s) | Notes |
 |------|----------|---------------|-------|
 | **Pause subscriptions** | `POST /subscriptions/{id}/pause/` | `pause_until` (optional) | Preferred for actual subscription pauses. If omitted, the subscription pauses indefinitely and is auto-cancelled if not resumed within 6 months. |
-| **Shift renewal date** | `PATCH /subscriptions/{id}/` | `next_renewal_date` | Pick baseline: CSV value, live-API value, or today. Add days offset. Keeps status unchanged. |
+| **Set renewal date** | `PATCH /subscriptions/{id}/` | `next_renewal_date` | Supply the final timestamp explicitly per row or in `--payload`. Keeps status unchanged. |
 | **Cancel subscriptions** | `POST /subscriptions/{id}/cancel/` | `cancel_reason`, `cancel_reason_other_message`, `send_cancel_notification` | Preferred for cancellations because it records cancellation semantics. |
 | **Change interval** | `PATCH /subscriptions/{id}/` | `interval`, `interval_count` | e.g., `{"interval": "month", "interval_count": 2}` |
 | **Update gateway** | `PATCH /subscriptions/{id}/` | `payment_details.gateway` (object `{id}`) | Used for bankcard migration off a retired gateway. |
@@ -149,12 +149,10 @@ Ask the user what to apply. Offer these common modes:
 >
 > If using a date, provide it as `YYYY-MM-DD`.
 
-**For the `shift_renewal_date` mode**, ask the baseline source:
-
-> Which baseline should "+N days" be calculated from?
-> - **(A) Live API value** — GET each sub first, add N, PATCH. Safest (canonical) but 2× the API calls.
-> - **(B) CSV value** — Parse the CSV's `Next Renewal Date` column, add N, PATCH. ~1 call per sub. Stale if CSV is old.
-> - **(C) Today + N** — Uniform renewal date = `today + N` for every sub. Loses per-sub timing.
+The bundled executor does not fetch renewal-date baselines, calculate offsets, or
+infer timezones. If the requested operation is expressed as "+N days", calculate
+and review the final timestamps outside this executor before running it, then
+provide those explicit values through the CSV or `--payload`.
 
 Confirm the final action template with the user before writing the script. Examples:
 
@@ -168,15 +166,21 @@ Or:
 
 > I'll PATCH each subscription with:
 > ```json
-> {"next_renewal_date": "{csv_value + 45d, ISO 8601 with tz offset}"}
+> {"next_renewal_date": "2026-08-17T10:09:01-04:00"}
 > ```
 > Skipping {M} subscription IDs per your exclusion list. Ready?
 
 ---
 
-## Phase 2: Write the Bulk Script
+## Phase 2: Run the Bundled Executor
 
-Generate a Python script at `{working_dir}/{subdomain}_bulk_subscription.py`.
+Use `next-bulk-subscription/scripts/bulk_subscription.py`. It is stdlib-only,
+dry-run by default, reads authentication only from `NEXT_ADMIN_API_TOKEN`, resumes
+only rows completed with the same action and payload fingerprint, and continues
+after individual failures. Allowlisted per-row CSV fields such as `pause_until`
+and `next_renewal_date` override the shared `--payload` default when nonblank.
+Its explicit `ACTIONS` mapping is the authority for methods, endpoint templates,
+and permitted payload fields; non-allowlisted actions and fields are refused.
 
 ### The API Patterns
 
@@ -220,39 +224,45 @@ verify.
 
 ### Script Requirements
 
-- **Rate limiting**: 4 requests/sec max. Sleep **0.26s** between subs (1 request per sub). For baseline mode that GETs first, sleep 0.5s total across both calls.
-- **Auth headers**: `Authorization: Bearer {api_access_token}` + `X-29next-API-Version: 2024-04-01`
+- **Rate limiting**: 4 requests/sec max. Sleep **0.26s** between subs (1 request per sub).
+- **Auth headers**: token comes only from `NEXT_ADMIN_API_TOKEN`
 - **Dry-run mode**: `--dry-run` flag that computes the body but does not send the POST/PATCH. Still reports one row per subscription.
 - **Limit flag**: `--limit N` to process only the first N rows (for testing).
 - **Skip list**: Hard-code or pass a set of `SKIP_IDS` (e.g., a test record already updated, or records known to be in a non-normal state).
-- **Output**: Write results to `{subdomain}_bulk_subscription_results.csv` with columns:
-  `subscription_id, operation, status, detail, request_body`
+- **Output**: only `subscription_id, order_id, customer_id, action,
+  payload_fingerprint, status, error_code, error_message`; the fingerprint is a
+  one-way SHA-256 of the canonical request payload for safe resume matching.
+  Never write request/response bodies, addresses, payment fields, customer names,
+  or emails.
 - **Status values**: `OK`, `DRY_RUN`, `SKIPPED`, `PARSE_ERROR`, `HTTP_<code>`, `EXC`
 - **Use `python3 -u`** for unbuffered output (live progress).
-- **Only stdlib + requests** (no pandas, no openpyxl — for XLSX support, convert upstream).
+- **Only Python stdlib** (for XLSX support, convert upstream).
 
-### Timezone Handling for Date Fields
+### Explicit Date Fields
 
-The API returns ISO 8601 timestamps with the store's timezone offset (e.g., `2026-07-03T10:09:01.263144-04:00`). When writing a new `next_renewal_date`:
-
-- **If using live-API baseline**: parse the returned timestamp, add offset, format with `datetime.isoformat()`. Preserves tz.
-- **If using CSV baseline**: CSV typically loses tz (format: `2026-07-03 10:09 AM`). Assume the store's offset (observe it from a single GET at the start of the run) and apply it consistently. Do NOT assume UTC — the platform evaluates renewals in store-local time.
-- **For `pause_until`**: send a date-only `YYYY-MM-DD` value. Do not send a timestamp.
+Supply `next_renewal_date` as a final, reviewed ISO 8601 timestamp with the intended
+timezone offset (for example, `2026-07-03T10:09:01-04:00`). The executor forwards
+the value as supplied; it does not parse dates, add offsets, fetch a store timezone,
+or convert timezone-naive CSV values. For `pause_until`, send a date-only
+`YYYY-MM-DD` value, not a timestamp.
 
 ### Gotchas (encode these in the script)
 
 - **Do not pause by PATCHing `status: paused`**. Use the official `subscriptionsPauseCreate` endpoint instead. The pause endpoint sets lifecycle fields (`status`, `paused_at`, `paused_until`) and applies platform pause semantics; a raw status patch does not.
 - **Indefinite pauses auto-cancel after 6 months if not resumed**. Confirm the merchant understands this before sending `{}` to `/pause/`.
-- **Empty / far-future `next_renewal_date`**: Some subscriptions have dates in the year 3966 (effectively already paused). The CSV may render this as an empty cell. Treat blank `Next Renewal Date` as "already paused — skip."
-- **Full entity response**: POST/PATCH returns the full subscription object (~3–8 KB per call). If processing thousands of subs, write responses to disk rather than holding in memory.
+- **Blank per-row `next_renewal_date`**: a blank CSV value does not request date computation; the shared `--payload` value applies when present.
+- **Full entity response**: POST/PATCH may return address and payment data. Discard
+  the body after determining success; never write it to results or logs.
 - **`HTTP 200 not 201`** — subscription action and update endpoints return 200 on success. Don't treat 200 as an error.
-- **Rate limit = 4 req/s**. At 0.26s sleep you're at ~3.8 req/s — safely under. For GET+PATCH baseline mode, use 0.5s.
+- **Rate limit = 4 req/s**. At 0.26s sleep you're at ~3.8 req/s — safely under.
 
 ### Execution Flow
 
 **2a. Dry-run:**
 ```bash
-python3 -u {subdomain}_bulk_subscription.py --dry-run
+python3 -u next-bulk-subscription/scripts/bulk_subscription.py \
+  --store {subdomain} --input subscriptions.csv --action pause \
+  --payload '{"pause_until":"2026-08-01"}' --results subscription-results.csv
 ```
 
 Report counts by status (OK-candidate / SKIPPED / PARSE_ERROR) and show any parse errors so the user can fix source data before a live run.
@@ -267,7 +277,10 @@ Ask the user:
 
 Run live:
 ```bash
-python3 -u {subdomain}_bulk_subscription.py
+python3 -u next-bulk-subscription/scripts/bulk_subscription.py \
+  --store {subdomain} --input subscriptions.csv --action pause \
+  --payload '{"pause_until":"2026-08-01"}' --results subscription-results.csv \
+  --resume subscription-results.csv --execute
 ```
 
 ---
@@ -281,7 +294,7 @@ re-GET them to confirm the action/field took effect. The POST/PATCH response can
 be trusted in principle, but a live GET catches any downstream state issues.
 
 ```bash
-curl -s -H "Authorization: Bearer {api_access_token}" \
+curl -s -H "Authorization: Bearer ${NEXT_ADMIN_API_TOKEN:?NEXT_ADMIN_API_TOKEN is required}" \
   -H "X-29next-API-Version: 2024-04-01" \
   "https://{subdomain}.29next.store/api/admin/subscriptions/{id}/" \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status'), d.get('paused_until'), d.get('next_renewal_date'))"
@@ -303,8 +316,9 @@ If any errors, list the affected subscription IDs with the error detail so the u
 
 ### Clean Up
 
-Offer to keep or delete the generated script:
-> Script at `{script_path}`. Keep for re-runs, or delete?
+Keep the bundled executor. Delete transient payload/input/results artifacts by
+default after confirming the outcome unless needed for resume or audit. Run
+`unset NEXT_ADMIN_API_TOKEN` when finished.
 
 ---
 
@@ -343,7 +357,7 @@ must call `POST /subscriptions/{id}/pause/` instead of PATCHing the status field
 // Pause indefinitely
 {}
 
-// Shift next renewal by 45 days (typical "soft pause")
+// Set an explicit next renewal timestamp
 {"next_renewal_date": "2026-08-17T10:09:01-04:00"}
 
 // Change to every-2-months

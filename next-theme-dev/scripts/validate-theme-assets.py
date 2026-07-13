@@ -28,6 +28,15 @@ MEDIA_EXTENSIONS = {
     ".svg",
     ".webp",
 }
+FORMAT_ALIASES = {
+    "gif": "gif",
+    "ico": "ico",
+    "jpg": "jpeg",
+    "jpeg": "jpeg",
+    "png": "png",
+    "svg": "svg",
+    "webp": "webp",
+}
 
 SAFE_COMPONENT_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 NUMBER_RE = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)")
@@ -35,6 +44,27 @@ EXTERNAL_REF_RE = re.compile(
     r"(?:^|url\(\s*['\"]?|@import\s+(?:url\(\s*)?['\"]?)(?:https?:|//|data:|javascript:)",
     re.IGNORECASE,
 )
+
+# Keep this list aligned with the consumer fields documented under
+# "Canonical Asset Schema" in next-theme-figma/references/handoff-manifest.md.
+CANONICAL_REQUIRED_ASSET_FIELDS = (
+    "asset_url_path",
+    "role",
+    "alt",
+    "format",
+    "expected_width",
+    "expected_height",
+    "requires_alpha",
+    "clean_export_verified",
+)
+# Required non-empty strings. `alt` is required to be present and a string but
+# may be empty: an empty alt is the correct value for a decorative asset.
+CANONICAL_REQUIRED_STRING_FIELDS = {
+    "asset_url_path",
+    "role",
+    "format",
+}
+CANONICAL_ALLOW_EMPTY_STRING_FIELDS = {"alt"}
 
 
 class ImageInfo:
@@ -65,11 +95,20 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="Manifest path. Relative paths are resolved from --theme. Use '-' for stdin.",
     )
-    parser.add_argument(
+    strict_group = parser.add_mutually_exclusive_group()
+    strict_group.add_argument(
         "--strict",
+        dest="strict",
         action="store_true",
-        help="Treat warnings as failures.",
+        help="Treat warnings as failures (the default).",
     )
+    strict_group.add_argument(
+        "--no-strict",
+        dest="strict",
+        action="store_false",
+        help="Allow warnings without failing validation.",
+    )
+    parser.set_defaults(strict=True)
     return parser.parse_args()
 
 
@@ -364,9 +403,29 @@ def validate_asset(
     index: int,
     errors: List[str],
     warnings: List[str],
+    strict: bool,
 ) -> None:
     label = f"assets[{index}]"
     rel_path_value = entry.get("path")
+    suffix = (
+        PurePosixPath(rel_path_value).suffix.lower()
+        if isinstance(rel_path_value, str)
+        else ""
+    )
+    missing_fields = [
+        field
+        for field in CANONICAL_REQUIRED_ASSET_FIELDS
+        if (field not in entry or entry[field] is None or
+            (field in CANONICAL_REQUIRED_STRING_FIELDS and
+             (not isinstance(entry[field], str) or not entry[field].strip())) or
+            (field in CANONICAL_ALLOW_EMPTY_STRING_FIELDS and
+             not isinstance(entry[field], str)))
+        if not (field == "requires_alpha" and suffix == ".svg")
+    ]
+    destination = errors if strict else warnings
+    for field in missing_fields:
+        destination.append(f"{label}: missing canonical required field {field}.")
+
     if not rel_path_value:
         errors.append(f"{label}: missing required path.")
         return
@@ -411,6 +470,26 @@ def validate_asset(
     if suffix != full_path.suffix:
         errors.append(f"{label}: extension must be lowercase: {full_path.suffix}")
 
+    declared_format: Optional[str] = None
+    declared_format_value = entry.get("format")
+    if declared_format_value is not None:
+        if not isinstance(declared_format_value, str):
+            errors.append(f"{label}: format must be a string.")
+        else:
+            declared_format_name = declared_format_value.strip().lower()
+            declared_format = FORMAT_ALIASES.get(declared_format_name)
+            if declared_format is None:
+                errors.append(
+                    f"{label}: unsupported declared format: {declared_format_value}"
+                )
+            else:
+                path_format = FORMAT_ALIASES[suffix.removeprefix(".")]
+                if declared_format != path_format:
+                    errors.append(
+                        f"{label}: declared format {declared_format_name} does not match "
+                        f"path extension {suffix.removeprefix('.')}"
+                    )
+
     expected_asset_url_path = "/".join(rel_path.parts[1:])
     asset_url_path = entry.get("asset_url_path")
     if asset_url_path and asset_url_path != expected_asset_url_path:
@@ -433,6 +512,13 @@ def validate_asset(
     except Exception as exc:
         errors.append(f"{label}: cannot inspect image: {exc}")
         return
+
+    decoded_format = FORMAT_ALIASES.get(info.fmt, info.fmt)
+    if declared_format is not None and declared_format != decoded_format:
+        errors.append(
+            f"{label}: declared format {declared_format_value.strip().lower()} does not "
+            f"match decoded format {info.fmt}"
+        )
 
     check_dimension(entry, "expected_width", info.width, label, errors)
     check_dimension(entry, "expected_height", info.height, label, errors)
@@ -539,7 +625,7 @@ def main() -> int:
         if not isinstance(entry, dict):
             errors.append(f"assets[{index}]: entry must be an object.")
             continue
-        validate_asset(entry, defaults, theme_root, index, errors, warnings)
+        validate_asset(entry, defaults, theme_root, index, errors, warnings, args.strict)
 
     for warning in warnings:
         print(f"WARNING: {warning}")

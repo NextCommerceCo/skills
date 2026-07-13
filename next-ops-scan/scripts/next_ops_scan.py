@@ -21,8 +21,8 @@ from typing import Any, Iterable
 
 API_VERSION = "2024-04-01"
 ADMIN_API_DOCS_URL = "https://developers.nextcommerce.com/docs/admin-api"
-CS_GUIDE_URL = "https://docs.nextcommerce.com/guides/cs-operations-guide.html#daily-risk-routine"
-SHOP_SYNC_URL = "https://docs.nextcommerce.com/guides/shop-sync-onboarding.html#troubleshooting"
+CS_GUIDE_URL = "https://docs.nextcommerce.com/docs/manage/orders/order-management"
+SHOP_SYNC_URL = "https://docs.nextcommerce.com/docs/apps/shop-sync"
 DELIVERY_TRACKING_URL = "https://docs.nextcommerce.com/docs/apps/delivery-tracking"
 
 
@@ -39,13 +39,26 @@ class Finding:
     docs_url: str
 
 
+class AuthenticatedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Refuse redirects on authenticated requests so the Bearer token can
+    never be forwarded to a host the pagination guard did not approve."""
+
+    def redirect_request(self, req: Any, fp: Any, code: int, msg: str,
+                         headers: Any, newurl: str) -> Any:
+        raise urllib.error.HTTPError(
+            req.full_url, code,
+            f"refusing authenticated redirect to {newurl}", headers, fp,
+        )
+
+
 class AdminClient:
     def __init__(self, domain: str, token: str, *, timeout: float = 30.0):
-        self.domain = domain
+        self.domain = normalize_domain(domain)
         self.token = token
         self.timeout = timeout
         self.notes: list[str] = []
         self.last_url = ""
+        self.opener = urllib.request.build_opener(AuthenticatedRedirectHandler())
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -66,15 +79,28 @@ class AdminClient:
         return self._send(req)
 
     def get_url(self, url: str) -> Any:
-        self.last_url = url
-        req = urllib.request.Request(url, headers=self._headers(), method="GET")
+        # Resolve a relative `next` link against the last request; pin scheme,
+        # host (ignoring the default port), and the /api/admin/ base path before
+        # forwarding the bearer token.
+        base = self.last_url or f"https://{self.domain}/api/admin/"
+        resolved = urllib.parse.urljoin(base, url)
+        parsed = urllib.parse.urlparse(resolved)
+        if (parsed.scheme != "https" or parsed.hostname != self.domain
+                or parsed.port not in (None, 443)
+                or not parsed.path.startswith("/api/admin/")):
+            raise ValueError(
+                "Refusing pagination URL outside the configured store API base: "
+                f"expected https://{self.domain}/api/admin/, got {url}"
+            )
+        self.last_url = resolved
+        req = urllib.request.Request(resolved, headers=self._headers(), method="GET")
         return self._send(req)
 
     def _send(self, req: urllib.request.Request, *, retries: int = 2) -> Any:
         last_err: Exception | None = None
         for attempt in range(retries + 1):
             try:
-                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                with self.opener.open(req, timeout=self.timeout) as resp:
                     body = resp.read()
                     if not body:
                         return None
@@ -148,7 +174,7 @@ def jittered_backoff(attempt: int) -> float:
 
 
 def normalize_domain(raw: str) -> str:
-    raw = raw.strip().removeprefix("https://").removeprefix("http://").strip("/")
+    raw = raw.strip().removeprefix("https://").removeprefix("http://").strip("/").lower()
     if "." not in raw:
         return f"{raw}.29next.store"
     return raw
@@ -218,9 +244,14 @@ def scan_incomplete_orders(
 ) -> list[Finding]:
     findings: list[Finding] = []
     horizon = now - timedelta(days=lookback_days)
-    for order in client.paginate(
-        "orders/", {"fulfillment_status": "incomplete"}, max_pages=max_pages
-    ):
+    try:
+        orders = list(client.paginate(
+            "orders/", {"fulfillment_status": "incomplete"}, max_pages=max_pages))
+    except Exception as e:
+        client.notes.append(
+            f"Incomplete-order queue not scanned: {e.__class__.__name__}: {e}")
+        return findings
+    for order in orders:
         if not fulfillment_status_matches(order, "incomplete"):
             continue
         placed = parse_dt(order_date(order))
@@ -241,7 +272,11 @@ def scan_incomplete_orders(
                 order_number=number,
                 age_days="" if age is None else str(age),
                 status=f"incomplete/payment:{payment_status}",
-                reason="Incomplete order usually means the corresponding Shopify order was canceled." + amount_hint,
+                reason=(
+                    f"Order is incomplete with payment_status `{payment_status}`."
+                    " If this store syncs orders to Shopify via Shop Sync, a common cause is a canceled Shopify order."
+                    + amount_hint
+                ),
                 recommended_action="Open Order Details, review Payment Summary, and use the Refund button if money is owed back.",
                 admin_url=admin_order_url(admin_base_url, number),
                 docs_url=CS_GUIDE_URL,
@@ -261,9 +296,14 @@ def scan_rejected_orders(
 ) -> list[Finding]:
     findings: list[Finding] = []
     horizon = now - timedelta(days=lookback_days)
-    for order in client.paginate(
-        "orders/", {"fulfillment_status": "rejected"}, max_pages=max_pages
-    ):
+    try:
+        orders = list(client.paginate(
+            "orders/", {"fulfillment_status": "rejected"}, max_pages=max_pages))
+    except Exception as e:
+        client.notes.append(
+            f"Rejected-order queue not scanned: {e.__class__.__name__}: {e}")
+        return findings
+    for order in orders:
         if not fulfillment_status_matches(order, "rejected"):
             continue
         placed = parse_dt(order_date(order))
@@ -280,8 +320,11 @@ def scan_rejected_orders(
                 order_number=number,
                 age_days="" if age is None else str(age),
                 status="rejected",
-                reason="Shopify or Shop Sync refused the order for fulfillment.",
-                recommended_action="Review the rejection cause, correct customer data or Shopify stock/settings, then request fulfillment again if appropriate.",
+                reason=(
+                    "Fulfillment was rejected. If this store syncs orders to Shopify via Shop Sync, "
+                    "a common cause is Shopify or Shop Sync refusing the order."
+                ),
+                recommended_action="Review the rejection cause, correct customer data, stock, or fulfillment settings, then request fulfillment again if appropriate.",
                 admin_url=admin_order_url(admin_base_url, number),
                 docs_url=SHOP_SYNC_URL,
             )
@@ -289,10 +332,27 @@ def scan_rejected_orders(
     return findings
 
 
-def delivery_timestamp(row: dict[str, Any], status: str) -> Any:
+def delivery_timestamp(row: dict[str, Any], status: str) -> tuple[Any, str]:
+    delivery_event_timestamp = first_present(
+        row,
+        [
+            "delivery_status_updated_at",
+            "delivery_updated_at",
+            "delivery_event_at",
+            "delivery_event_timestamp",
+        ],
+    )
+    if delivery_event_timestamp is not None:
+        return delivery_event_timestamp, "delivery status last updated"
     if status == "delayed":
-        return first_present(row, ["updated_at", "date_updated", "created_at", "date_created"])
-    return first_present(row, ["created_at", "date_created", "updated_at", "date_updated"])
+        return (
+            first_present(row, ["updated_at", "date_updated", "created_at", "date_created"]),
+            "order record last updated",
+        )
+    return (
+        first_present(row, ["created_at", "date_created", "updated_at", "date_updated"]),
+        "order record timestamp",
+    )
 
 
 def delivery_status_matches(row: dict[str, Any], expected: str) -> bool:
@@ -336,14 +396,15 @@ def scan_delivery_tracking(
         for row in rows:
             if not delivery_status_matches(row, status):
                 continue
-            age = age_days(now, delivery_timestamp(row, status))
+            timestamp, timestamp_label = delivery_timestamp(row, status)
+            age = age_days(now, timestamp)
             if threshold_days is not None and age is not None and age < threshold_days:
                 continue
             number = order_number(row)
             tracking_code = first_present(row, ["tracking_code", "tracking_number"])
             reason = f"Order delivery status is `{status}`"
-            if threshold_days is not None:
-                reason += f" for at least {threshold_days} days"
+            if age is not None:
+                reason += f"; {timestamp_label} {age} days ago"
             if tracking_code:
                 reason += f" (tracking {tracking_code})"
             reason += "."

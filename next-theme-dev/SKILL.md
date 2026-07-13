@@ -17,6 +17,7 @@ allowed-tools:
   - Edit
   - Grep
   - Glob
+  - AskUserQuestion
 ---
 
 # Next Commerce Theme Development
@@ -46,7 +47,7 @@ Run these checks at the start of every theme task to understand the working cont
 
 ```bash
 # Check ntk installation
-which ntk 2>/dev/null && ntk --version || echo "ntk not installed — install via: pip install next-theme-kit"
+if command -v ntk >/dev/null 2>&1; then command -v ntk; python3 -m pip show next-theme-kit 2>/dev/null || echo "Package metadata unavailable (common with pipx/uv installs); ntk command is installed."; else echo "ntk not installed — install via pip, pipx, or uv"; fi
 
 # Check Python
 python3 --version 2>/dev/null || python --version 2>/dev/null || echo "Python not found"
@@ -224,9 +225,18 @@ Tailwind scans source files at build time to determine which classes to include.
 
 The platform processes all theme files through the DTL engine, including `.js` files. Non-ASCII characters (curly quotes, em dashes, emoji) in JS files cause encoding errors. Stick to plain ASCII in all JavaScript.
 
+### Live Theme Mutation Approval Gate
+
+`ntk push` and `ntk watch` both mutate the live store theme. Before running either
+command, use `AskUserQuestion` to show the operator the exact store, theme, and
+files or watch scope, then obtain explicit confirmation. Do not push or start a
+watch session without that confirmation; approval for one command or watch
+session does not authorize a later one.
+
 ### ntk Push: Only Changed Files
 
-Always push specific files, never the entire theme:
+After the operator confirms the live mutation, push specific files, never the
+entire theme:
 ```bash
 # Good
 ntk push templates/index.html
@@ -493,12 +503,16 @@ Use a small JSON manifest when a design export has more than a few files or when
 
 The helper script at `scripts/validate-theme-assets.py` validates manifest paths, dimensions, alpha requirements, max file size, naming, expected `asset_url` paths, and explicit clean-export confirmations:
 
+Pillow is required when the manifest contains PNG, JPEG, GIF, ICO, or WebP
+assets. SVG-only manifests can be validated without Pillow.
+
 ```bash
 cd /path/to/skills/next-theme-dev
 python3 -m pip install Pillow
 python3 scripts/validate-theme-assets.py \
   --theme /path/to/theme \
-  --manifest docs/<merchant>-asset-manifest.json
+  --manifest docs/<merchant>-asset-manifest.json \
+  --strict
 ```
 
 The script cannot OCR an image or prove a badge is absent. It makes that limitation explicit by requiring `clean_export_verified: true` when `forbid_badges` or `forbid_baked_text` is set.
@@ -951,7 +965,8 @@ Spark uses the Tailwind v4 standalone CLI with no Node dependency. In Spark, pre
 ```bash
 make install-tailwind   # One-time local binary install
 ntk watch               # Watch templates/CSS, compile Tailwind, run sass-compat, push
-ntk tailwind            # One-shot Tailwind compile + sass-compat + CSS push
+make css                # One-shot Tailwind compile + sass-compat
+ntk push assets/main.css # Push the compiled CSS artifact
 make release            # Compile, run sass-compat, and stage assets/main.css
 ```
 
