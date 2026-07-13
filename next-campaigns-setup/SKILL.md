@@ -201,7 +201,7 @@ If the user supplied a CampaignSpec, pre-fill from:
 
 **Required:**
 - **API key** — the Campaign Cart API key for this store
-- **Store name** — short display name (e.g. "Winter Gloves Co")
+- **Store name** — short display name (e.g. "Example Store")
 - **Store URL** — the main store domain (e.g. `https://example-store.com`)
 
 **Recommended but optional:**
@@ -226,7 +226,7 @@ Do not make the user guess through a wall of tracking surfaces. Ask for GTM/Face
 Read `<CPK_ROOT>/[brand-name]/src/[campaign-slug]/assets/config.js`. Make these changes:
 
 1. **`apiKey`** — replace the placeholder value with the provided API key
-2. **`storeName`** — replace with a lowercase-hyphenated slug derived from the store name (e.g. "Winter Gloves Co" → `'winter-gloves-co'`). This is an analytics identifier, not a display name.
+2. **`storeName`** — replace with a lowercase-hyphenated slug derived from the store name (e.g. "Example Store" → `'example-store'`). This is an analytics identifier, not a display name.
 3. **GTM** (only if a real ID is provided):
    - Set `gtm.enabled` to `true`
    - Set `gtm.settings.containerId` to the provided ID

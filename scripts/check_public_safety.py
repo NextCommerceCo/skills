@@ -4,17 +4,24 @@
 from __future__ import annotations
 
 import argparse
+import html
 import math
+import os
 import re
+import stat
 import subprocess
 import sys
+import urllib.parse
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
 
 
-TEXT_EXTENSIONS = {".md", ".py", ".js", ".json", ".sh", ".yaml", ".yml"}
+BINARY_MEDIA_EXTENSIONS = frozenset(
+    {".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".woff", ".woff2", ".ttf", ".eot", ".zip", ".gz", ".pdf"}
+)
+BINARY_SNIFF_BYTES = 8192
 
 # Public NextCommerceCo repositories intentionally referenced by this catalog.
 ALLOWED_NEXTCOMMERCE_REPOS = {
@@ -23,18 +30,21 @@ ALLOWED_NEXTCOMMERCE_REPOS = {
     "campaigns-os",  # Public Campaigns OS package linked by catalog skills.
 }
 
-# Known customer or internal evidence names. Extend this set when a new token is
-# discovered; keep entries lowercase because matching is case-insensitive.
-BLOCKLIST = {"bareearth", "ecommops", "dlx", "wintergloves", "oscar-prime"}  # public-safety: allow customer-token private-repo
+# Rule IDs that may be named in a per-line suppression. Invalid names emit the
+# separate, unsuppressible unknown-suppression rule.
+SUPPRESSIBLE_RULE_IDS = frozenset(
+    {"private-repo", "customer-token", "credential", "high-entropy", "email-pii", "phone-pii"}
+)
 
 # Exact long values known to be harmless may be added here with a reason. Prefer
 # fixing or suppressing the source line instead of broadly exempting patterns.
 ALLOWED_HIGH_ENTROPY_TOKENS: set[str] = set()
 
 SUPPRESSION_RE = re.compile(
-    r"public-safety:\s*allow\s+([a-z0-9_-]+(?:[\s,]+[a-z0-9_-]+)*)",
+    r"public-safety:\s*allow\b(?:\s+([a-z0-9_-]+(?:\s+[a-z0-9_-]+)*))?",
     re.IGNORECASE,
 )
+ZERO_WIDTH_TRANSLATION = str.maketrans("", "", "\u200b\u200c\u200d\ufeff")
 NEXTCOMMERCE_REPO_RE = re.compile(
     r"(?:https?://github\.com/)?NextCommerceCo/([A-Za-z0-9_.-]+)", re.IGNORECASE
 )
@@ -45,12 +55,27 @@ PRIVATE_REFERENCE_RES = (
     re.compile(r"(?:^|[\s`'\"(])executive/", re.IGNORECASE),
     re.compile(r"\bSellmore-Co/", re.IGNORECASE),
 )
+CUSTOMER_TOKEN_RES = (
+    re.compile(r"\bbare[ _-]?earth\b", re.IGNORECASE),
+    re.compile(r"\becomm[ _-]?ops\b", re.IGNORECASE),
+    re.compile(r"\bwinter[ _-]?gloves\b", re.IGNORECASE),
+    re.compile(r"\boscar[ _-]?prime\b", re.IGNORECASE),
+    re.compile(r"\bdlx\b", re.IGNORECASE),
+)
 BEARER_RE = re.compile(r"\bBearer\s+([^\s\"'`]+)", re.IGNORECASE)
+AUTHORIZATION_TOKEN_RE = re.compile(
+    r"\bAuthorization\s*:\s*Token\s+([^\s\"'`]+)", re.IGNORECASE
+)
+API_KEY_HEADER_RE = re.compile(r"\b(?:X-)?Api-Key\s*:\s*([^\s\"'`]+)", re.IGNORECASE)
 CREDENTIAL_RES = (
     re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"),
     re.compile(r"\bghp_[A-Za-z0-9]{20,}"),
     re.compile(r"\bxoxb-[A-Za-z0-9-]{16,}"),
     re.compile(r"\bAKIA[A-Z0-9]{16}\b"),
+)
+JWT_RE = re.compile(
+    r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
+    r"(?![A-Za-z0-9_-])"
 )
 HIGH_ENTROPY_RE = re.compile(r"(?<![A-Za-z0-9_])[A-Za-z0-9_+/=-]{32,}(?![A-Za-z0-9_])")
 EMAIL_RE = re.compile(r"(?<![\w.+-])([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})(?![\w.-])", re.IGNORECASE)
@@ -70,11 +95,20 @@ class Hit:
         return f"{self.path}:{self.line}: [{self.rule_id}] {self.excerpt.strip()}"
 
 
-def suppressed_rules(line: str) -> set[str]:
-    match = SUPPRESSION_RE.search(line)
-    if not match:
-        return set()
-    return {part.lower() for part in re.split(r"[\s,]+", match.group(1)) if part}
+def suppressed_rules(line: str) -> tuple[set[str], bool]:
+    allowed: set[str] = set()
+    has_unknown = False
+    for match in SUPPRESSION_RE.finditer(line):
+        value = match.group(1)
+        if not value:
+            has_unknown = True
+            continue
+        for rule_id in value.lower().split():
+            if rule_id in SUPPRESSIBLE_RULE_IDS:
+                allowed.add(rule_id)
+            else:
+                has_unknown = True
+    return allowed, has_unknown
 
 
 def is_placeholder(value: str) -> bool:
@@ -98,6 +132,15 @@ def looks_high_entropy(value: str) -> bool:
         return False
     if re.fullmatch(r"[a-fA-F0-9]{32,}", value):
         return len(set(value.lower())) >= 8
+    entropy = shannon_entropy(value)
+    if len(value) >= 32 and re.fullmatch(r"[A-Za-z0-9+/]+={1,2}", value):
+        return entropy >= 3.5
+    if (
+        len(value) >= 40
+        and re.fullmatch(r"[A-Za-z0-9_-]+", value)
+        and re.search(r"[_-]", value)
+    ):
+        return entropy >= 4.0
     if "/" in value and "-" in value:
         return False
     classes = sum(
@@ -106,7 +149,7 @@ def looks_high_entropy(value: str) -> bool:
     )
     # Human-readable paths and slugs can be long and diverse, but opaque tokens
     # virtually always mix digits with letters (or are hex, handled above).
-    return bool(re.search(r"\d", value)) and classes >= 3 and shannon_entropy(value) >= 3.5
+    return bool(re.search(r"\d", value)) and classes >= 3 and entropy >= 3.5
 
 
 def is_example_phone(value: str) -> bool:
@@ -131,53 +174,72 @@ def looks_like_bearer_token(value: str) -> bool:
 
 def scan_text(text: str, path: str = "<text>") -> list[Hit]:
     hits: list[Hit] = []
-    in_fence = False
 
     for line_number, line in enumerate(text.splitlines(), 1):
-        stripped = line.lstrip()
-        fence_line = stripped.startswith("```") or stripped.startswith("~~~")
-        rules_allowed = suppressed_rules(line)
+        normalized = html.unescape(urllib.parse.unquote(line)).translate(ZERO_WIDTH_TRANSLATION)
+        variants = tuple(dict.fromkeys((line, normalized)))
+        rules_allowed: set[str] = set()
+        has_unknown_suppression = False
+        for variant in variants:
+            variant_rules, variant_has_unknown = suppressed_rules(variant)
+            rules_allowed.update(variant_rules)
+            has_unknown_suppression = has_unknown_suppression or variant_has_unknown
+
+        line_hits: set[str] = set()
 
         def add(rule_id: str) -> None:
-            if rule_id not in rules_allowed and "all" not in rules_allowed:
+            if rule_id not in rules_allowed and rule_id not in line_hits:
                 hits.append(Hit(path, line_number, rule_id, line))
+                line_hits.add(rule_id)
+
+        if has_unknown_suppression:
+            add("unknown-suppression")
 
         repo_hit = False
-        for match in NEXTCOMMERCE_REPO_RE.finditer(line):
-            repo_name = match.group(1).lower().rstrip(".").removesuffix(".git")
-            if repo_name not in ALLOWED_NEXTCOMMERCE_REPOS:
-                repo_hit = True
-        if repo_hit or any(pattern.search(line) for pattern in PRIVATE_REFERENCE_RES):
+        for variant in variants:
+            for match in NEXTCOMMERCE_REPO_RE.finditer(variant):
+                repo_name = match.group(1).lower().rstrip(".").removesuffix(".git")
+                if repo_name not in ALLOWED_NEXTCOMMERCE_REPOS:
+                    repo_hit = True
+        if repo_hit or any(pattern.search(variant) for variant in variants for pattern in PRIVATE_REFERENCE_RES):
             add("private-repo")
 
-        if any(re.search(rf"\b{re.escape(token)}\b", line, re.IGNORECASE) for token in BLOCKLIST):
+        if any(pattern.search(variant) for variant in variants for pattern in CUSTOMER_TOKEN_RES):
             add("customer-token")
 
-        credential_hit = any(pattern.search(line) for pattern in CREDENTIAL_RES)
-        for match in BEARER_RE.finditer(line):
-            if looks_like_bearer_token(match.group(1)):
-                credential_hit = True
+        credential_hit = any(pattern.search(variant) for variant in variants for pattern in CREDENTIAL_RES)
+        credential_hit = credential_hit or any(JWT_RE.search(variant) for variant in variants)
+        for variant in variants:
+            for pattern in (BEARER_RE, AUTHORIZATION_TOKEN_RE, API_KEY_HEADER_RE):
+                for match in pattern.finditer(variant):
+                    if looks_like_bearer_token(match.group(1)):
+                        credential_hit = True
         if credential_hit:
             add("credential")
 
-        if not in_fence and not fence_line:
-            if any(looks_high_entropy(match.group(0)) for match in HIGH_ENTROPY_RE.finditer(line)):
-                add("high-entropy")
+        if any(
+            looks_high_entropy(match.group(0))
+            for variant in variants
+            for match in HIGH_ENTROPY_RE.finditer(variant)
+        ):
+            add("high-entropy")
 
-            email_hit = False
-            for match in EMAIL_RE.finditer(line):
+        email_hit = False
+        for variant in variants:
+            for match in EMAIL_RE.finditer(variant):
                 address = match.group(1)
                 domain = address.rsplit("@", 1)[1].lower()
                 if domain not in EXAMPLE_EMAIL_DOMAINS and not is_placeholder(address):
                     email_hit = True
-            if email_hit:
-                add("email-pii")
+        if email_hit:
+            add("email-pii")
 
-            if any(looks_like_phone(match.group(0)) for match in PHONE_RE.finditer(line)):
-                add("phone-pii")
-
-        if fence_line:
-            in_fence = not in_fence
+        if any(
+            looks_like_phone(match.group(0))
+            for variant in variants
+            for match in PHONE_RE.finditer(variant)
+        ):
+            add("phone-pii")
 
     return hits
 
@@ -195,8 +257,9 @@ def tracked_text_files(root: Path) -> list[Path]:
         if not raw_path:
             continue
         relative = Path(raw_path.decode("utf-8", errors="surrogateescape"))
-        if relative.suffix.lower() in TEXT_EXTENSIONS and ".git" not in relative.parts:
-            paths.append(relative)
+        if ".git" in relative.parts or relative.suffix.lower() in BINARY_MEDIA_EXTENSIONS:
+            continue
+        paths.append(relative)
     return sorted(paths, key=lambda path: path.as_posix())
 
 
@@ -204,11 +267,25 @@ def scan_repository(root: Path) -> list[Hit]:
     hits: list[Hit] = []
     for relative in tracked_text_files(root):
         full_path = root / relative
+        display_path = relative.as_posix()
         try:
-            text = full_path.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
+            mode = full_path.lstat().st_mode
+            if stat.S_ISLNK(mode):
+                hits.extend(scan_text(os.readlink(full_path), display_path))
+                continue
+            data = full_path.read_bytes()
+        except OSError as error:
+            hits.append(Hit(display_path, 0, "unreadable", f"unable to read tracked file: {type(error).__name__}"))
             continue
-        hits.extend(scan_text(text, relative.as_posix()))
+
+        if b"\0" in data[:BINARY_SNIFF_BYTES]:
+            continue
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError as error:
+            hits.append(Hit(display_path, 0, "unreadable", f"unable to read tracked file: {type(error).__name__}"))
+            continue
+        hits.extend(scan_text(text, display_path))
     return hits
 
 
@@ -226,6 +303,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except subprocess.CalledProcessError as error:
         message = error.stderr.decode("utf-8", errors="replace").strip()
         print(f"public-safety: unable to list tracked files: {message}", file=sys.stderr)
+        return 2
+    except OSError as error:
+        print(f"public-safety: unable to list tracked files: {error}", file=sys.stderr)
         return 2
 
     for hit in hits:
