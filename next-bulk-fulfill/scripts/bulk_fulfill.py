@@ -191,8 +191,8 @@ class BulkFulfiller:
                     identities.append(fo["order_number"])
                 nested = fo.get("order")
                 if isinstance(nested, dict):
-                    identities.extend(nested[key] for key in ("number", "id")
-                                      if nested.get(key) not in (None, ""))
+                    if nested.get("number") not in (None, ""):
+                        identities.append(nested["number"])
                 if not identities or any(str(value).strip() != order for value in identities):
                     raise MalformedResponse(
                         "fulfillment order does not match requested order"

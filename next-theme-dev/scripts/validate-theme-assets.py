@@ -57,12 +57,14 @@ CANONICAL_REQUIRED_ASSET_FIELDS = (
     "requires_alpha",
     "clean_export_verified",
 )
+# Required non-empty strings. `alt` is required to be present and a string but
+# may be empty: an empty alt is the correct value for a decorative asset.
 CANONICAL_REQUIRED_STRING_FIELDS = {
     "asset_url_path",
     "role",
-    "alt",
     "format",
 }
+CANONICAL_ALLOW_EMPTY_STRING_FIELDS = {"alt"}
 
 
 class ImageInfo:
@@ -415,7 +417,9 @@ def validate_asset(
         for field in CANONICAL_REQUIRED_ASSET_FIELDS
         if (field not in entry or entry[field] is None or
             (field in CANONICAL_REQUIRED_STRING_FIELDS and
-             (not isinstance(entry[field], str) or not entry[field].strip())))
+             (not isinstance(entry[field], str) or not entry[field].strip())) or
+            (field in CANONICAL_ALLOW_EMPTY_STRING_FIELDS and
+             not isinstance(entry[field], str)))
         if not (field == "requires_alpha" and suffix == ".svg")
     ]
     destination = errors if strict else warnings

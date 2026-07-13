@@ -27,7 +27,7 @@ class AssetContractTest(unittest.TestCase):
         return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
 
     def run_downstream_asset(self, temp, filename, declared_format, *, requires_alpha=None,
-                             contents=None):
+                             contents=None, alt="Example icon"):
         theme = temp / "theme"
         asset = theme / "assets" / "img" / "example-store" / filename
         asset.parent.mkdir(parents=True)
@@ -39,7 +39,7 @@ class AssetContractTest(unittest.TestCase):
             "asset_url_path": f"img/example-store/{filename}",
             "figma_node_id": "30:1",
             "role": "icon",
-            "alt": "Example icon",
+            "alt": alt,
             "format": declared_format,
             "expected_width": 1,
             "expected_height": 1,
@@ -72,6 +72,11 @@ class AssetContractTest(unittest.TestCase):
                 self.assertNotIn("target_path", fixture["assets"]["assets"][0])
                 self.assertNotIn("source_node_id", fixture["assets"]["assets"][0])
                 self.assertNotIn("expected_dimensions", fixture["assets"]["assets"][0])
+
+    def test_downstream_strict_allows_empty_alt_for_decorative_asset(self):
+        with tempfile.TemporaryDirectory() as temp:
+            result = self.run_downstream_asset(Path(temp), "hero.svg", "svg", alt="")
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
 
     def test_downstream_strict_rejects_missing_canonical_fields(self):
         with tempfile.TemporaryDirectory() as temp:

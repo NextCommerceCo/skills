@@ -171,6 +171,15 @@ class BulkFulfillTests(unittest.TestCase):
                 self.assertEqual("MALFORMED_RESPONSE", rows[0].action)
                 self.assertEqual([], client.calls)
 
+    def test_nested_order_id_differs_from_number_still_matches(self):
+        fo = {"id": "fo-1", "order_number": "1001", "status": "processing",
+              "order": {"id": 42, "number": "1001"}}
+        client = FakeClient(); client.list_fulfillment_orders = lambda _order: [fo]
+        rows, _ = self.run_bulk(client, [{"order_number": "1001",
+                                          "tracking_code": "T1", "carrier": "ups"}])
+        self.assertEqual("FULFILLED", rows[0].action)
+        self.assertEqual(1, len(client.calls))
+
     def test_empty_order_number_is_error_without_lookup(self):
         client = mock.MagicMock()
         rows, _ = self.run_bulk(client, [{"order_number": "   ",
