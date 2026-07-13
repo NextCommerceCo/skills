@@ -202,6 +202,19 @@ class BulkFulfillTests(unittest.TestCase):
         self.assertEqual("error", rows[0].status)
         self.assertEqual([], client.calls)
 
+    def test_short_row_missing_tracking_cell_is_missing_not_literal_none(self):
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        source = Path(td.name) / "input.csv"
+        # A short row: header has 3 columns, the data row supplies only the
+        # order number, so DictReader returns None for the tracking cell.
+        source.write_text("order_number,tracking_code,carrier\n1\n", encoding="utf-8")
+        parsed = bulk.read_rows(source)
+        self.assertEqual("", parsed[0]["tracking_code"])  # not the string "None"
+        client = FakeClient()
+        rows, _ = self.run_bulk(client, parsed)
+        self.assertEqual("MISSING_TRACKING", rows[0].action)
+        self.assertEqual([], client.calls)
+
     def test_empty_tracking_cell_is_retained_and_flagged(self):
         td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
         source = Path(td.name) / "input.csv"

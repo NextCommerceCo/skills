@@ -279,10 +279,13 @@ def read_rows(path: Path) -> list[dict[str, str]]:
         carrier_key = normalized.get("carrier")
         if not order_key or not tracking_key:
             raise ValueError("input CSV requires order_number and tracking_code columns")
-        return [{"order_number": str(row.get(order_key, "")).strip(),
-                 "tracking_code": str(row.get(tracking_key, "")).strip(),
-                 "carrier": str(row.get(carrier_key, "")).strip() if carrier_key else ""}
-                for row in reader if str(row.get(order_key, "")).strip()]
+        # csv.DictReader yields None for cells absent from a short row; coalesce
+        # to "" so an absent tracking cell becomes MISSING_TRACKING, never the
+        # literal string "None".
+        return [{"order_number": str(row.get(order_key) or "").strip(),
+                 "tracking_code": str(row.get(tracking_key) or "").strip(),
+                 "carrier": (str(row.get(carrier_key) or "").strip() if carrier_key else "")}
+                for row in reader if str(row.get(order_key) or "").strip()]
 
 
 def resume_completed(path: Path | None) -> ResumeState:

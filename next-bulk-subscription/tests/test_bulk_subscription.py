@@ -23,7 +23,10 @@ class FakeClient:
         self.calls.append((method, endpoint, payload))
         sid = endpoint.split("/")[1]
         if sid in self.failures: raise urllib.error.HTTPError("url", 422, "bad", {}, None)
-        return {"shipping_address": {"line1": "Secret St"}, "card_last4": "4242"}
+        # Confirming response: echoes the subscription id and applied fields,
+        # plus PII the results CSV must still redact.
+        return {"id": sid, **payload,
+                "shipping_address": {"line1": "Secret St"}, "card_last4": "4242"}
 
 
 class BulkSubscriptionTests(unittest.TestCase):
@@ -198,6 +201,29 @@ class BulkSubscriptionTests(unittest.TestCase):
         ])
         self.assertEqual(2, len(client.calls))
         self.assertEqual(["success", "success"], [row.status for row in rows])
+
+
+    def test_unconfirmed_response_is_not_recorded_as_success(self):
+        class NonConfirmingClient(FakeClient):
+            def mutate(self, method, endpoint, payload):
+                self.calls.append((method, endpoint, payload))
+                return {}  # 2xx but no identity/effect confirmation
+        client = NonConfirmingClient()
+        rows, _ = self.run_bulk(client, [{"subscription_id": "s1", "pause_until": "2026-08-01"}])
+        self.assertEqual(1, len(client.calls))
+        self.assertEqual("error", rows[0].status)
+        self.assertEqual("NEEDS_VERIFICATION", rows[0].error_code)
+
+    def test_response_with_wrong_field_value_is_not_success(self):
+        class WrongValueClient(FakeClient):
+            def mutate(self, method, endpoint, payload):
+                self.calls.append((method, endpoint, payload))
+                sid = endpoint.split("/")[1]
+                return {"id": sid, "pause_until": "1999-01-01"}  # not what we asked
+        client = WrongValueClient()
+        rows, _ = self.run_bulk(client, [{"subscription_id": "s1", "pause_until": "2026-08-01"}])
+        self.assertEqual("error", rows[0].status)
+        self.assertEqual("NEEDS_VERIFICATION", rows[0].error_code)
 
 
 if __name__ == "__main__": unittest.main()

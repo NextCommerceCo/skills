@@ -107,6 +107,33 @@ def fingerprint(payload: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def verify_mutation(resp: Any, sid: str, payload: dict[str, Any]) -> tuple[bool, str]:
+    """Confirm a 2xx mutation actually applied before recording success.
+
+    A subscription endpoint can return 2xx yet ignore a field, apply a different
+    value, or hand back an unrelated/malformed object. Recording such a row as
+    success (terminal for --resume) would silently leave subscriptions unchanged,
+    so require the response to confirm the subscription identity and any requested
+    fields it echoes back.
+    """
+    if not isinstance(resp, dict):
+        return False, "mutation response was not an object"
+    subject = resp
+    if resp.get("id") is None and resp.get("subscription_id") is None:
+        nested = resp.get("subscription")
+        if isinstance(nested, dict):
+            subject = nested
+    returned_id = subject.get("id", subject.get("subscription_id"))
+    if returned_id is None:
+        return False, "response did not include a subscription identity to confirm"
+    if str(returned_id) != str(sid):
+        return False, f"response identity {returned_id} does not match requested {sid}"
+    for field, want in payload.items():
+        if field in subject and str(subject[field]) != str(want):
+            return False, f"field {field} was not applied as requested"
+    return True, ""
+
+
 def csv_payload_value(raw: Any) -> Any:
     value = str(raw).strip()
     try:
@@ -148,9 +175,16 @@ class BulkSubscription:
                     base.subscription_id, base.order_id, base.customer_id,
                     base.action, base.payload_fingerprint, "attempted",
                 ))
-            self.client.mutate(self.method, self.endpoint.format(id=urllib.parse.quote(sid, safe="")),
-                               payload)
-            base.status = "success"
+            resp = self.client.mutate(
+                self.method, self.endpoint.format(id=urllib.parse.quote(sid, safe="")),
+                payload)
+            ok, reason = verify_mutation(resp, sid, payload)
+            if ok:
+                base.status = "success"
+            else:
+                base.status = "error"
+                base.error_code = "NEEDS_VERIFICATION"
+                base.error_message = reason
         except Exception as exc:
             code = getattr(exc, "code", None)
             base.status = "error"
