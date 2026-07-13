@@ -106,6 +106,15 @@ class BulkSubscriptionTests(unittest.TestCase):
                                 action="pause", payload={})
         self.assertEqual("NEEDS_VERIFICATION", rows[0].error_code)
 
+    def test_pause_with_date_not_echoed_is_needs_verification(self):
+        class NoDateClient(FakeClient):
+            def mutate(self, method, endpoint, payload):
+                self.calls.append((method, endpoint, payload))
+                return {"id": endpoint.strip("/").split("/")[1], "status": "paused"}
+        rows, _ = self.run_bulk(NoDateClient(), [{"subscription_id": "s1"}],
+                                action="pause", payload={"pause_until": "2026-08-01"})
+        self.assertEqual("NEEDS_VERIFICATION", rows[0].error_code)
+
     def test_non_allowlisted_action_refused(self):
         with self.assertRaisesRegex(ValueError, "not allowlisted"):
             bulk.BulkSubscription(FakeClient(), "delete", {}, execute=True)

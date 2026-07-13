@@ -141,14 +141,15 @@ def verify_fulfillment(resp: Any, fulfillment_id: str, tracking: str) -> bool:
             for nested in value:
                 yield from tracking_values(nested)
 
+    # Require fulfillment-specific proof: the exact tracking value in a recognized
+    # tracking field, or a distinct created-fulfillment id. Echoing the source
+    # fulfillment-order id alone does not prove a fulfillment was created.
     if tracking and any(str(value) == tracking for value in tracking_values(resp)):
         return True
-    for key in ("fulfillment_order", "fulfillment_order_id", "id"):
-        value = resp.get(key)
-        if isinstance(value, dict):
-            value = value.get("id")
-        if value not in (None, "") and str(value) == str(fulfillment_id):
-            return True
+    created = resp.get("fulfillment") if isinstance(resp.get("fulfillment"), dict) else None
+    created_id = (created or {}).get("id") if created else resp.get("fulfillment_id")
+    if created_id not in (None, "") and str(created_id) != str(fulfillment_id):
+        return True
     return False
 
 

@@ -177,10 +177,13 @@ def verify_mutation(resp: Any, sid: str, payload: dict[str, Any],
     if isinstance(nested, dict) and nested is not subject:
         views.append(nested)
 
-    # For update, every requested field must be present and equal.
+    # For update every requested field must be present and equal; for pause a
+    # requested pause_until must be echoed and equal (a bare paused status does
+    # not prove the requested resume date was applied).
+    require_present = {"update": set(payload), "pause": {"pause_until"} & set(payload)}
     for field, want in payload.items():
-        if action == "update" and field not in subject:
-            return False, f"update response did not confirm field {field}"
+        if field in require_present.get(action, set()) and field not in subject:
+            return False, f"{action} response did not confirm field {field}"
         echoed = [view[field] for view in views if field in view]
         if any(str(value) != str(want) for value in echoed):
             return False, f"field {field} was not applied as requested"
@@ -202,11 +205,9 @@ def verify_mutation(resp: Any, sid: str, payload: dict[str, Any],
             return False, f"{action} response reported a contradictory state {sorted(normalized)}"
         if normalized & expected[action]:
             return True, ""
-        if action == "renew":
-            renewal_dates = [view.get("next_renewal_date") for view in views
-                             if "next_renewal_date" in view]
-            if renewal_dates and all(v not in (None, "") for v in renewal_dates):
-                return True, ""
+        # renew/retry trigger a transaction whose outcome a synchronous response
+        # may not fully prove; require at least an active/renewed status signal
+        # (above) rather than accepting an unchanged date or bare identity.
         return False, f"{action} response did not confirm the expected state"
     return True, ""
 

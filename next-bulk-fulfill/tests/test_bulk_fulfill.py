@@ -146,6 +146,17 @@ class BulkFulfillTests(unittest.TestCase):
         self.assertEqual("CANCELLATION_IN_PROGRESS", rows[0].action)
         self.assertEqual("error", rows[0].status)
 
+    def test_source_fo_id_echo_without_tracking_is_needs_verification(self):
+        class IdEchoClient(FakeClient):
+            def fulfill(self, fid, tracking, carrier, notify=True):
+                self.calls.append((fid, tracking, carrier, notify))
+                return {"id": fid}  # echoes source FO id, no tracking / created id
+        client = IdEchoClient()
+        rows, _ = self.run_bulk(client, [{"order_number": "1", "tracking_code": "T1",
+                                          "carrier": "ups"}])
+        self.assertEqual("NEEDS_VERIFICATION", rows[0].action)
+        self.assertEqual("error", rows[0].status)
+
     def test_partial_failure_continues(self):
         client = FakeClient({"fo-2"}); rows, _ = self.run_bulk(client, [{"order_number": str(n), "tracking_code": f"T{n}", "carrier": "ups"} for n in (1, 2, 3)])
         self.assertEqual(3, len(client.calls)); self.assertEqual(["success", "error", "success"], [r.status for r in rows])
