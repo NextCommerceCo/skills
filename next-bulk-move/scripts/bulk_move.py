@@ -364,6 +364,17 @@ def resume_completed(path: Path | None) -> set[str]:
     if path is None or not path.exists():
         return set()
     with path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.reader(handle)
+        header = next(reader, [])
+        if header and header != FIELDS:
+            # Fail closed: another tool's CSV (e.g. bulk-fulfill) shares some
+            # column names, so a foreign header could mark orders "completed" and
+            # silently skip intended moves.
+            raise ValueError(
+                f"resume journal {path} has an incompatible header; "
+                "point --resume at a bulk-move results file or omit it"
+            )
+        handle.seek(0)
         return {
             row["order_number"] for row in csv.DictReader(handle)
             if row.get("status") in COMPLETED_STATUSES
@@ -411,7 +422,10 @@ def main(argv: list[str] | None = None) -> int:
     mover = BulkMover(client, args.source, args.destination,
                       execute=args.execute, poll_attempts=args.poll_attempts,
                       poll_delay=args.poll_delay, order_delay=args.order_delay)
-    rows = mover.run(read_orders(args.input), args.results, resume_completed(args.resume))
+    try:
+        rows = mover.run(read_orders(args.input), args.results, resume_completed(args.resume))
+    except (ValueError, OSError) as exc:
+        print(str(exc), file=sys.stderr); return 2
     return 1 if any(row.status == "error" for row in rows) else 0
 
 

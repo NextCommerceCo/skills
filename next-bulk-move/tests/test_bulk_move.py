@@ -119,6 +119,15 @@ class BulkMoveTests(unittest.TestCase):
         self.assertEqual("skipped", rows[0].status)
         self.assertIn("1001", bulk_move.resume_completed(output))
 
+    def test_resume_foreign_header_fails_closed(self):
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        stale = Path(td.name) / "foreign.csv"
+        # A bulk-fulfill-style CSV shares order_number/action/status columns.
+        stale.write_text("order_number,fulfillment_id,tracking_code,carrier,action,status\n"
+                         "1001,f1,T1,ups,FULFILLED,success\n", encoding="utf-8")
+        with self.assertRaises(ValueError):
+            bulk_move.resume_completed(stale)
+
     def test_each_order_is_listed_only_once_without_location_preflight(self):
         client = FakeClient({"1001": [fo(1, 1001, actions=["move"])]})
         self.run_mover(client, ["1001"])
