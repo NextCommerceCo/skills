@@ -212,6 +212,23 @@ class BulkMoveTests(unittest.TestCase):
         self.assertEqual("NEEDS_VERIFICATION", rows[0].action)
         self.assertEqual("error", rows[0].status)
 
+    def test_cancellation_never_observed_pending_is_unconfirmed_and_blocked(self):
+        # We issue the cancellation but every poll still returns request_status
+        # None (propagation lag): the POST outcome is unknown, so the run must
+        # record CANCEL_UNCONFIRMED and a resume must stay blocked, not re-POST.
+        processing = fo(1, 1001, "processing", actions=[], request_status=None)
+        client = FakeClient({"1001": [processing]},
+                            {1: [processing, processing, processing]})
+        rows, output = self.run_mover(client, ["1001"])
+        self.assertEqual(["1"], client.cancels)  # one cancellation this run
+        self.assertEqual("CANCEL_UNCONFIRMED", rows[0].action)
+        state = bulk_move.resume_completed(output)
+        self.assertIn("1001", state.needs_verification)
+        resumed = FakeClient({"1001": [processing]}, {1: [processing]})
+        rows2, _ = self.run_mover(resumed, ["1001"], resume=output)
+        self.assertEqual([], resumed.cancels)  # no duplicate cancellation
+        self.assertEqual("NEEDS_VERIFICATION", rows2[0].action)
+
     def test_resume_pending_outcome_is_retried_not_blocked(self):
         # A journal ending in ATTEMPTED then CANCEL_PENDING is a state-confirmed
         # pending outcome (cancellation in flight), not an uncertain mutation, so

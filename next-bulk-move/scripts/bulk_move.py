@@ -355,6 +355,11 @@ class BulkMover:
                 if not self.execute:
                     return Result(order, fid, action="WOULD_CANCEL+MOVE", status="skipped", destination=str(self.destination))
                 latest = fo
+                issued_cancellation = False
+                # A non-null request_status is durable evidence the cancellation is
+                # in flight; a resumed run will see it and skip re-POSTing.
+                observed_pending = fo.get("request_status") not in (
+                    None, "", "cancel_accepted", "cancel_rejected", "cancellation_rejected")
                 if fo.get("request_status") is None:
                     latest = self._validated_fo(self.client.get_fo(fid), order, fid)
                     if assigned_id(latest) != self.source:
@@ -364,6 +369,8 @@ class BulkMover:
                     if fresh_request_status in {"cancel_rejected", "cancellation_rejected"}:
                         return Result(order, fid, action="CANCEL_REJECTED", status="error",
                                       destination=str(self.destination))
+                    if fresh_request_status not in (None, "", "cancel_accepted"):
+                        observed_pending = True
                     if latest.get("status") == "processing" and fresh_request_status is None:
                         availability = self._destination_availability(latest)
                         if availability is not True:
@@ -377,6 +384,7 @@ class BulkMover:
                                 destination=str(self.destination),
                             ))
                         self.client.request_cancellation(fid)
+                        issued_cancellation = True
                 for attempt in range(self.poll_attempts):
                     latest = self._validated_fo(self.client.get_fo(fid), order, fid)
                     request_status = latest.get("request_status")
@@ -388,8 +396,17 @@ class BulkMover:
                         if attempt + 1 == self.poll_attempts:
                             return Result(order, fid, action="MOVE_PENDING", status="error",
                                           destination=str(self.destination))
+                    elif request_status not in (None, ""):
+                        observed_pending = True
                     if attempt + 1 < self.poll_attempts:
                         self.sleep(self.poll_delay)
+                # If we issued the cancellation this run but never saw a non-null
+                # status, the POST outcome is unknown: a resumed run would see None
+                # and re-POST. Keep it blocked as uncertain. Otherwise the pending
+                # state is observed and safe to reprocess.
+                if issued_cancellation and not observed_pending:
+                    return Result(order, fid, action="CANCEL_UNCONFIRMED", status="error",
+                                  destination=str(self.destination))
                 return Result(order, fid, action="CANCEL_PENDING", status="error", destination=str(self.destination))
             return Result(order, fid, action=f"SKIPPED_{state.upper() or 'UNKNOWN'}", status="skipped", destination=str(self.destination))
         except MalformedResponse:
@@ -539,7 +556,7 @@ def resume_completed(path: Path | None) -> ResumeState:
                 # request) or the move was never issued. Safe to reprocess, so clear
                 # any attempt marker rather than blocking on NEEDS_VERIFICATION.
                 attempted.discard(order)
-            elif action in {"ATTEMPTED", "NEEDS_VERIFICATION"}:
+            elif action in {"ATTEMPTED", "NEEDS_VERIFICATION", "CANCEL_UNCONFIRMED"}:
                 attempted.add(order)
     return ResumeState(completed, needs_verification=attempted)
 
