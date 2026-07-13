@@ -217,6 +217,27 @@ class BulkSubscriptionTests(unittest.TestCase):
         key = ("s1", "pause", bulk.fingerprint({"pause_until": "2026-08-01"}))
         self.assertIn(key, state)
 
+    def test_incompatible_results_header_fails_closed(self):
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        output = Path(td.name) / "results.csv"
+        output.write_text("some,foreign,header\n1,2,3\n", encoding="utf-8")
+        worker = bulk.BulkSubscription(FakeClient(), "pause", {"pause_until": "2026-08-01"},
+                                       execute=True, row_delay=0, sleep=lambda _: None)
+        with self.assertRaises(ValueError):
+            worker.run([{"subscription_id": "s1", "pause_until": "2026-08-01"}], output)
+
+    def test_update_response_missing_requested_field_is_not_success(self):
+        class OmitsFieldClient(FakeClient):
+            def mutate(self, method, endpoint, payload):
+                self.calls.append((method, endpoint, payload))
+                sid = endpoint.split("/")[1]
+                return {"id": sid}  # 2xx, right id, but no confirmation of the field
+        client = OmitsFieldClient()
+        rows, _ = self.run_bulk(client, [{"subscription_id": "s1", "interval": "monthly"}],
+                                action="update", payload={})
+        self.assertEqual("error", rows[0].status)
+        self.assertEqual("NEEDS_VERIFICATION", rows[0].error_code)
+
     def test_unconfirmed_response_is_not_recorded_as_success(self):
         class NonConfirmingClient(FakeClient):
             def mutate(self, method, endpoint, payload):

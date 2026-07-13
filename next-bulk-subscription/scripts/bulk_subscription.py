@@ -131,14 +131,17 @@ def fingerprint(payload: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def verify_mutation(resp: Any, sid: str, payload: dict[str, Any]) -> tuple[bool, str]:
+def verify_mutation(resp: Any, sid: str, payload: dict[str, Any],
+                    action: str) -> tuple[bool, str]:
     """Confirm a 2xx mutation actually applied before recording success.
 
     A subscription endpoint can return 2xx yet ignore a field, apply a different
     value, or hand back an unrelated/malformed object. Recording such a row as
     success (terminal for --resume) would silently leave subscriptions unchanged,
-    so require the response to confirm the subscription identity and any requested
-    fields it echoes back.
+    so require the response to confirm the subscription identity. For `update`
+    (the field-writing PATCH), every requested field must be present in the
+    response and equal to what we asked; for other actions, any echoed field
+    that disagrees with the request is also a failure.
     """
     if not isinstance(resp, dict):
         return False, "mutation response was not an object"
@@ -153,6 +156,8 @@ def verify_mutation(resp: Any, sid: str, payload: dict[str, Any]) -> tuple[bool,
     if str(returned_id) != str(sid):
         return False, f"response identity {returned_id} does not match requested {sid}"
     for field, want in payload.items():
+        if action == "update" and field not in subject:
+            return False, f"update response did not confirm field {field}"
         if field in subject and str(subject[field]) != str(want):
             return False, f"field {field} was not applied as requested"
     return True, ""
@@ -202,7 +207,7 @@ class BulkSubscription:
             resp = self.client.mutate(
                 self.method, self.endpoint.format(id=urllib.parse.quote(sid, safe="")),
                 payload)
-            ok, reason = verify_mutation(resp, sid, payload)
+            ok, reason = verify_mutation(resp, sid, payload, self.action)
             if ok:
                 base.status = "success"
             else:
@@ -223,6 +228,17 @@ class BulkSubscription:
         encountered: set[tuple[str, str, str]] = set()
         output.parent.mkdir(parents=True, exist_ok=True)
         new_file = not output.exists() or output.stat().st_size == 0
+        if not new_file:
+            # Fail closed: an existing journal with a foreign/older header can't be
+            # parsed by resume_state, so appending to it would silently lose the
+            # at-most-once guarantee for renew/retry.
+            with output.open(newline="", encoding="utf-8") as existing:
+                header = next(csv.reader(existing), [])
+            if header != FIELDS:
+                raise ValueError(
+                    f"results file {output} has an incompatible header; "
+                    "use a fresh --results path or the matching journal"
+                )
         results = []
         with output.open("a", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=FIELDS)
@@ -339,7 +355,10 @@ def main(argv: list[str] | None = None) -> int:
         rows = read_rows(args.input)
     except (ValueError, OSError, json.JSONDecodeError) as exc: parser().error(str(exc))
     rows = rows[:args.limit] if args.limit is not None else rows
-    results = worker.run(rows, args.results, resume_state(args.resume, args.results))
+    try:
+        results = worker.run(rows, args.results, resume_state(args.resume, args.results))
+    except (ValueError, OSError) as exc:
+        print(str(exc), file=sys.stderr); return 2
     return 1 if any(row.status == "error" for row in results) else 0
 
 

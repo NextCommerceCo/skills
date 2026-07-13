@@ -171,6 +171,14 @@ class BulkFulfillTests(unittest.TestCase):
                 self.assertEqual("MALFORMED_RESPONSE", rows[0].action)
                 self.assertEqual([], client.calls)
 
+    def test_incompatible_results_header_fails_closed(self):
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        output = Path(td.name) / "results.csv"
+        output.write_text("foreign,header\n1,2\n", encoding="utf-8")
+        worker = bulk.BulkFulfiller(FakeClient(), execute=True, row_delay=0, sleep=lambda _: None)
+        with self.assertRaises(ValueError):
+            worker.run([{"order_number": "1", "tracking_code": "T1", "carrier": "ups"}], output)
+
     def test_resume_state_merges_active_results_journal(self):
         td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
         active = Path(td.name) / "results.csv"

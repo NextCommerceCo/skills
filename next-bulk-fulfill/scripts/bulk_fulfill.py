@@ -228,6 +228,16 @@ class BulkFulfiller:
         in_run_encountered: set[tuple[str, str]] = set()
         output.parent.mkdir(parents=True, exist_ok=True)
         new_file = not output.exists() or output.stat().st_size == 0
+        if not new_file:
+            # Fail closed on a foreign/older journal header so appending can't
+            # silently lose the at-most-once guarantee for fulfillment POSTs.
+            with output.open(newline="", encoding="utf-8") as existing:
+                header = next(csv.reader(existing), [])
+            if header != FIELDS:
+                raise ValueError(
+                    f"results file {output} has an incompatible header; "
+                    "use a fresh --results path or the matching journal"
+                )
         results = []
         with output.open("a", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=FIELDS)
@@ -365,9 +375,13 @@ def main(argv: list[str] | None = None) -> int:
     except (ValueError, OSError, json.JSONDecodeError) as exc:
         parser().error(str(exc))
     rows = rows[:args.limit] if args.limit is not None else rows
-    results = BulkFulfiller(client, execute=args.execute, notify=not args.no_notify,
-                            carrier_map=carrier_map).run(rows, args.results,
-                                                         resume_state(args.resume, args.results))
+    try:
+        results = BulkFulfiller(client, execute=args.execute, notify=not args.no_notify,
+                                carrier_map=carrier_map).run(
+                                    rows, args.results,
+                                    resume_state(args.resume, args.results))
+    except (ValueError, OSError) as exc:
+        print(str(exc), file=sys.stderr); return 2
     return 1 if any(row.status == "error" for row in results) else 0
 
 
