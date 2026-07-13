@@ -211,6 +211,11 @@ def verify_mutation(resp: Any, sid: str, payload: dict[str, Any],
             return False, "renew response included an empty next renewal date"
         if statuses and not normalized.issubset({"active", "renewed"}):
             return False, "renew response status did not indicate an active renewal"
+    if action == "resume" and statuses:
+        # Reactivating a paused subscription must not still report paused.
+        if "paused" in normalized:
+            return False, "resume response status still indicates paused"
+        confirmed_effect = True
     if action in {"pause", "cancel"} and not confirmed_effect:
         return False, f"{action} response did not confirm the requested effect"
     return True, ""

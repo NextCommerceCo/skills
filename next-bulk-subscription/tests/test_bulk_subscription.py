@@ -44,6 +44,18 @@ class BulkSubscriptionTests(unittest.TestCase):
                                       "--results", "o.csv", "--action", "pause",
                                       "--execute", "--limit", "-1"])
 
+    def test_resume_response_still_paused_is_needs_verification(self):
+        class StillPausedClient(FakeClient):
+            def mutate(self, method, endpoint, payload):
+                self.calls.append((method, endpoint, payload))
+                sid = endpoint.split("/")[1]
+                return {"id": sid, "status": "paused"}  # resume did not take effect
+        client = StillPausedClient()
+        rows, _ = self.run_bulk(client, [{"subscription_id": "s1"}],
+                                action="resume", payload={})
+        self.assertEqual("error", rows[0].status)
+        self.assertEqual("NEEDS_VERIFICATION", rows[0].error_code)
+
     def test_non_allowlisted_action_refused(self):
         with self.assertRaisesRegex(ValueError, "not allowlisted"):
             bulk.BulkSubscription(FakeClient(), "delete", {}, execute=True)
