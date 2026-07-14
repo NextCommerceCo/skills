@@ -1,0 +1,22 @@
+name: Add to Operations board
+
+on:
+  issues:
+    types: [opened, reopened]
+
+# No GITHUB_TOKEN needed — the add-to-project step authenticates with the
+# ADD_TO_PROJECT_PAT org secret.
+permissions: {}
+
+jobs:
+  add-to-project:
+    # Only auto-add issues authored by org owners/members/collaborators —
+    # outsider-authored issues in public repos need human triage onto the board.
+    if: contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.issue.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/add-to-project@244f685bbc3b7adfa8466e08b698b5577571133e # v1.0.2
+        with:
+          project-url: https://github.com/orgs/NextCommerceCo/projects/10
+          github-token: ${{ secrets.ADD_TO_PROJECT_PAT }}

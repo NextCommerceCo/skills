@@ -191,3 +191,15 @@ Each skill is a directory containing a single `SKILL.md` file. To add a new skil
 5. Update this README's skills table and any installer notes that should mention the skill
 6. Run `./skills.sh status` to confirm the local installer can discover the skill
 7. Open a PR
+## Issue tracking
+
+Work in this repo is tracked with GitHub Issues and coordinated on the
+org-level **[Operations](https://github.com/orgs/NextCommerceCo/projects/10)**
+Kanban board (Todo / In Progress / Done). New issues are added to the board
+automatically by the `add-to-project` workflow.
+
+Before starting work on an issue: check it is not assigned to someone else,
+assign yourself (`gh issue edit <n> --add-assignee @me`), and move the card to
+In Progress. Open PRs with `Closes #<n>`; when the issue closes on merge, the
+board's built-in "Item closed" automation moves the card to Done. Contributors
+have a `/next-board` skill that wraps these board operations.
