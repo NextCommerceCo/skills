@@ -23,6 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -31,6 +33,15 @@ jobs:
           node-version: "20"
       - name: Manifest is valid JSON
         run: python3 -c "import json; json.load(open('skills.json'))"
+      - name: Skill versions match packages and advance on change
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+        run: |
+          ARGS=()
+          if [ -n "$BASE_SHA" ]; then
+            ARGS=(--base "$BASE_SHA")
+          fi
+          python3 scripts/check_skill_versions.py "${ARGS[@]}"
       - name: Python syntax check
         run: |
           find . -path ./.git -prune -o -name '*.py' -print \

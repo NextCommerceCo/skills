@@ -190,11 +190,29 @@ Each skill is a directory containing a single `SKILL.md` file. To add a new skil
 4. Add an entry to `skills.json`
 5. Update this README's skills table and any installer notes that should mention the skill
 6. Run `./skills.sh status` to confirm the local installer can discover the skill
-7. Open a PR
+7. Bump the skill version in both `SKILL.md` and `skills.json`
+8. Run `python3 scripts/check_skill_versions.py --base origin/main`
+9. Open a PR
+
+### Skill versioning
+
+Every tracked file inside a skill directory is part of that skill's versioned
+package. A PR that changes any file under `next-*/` must advance that skill's
+version in both its `SKILL.md` frontmatter and `skills.json` entry.
+
+- **Patch**: fixes or clarifies existing behavior, safety rules, validation, or
+  routing without adding a new execution surface.
+- **Minor**: adds a new command, automation lane, detector/check family, output
+  contract, or approved write surface.
+- **Major**: changes ownership, safety posture, default side effects, or removes
+  a supported contract.
+
+CI compares each changed skill package with the pull request's base commit and
+rejects missing or non-increasing version bumps.
 ## Issue tracking
 
 Work in this repo is tracked with GitHub Issues and coordinated on the
-org-level **[Operations](https://github.com/orgs/NextCommerceCo/projects/10)**
+org-level **[Operations](https://github.com/orgs/NextCommerceCo/projects/10)**. <!-- public-safety: allow private-repo high-entropy: intentional org project link -->
 Kanban board (Todo / In Progress / Done). New issues are added to the board
 automatically by the `add-to-project` workflow.
 

@@ -1,6 +1,6 @@
 ---
 name: next-ops-scan
-version: 0.1.0
+version: 0.1.1
 description: |
   Read-only daily operations scan for a single Next Commerce store. Finds risky
   Incomplete orders, Rejected orders, and Delivery Tracking failures/staleness,

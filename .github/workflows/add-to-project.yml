@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/add-to-project@244f685bbc3b7adfa8466e08b698b5577571133e # v1.0.2
+      - uses: actions/add-to-project@244f685bbc3b7adfa8466e08b698b5577571133e # v1.0.2; public-safety: allow high-entropy
         with:
-          project-url: https://github.com/orgs/NextCommerceCo/projects/10
+          project-url: https://github.com/orgs/NextCommerceCo/projects/10 # public-safety: allow private-repo high-entropy
           github-token: ${{ secrets.ADD_TO_PROJECT_PAT }}
