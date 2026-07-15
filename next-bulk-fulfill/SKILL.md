@@ -1,6 +1,6 @@
 ---
 name: next-bulk-fulfill
-version: 1.0.0
+version: 1.1.0
 description: |
   Bulk fulfillment tracking sync — update orders to Fulfilled status with tracking
   numbers from a CSV when the fulfillment provider's automation fails to sync back.

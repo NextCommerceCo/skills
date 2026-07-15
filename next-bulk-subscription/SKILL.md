@@ -1,6 +1,6 @@
 ---
 name: next-bulk-subscription
-version: 1.1.0
+version: 1.2.0
 description: |
   Bulk-manage Next Commerce subscriptions from a flat file (CSV/XLSX) using the
   Admin API subscription action endpoints and subscriptionsPartialUpdate endpoint.
