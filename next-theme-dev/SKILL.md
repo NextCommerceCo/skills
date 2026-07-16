@@ -1,6 +1,6 @@
 ---
 name: next-theme-dev
-version: 1.4.0
+version: 1.4.1
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with

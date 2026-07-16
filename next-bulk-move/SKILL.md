@@ -1,6 +1,6 @@
 ---
 name: next-bulk-move
-version: 1.2.0
+version: 1.2.1
 description: |
   Move fulfillment orders between locations in bulk. Accepts either a flat file
   (XLSX/CSV) of order numbers, or a list of Product IDs / SKUs to target every

@@ -7,7 +7,7 @@
     {
       "id": "next-theme-figma",
       "name": "Theme Figma Handoff",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "path": "next-theme-figma/SKILL.md",
       "domain": "storefronts",
       "description": "Prepare Figma storefront designs for NEXT Commerce and Spark theme implementation by validating source structure, classifying sections and assets, recording Spark divergences, and generating a low-inference handoff for next-theme-dev.",
@@ -44,7 +44,7 @@
     {
       "id": "next-theme-dev",
       "name": "Theme Development",
-      "version": "1.4.0",
+      "version": "1.4.1",
       "path": "next-theme-dev/SKILL.md",
       "domain": "storefronts",
       "description": "Build, modify, and debug Next Commerce storefront themes, including Spark, Intro Bootstrap, Theme Settings, ntk CLI, DTL templates, and storefront GraphQL.",
@@ -81,7 +81,7 @@
     {
       "id": "next-bulk-fulfill",
       "name": "Bulk Fulfillment Tracking Sync",
-      "version": "1.1.0",
+      "version": "1.3.0",
       "path": "next-bulk-fulfill/SKILL.md",
       "domain": "operations",
       "description": "Update orders to Fulfilled status with tracking numbers from a CSV when a fulfillment provider's automation fails to sync back.",
@@ -96,7 +96,7 @@
       "prerequisites": [
         "Python 3 (standard library only; no third-party packages)",
         "A Next Commerce store with an API key (fulfillment_orders:read, fulfillment_orders:write scopes)",
-        "NEXT_ADMIN_API_TOKEN set in the executor environment"
+        "Admin API token in a gitignored .env ({SUBDOMAIN}_NEXT_ADMIN_API_TOKEN, mode 600) or already set in the environment; mapped to NEXT_ADMIN_API_TOKEN at run time"
       ],
       "safety": {
         "mutates_remote": true,
@@ -104,13 +104,13 @@
         "requires_approval": true,
         "network": "next-admin-api",
         "token_env": "NEXT_ADMIN_API_TOKEN",
-        "notes": "Creates fulfillments only under --execute; dry-run is the default."
+        "notes": "Creates fulfillments only under --execute; dry-run is the default. Also fetches the published Admin API spec from developers.nextcommerce.com (read-only, no token) to validate carrier slugs."
       }
     },
     {
       "id": "next-bulk-move",
       "name": "Bulk Fulfillment Order Move",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "path": "next-bulk-move/SKILL.md",
       "domain": "operations",
       "description": "Move fulfillment orders between warehouse locations in bulk — driven either by a flat file of order numbers or by a Product ID / SKU list. Handles cancellation requests for processing FOs, location discovery, and dry-run validation.",
@@ -141,7 +141,7 @@
     {
       "id": "next-bulk-subscription",
       "name": "Bulk Subscription Actions",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "path": "next-bulk-subscription/SKILL.md",
       "domain": "operations",
       "description": "Apply official subscription actions (pause, cancel) or PATCH updates (renewal date, interval, gateway, address) to a list of subscription IDs from a CSV/XLSX via the Admin API. Handles baseline selection, dry-run, rate limiting, and verification.",
@@ -172,7 +172,7 @@
     {
       "id": "next-ops-scan",
       "name": "Daily Ops Risk Scan",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "path": "next-ops-scan/SKILL.md",
       "domain": "operations",
       "description": "Run a read-only daily operations risk scan for one Next Commerce store, finding Incomplete orders, Rejected orders, and Delivery Tracking failures or stale shipments with manual next steps.",
@@ -203,7 +203,7 @@
     {
       "id": "next-campaigns-setup",
       "name": "New Campaign Setup",
-      "version": "1.1.1",
+      "version": "1.1.2",
       "path": "next-campaigns-setup/SKILL.md",
       "domain": "campaigns",
       "description": "End-to-end setup for a new CPK campaign — scaffolds the project, copies a starter template, seeds campaigns.json, downloads CLAUDE.md, then wires up config.js and campaigns.json with API key, store details, and analytics in one pass.",

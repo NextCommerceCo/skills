@@ -1,6 +1,6 @@
 ---
 name: next-bulk-fulfill
-version: 1.1.0
+version: 1.3.0
 description: |
   Bulk fulfillment tracking sync — update orders to Fulfilled status with tracking
   numbers from a CSV when the fulfillment provider's automation fails to sync back.
@@ -81,14 +81,56 @@ Store the base URL: `https://{subdomain}.29next.store/api/admin/`
 
 ### Step 2: Admin API Access Token
 
-Require `NEXT_ADMIN_API_TOKEN` in the executor environment. Never ask the user to
-paste a token into conversation, accept it as a CLI argument, echo it, or write it
-into a command, script, or results file. Read and write are separate permissions;
+The executor reads the token only from `NEXT_ADMIN_API_TOKEN`. Never ask the user
+to paste a token into conversation, accept it as a CLI argument, echo it, or write
+it into a command, script, or results file. Read and write are separate permissions;
 both `fulfillment_orders:read` and `fulfillment_orders:write` are required.
 
-```bash
-export NEXT_ADMIN_API_TOKEN
-```
+Check the environment first: if the store's prefixed variable (naming below) or
+`NEXT_ADMIN_API_TOKEN` is already set — shell profile, host-tool settings, or a
+secrets manager — use it and skip the file setup.
+
+Otherwise, tokens live in a local `.env` file in the working directory. The user
+pastes the token into that file with a text editor — no terminal needed, and the
+token never enters the conversation. One file holds tokens for many stores, one
+line per store.
+
+**Variable naming:** store subdomain in caps, hyphens replaced with underscores,
+plus the suffix `_NEXT_ADMIN_API_TOKEN`. Examples: `herz` →
+`HERZ_NEXT_ADMIN_API_TOKEN`; `my-store` → `MY_STORE_NEXT_ADMIN_API_TOKEN`.
+
+**Set up the token file:**
+
+1. If the working directory is a git repository, `.env` MUST be gitignored.
+   Check with `git check-ignore .env`; if not ignored, add `.env` to
+   `.gitignore` before creating the file.
+2. If `.env` is missing, create it from this template and restrict permissions
+   with `chmod 600 .env`. If it exists but has no line for this store, append
+   one:
+
+   ```
+   # Next Commerce Admin API tokens — one line per store.
+   # Variable name = store subdomain in caps (hyphens become underscores) + _NEXT_ADMIN_API_TOKEN.
+   # Paste each token after its = sign, then save this file.
+   HERZ_NEXT_ADMIN_API_TOKEN=
+   ```
+
+3. If the store's variable is already filled in, skip to loading below.
+   Otherwise tell the user: open `.env` in any text editor, paste the token
+   right after the `=` sign, save, and reply "saved". Offer to open the file
+   for them (e.g. `xdg-open .env`) — `.env` is hidden in most file managers,
+   so don't ask a non-developer to find it by hand.
+4. Load the store's variable and map it to the name the executor reads, without
+   echoing the value:
+
+   ```bash
+   set -a; source .env; set +a
+   # Example for store 'herz':
+   export NEXT_ADMIN_API_TOKEN="${HERZ_NEXT_ADMIN_API_TOKEN:?no token for herz in .env}"
+   ```
+
+   Shell state may not persist between tool commands — run this load in the
+   same command as the validation curl or executor invocation.
 
 Validate the key works:
 ```bash
@@ -107,11 +149,16 @@ curl -s -w "\n%{http_code}" \
 
 Ask the user:
 
-> Provide the path to the CSV file with order numbers and tracking numbers.
+> Provide the path to the CSV file with order numbers, tracking numbers, and
+> carriers.
 >
 > Expected columns (header names are flexible — I'll detect them):
 > - **Order number** (e.g., `ORDER NUMBER`, `order_number`, `Order #`)
 > - **Tracking number** (e.g., `TRACKING NUMBER`, `tracking_no`, `Tracking #`)
+> - **Carrier** (e.g., `carrier`, `Carrier`) — **strongly recommended.** Ask the
+>   fulfillment provider to include it in the export; their carrier data is
+>   authoritative. Without it, the only fallback is AI pattern matching, which
+>   is not reliable.
 >
 Do not include customer names, emails, addresses, or payment data in the executor
 input or results.
@@ -132,6 +179,24 @@ Report what was loaded:
 
 ## Phase 2: Carrier Detection
 
+**Carrier source gate — run BEFORE any inference or research.** If the CSV has
+an explicit `carrier` column, skip inference entirely and validate those slugs.
+If it does not, stop and warn the user, then ask how to proceed:
+
+> Your file has order and tracking numbers but no carrier column. Carrier slugs
+> matter: they drive the customer-facing tracking link and Delivery Tracking.
+>
+> - A) **Recommended: start over with a corrected file.** Ask the fulfillment
+>   provider to re-export with a `carrier` column — their data is authoritative.
+>   We restart from the CSV step when you have it.
+> - B) Last resort: AI-attempted matches. I infer carriers from tracking-number
+>   patterns (researching unknown prefixes if needed). This is NOT reliable —
+>   a wrong match sends customers a broken tracking link — and every mapping
+>   requires your explicit confirmation before anything is sent.
+
+Lead with A. Only continue to detection below if the user explicitly accepts
+the reliability risk and picks B.
+
 Detect the shipping carrier from tracking number prefixes. Use this mapping:
 
 | Tracking Pattern | Carrier Slug | Carrier Name |
@@ -144,10 +209,14 @@ Detect the shipping carrier from tracking number prefixes. Use this mapping:
 | Starts with `JD` or 10 digits starting with `0` | `dhl` | DHL |
 | None of the above | `other` | Other |
 
-**Valid carrier slugs** (from the API schema): `4px`, `amazon`, `asendia`, `australia_post`,
-`china_post`, `deutsche_de`, `dhl`, `dhl_ecommerce`, `fedex`, `firstmile`, `gofo_express`,
-`hermesworld_uk`, `myhermes`, `ontrac`, `other`, `royal_mail`, `speedx`, `swiss_post`,
-`ulala`, `uniuni`, `ups`, `usps`, `yunexpress`
+**Valid carrier slugs** are never hardcoded — the source of truth is the
+`TrackingInfo.carrier` enum in the published Admin API spec, rendered at
+[fulfillmentsCreate](https://developers.nextcommerce.com/docs/admin-api/reference/fulfillment/fulfillmentsCreate).
+The bundled executor fetches the current list at runtime from
+`https://developers.nextcommerce.com/api/admin/2024-04-01.yaml` and validates
+explicit CSV carriers and `--carrier-map` values against it. If the spec cannot
+be fetched (offline), the executor warns and defers slug validation to the API.
+To see the current list yourself, consult the fulfillmentsCreate reference page.
 
 After detection, show a carrier summary:
 > **Carrier detection:**
@@ -155,8 +224,19 @@ After detection, show a carrier summary:
 > - yunexpress: 4 orders
 > - other: 1 order
 >
-> Orders with carrier `other` will still sync — the platform won't auto-link to a
-> carrier tracking page but the tracking number will be stored.
+> Orders with carrier `other` will still sync, but the carrier slug does real work:
+> the platform maps it to the carrier's tracking link template (the customer-facing
+> tracking link), and Delivery Tracking uses it to follow carrier events for
+> delivery statuses and notifications. `other` stores the tracking number and
+> loses both. Use it only when the carrier genuinely isn't supported.
+
+**Warn before syncing `other` rows — a real carrier is strongly recommended.**
+If any rows resolve to carrier `other` (or a pattern is unmatched), warn the user
+explicitly before the live run: those orders will have no customer-facing tracking
+link and no Delivery Tracking carrier events — no delivery statuses, delivery
+notifications, or delivery reporting. Ask whether the fulfillment provider can
+supply the actual carrier for those shipments (an explicit `carrier` CSV column)
+before proceeding. Only sync `other` rows after the user accepts these downsides.
 
 Inference is a proposal, never authorization. Group every distinct inferred
 pattern (for example `prefix:1Z` or `digits:12-15`) and show its proposed carrier.
@@ -195,6 +275,9 @@ POST /api/admin/fulfillment-orders/{id}/fulfillments/
 ### Executor Guarantees
 
 - **Rate limiting**: 4 requests/sec max. At 2 calls per order, sleep 0.6s between orders.
+- **Carrier validation**: carrier slugs are validated against the published API
+  spec's `TrackingInfo.carrier` enum, fetched at runtime — no hardcoded list to
+  go stale. Offline, the executor warns and lets the API validate instead.
 - **Auth headers**: token comes only from `NEXT_ADMIN_API_TOKEN`
 - **Dry-run mode**: default; runs lookup but skips POST
 - **Notify control**: `--no-notify` flag to suppress customer notifications
@@ -278,7 +361,8 @@ For any API_ERROR orders, show the error details from the results CSV.
 
 Keep the bundled executor. Delete transient carrier-map/input/results artifacts by
 default after the outcome is confirmed unless needed for resume or audit. Run
-`unset NEXT_ADMIN_API_TOKEN` when finished.
+`unset NEXT_ADMIN_API_TOKEN` when finished. Keep the `.env` file (gitignored,
+mode 600) — it holds the per-store tokens for future runs.
 
 ---
 

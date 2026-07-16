@@ -31,10 +31,12 @@ class FakeClient:
 
 
 class BulkFulfillTests(unittest.TestCase):
-    def run_bulk(self, client, rows, execute=True, carrier_map=None, resume=None):
+    def run_bulk(self, client, rows, execute=True, carrier_map=None, resume=None,
+                 valid_carriers=None):
         td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
         output = Path(td.name) / "results.csv"
         worker = bulk.BulkFulfiller(client, execute=execute, carrier_map=carrier_map or {},
+                                    valid_carriers=valid_carriers,
                                     row_delay=0, sleep=lambda _: None)
         results = worker.run(rows, output, bulk.resume_completed(resume))
         return results, output
@@ -413,6 +415,76 @@ class BulkFulfillTests(unittest.TestCase):
                                         "carrier": "ups"}])
         self.assertEqual("MANUAL_REVIEW", rows[0].action)
         fake.fulfill.assert_not_called()
+
+
+SPEC_SNIPPET = """\
+components:
+  schemas:
+    AddOrderShipmentTracking:
+      properties:
+        carrier:
+          enum:
+            - decoy_carrier
+          type: string
+      type: object
+    TrackingInfo:
+      properties:
+        carrier:
+          description: |-
+            * `4px` - 4px
+            enum: this line is prose inside the description, not the enum key
+          enum:
+            - 4px
+            - ups
+            - other
+          type: string
+        tracking_code:
+          type: string
+      type: object
+    Transaction:
+      type: object
+"""
+
+
+class CarrierSpecTests(unittest.TestCase):
+    def test_parse_extracts_only_tracking_info_enum(self):
+        self.assertEqual({"4px", "ups", "other"},
+                         bulk.parse_tracking_carriers(SPEC_SNIPPET))
+
+    def test_parse_fails_loudly_when_enum_is_missing(self):
+        with self.assertRaises(ValueError):
+            bulk.parse_tracking_carriers("components:\n  schemas:\n    Order: {}\n")
+
+    def test_explicit_carrier_outside_fetched_list_is_not_sent(self):
+        client = FakeClient()
+        rows, _ = self.run_bulk_with_carriers(client, "pigeon", {"ups", "other"})
+        self.assertEqual([], client.calls)
+        self.assertEqual("INVALID_CARRIER", rows[0].action)
+
+    def test_explicit_carrier_passes_without_fetched_list(self):
+        client = FakeClient()
+        rows, _ = self.run_bulk_with_carriers(client, "pigeon", None)
+        self.assertEqual("FULFILLED", rows[0].action)
+
+    def run_bulk_with_carriers(self, client, carrier, valid_carriers):
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        output = Path(td.name) / "results.csv"
+        worker = bulk.BulkFulfiller(client, execute=True, valid_carriers=valid_carriers,
+                                    row_delay=0, sleep=lambda _: None)
+        rows = [{"order_number": "1", "tracking_code": "T1", "carrier": carrier}]
+        return worker.run(rows, output, bulk.resume_completed(None)), output
+
+    def test_carrier_map_rejects_slug_outside_fetched_list(self):
+        with self.assertRaises(ValueError):
+            bulk.load_carrier_map('{"prefix:1Z": "pigeon"}', {"ups", "other"})
+
+    def test_carrier_map_defers_slug_validation_without_list(self):
+        self.assertEqual({"prefix:1Z": "pigeon"},
+                         bulk.load_carrier_map('{"prefix:1Z": "pigeon"}', None))
+
+    def test_carrier_map_still_requires_string_slugs(self):
+        with self.assertRaises(ValueError):
+            bulk.load_carrier_map('{"prefix:1Z": 7}', None)
 
 
 if __name__ == "__main__": unittest.main()
