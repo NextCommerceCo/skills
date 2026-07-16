@@ -101,9 +101,8 @@ store, named `{SUBDOMAIN}_NEXT_ADMIN_API_TOKEN` (caps, hyphens → underscores;
 `my-store` → `MY_STORE_NEXT_ADMIN_API_TOKEN`). The user pastes the token in
 with a text editor, so it never touches the chat.
 
-1. In a git repository, `.env` must pass `git check-ignore .env` first — add
-   it to that repo's `.gitignore` if needed. Don't create the file until it
-   does.
+1. If this directory is a git repository (a `.git` folder is present), make
+   sure `.gitignore` has a `.env` line — add it if missing.
 2. Create the file (or append the store's line), then lock it so only this
    user can read it (`chmod 600 .env`):
 

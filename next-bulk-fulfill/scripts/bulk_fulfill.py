@@ -22,19 +22,53 @@ COMPLETED_STATUSES = {"success"}
 CANCELLATION_STATES = {"cancel_requested", "cancellation_requested",
                        "cancel_pending", "cancellation_pending",
                        "cancel_accepted", "cancellation_accepted"}
-# Known-good carrier slugs: the TrackingInfo.carrier enum from the published
-# 2024-04-01 Admin API spec (rendered at the fulfillmentsCreate reference).
-# Update this list when the platform adds carriers.
-VALID_CARRIERS = frozenset({
-    "4px", "amazon", "aramex", "asendia", "australia_post", "china_post",
-    "cirro", "deutsche_de", "dhl", "dhl_ecommerce", "dor", "dpd",
-    "emile_express", "fedex", "firstmile", "gls", "gofo_express",
-    "hermesworld_uk", "hua_han", "jt_express", "jy_express", "myhermes",
-    "ontrac", "other", "postnl", "royal_mail", "sfyd_express", "shipx",
-    "speedx", "speedy", "sunyou", "swiftx", "swiss_post", "ts_express",
-    "ulala", "united_delivery_service", "uniuni", "ups", "usps", "ysd_post",
-    "yunexpress",
-})
+# Known-good carriers, slug -> display name, from the TrackingInfo.carrier
+# enum in the published 2024-04-01 Admin API spec (the fulfillmentsCreate
+# reference). The spec currently names carriers identically to their slugs.
+# Update this dict when the platform adds carriers.
+VALID_CARRIERS = {
+    "4px": "4px",
+    "amazon": "amazon",
+    "aramex": "aramex",
+    "asendia": "asendia",
+    "australia_post": "australia_post",
+    "china_post": "china_post",
+    "cirro": "cirro",
+    "deutsche_de": "deutsche_de",
+    "dhl": "dhl",
+    "dhl_ecommerce": "dhl_ecommerce",
+    "dor": "dor",
+    "dpd": "dpd",
+    "emile_express": "emile_express",
+    "fedex": "fedex",
+    "firstmile": "firstmile",
+    "gls": "gls",
+    "gofo_express": "gofo_express",
+    "hermesworld_uk": "hermesworld_uk",
+    "hua_han": "hua_han",
+    "jt_express": "jt_express",
+    "jy_express": "jy_express",
+    "myhermes": "myhermes",
+    "ontrac": "ontrac",
+    "other": "other",
+    "postnl": "postnl",
+    "royal_mail": "royal_mail",
+    "sfyd_express": "sfyd_express",
+    "shipx": "shipx",
+    "speedx": "speedx",
+    "speedy": "speedy",
+    "sunyou": "sunyou",
+    "swiftx": "swiftx",
+    "swiss_post": "swiss_post",
+    "ts_express": "ts_express",
+    "ulala": "ulala",
+    "united_delivery_service": "united_delivery_service",
+    "uniuni": "uniuni",
+    "ups": "ups",
+    "usps": "usps",
+    "ysd_post": "ysd_post",
+    "yunexpress": "yunexpress",
+}
 
 
 class AuthenticatedRedirectHandler(urllib.request.HTTPRedirectHandler):
