@@ -98,7 +98,7 @@ copy_skill() {
 
   parent="$(dirname "$dest")"
   if [[ -d "$parent" ]]; then
-    parent_mode="$(stat -f '%Lp' "$parent" 2>/dev/null || stat -c '%a' "$parent")"
+    parent_mode="$(stat -c '%a' "$parent" 2>/dev/null || stat -f '%Lp' "$parent")"
   else
     parent_mode="755"
   fi
@@ -131,7 +131,7 @@ copy_skill() {
       echo "Failed to create target parent $parent" >&2
       return 1
     fi
-    parent_mode="$(stat -f '%Lp' "$parent" 2>/dev/null || stat -c '%a' "$parent")"
+    parent_mode="$(stat -c '%a' "$parent" 2>/dev/null || stat -f '%Lp' "$parent")"
 
     if ! tmp="$(mktemp -d "$parent/.${skill##*/}.tmp.XXXXXX")"; then
       echo "Failed to create staging directory in $parent" >&2

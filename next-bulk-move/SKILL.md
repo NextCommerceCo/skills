@@ -1,6 +1,6 @@
 ---
 name: next-bulk-move
-version: 1.2.0
+version: 1.3.0
 description: |
   Move fulfillment orders between locations in bulk. Accepts either a flat file
   (XLSX/CSV) of order numbers, or a list of Product IDs / SKUs to target every
@@ -89,16 +89,40 @@ prominent warning because it will send `NEXT_ADMIN_API_TOKEN` to that host.
 
 ### Step 2: Admin API Access Token
 
-Require the executor environment to contain an API access token with
-`fulfillment_orders:read`, `fulfillment_orders:write`, and `locations:read`
-scopes. Never ask the user to paste a token into conversation, accept one as a
-CLI argument, echo one, or write one into a command, script, or results file.
+The executor reads the token only from `NEXT_ADMIN_API_TOKEN`. Scopes:
+`fulfillment_orders:read`, `fulfillment_orders:write`, and `locations:read`.
+The token never enters conversation, CLI arguments, echoes, scripts, or
+results files.
 
-Set it outside generated artifacts, such as in the invoking shell's environment:
+If the store's variable (naming below) or `NEXT_ADMIN_API_TOKEN` is already in
+the environment, use it. Otherwise tokens live in `.env` in the current
+working directory (the user's project, not the skill checkout) — one line per
+store, named `{SUBDOMAIN}_NEXT_ADMIN_API_TOKEN` (caps, hyphens → underscores;
+`my-store` → `MY_STORE_NEXT_ADMIN_API_TOKEN`). The user pastes the token in
+with a text editor, so it never touches the chat.
 
-```bash
-export NEXT_ADMIN_API_TOKEN
-```
+1. If this directory is a git repository (a `.git` folder is present), make
+   sure `.gitignore` has a `.env` line — add it if missing.
+2. Create the file (or append the store's line), then lock it so only this
+   user can read it (`chmod 600 .env`):
+
+   ```
+   # Next Commerce Admin API tokens — one line per store.
+   MYSTORE_NEXT_ADMIN_API_TOKEN=
+   ```
+
+3. If the value is empty: have the user open `.env` in a text editor (offer to
+   open it — the file is hidden in file managers), paste the token after `=`,
+   save, and reply "saved".
+4. Load only that line — never `source` the file (it executes content and
+   exports unrelated secrets) — in the same command as the validation curl or
+   executor run, since shell state may not persist between tool commands:
+
+   ```bash
+   NEXT_ADMIN_API_TOKEN="$(grep -m1 '^MYSTORE_NEXT_ADMIN_API_TOKEN=' .env | cut -d'=' -f2-)"
+   [ -n "$NEXT_ADMIN_API_TOKEN" ] || { echo "no token for mystore in .env" >&2; exit 1; }
+   export NEXT_ADMIN_API_TOKEN
+   ```
 
 Validate the token against a known-good list endpoint before discovery:
 

@@ -1,6 +1,6 @@
 ---
 name: next-bulk-subscription
-version: 1.2.0
+version: 1.3.0
 description: |
   Bulk-manage Next Commerce subscriptions from a flat file (CSV/XLSX) using the
   Admin API subscription action endpoints and subscriptionsPartialUpdate endpoint.
@@ -89,14 +89,40 @@ Store base URL: `https://{subdomain}.29next.store/api/admin/`.
 
 ### Step 2: Admin API Access Token
 
-Require `NEXT_ADMIN_API_TOKEN` in the executor environment. Never ask the user to
-paste a token into conversation, accept it as a CLI argument, echo it, or write it
-into a command, script, or results file. Read and write are separate permissions;
-both `subscriptions:read` and `subscriptions:write` are required.
+The executor reads the token only from `NEXT_ADMIN_API_TOKEN`. Scopes:
+`subscriptions:read` and `subscriptions:write` (separate permissions). The
+token never enters conversation, CLI arguments, echoes, scripts, or results
+files.
 
-```bash
-export NEXT_ADMIN_API_TOKEN
-```
+If the store's variable (naming below) or `NEXT_ADMIN_API_TOKEN` is already in
+the environment, use it. Otherwise tokens live in `.env` in the current
+working directory (the user's project, not the skill checkout) — one line per
+store, named `{SUBDOMAIN}_NEXT_ADMIN_API_TOKEN` (caps, hyphens → underscores;
+`my-store` → `MY_STORE_NEXT_ADMIN_API_TOKEN`). The user pastes the token in
+with a text editor, so it never touches the chat.
+
+1. If this directory is a git repository (a `.git` folder is present), make
+   sure `.gitignore` has a `.env` line — add it if missing.
+2. Create the file (or append the store's line), then lock it so only this
+   user can read it (`chmod 600 .env`):
+
+   ```
+   # Next Commerce Admin API tokens — one line per store.
+   MYSTORE_NEXT_ADMIN_API_TOKEN=
+   ```
+
+3. If the value is empty: have the user open `.env` in a text editor (offer to
+   open it — the file is hidden in file managers), paste the token after `=`,
+   save, and reply "saved".
+4. Load only that line — never `source` the file (it executes content and
+   exports unrelated secrets) — in the same command as the validation curl or
+   executor run, since shell state may not persist between tool commands:
+
+   ```bash
+   NEXT_ADMIN_API_TOKEN="$(grep -m1 '^MYSTORE_NEXT_ADMIN_API_TOKEN=' .env | cut -d'=' -f2-)"
+   [ -n "$NEXT_ADMIN_API_TOKEN" ] || { echo "no token for mystore in .env" >&2; exit 1; }
+   export NEXT_ADMIN_API_TOKEN
+   ```
 
 Validate with a single GET against a known-good list endpoint:
 ```bash

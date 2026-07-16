@@ -22,11 +22,53 @@ COMPLETED_STATUSES = {"success"}
 CANCELLATION_STATES = {"cancel_requested", "cancellation_requested",
                        "cancel_pending", "cancellation_pending",
                        "cancel_accepted", "cancellation_accepted"}
-VALID_CARRIERS = {"4px", "amazon", "asendia", "australia_post", "china_post",
-                  "deutsche_de", "dhl", "dhl_ecommerce", "fedex", "firstmile",
-                  "gofo_express", "hermesworld_uk", "myhermes", "ontrac", "other",
-                  "royal_mail", "speedx", "swiss_post", "ulala", "uniuni", "ups",
-                  "usps", "yunexpress"}
+# Known-good carriers, slug -> display name, from the TrackingInfo.carrier
+# enum in the published 2024-04-01 Admin API spec (the fulfillmentsCreate
+# reference). The spec currently names carriers identically to their slugs.
+# Update this dict when the platform adds carriers.
+VALID_CARRIERS = {
+    "4px": "4px",
+    "amazon": "amazon",
+    "aramex": "aramex",
+    "asendia": "asendia",
+    "australia_post": "australia_post",
+    "china_post": "china_post",
+    "cirro": "cirro",
+    "deutsche_de": "deutsche_de",
+    "dhl": "dhl",
+    "dhl_ecommerce": "dhl_ecommerce",
+    "dor": "dor",
+    "dpd": "dpd",
+    "emile_express": "emile_express",
+    "fedex": "fedex",
+    "firstmile": "firstmile",
+    "gls": "gls",
+    "gofo_express": "gofo_express",
+    "hermesworld_uk": "hermesworld_uk",
+    "hua_han": "hua_han",
+    "jt_express": "jt_express",
+    "jy_express": "jy_express",
+    "myhermes": "myhermes",
+    "ontrac": "ontrac",
+    "other": "other",
+    "postnl": "postnl",
+    "royal_mail": "royal_mail",
+    "sfyd_express": "sfyd_express",
+    "shipx": "shipx",
+    "speedx": "speedx",
+    "speedy": "speedy",
+    "sunyou": "sunyou",
+    "swiftx": "swiftx",
+    "swiss_post": "swiss_post",
+    "ts_express": "ts_express",
+    "ulala": "ulala",
+    "united_delivery_service": "united_delivery_service",
+    "uniuni": "uniuni",
+    "ups": "ups",
+    "usps": "usps",
+    "ysd_post": "ysd_post",
+    "yunexpress": "yunexpress",
+}
 
 
 class AuthenticatedRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -179,14 +221,17 @@ def inferred_carrier(tracking: str) -> tuple[str, str]:
     return "unmatched", "other"
 
 
-def load_carrier_map(raw: str | None) -> dict[str, str]:
+def load_carrier_map(raw: str | None,
+                     valid_carriers: set[str] | None = None) -> dict[str, str]:
     if not raw:
         return {}
     path = Path(raw)
     value = path.read_text(encoding="utf-8") if path.exists() else raw
     data = json.loads(value)
-    if not isinstance(data, dict) or any(v not in VALID_CARRIERS for v in data.values()):
-        raise ValueError("--carrier-map must be a JSON object with valid carrier slugs")
+    if not isinstance(data, dict) or not all(isinstance(v, str) for v in data.values()):
+        raise ValueError("--carrier-map must be a JSON object of pattern-to-slug strings")
+    if valid_carriers is not None and any(v not in valid_carriers for v in data.values()):
+        raise ValueError("--carrier-map contains carrier slugs not in the known-good carrier list")
     return {str(k): str(v) for k, v in data.items()}
 
 
@@ -211,9 +256,11 @@ class ResumeState(set[tuple[str, str]]):
 class BulkFulfiller:
     def __init__(self, client: Any, *, execute: bool = False, notify: bool = True,
                  carrier_map: dict[str, str] | None = None,
+                 valid_carriers: set[str] | None = None,
                  sleep: Callable[[float], None] = time.sleep, row_delay: float = 0.5):
         self.client, self.execute, self.notify = client, execute, notify
         self.carrier_map, self.sleep, self.row_delay = carrier_map or {}, sleep, row_delay
+        self.valid_carriers = valid_carriers
 
     def process(self, row: dict[str, str],
                 before_mutation: Callable[[Result], None] | None = None) -> Result:
@@ -227,7 +274,8 @@ class BulkFulfiller:
         explicit = row.get("carrier", "").strip().lower()
         pattern, guess = inferred_carrier(tracking)
         carrier = explicit or self.carrier_map.get(pattern, "")
-        if explicit and explicit not in VALID_CARRIERS:
+        if (explicit and self.valid_carriers is not None
+                and explicit not in self.valid_carriers):
             return Result(order, tracking_code=tracking, carrier=explicit,
                           action="INVALID_CARRIER", status="error")
         if not carrier:
@@ -464,16 +512,18 @@ def main(argv: list[str] | None = None) -> int:
     token = os.environ.get("NEXT_ADMIN_API_TOKEN")
     if not token:
         print("NEXT_ADMIN_API_TOKEN is required", file=sys.stderr); return 2
+    valid_carriers = VALID_CARRIERS
     try:
         client = AdminClient(args.store, token)
         rows = read_rows(args.input)
-        carrier_map = load_carrier_map(args.carrier_map)
+        carrier_map = load_carrier_map(args.carrier_map, valid_carriers)
     except (ValueError, OSError, json.JSONDecodeError) as exc:
         parser().error(str(exc))
     rows = rows[:args.limit] if args.limit is not None else rows
     try:
         results = BulkFulfiller(client, execute=args.execute, notify=not args.no_notify,
-                                carrier_map=carrier_map).run(
+                                carrier_map=carrier_map,
+                                valid_carriers=valid_carriers).run(
                                     rows, args.results,
                                     resume_state(args.resume, args.results))
     except (ValueError, OSError) as exc:

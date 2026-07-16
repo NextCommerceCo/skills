@@ -31,10 +31,12 @@ class FakeClient:
 
 
 class BulkFulfillTests(unittest.TestCase):
-    def run_bulk(self, client, rows, execute=True, carrier_map=None, resume=None):
+    def run_bulk(self, client, rows, execute=True, carrier_map=None, resume=None,
+                 valid_carriers=None):
         td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
         output = Path(td.name) / "results.csv"
         worker = bulk.BulkFulfiller(client, execute=execute, carrier_map=carrier_map or {},
+                                    valid_carriers=valid_carriers,
                                     row_delay=0, sleep=lambda _: None)
         results = worker.run(rows, output, bulk.resume_completed(resume))
         return results, output
@@ -413,6 +415,48 @@ class BulkFulfillTests(unittest.TestCase):
                                         "carrier": "ups"}])
         self.assertEqual("MANUAL_REVIEW", rows[0].action)
         fake.fulfill.assert_not_called()
+
+
+class CarrierListTests(unittest.TestCase):
+    def test_known_list_covers_every_detection_table_slug(self):
+        # Every slug the skill's detection table can propose must be sendable.
+        for slug in ("yunexpress", "4px", "usps", "ups", "fedex", "dhl", "other"):
+            self.assertIn(slug, bulk.VALID_CARRIERS)
+
+    def test_known_list_slugs_are_normalized(self):
+        for slug in bulk.VALID_CARRIERS:
+            self.assertEqual(slug, slug.strip().lower())
+
+    def test_explicit_carrier_outside_known_list_is_not_sent(self):
+        client = FakeClient()
+        rows, _ = self.run_bulk_with_carriers(client, "pigeon", {"ups", "other"})
+        self.assertEqual([], client.calls)
+        self.assertEqual("INVALID_CARRIER", rows[0].action)
+
+    def test_explicit_carrier_passes_without_known_list(self):
+        client = FakeClient()
+        rows, _ = self.run_bulk_with_carriers(client, "pigeon", None)
+        self.assertEqual("FULFILLED", rows[0].action)
+
+    def run_bulk_with_carriers(self, client, carrier, valid_carriers):
+        td = tempfile.TemporaryDirectory(); self.addCleanup(td.cleanup)
+        output = Path(td.name) / "results.csv"
+        worker = bulk.BulkFulfiller(client, execute=True, valid_carriers=valid_carriers,
+                                    row_delay=0, sleep=lambda _: None)
+        rows = [{"order_number": "1", "tracking_code": "T1", "carrier": carrier}]
+        return worker.run(rows, output, bulk.resume_completed(None)), output
+
+    def test_carrier_map_rejects_slug_outside_known_list(self):
+        with self.assertRaises(ValueError):
+            bulk.load_carrier_map('{"prefix:1Z": "pigeon"}', {"ups", "other"})
+
+    def test_carrier_map_defers_slug_validation_without_list(self):
+        self.assertEqual({"prefix:1Z": "pigeon"},
+                         bulk.load_carrier_map('{"prefix:1Z": "pigeon"}', None))
+
+    def test_carrier_map_still_requires_string_slugs(self):
+        with self.assertRaises(ValueError):
+            bulk.load_carrier_map('{"prefix:1Z": 7}', None)
 
 
 if __name__ == "__main__": unittest.main()
