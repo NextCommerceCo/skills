@@ -1,6 +1,6 @@
 ---
 name: next-ops-scan
-version: 0.1.2
+version: 0.2.0
 description: |
   Read-only daily operations scan for a single Next Commerce store. Finds risky
   Incomplete orders, Rejected orders, and Delivery Tracking failures/staleness,
@@ -68,7 +68,7 @@ curl -sS \
   "https://$NEXT_STORE_DOMAIN/api/admin/orders/?limit=1" | head -c 500
 ```
 
-Expected response shape is JSON with a `results` array. If you see `<!DOCTYPE
+The expected response is JSON with a `results` array. If you see `<!DOCTYPE
 html>` or a "Page not found" page, re-check the URL path first.
 
 ## Phase 1: Gather Access
@@ -94,12 +94,41 @@ Ask the merchant to create a limited-scope Admin API token:
 5. Keep the token private: do not commit it, paste it into shared docs, or
    include it in screenshots. Rotate any token that is exposed.
 
-The scanner accepts either CLI flags or these environment variables:
+The scanner reads the token only from `NEXT_ADMIN_API_TOKEN`. The token never
+enters conversation, CLI flags, echoes, scripts, or results files.
 
-```bash
-export NEXT_STORE_DOMAIN="mystore.29next.store"
-export NEXT_ADMIN_API_TOKEN="<paste-token-here>"
-```
+If the store's variable (naming below) or `NEXT_ADMIN_API_TOKEN` is already in
+the environment, use it. Otherwise tokens live in `.env` in the current
+working directory (the user's project, not the skill checkout) — one line per
+store, named `{SUBDOMAIN}_NEXT_ADMIN_API_TOKEN` (caps, hyphens → underscores;
+`my-store` → `MY_STORE_NEXT_ADMIN_API_TOKEN`). The user pastes the token in
+with a text editor, so it never touches the chat.
+
+1. In a git repository, `.env` must pass `git check-ignore .env` first — add
+   it to that repo's `.gitignore` if needed. Don't create the file until it
+   does.
+2. Create the file (or append the store's line), then lock it so only this
+   user can read it (`chmod 600 .env`):
+
+   ```
+   # Next Commerce Admin API tokens — one line per store.
+   MYSTORE_NEXT_ADMIN_API_TOKEN=
+   ```
+
+3. If the value is empty: have the user open `.env` in a text editor (offer to
+   open it — the file is hidden in file managers), paste the token after `=`,
+   save, and reply "saved".
+4. Load only that line — never `source` the file (it executes content and
+   exports unrelated secrets) — in the same command as the smoke test or
+   scanner run, since shell state may not persist between tool commands.
+   `NEXT_STORE_DOMAIN` is not a secret and can be exported directly:
+
+   ```bash
+   NEXT_ADMIN_API_TOKEN="$(grep -m1 '^MYSTORE_NEXT_ADMIN_API_TOKEN=' .env | cut -d'=' -f2-)"
+   [ -n "$NEXT_ADMIN_API_TOKEN" ] || { echo "no token for mystore in .env" >&2; exit 1; }
+   export NEXT_ADMIN_API_TOKEN
+   export NEXT_STORE_DOMAIN="mystore.29next.store"
+   ```
 
 ## Phase 2: Run the Read-Only Scanner
 

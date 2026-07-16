@@ -36,7 +36,7 @@ your machine, is saved per store, and is remembered for next time.
 | 595913 | 1Z999AA10123456784 | ups |
 
 The carrier names must be ones Next Commerce supports — your assistant checks
-the current list ([here it is](https://developers.nextcommerce.com/docs/admin-api/reference/fulfillment/fulfillmentsCreate)
+them against its built-in list of supported carriers ([here's the full list](https://developers.nextcommerce.com/docs/admin-api/reference/fulfillment/fulfillmentsCreate)
 if you're curious) and flags anything it doesn't recognize.
 
 > [!IMPORTANT]

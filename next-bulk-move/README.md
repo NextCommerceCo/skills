@@ -1,71 +1,70 @@
 # Bulk Fulfillment Order Move
 
-Moves fulfillment orders (FOs) between warehouse locations in bulk. Typical use:
-a merchant is switching fulfillment providers and a batch of open/processing
-orders needs reassigning to the new location before the new provider can start.
+Moves batches of orders from one warehouse or fulfillment provider to another
+in your Next Commerce store. Typical use: you're switching fulfillment
+providers, and all the open orders sitting at the old provider need to be
+reassigned to the new one before it can start shipping.
 
-Two input modes:
+You can point it at either:
 
-- **Order-number file** — a CSV of order numbers to move.
-- **Product ID / SKU list** — move every FO at the source location containing
-  the given items, without pre-computing an order list.
+- **A spreadsheet of order numbers** — it moves exactly those orders.
+- **A list of products or SKUs** — it finds every order at the old location
+  containing those items and moves them, no spreadsheet needed.
 
-Processing FOs are handled with the full cancellation flow: request cancellation,
-poll until the location accepts it, then move the same FO.
+Orders the old provider has already started working on are handled properly:
+the skill asks the old location to release each one, waits for the release to
+be accepted, and only then moves it.
 
-## Requirements
+## What You Need
 
-- **Python 3** — the bundled executor uses only the standard library.
-- **A Next Commerce store** and its subdomain.
-- **Admin API token** with `fulfillment_orders:read`, `fulfillment_orders:write`,
-  and `locations:read` scopes, created at **Dashboard > Settings > API Access**.
-- The token must be set in the environment as `NEXT_ADMIN_API_TOKEN`. Never paste
-  it into chat, CLI arguments, or files.
-- XLSX inputs must be exported to CSV first (the executor is stdlib-only).
+- **Your store's web address** — for example, `mystore` if your store is at
+  mystore.29next.store.
+- **An API key for your store** — created in your store admin under
+  **Dashboard > Settings > API Access**. It needs permission to read and write
+  fulfillment orders and to read locations. Your assistant checks it works
+  before doing anything.
+- **The list of what to move** — a spreadsheet (CSV) of order numbers, or just
+  the product names/SKUs. If your file is an Excel file, your assistant will
+  help convert it first.
+
+You never type or paste the API key into the chat. Your assistant creates a
+private settings file on your computer, you paste the key into that file with
+a normal text editor, and the assistant reads it from there. The key is saved
+per store and remembered for next time.
 
 ## Install
 
-See the [repo README](../README.md) for the guided installer, or install just this skill:
-
-```bash
-npx skills add NextCommerceCo/skills -g --skill next-bulk-move
-```
+See the [repo README](../README.md) for installation. If you're not sure how,
+ask whoever set up your AI assistant — or ask the assistant itself.
 
 ## How to Use
 
-Ask your AI tool something like:
+Ask your AI assistant something like:
 
-> Run /next-bulk-move — move these orders from Provider A to Provider B on
-> `mystore`. Here's the CSV of order numbers.
+> Run next-bulk-move — move these orders from Provider A to Provider B on
+> mystore. Here's the file of order numbers.
 
-The skill walks through:
+It then walks you through, step by step:
 
-1. **Setup** — store subdomain, token validation, location discovery (pick source
-   and destination location IDs), target ingestion.
-2. **Dry run** (default) — classifies every order: `READY`, `NEEDS_CANCEL`,
-   `ALREADY_MOVED`, `ALREADY_FULFILLED`, `NOT_FOUND`, `MULTIPLE` (manual review),
-   `WRONG_LOCATION`.
-3. **Execute** — only after confirmation, with `--execute`. Open FOs move
-   directly; processing FOs go through cancel → poll → move.
-4. **Results** — an append-only results CSV usable for audit and `--resume`.
-
-The executor lives at [`scripts/bulk_move.py`](scripts/bulk_move.py):
-
-```bash
-python3 next-bulk-move/scripts/bulk_move.py \
-  --store mystore --input orders.csv --source 10 --destination 20 \
-  --results bulk-move-results.csv            # dry run
-# add --resume bulk-move-results.csv --execute for the live run
-```
+1. **Setup** — confirms your store, checks the API key, shows you the list of
+   warehouse locations, and asks you to pick the "from" and "to" locations.
+2. **Practice run** — first it only classifies every order: ready to move,
+   needs the old provider to release it first, already moved, already shipped,
+   not found, or needs a human decision. Nothing changes in your store yet.
+3. **Live run** — only after you say go.
+4. **Results** — a summary plus a results file you can keep for your records,
+   which also lets an interrupted run pick up where it left off.
 
 ## Safety
 
-- **Dry-run is the default.** Mutations happen only with `--execute` after you confirm.
-- Destination availability is verified per-FO before any cancel or move.
-- Every mutation re-fetches the FO first; stale or mismatched API responses are
-  recorded as retryable errors, never acted on.
-- Rate-limited to stay under the Admin API's 4 requests/sec.
-- The executor only talks to `*.29next.store` hosts unless you explicitly pass
-  `--allow-host` for a custom admin domain.
-- Results output contains operational fields only — no customer data or API
-  response bodies.
+- **Nothing changes in your store until you approve the live run.** The
+  practice run is always first.
+- Before moving any order, it double-checks that the destination can actually
+  take it.
+- It re-checks each order's current state right before touching it — stale
+  information is never acted on.
+- It works at a polite pace the store's system allows.
+- It only ever talks to your Next Commerce store — no other websites — unless
+  you explicitly approve a custom admin domain.
+- Results contain order details only — never customer names, addresses, or
+  payment information.

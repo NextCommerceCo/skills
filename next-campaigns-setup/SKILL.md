@@ -1,6 +1,6 @@
 ---
 name: next-campaigns-setup
-version: 1.1.2
+version: 1.1.3
 description: |
   End-to-end setup for a new campaign-page-kit (CPK) campaign — uses
   campaign-init --non-interactive to scaffold the project, download the starter

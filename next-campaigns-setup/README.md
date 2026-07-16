@@ -1,63 +1,61 @@
 # New Campaign Setup
 
-End-to-end setup for a new campaign-page-kit (CPK) campaign. In one pass it:
+Sets up a brand-new campaign-page-kit (CPK) campaign from nothing to
+ready-to-preview in one pass. It creates the brand folder from the official
+starter tooling, downloads the starter template you choose, and then fills in
+all the configuration: the Campaign Cart API key, store name and web address,
+optional phone and policy/support links, and any analytics you want (Google
+Tag Manager, Facebook Pixel).
 
-1. **Scaffolds** — runs `campaign-init --non-interactive` to create the brand
-   folder, download a starter template, seed `_data/campaigns.json`, and install
-   the AI context file.
-2. **Configures** — wires up `assets/config.js` and `campaigns.json` with the
-   Campaign Cart API key, store details, optional policy/support links, and any
-   declared analytics (GTM, Facebook Pixel).
+**Where this skill stops:** it covers creating and first-configuring the
+campaign only. Building the actual pages from a design, and everything later
+in a campaign's life, belongs to the separate
+[campaigns-os](https://github.com/NextCommerceCo/campaigns-os) package and its
+own skills. If you're working inside a Campaigns OS flow, follow that
+package's handoff — treat this skill as the setup step, not a second rulebook.
 
-Scope boundary: this skill covers repo bootstrap and first configuration only.
-Page wiring from a spec/design and campaign lifecycle work belong to the
-[`campaigns-os`](https://github.com/NextCommerceCo/campaigns-os) package skills.
+## What You Need
 
-## Requirements
+- **Node.js installed** — the standard tooling the campaign kit runs on. If
+  you're not sure, your assistant can check for you.
+- **Your campaigns project folder** — where campaign brands live on your
+  computer. Your assistant asks for it if it isn't already configured.
+- **The Campaign Cart API key** for the store this campaign sells from.
+- **Store details** — store name and web address; a support phone number and
+  policy page links are optional but recommended.
+- **Three decisions**: the brand name, the public web address path for the
+  campaign, and which starter template to begin from.
 
-- **Node.js + npm** — `campaign-init` ships with the `next-campaign-page-kit`
-  npm package (v0.1.1+).
-- **A CPK project root** — set the `CPK_ROOT` environment variable or provide the
-  path when asked.
-- **Campaign Cart API key** for the target store.
-- **Store details** — store name and URL; phone and policy/support URLs are
-  optional but recommended.
+| You choose | Example |
+|-----------|---------|
+| Brand name (lowercase, hyphens) | acme |
+| Public route (the path in the campaign's web address) | grounding-mat |
+| Starter template | olympus, demeter, limos, landing, and several shop/multi-step variants |
 
 ## Install
 
-See the [repo README](../README.md) for the guided installer, or install just this skill:
-
-```bash
-npx skills add NextCommerceCo/skills -g --skill next-campaigns-setup
-```
+See the [repo README](../README.md) for installation. If you're not sure how,
+ask whoever set up your AI assistant — or ask the assistant itself.
 
 ## How to Use
 
-Ask your AI tool something like:
+Ask your AI assistant something like:
 
-> Run /next-campaigns-setup — new campaign for brand `acme`, route slug
-> `grounding-mat`, based on the `olympus` template.
+> Run next-campaigns-setup — new campaign for brand acme, route
+> grounding-mat, based on the olympus template.
 
-You'll be asked for three things up front:
-
-| Input | Example |
-|-------|---------|
-| Brand name (lowercase, hyphens) | `acme` |
-| Public route slug | `grounding-mat` |
-| Starter template | `demeter`, `limos`, `olympus`, `olympus-mv-single-step`, `olympus-mv-two-step`, `shop-single-step`, `shop-three-step`, or `landing` |
-
-Then the config inputs (API key, store name/URL, optional phone, policy links,
-and tracking IDs) are gathered in a single message and written in one pass.
-
-The skill finishes with a report and next steps — typically `npm run dev` to
-verify the campaign page loads and the SDK initialises.
+It gathers the three decisions first, then collects all the configuration
+details in one message, sets everything up, and finishes with a report and
+next steps — typically starting the local preview so you can see the campaign
+page load.
 
 ## Safety
 
-- Refuses to overwrite an existing campaign folder.
-- Writes the API key and store details into local plaintext config
-  (`config.js` / `campaigns.json`) — review before committing that repo.
-- If `campaign-init` fails, the skill reports the exact exit code and stops; it
-  never falls back to manual patching.
-- Tracking IDs are only enabled when real values are provided — no placeholder
-  analytics wiring.
+- It refuses to overwrite a campaign folder that already exists.
+- The API key and store details end up in the campaign's local configuration
+  files as plain text — that's how the kit works — so review what you share if
+  that project is pushed somewhere public.
+- If the scaffolding tool fails, the skill reports exactly what failed and
+  stops — it never improvises a partial setup.
+- Analytics are only wired up when you provide real tracking IDs — no
+  placeholder tracking is ever added.

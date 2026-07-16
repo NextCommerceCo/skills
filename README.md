@@ -16,61 +16,14 @@ Pre-built skills that give AI coding agents deep knowledge of the Next Commerce 
 | [**Daily Ops Risk Scan**](next-ops-scan/) | Read-only scan for Incomplete orders, Rejected orders, and Delivery Tracking failures/staleness | You want a daily queue of risky orders and stuck shipments to reduce support friction and dispute risk |
 | [**New Campaign Setup**](next-campaigns-setup/) | Scaffold and fully configure a new Next Commerce campaign repo — brand init, starter template, campaigns.json seed, API key, store details, and analytics in one pass | Starting a new Next Commerce campaign for a brand |
 
-### Theme Figma Handoff And Theme Development
-
-Use [`next-theme-figma`](next-theme-figma/) upstream of
-[`next-theme-dev`](next-theme-dev/) when a storefront implementation starts from
-Figma. `next-theme-figma` validates the design source, extracts/classifies
-assets, records Spark/platform divergences, captures desktop/tablet/mobile
-references, and writes an implementation handoff package. `next-theme-dev` then
-consumes that package for the actual DTL, Spark, CSS, ntk, and storefront QA
-work.
-
-Install just the Figma handoff skill:
-
-```bash
-npx skills add NextCommerceCo/skills -g --skill next-theme-figma
-```
-
-Then ask your AI tool:
-
-> Use `/next-theme-figma` to prepare this Spark storefront Figma design for a
-> `next-theme-dev` implementation handoff.
-
-### Daily Ops Risk Scan
-
-Use [`next-ops-scan`](next-ops-scan/) when a merchant or agency wants a daily,
-read-only queue of operational issues that can turn into customer friction,
-refund misses, or disputes. It checks one store for:
-
-- Incomplete orders that likely need refund review in NEXT.
-- Rejected orders that need Shop Sync / order-data correction review.
-- Delivery Tracking failures or stale shipments when Delivery Tracking is installed.
-
-Install just this skill:
-
-```bash
-npx skills add NextCommerceCo/skills -g --skill next-ops-scan
-```
-
-Then ask your AI tool:
-
-> Run `/next-ops-scan` for my store and help me review today's risky order queues.
-
-The skill asks you to bring your own limited-scope Admin API token from
-**Dashboard > Settings > API Access**. Keep API tokens private: do not commit
-them, paste them into shared docs, or include them in screenshots. Rotate any
-token that is exposed. The scanner accepts `NEXT_STORE_DOMAIN` and
-`NEXT_ADMIN_API_TOKEN` environment variables. The scan is read-only: it produces
-a Markdown summary and CSV, then points your team to the right manual
-remediation flow instead of refunding, canceling, fulfilling, editing, or
-messaging customers.
-
-### Campaigns OS Skill Boundary
-
-This repo hosts a public-catalog copy of `next-campaigns-setup`, which covers Next Commerce campaign repo bootstrap and first configuration. In a Campaigns OS runtime flow, follow the public `campaigns-os` package handoff exactly and treat this catalog copy as setup guidance, not a second lifecycle doctrine.
-
-The canonical Campaigns OS lifecycle skills — `next-campaigns-os` orchestration, setup, build, polish, and QA — ship with the public [`campaigns-os`](https://github.com/NextCommerceCo/campaigns-os) package itself and install via `campaigns-os install-skills`. They're version-locked to the package's CLI and contract versions, which is why they live with the package rather than in this catalog.
+Each skill directory contains two documents: a `README.md` — a plain-language
+guide for the person running the skill (what it does, what you need, how to
+ask for it), written for non-technical readers — and a `SKILL.md`, the
+technical instructions the AI agent follows. Skill-specific detail lives in
+those per-skill docs, not here. Related skills cross-reference each other in
+their READMEs (for example, `next-theme-figma` runs upstream of
+`next-theme-dev`, and `next-campaigns-setup` documents its boundary with the
+[`campaigns-os`](https://github.com/NextCommerceCo/campaigns-os) package).
 
 ## Quick Start
 
@@ -182,17 +135,20 @@ Each skill lists its own requirements in the file. Common across all skills:
 
 ## Contributing
 
-Each skill is a directory containing a single `SKILL.md` file. To add a new skill:
+Each skill is a directory containing a `SKILL.md` (the agent's technical
+instructions) and a `README.md` (a plain-language guide for the person running
+the skill). To add a new skill:
 
 1. Create a directory with a descriptive name (e.g., `next-my-skill/`)
 2. Add a `SKILL.md` with YAML frontmatter (`name`, `version`, `description`, `allowed-tools`) followed by the skill instructions in markdown
 3. Add a "Using This Skill" section that points to the repo install guidance
-4. Add an entry to `skills.json`
-5. Update this README's skills table and any installer notes that should mention the skill
-6. Run `./skills.sh status` to confirm the local installer can discover the skill
-7. Bump the skill version in both `SKILL.md` and `skills.json`
-8. Run `python3 scripts/check_skill_versions.py --base origin/main`
-9. Open a PR
+4. Add a `README.md` written for non-technical readers: what the skill does, what the person needs, and how to ask for it — plain language, no code examples (use tables for data examples and `[!IMPORTANT]` callouts for things that matter)
+5. Add an entry to `skills.json`
+6. Update this README's skills table and any installer notes that should mention the skill
+7. Run `./skills.sh status` to confirm the local installer can discover the skill
+8. Bump the skill version in both `SKILL.md` and `skills.json`
+9. Run `python3 scripts/check_skill_versions.py --base origin/main`
+10. Open a PR
 
 ### Skill versioning
 

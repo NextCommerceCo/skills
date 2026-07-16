@@ -1,77 +1,76 @@
 # Bulk Subscription Actions
 
-Applies the same subscription action or partial update to a list of Next Commerce
-subscription IDs from a flat file. Uses the official action endpoints where they
-exist (pause, cancel) and the `subscriptionsPartialUpdate` endpoint for field
-edits.
+Applies the same change to a whole list of subscriptions in your Next Commerce
+store at once. You give your AI assistant a spreadsheet of subscription IDs
+and say what should happen to them.
 
-Common operations:
+Common jobs:
 
-- Pause a cohort until a date (or indefinitely) via the official pause endpoint.
-- Cancel a cohort with a recorded cancellation reason.
-- Set explicit `next_renewal_date` values while leaving status active.
-- Change billing cadence (`interval` / `interval_count`).
-- Migrate subscriptions off a retired payment gateway.
-- Bulk-fix shipping/billing addresses.
+- Pause a group of subscriptions until a date (or indefinitely).
+- Cancel a group, with the cancellation reason recorded.
+- Move renewal dates to specific new dates.
+- Change how often subscriptions bill (for example, monthly to every 3 months).
+- Move subscriptions off a retired payment gateway.
+- Fix shipping or billing addresses in bulk.
 
-## Requirements
+## What You Need
 
-- **Python 3** — the bundled executor uses only the standard library.
-- **A Next Commerce store** and its subdomain.
-- **Admin API token** with `subscriptions:read` and `subscriptions:write` scopes,
-  created at **Dashboard > Settings > API Access**.
-- The token must be set in the environment as `NEXT_ADMIN_API_TOKEN`. Never paste
-  it into chat, CLI arguments, or files.
-- **Input CSV** with a subscription ID column. Optional per-row columns
-  (`Pause Until`, `Next Renewal Date`) override the shared payload. XLSX must be
-  converted to CSV first.
+- **Your store's web address** — for example, `mystore` if your store is at
+  mystore.29next.store.
+- **An API key for your store** — created in your store admin under
+  **Dashboard > Settings > API Access**. It needs permission to read and write
+  subscriptions. Your assistant checks it works before doing anything.
+- **The spreadsheet** (CSV file) with a column of subscription IDs. It can also
+  carry per-row values — for example a different pause-until date per
+  subscription. If your file is an Excel file, your assistant will help convert
+  it first.
+
+You never type or paste the API key into the chat. Your assistant creates a
+private settings file on your computer, you paste the key into that file with
+a normal text editor, and the assistant reads it from there. The key is saved
+per store and remembered for next time.
+
+> [!IMPORTANT]
+> **Pausing indefinitely isn't forever.** Subscriptions paused without an end
+> date are automatically canceled by the platform after 6 months if nobody
+> resumes them. If you want them back, set a resume date or diary a check-in.
 
 ## Install
 
-See the [repo README](../README.md) for the guided installer, or install just this skill:
-
-```bash
-npx skills add NextCommerceCo/skills -g --skill next-bulk-subscription
-```
+See the [repo README](../README.md) for installation. If you're not sure how,
+ask whoever set up your AI assistant — or ask the assistant itself.
 
 ## How to Use
 
-Ask your AI tool something like:
+Ask your AI assistant something like:
 
-> Run /next-bulk-subscription — pause these subscriptions on `mystore` until
-> 2026-08-01. Here's the CSV of subscription IDs.
+> Run next-bulk-subscription — pause these subscriptions on mystore until
+> August 1st. Here's the file of subscription IDs.
 
-The skill walks through:
+It then walks you through, step by step:
 
-1. **Setup** — store subdomain, token validation, CSV ingestion.
-2. **Update mode** — pick the action (pause, cancel, set renewal date, change
-   interval, update gateway, replace address, or freeform partial update) and
-   confirm the exact request body before anything runs.
-3. **Dry run** (default) — computes every request without sending it and reports
-   per-row status.
-4. **Live run** — only after confirmation, with `--execute`.
-5. **Verify & report** — spot-checks a few updated subscriptions with a live GET,
-   then summarizes results.
-
-The executor lives at [`scripts/bulk_subscription.py`](scripts/bulk_subscription.py):
-
-```bash
-python3 -u next-bulk-subscription/scripts/bulk_subscription.py \
-  --store mystore --input subscriptions.csv --action pause \
-  --payload '{"pause_until":"2026-08-01"}' --results results.csv   # dry run
-# add --resume results.csv --execute for the live run
-```
+1. **Setup** — confirms your store, checks the API key, and reads your file.
+2. **What to change** — you pick the action (pause, cancel, new renewal date,
+   billing frequency, and so on) and see exactly what will be applied before
+   anything runs.
+3. **Practice run** — it works out every change without sending any of them,
+   and reports what would happen row by row. Nothing changes yet.
+4. **Live run** — only after you say go.
+5. **Check and report** — it spot-checks a few updated subscriptions against
+   the live store and gives you a summary plus a results file for your records.
 
 ## Safety
 
-- **Dry-run is the default.** Mutations happen only with `--execute` after you confirm.
-- Actions and payload fields are allowlisted in the executor; anything else is refused.
-- Dates must be supplied as final, explicit values — the executor never computes
-  offsets, fetches baselines, or guesses timezones.
-- Pausing uses the official pause endpoint, never a raw `status` patch. Note:
-  indefinite pauses auto-cancel after 6 months if not resumed.
-- Resume matches rows by a one-way payload fingerprint, so a changed payload
-  never silently skips rows.
-- Rate-limited to stay under the Admin API's 4 requests/sec.
-- Results output contains operational fields only — no addresses, payment data,
-  names, or emails.
+- **Nothing changes in your store until you approve the live run.** The
+  practice run is always first.
+- Only recognized, approved kinds of changes can be sent — anything unexpected
+  is refused rather than guessed at.
+- Dates are used exactly as you supply them — it never computes "30 days from
+  now" on its own or guesses timezones.
+- Pausing uses the platform's official pause feature, not a shortcut.
+- If a run is interrupted and restarted, already-completed rows are skipped
+  safely — and if you changed what's being applied, nothing is skipped by
+  mistake.
+- It works at a polite pace the store's system allows.
+- Results contain subscription IDs and outcomes only — never addresses,
+  payment details, names, or emails.

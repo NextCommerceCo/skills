@@ -417,51 +417,23 @@ class BulkFulfillTests(unittest.TestCase):
         fake.fulfill.assert_not_called()
 
 
-SPEC_SNIPPET = """\
-components:
-  schemas:
-    AddOrderShipmentTracking:
-      properties:
-        carrier:
-          enum:
-            - decoy_carrier
-          type: string
-      type: object
-    TrackingInfo:
-      properties:
-        carrier:
-          description: |-
-            * `4px` - 4px
-            enum: this line is prose inside the description, not the enum key
-          enum:
-            - 4px
-            - ups
-            - other
-          type: string
-        tracking_code:
-          type: string
-      type: object
-    Transaction:
-      type: object
-"""
+class CarrierListTests(unittest.TestCase):
+    def test_known_list_covers_every_detection_table_slug(self):
+        # Every slug the skill's detection table can propose must be sendable.
+        for slug in ("yunexpress", "4px", "usps", "ups", "fedex", "dhl", "other"):
+            self.assertIn(slug, bulk.VALID_CARRIERS)
 
+    def test_known_list_slugs_are_normalized(self):
+        for slug in bulk.VALID_CARRIERS:
+            self.assertEqual(slug, slug.strip().lower())
 
-class CarrierSpecTests(unittest.TestCase):
-    def test_parse_extracts_only_tracking_info_enum(self):
-        self.assertEqual({"4px", "ups", "other"},
-                         bulk.parse_tracking_carriers(SPEC_SNIPPET))
-
-    def test_parse_fails_loudly_when_enum_is_missing(self):
-        with self.assertRaises(ValueError):
-            bulk.parse_tracking_carriers("components:\n  schemas:\n    Order: {}\n")
-
-    def test_explicit_carrier_outside_fetched_list_is_not_sent(self):
+    def test_explicit_carrier_outside_known_list_is_not_sent(self):
         client = FakeClient()
         rows, _ = self.run_bulk_with_carriers(client, "pigeon", {"ups", "other"})
         self.assertEqual([], client.calls)
         self.assertEqual("INVALID_CARRIER", rows[0].action)
 
-    def test_explicit_carrier_passes_without_fetched_list(self):
+    def test_explicit_carrier_passes_without_known_list(self):
         client = FakeClient()
         rows, _ = self.run_bulk_with_carriers(client, "pigeon", None)
         self.assertEqual("FULFILLED", rows[0].action)
@@ -474,7 +446,7 @@ class CarrierSpecTests(unittest.TestCase):
         rows = [{"order_number": "1", "tracking_code": "T1", "carrier": carrier}]
         return worker.run(rows, output, bulk.resume_completed(None)), output
 
-    def test_carrier_map_rejects_slug_outside_fetched_list(self):
+    def test_carrier_map_rejects_slug_outside_known_list(self):
         with self.assertRaises(ValueError):
             bulk.load_carrier_map('{"prefix:1Z": "pigeon"}', {"ups", "other"})
 

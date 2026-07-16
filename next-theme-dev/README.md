@@ -1,69 +1,61 @@
 # Theme Development
 
-Deep platform knowledge for building, modifying, and debugging Next Commerce
-storefront themes — Spark, Intro Bootstrap, and custom themes. Covers:
+Gives your AI assistant deep, working knowledge of Next Commerce storefront
+themes — the Spark theme, Intro Bootstrap, and custom themes — so it can
+build, change, and debug your storefront the way an experienced platform
+developer would.
 
-- **Django Template Language** — inheritance, partials, template contexts, URL names.
-- **Theme Settings** — `settings_schema.json` / `settings_data.json` conventions
-  and merchant-friendly information architecture.
-- **ntk CLI** — push/pull/watch workflow, accepted file types, common errors.
-- **Full-page caching rules** — what belongs in server-side templates vs
-  client-side GraphQL (cart, auth, per-user state).
-- **Tailwind pipeline** (Spark) — standalone CLI build, the required
-  `sass-compat.py` compatibility pass, committed `assets/main.css` artifact.
-- **Task recipes** — colors/fonts, custom page and product templates, Spark PDP
-  redesigns, side cart customization, navigation, translations, Figma asset export.
-- **Hard-won gotchas** — the things that silently break themes.
+It knows:
 
-If the work starts from a Figma design, run
-[`next-theme-figma`](../next-theme-figma/) first — it produces the handoff
-package this skill consumes.
+- How the platform's page templates work and fit together.
+- How theme settings are structured so merchants get a clean Theme Editor.
+- The theme toolkit (ntk) workflow for syncing theme files with your store.
+- What must be rendered on the server versus loaded live in the browser
+  (cart contents, login state) because of the platform's page caching.
+- The Spark theme's styling pipeline and its non-obvious build steps.
+- Ready-made recipes: brand colors and fonts, custom pages, product page
+  redesigns, side cart changes, navigation, translations.
+- The hard-won gotchas that silently break themes.
 
-## Requirements
+**Starting from a Figma design?** Run
+[Theme Figma Handoff](../next-theme-figma/) first. It turns the design into a
+precise implementation package; this skill then does the building. Using the
+two together avoids the assistant guessing at what the design intends.
 
-- **Python 3** — for ntk and the bundled helper scripts. **Pillow** is needed
-  only when validating raster assets with `scripts/validate-theme-assets.py`.
-- **ntk** — `pip install next-theme-kit` (pipx/uv also work).
-- **A Next Commerce store** with an API key holding theme scopes, from
-  **Dashboard > Settings > API Keys**.
-- A `config.yml` in the theme directory:
+## What You Need
 
-```yaml
-development:
-  apikey: <api_key>
-  store: <store_subdomain>.29next.store
-  theme_id: <theme_id>
-```
-
-Get the `theme_id` from `ntk list`. For Spark/Tailwind themes you'll also need
-the Tailwind v4 standalone binary (the theme's `make install-tailwind` handles it).
+- **Python 3 installed**, and the theme toolkit **ntk** — your assistant can
+  install and check both for you.
+- **A Next Commerce store** with an API key that has theme permissions,
+  created in your store admin under **Dashboard > Settings > API Keys**.
+- **The theme's folder on your computer**, with its connection settings file
+  pointing at your store and theme. Your assistant sets this up if it's
+  missing, and can look up the theme ID for you.
+- For the Spark theme, one extra styling tool is needed — the theme's own
+  setup command installs it, and your assistant handles that.
 
 ## Install
 
-See the [repo README](../README.md) for the guided installer, or install just this skill:
-
-```bash
-npx skills add NextCommerceCo/skills -g --skill next-theme-dev
-```
+See the [repo README](../README.md) for installation. If you're not sure how,
+ask whoever set up your AI assistant — or ask the assistant itself.
 
 ## How to Use
 
-Work inside a theme directory (look for `manifest.json`, `config.yml`, and the
-standard `assets/`, `configs/`, `layouts/`, `partials/`, `templates/` layout)
-and ask for what you need:
+Work inside the theme's folder and just describe what you want:
 
 > Add a free-shipping progress bar to the side cart on my Spark theme.
 
-> The PDP price stopped updating when I select a variant — debug it.
+> The product page price stopped updating when I select a variant — debug it.
 
-The skill identifies the theme family first (Spark vs Intro Bootstrap vs custom)
-and keeps changes within that stack.
+The skill first identifies which theme family you're on and keeps every change
+consistent with how that theme is built.
 
 ## Safety
 
-- **`ntk push` and `ntk watch` mutate the live store theme.** The skill requires
-  explicit operator confirmation before either, and pushes only changed files.
-- `configs/settings_data.json` is treated as merchant Theme Editor state — it is
-  only pushed when the task explicitly requires changing saved values.
-- Develop and verify on the `.29next.store` domain to bypass the 5-minute
-  full-page CDN cache.
+- **Syncing changes to the store affects your live storefront.** The skill
+  always asks for your explicit go-ahead before pushing anything, and pushes
+  only the files that changed.
+- Your saved Theme Editor settings are treated as merchant-owned state — they
+  are only touched when the task genuinely requires it.
+- Verification happens on the store's direct address, sidestepping the
+  5-minute page cache, so you always see the real current state.

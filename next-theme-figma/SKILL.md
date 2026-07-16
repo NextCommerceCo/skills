@@ -1,6 +1,6 @@
 ---
 name: next-theme-figma
-version: 0.2.1
+version: 0.2.2
 description: |
   Prepare Figma storefront designs for NEXT Commerce and Spark theme
   implementation handoff. Use when auditing, inspecting, extracting assets

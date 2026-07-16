@@ -1,63 +1,59 @@
 # Daily Ops Risk Scan
 
-A **read-only** daily operations scan for a single Next Commerce store. It finds:
+A **look-but-don't-touch** daily check of one Next Commerce store. It finds the
+orders most likely to turn into customer complaints, missed refunds, or
+payment disputes:
 
-- **Incomplete orders** that likely need refund review.
-- **Rejected orders** that need fulfillment or order-data correction review.
-- **Delivery Tracking failures or stale shipments** (when the Delivery Tracking
-  app is installed).
+- **Incomplete orders** that probably need a refund review.
+- **Rejected orders** that need someone to fix order data or fulfillment setup.
+- **Shipments that look stuck or failed** (when the Delivery Tracking app is
+  installed).
 
-Output is two local files: `next_ops_scan_summary.md` (human-first action
-summary) and `next_ops_scan_results.csv` (machine-readable sidecar). The scan
-never refunds, cancels, fulfills, edits, or messages customers — it produces a
-queue with manual next steps, and the merchant decides what to do.
+You get two files on your computer: an easy-to-read summary with recommended
+next steps, and a spreadsheet version of the same list for filtering or
+sharing. The scan never refunds, cancels, fulfills, edits, or messages anyone
+— it hands your team a to-do queue, and people make the decisions.
 
-## Requirements
+## What You Need
 
-- **Python 3** — the bundled scanner uses only the standard library.
-- **A Next Commerce store** and its subdomain.
-- **Admin API token** with the `orders:read` scope, created at
-  **Dashboard > Settings > API Access**. Use a limited-scope token; keep it
-  private and rotate it if exposed.
-- Environment variables (or equivalent CLI flags):
+- **Your store's web address** — for example, `mystore` if your store is at
+  mystore.29next.store.
+- **An API key for your store** — created in your store admin under
+  **Dashboard > Settings > API Access**. For this scan it only needs permission
+  to read orders — nothing else. Keep it private, and replace it if it's ever
+  exposed.
 
-```bash
-export NEXT_STORE_DOMAIN="mystore.29next.store"
-export NEXT_ADMIN_API_TOKEN="<token>"
-```
+You never type or paste the API key into the chat. Your assistant creates a
+private settings file on your computer, you paste the key into that file with
+a normal text editor, and the assistant reads it from there. The key is saved
+per store and remembered for next time.
 
-Delivery-risk rows only appear when the Delivery Tracking app is installed and
-the token can read order delivery statuses.
+Shipment-related findings only appear if the Delivery Tracking app is
+installed on your store.
 
 ## Install
 
-See the [repo README](../README.md) for the guided installer, or install just this skill:
-
-```bash
-npx skills add NextCommerceCo/skills -g --skill next-ops-scan
-```
+See the [repo README](../README.md) for installation. If you're not sure how,
+ask whoever set up your AI assistant — or ask the assistant itself.
 
 ## How to Use
 
-Ask your AI tool something like:
+Ask your AI assistant something like:
 
-> Run /next-ops-scan for my store and help me review today's risky order queues.
+> Run next-ops-scan for my store and help me review today's risky order queues.
 
-Or run the scanner directly — it lives at
-[`scripts/next_ops_scan.py`](scripts/next_ops_scan.py):
+The assistant runs the scan, then walks you through the findings: what each
+queue means, which orders look most urgent, and what the recommended manual
+next step is for each. You can adjust how far back it looks and how many days
+count as "stuck" — just say so in plain words.
 
-```bash
-python3 next-ops-scan/scripts/next_ops_scan.py --out-dir ./next-ops-scan-output
-```
-
-Thresholds are tunable with flags such as `--lookback-days`,
-`--rejected-idle-days`, `--in-transit-days`, and `--delayed-days` — see the
-SKILL.md for the full list.
+Many teams run this every weekday morning and skim the summary with coffee.
 
 ## Safety
 
-- **Read-only.** No store state is ever changed; only local files are written.
-- The scan is a queue, not a risk score — refund/reship/escalate decisions stay
-  with the merchant.
-- Tokens are read from the environment; never commit them or paste them into
-  shared docs.
+- **Read-only.** Nothing in your store is ever changed; the only thing written
+  is the two report files on your computer.
+- It's a queue, not a verdict — refund, reship, and escalation decisions stay
+  with your team.
+- The API key stays in its private file — never in the chat, never in the
+  reports, never in shared docs.

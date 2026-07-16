@@ -22,10 +22,19 @@ COMPLETED_STATUSES = {"success"}
 CANCELLATION_STATES = {"cancel_requested", "cancellation_requested",
                        "cancel_pending", "cancellation_pending",
                        "cancel_accepted", "cancellation_accepted"}
-# Carrier slugs are never hardcoded: the published Admin API spec (the source
-# behind the fulfillmentsCreate reference docs) is fetched at runtime instead,
-# so the accepted list can grow without a skill release.
-CARRIER_SPEC_URL = f"https://developers.nextcommerce.com/api/admin/{API_VERSION}.yaml"
+# Known-good carrier slugs: the TrackingInfo.carrier enum from the published
+# 2024-04-01 Admin API spec (rendered at the fulfillmentsCreate reference).
+# Update this list when the platform adds carriers.
+VALID_CARRIERS = frozenset({
+    "4px", "amazon", "aramex", "asendia", "australia_post", "china_post",
+    "cirro", "deutsche_de", "dhl", "dhl_ecommerce", "dor", "dpd",
+    "emile_express", "fedex", "firstmile", "gls", "gofo_express",
+    "hermesworld_uk", "hua_han", "jt_express", "jy_express", "myhermes",
+    "ontrac", "other", "postnl", "royal_mail", "sfyd_express", "shipx",
+    "speedx", "speedy", "sunyou", "swiftx", "swiss_post", "ts_express",
+    "ulala", "united_delivery_service", "uniuni", "ups", "usps", "ysd_post",
+    "yunexpress",
+})
 
 
 class AuthenticatedRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -178,57 +187,6 @@ def inferred_carrier(tracking: str) -> tuple[str, str]:
     return "unmatched", "other"
 
 
-def parse_tracking_carriers(text: str) -> set[str]:
-    """Extract the TrackingInfo.carrier enum from the published OpenAPI YAML.
-
-    Line-based on purpose: the executor is stdlib-only (no yaml module) and the
-    spec is machine-generated with stable indentation. Raises ValueError when
-    the enum cannot be found so a spec layout change can never yield a silently
-    empty carrier list.
-    """
-    carriers: set[str] = set()
-    schema_indent = carrier_indent = enum_indent = None
-    for line in text.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        indent = len(line) - len(line.lstrip(" "))
-        if schema_indent is None:
-            if stripped == "TrackingInfo:":
-                schema_indent = indent
-            continue
-        if indent <= schema_indent:
-            break  # left the TrackingInfo schema
-        if enum_indent is not None:
-            if indent > enum_indent and stripped.startswith("- "):
-                carriers.add(stripped[2:].strip().strip("'\""))
-                continue
-            break  # end of the enum list
-        if carrier_indent is not None:
-            if indent <= carrier_indent:
-                carrier_indent = None  # left the carrier property without an enum
-            elif stripped == "enum:":
-                enum_indent = indent
-                continue
-        if carrier_indent is None and stripped == "carrier:":
-            carrier_indent = indent
-    if not carriers:
-        raise ValueError("TrackingInfo.carrier enum not found in the spec")
-    return carriers
-
-
-def fetch_valid_carriers(url: str = CARRIER_SPEC_URL, timeout: float = 30.0) -> set[str]:
-    """Fetch the current carrier slugs from the published Admin API spec.
-
-    The docs CDN rejects the default Python-urllib User-Agent with 403, so an
-    explicit one is required.
-    """
-    request = urllib.request.Request(
-        url, headers={"User-Agent": "next-bulk-fulfill (NextCommerceCo/skills)"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return parse_tracking_carriers(response.read().decode("utf-8"))
-
-
 def load_carrier_map(raw: str | None,
                      valid_carriers: set[str] | None = None) -> dict[str, str]:
     if not raw:
@@ -239,7 +197,7 @@ def load_carrier_map(raw: str | None,
     if not isinstance(data, dict) or not all(isinstance(v, str) for v in data.values()):
         raise ValueError("--carrier-map must be a JSON object of pattern-to-slug strings")
     if valid_carriers is not None and any(v not in valid_carriers for v in data.values()):
-        raise ValueError("--carrier-map contains carrier slugs not in the published spec")
+        raise ValueError("--carrier-map contains carrier slugs not in the known-good carrier list")
     return {str(k): str(v) for k, v in data.items()}
 
 
@@ -520,15 +478,7 @@ def main(argv: list[str] | None = None) -> int:
     token = os.environ.get("NEXT_ADMIN_API_TOKEN")
     if not token:
         print("NEXT_ADMIN_API_TOKEN is required", file=sys.stderr); return 2
-    valid_carriers = None
-    try:
-        valid_carriers = fetch_valid_carriers()
-        print(f"Loaded {len(valid_carriers)} carrier slugs from {CARRIER_SPEC_URL}",
-              flush=True)
-    except Exception as exc:
-        print(f"WARNING: could not load the carrier list from {CARRIER_SPEC_URL} "
-              f"({exc}); carrier slugs will be validated by the API instead",
-              file=sys.stderr)
+    valid_carriers = VALID_CARRIERS
     try:
         client = AdminClient(args.store, token)
         rows = read_rows(args.input)
