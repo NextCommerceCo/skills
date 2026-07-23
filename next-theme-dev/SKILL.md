@@ -98,7 +98,9 @@ Go to Dashboard > Settings > API Keys and obtain an API key with these scopes:
 
 ### 3. Create a New Unpublished Theme
 
-From the Spark directory, run this invocation with the long flags:
+Install `ntk` first if it is missing (`pip install next-theme-kit`; see the
+Preamble environment check). Then, from the Spark directory, run this
+invocation with the long flags:
 
 ```bash
 # Store the key outside committed files and shell history, then:
