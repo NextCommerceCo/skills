@@ -116,7 +116,10 @@ strict validator requires the first seven, but does not require `notes.md`.
 
 The package is the design source of record in this mode. Consult the Figma file
 only through the package, such as when exporting an asset named by a manifest.
-Manifest guarantees are lost if implementation re-derives the design.
+Manifest guarantees are lost if implementation re-derives the design. A theme's
+`DESIGN.md` still governs house style conventions where the package is silent;
+when the two conflict directly, surface the conflict to the operator instead of
+picking a winner.
 
 ---
 
