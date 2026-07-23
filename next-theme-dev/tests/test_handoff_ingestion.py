@@ -33,6 +33,19 @@ READING_ORDER_ROW = re.compile(
     r"^ {0,3}\|[ \t]*(\d+)[ \t]*\|[ \t]*`([^`\r\n]+)`[ \t]*\|.*\|[ \t]*$",
     re.MULTILINE,
 )
+READING_ORDER_SECTION = re.compile(
+    r"^### Prescribed Reading Order[ \t]*\n"
+    r".*?(?=^#{1,3}[ \t]+|\Z)",
+    re.MULTILINE | re.DOTALL,
+)
+READING_ORDER_TABLE_HEADER = re.compile(
+    r"^ {0,3}\|[ \t]*Order[ \t]*\|.*\|[ \t]*$"
+)
+MARKDOWN_TABLE_DELIMITER = re.compile(
+    r"^ {0,3}\|"
+    r"(?:[ \t]*:?-{3,}:?[ \t]*\|)+"
+    r"[ \t]*$"
+)
 
 
 def _handoff_section(test_case, markdown):
@@ -77,7 +90,36 @@ def _without_fenced_code(markdown):
 
 
 def _assert_reading_order(test_case, section):
-    rows = READING_ORDER_ROW.findall(_without_fenced_code(section))
+    visible_section = _without_fenced_code(section)
+    reading_order_section = READING_ORDER_SECTION.search(visible_section)
+    test_case.assertIsNotNone(
+        reading_order_section,
+        "missing H3 section 'Prescribed Reading Order'",
+    )
+
+    lines = reading_order_section.group(0).splitlines()
+    table_start = None
+    for line_number in range(len(lines) - 1):
+        if (
+            READING_ORDER_TABLE_HEADER.fullmatch(lines[line_number])
+            and MARKDOWN_TABLE_DELIMITER.fullmatch(lines[line_number + 1])
+        ):
+            table_start = line_number + 2
+            break
+
+    test_case.assertIsNotNone(
+        table_start,
+        "reading-order table must contain a header row followed by a "
+        "delimiter row",
+    )
+
+    rows = []
+    for line in lines[table_start:]:
+        row = READING_ORDER_ROW.fullmatch(line)
+        if row is None:
+            break
+        rows.append(row.groups())
+
     row_summary = ", ".join(
         "{}:{!r}".format(order, filename) for order, filename in rows
     )
@@ -265,7 +307,7 @@ class HandoffIngestionTest(unittest.TestCase):
         with self.assertRaisesRegex(
             AssertionError,
             r"reading-order row/filename problem: table must contain "
-            r"exactly 8 data rows; found 7",
+            r"exactly 8 data rows; found 1",
         ):
             assert_handoff_ingestion(self, fixture)
 
@@ -347,6 +389,55 @@ class HandoffIngestionTest(unittest.TestCase):
             r"exactly 8 data rows; found 7",
         ):
             assert_handoff_ingestion(self, fixture)
+
+    def test_ignores_numeric_table_outside_prescribed_reading_order(self):
+        unrelated_table = (
+            "\n### Unrelated Numeric Table\n\n"
+            "| Order | File | Note |\n"
+            "| --- | --- | --- |\n"
+            "| 99 | `unrelated.json` | Not part of the reading order. |\n"
+        )
+        fixture = _transform_handoff_section(
+            self,
+            self.markdown,
+            lambda section: section + unrelated_table,
+        )
+
+        assert_handoff_ingestion(self, fixture)
+
+    def test_rejects_reading_order_table_without_header_or_delimiter(self):
+        removals = {
+            "header": r"^\| Order \|.*\n",
+            "delimiter": (
+                r"^\|[ \t]*:?-{3,}:?[ \t]*\|"
+                r"(?:[ \t]*:?-{3,}:?[ \t]*\|)+[ \t]*\n"
+            ),
+        }
+
+        for missing_part, pattern in removals.items():
+            with self.subTest(missing_part=missing_part):
+                def remove_table_structure(section):
+                    transformed, replacements = re.subn(
+                        pattern,
+                        "",
+                        section,
+                        count=1,
+                        flags=re.MULTILINE,
+                    )
+                    self.assertEqual(replacements, 1)
+                    return transformed
+
+                fixture = _transform_handoff_section(
+                    self,
+                    self.markdown,
+                    remove_table_structure,
+                )
+
+                with self.assertRaisesRegex(
+                    AssertionError,
+                    r"header row followed by a delimiter row",
+                ):
+                    assert_handoff_ingestion(self, fixture)
 
     def test_duplicate_handoff_headings_are_concatenated(self):
         placeholder = (

@@ -545,7 +545,7 @@ Accept any of: Figma link, screenshot, PDF, or verbal description. Extract:
 - **Component inventory** — header, footer, hero, product cards, CTAs, nav, cart drawer
 - **Static vs dynamic split** — which elements show the same content for all visitors (DTL) vs per-user content (GraphQL)
 
-Identify the theme family before implementation. Spark designs should map to Tailwind tokens, Web Components, homepage section partials, and app hooks. Intro Bootstrap designs should map to Bootstrap/SCSS and the existing jQuery/platform side cart where present. If a `DESIGN.md` exists in the project, it is the **source of truth** for all visual decisions. Read it before making UI choices.
+Identify the theme family before implementation. Spark designs should map to Tailwind tokens, Web Components, homepage section partials, and app hooks. Intro Bootstrap designs should map to Bootstrap/SCSS and the existing jQuery/platform side cart where present. If a `DESIGN.md` exists in the project, it is the **source of truth** for all visual decisions. Read it before making UI choices. In `implementation-handoff` mode, the handoff package is the design source of record and `DESIGN.md` governs house style where the package is silent; surface direct conflicts to the operator per the Implementation-Handoff Entry Contract.
 
 ### Step 1.5: Figma Fidelity Loop
 
