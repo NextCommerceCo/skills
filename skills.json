@@ -44,7 +44,7 @@
     {
       "id": "next-theme-dev",
       "name": "Theme Development",
-      "version": "1.5.0",
+      "version": "1.6.0",
       "path": "next-theme-dev/SKILL.md",
       "domain": "storefronts",
       "description": "Build, modify, and debug Next Commerce storefront themes, including Spark, Intro Bootstrap, Theme Settings, ntk CLI, DTL templates, and storefront GraphQL.",

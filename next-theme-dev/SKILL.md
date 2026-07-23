@@ -1,6 +1,6 @@
 ---
 name: next-theme-dev
-version: 1.5.0
+version: 1.6.0
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
@@ -68,6 +68,58 @@ development:
 ```
 
 Get the API key from Dashboard > Settings > API Keys. Get the theme_id from `ntk list`.
+
+---
+
+## Implementation-Handoff Entry Contract
+
+Apply this contract when the work mode is `implementation-handoff`: a
+`next-theme-figma` handoff package exists or was promised because the task
+references one or the upstream skill was run.
+
+If the package directory was not provided, ask the operator for it. Do not
+guess. Run the upstream strict validation gate before implementation:
+
+```bash
+node <next-theme-figma skill dir>/scripts/theme-figma.js validate-package /path/to/handoff
+```
+
+The validator script lives in the installed `next-theme-figma` skill directory,
+which is a sibling of this skill in a `NextCommerceCo/skills` checkout or skills
+install target. If that directory is unavailable, re-run `next-theme-figma` to
+regenerate and validate the package. After `validate-package` passes, read
+`figma-handoff.json` and confirm its `mode` is exactly
+`implementation-handoff`.
+
+**HARD STOP:** In `implementation-handoff` mode, if the package is missing or
+`validate-package` fails, or `figma-handoff.json` has any other mode, STOP and
+request the package or its regeneration in `implementation-handoff` mode from
+the operator or `next-theme-figma`. Never silently fall back to re-reading the
+Figma file or re-inferring the design. Do not re-infer the design from the
+Figma source as a fallback.
+
+### Prescribed Reading Order
+
+Read the package in this order. The documented package has all eight files; the
+strict validator requires the first seven, but does not require `notes.md`.
+
+| Order | Package file | Implementation pass |
+|------:|--------------|---------------------|
+| 1 | `figma-handoff.json` | Task context: target store, repo, and Figma source identity. Read first. |
+| 2 | `routes.json` | Templates plan for Step 4: Template Assembly: which templates/pages exist and their section order. |
+| 3 | `sections.json` | Partials/section work: classification decides semantic rebuild vs. asset vs. live Spark component. Use for Step 4 partials and the Step 1 component inventory. |
+| 4 | `assets.json` | Existing asset validation path: `scripts/validate-theme-assets.py --strict` in Step 2: Asset Preparation. |
+| 5 | `spark-divergence-ledger.json` | Intentional platform deviations: only entries with decision `spark-wins` or `figma-wins-with-guardrails` and status `approved`, `implemented`, or `accepted-gap` are pre-approved `intentional-platform-divergence` items. Do not re-litigate those resolved entries. Entries with decision `needs-approval` or `blocked`, or status `open` or `blocked`, are unresolved; surface them to the operator before implementing the affected surfaces. |
+| 6 | `viewport-coverage.json` | Responsive QA: the desktop/tablet/mobile reference set the Figma Fidelity Loop compares against. Availability is per route: check the route's `coverage` entry (`figma_ref`/`status`), not just the global `viewports` flags. |
+| 7 | `validation-checklist.md` | Completion review before handback. |
+| 8 | `notes.md` | Operator notes and unresolved questions. Read before building when present. If absent, note its absence in the handback and proceed; its absence alone is not a hard stop. |
+
+The package is the design source of record in this mode. Consult the Figma file
+only through the package, such as when exporting an asset named by a manifest.
+Manifest guarantees are lost if implementation re-derives the design. A theme's
+`DESIGN.md` still governs house style conventions where the package is silent;
+when the two conflict directly, surface the conflict to the operator instead of
+picking a winner.
 
 ---
 
@@ -493,18 +545,18 @@ Accept any of: Figma link, screenshot, PDF, or verbal description. Extract:
 - **Component inventory** — header, footer, hero, product cards, CTAs, nav, cart drawer
 - **Static vs dynamic split** — which elements show the same content for all visitors (DTL) vs per-user content (GraphQL)
 
-Identify the theme family before implementation. Spark designs should map to Tailwind tokens, Web Components, homepage section partials, and app hooks. Intro Bootstrap designs should map to Bootstrap/SCSS and the existing jQuery/platform side cart where present. If a `DESIGN.md` exists in the project, it is the **source of truth** for all visual decisions. Read it before making UI choices.
+Identify the theme family before implementation. Spark designs should map to Tailwind tokens, Web Components, homepage section partials, and app hooks. Intro Bootstrap designs should map to Bootstrap/SCSS and the existing jQuery/platform side cart where present. If a `DESIGN.md` exists in the project, it is the **source of truth** for all visual decisions. Read it before making UI choices. In `implementation-handoff` mode, the handoff package is the design source of record and `DESIGN.md` governs house style where the package is silent; surface direct conflicts to the operator per the Implementation-Handoff Entry Contract.
 
 ### Step 1.5: Figma Fidelity Loop
 
 When a Figma source is provided, treat the Figma file as a visual spec, not merely an asset bucket. Run this loop proactively so visual deltas are found, fixed, or documented before handoff.
 
-1. **Map the design.** Identify the Figma file key, desktop/tablet/mobile frames, page/frame names, and section order. Record which storefront route/template each frame maps to.
-2. **Classify every section before building.** Decide what should be semantic HTML/CSS, what should use live platform data, what should be an exported image/vector asset, and what is intentionally a static composed frame. Text, buttons, controls, product selectors, prices, tables, FAQs, and nav/footer links should normally be rendered by the theme, not baked into a screenshot.
+1. **Map the design.** Identify the Figma file key, desktop/tablet/mobile frames, page/frame names, and section order. Record which storefront route/template each frame maps to. In `implementation-handoff` mode, this mapping already exists: take the file key, frames, section order, and route mapping from `figma-handoff.json`, `routes.json`, and `sections.json` instead of re-deriving them from the Figma file.
+2. **Classify every section before building.** Decide what should be semantic HTML/CSS, what should use live platform data, what should be an exported image/vector asset, and what is intentionally a static composed frame. Text, buttons, controls, product selectors, prices, tables, FAQs, and nav/footer links should normally be rendered by the theme, not baked into a screenshot. In `implementation-handoff` mode, surfaces covered by unresolved `spark-divergence-ledger.json` entries, using the resolved and unresolved definitions in the Implementation-Handoff Entry Contract, must be surfaced to the operator before building them.
 3. **Extract the smallest real assets.** Inspect children, fills, masks, vectors, and hidden variants. Export the underlying image fill/vector node or intended composed asset. Full-frame exports are diagnostic unless the design intentionally calls for a static bitmap composition.
 4. **Assemble semantically.** Build sections with real DTL/HTML, CSS, accessible controls, and platform contracts. Use extracted assets only for visual media, logos, product art, iconography, or intentional composites.
-5. **Push and compare.** After upload, capture the preview URL and the matching Figma frame/section at the same viewport. Compare section-by-section for image crop, asset choice, typography, spacing, alignment, colors, text wrapping, CTA size, touch targets, footer/header, and responsive behavior.
-6. **Create a remediation queue.** For each mismatch, mark it `fix-now`, `intentional-platform-divergence`, or `blocked-input-needed`. Platform divergences include Spark PDP gallery behavior, live variant pickers, backend product imagery, app hooks, cart/auth state, and other dynamic commerce surfaces.
+5. **Push and compare.** After upload, capture the preview URL and the matching Figma frame/section at the same viewport. In `implementation-handoff` mode, compare against the reference screenshots recorded in `viewport-coverage.json` for the matching route's `coverage` entry. A viewport has no design reference when it is globally unavailable or the route's entry lacks a `figma_ref` or marks the viewport missing (for example `documented-missing`): do not re-read the Figma file to invent one; implement responsive behavior at that viewport with theme judgment and record it in the handback as a package-documented gap. Compare section-by-section for image crop, asset choice, typography, spacing, alignment, colors, text wrapping, CTA size, touch targets, footer/header, and responsive behavior.
+6. **Create a remediation queue.** For each mismatch, mark it `fix-now`, `intentional-platform-divergence`, or `blocked-input-needed`. In `implementation-handoff` mode, mismatches already recorded as resolved in `spark-divergence-ledger.json` are `intentional-platform-divergence` items and must not be re-opened. Platform divergences include Spark PDP gallery behavior, live variant pickers, backend product imagery, app hooks, cart/auth state, and other dynamic commerce surfaces.
 7. **Repeat.** Patch the `fix-now` items, push changed files only, and re-run visual/DOM checks. Continue until the page is close to Figma or every remaining difference is explicitly documented for the user.
 
 If the task covers several pages, walk one page or section group at a time. It is acceptable to use subagents for independent section audits, but give them raw Figma/build screenshots or URLs and ask for deltas, not implementation conclusions.
