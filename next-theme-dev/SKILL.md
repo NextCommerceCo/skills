@@ -87,13 +87,16 @@ node <next-theme-figma skill dir>/scripts/theme-figma.js validate-package /path/
 The validator script lives in the installed `next-theme-figma` skill directory,
 which is a sibling of this skill in a `NextCommerceCo/skills` checkout or skills
 install target. If that directory is unavailable, re-run `next-theme-figma` to
-regenerate and validate the package.
+regenerate and validate the package. After `validate-package` passes, read
+`figma-handoff.json` and confirm its `mode` is exactly
+`implementation-handoff`.
 
 **HARD STOP:** In `implementation-handoff` mode, if the package is missing or
-`validate-package` fails, STOP and request the package or its regeneration from
+`validate-package` fails, or `figma-handoff.json` has any other mode, STOP and
+request the package or its regeneration in `implementation-handoff` mode from
 the operator or `next-theme-figma`. Never silently fall back to re-reading the
-Figma file or re-inferring the design. Do not re-infer the design from the Figma
-source as a fallback.
+Figma file or re-inferring the design. Do not re-infer the design from the
+Figma source as a fallback.
 
 ### Prescribed Reading Order
 
@@ -106,10 +109,10 @@ strict validator requires the first seven, but does not require `notes.md`.
 | 2 | `routes.json` | Templates plan for Step 4: Template Assembly: which templates/pages exist and their section order. |
 | 3 | `sections.json` | Partials/section work: classification decides semantic rebuild vs. asset vs. live Spark component. Use for Step 4 partials and the Step 1 component inventory. |
 | 4 | `assets.json` | Existing asset validation path: `scripts/validate-theme-assets.py --strict` in Step 2: Asset Preparation. |
-| 5 | `spark-divergence-ledger.json` | Intentional platform deviations: treat entries as the pre-approved `intentional-platform-divergence` list for the remediation queue. Do not re-litigate approved entries. |
+| 5 | `spark-divergence-ledger.json` | Intentional platform deviations: only entries with decision `spark-wins` or `figma-wins-with-guardrails` and status `approved`, `implemented`, or `accepted-gap` are pre-approved `intentional-platform-divergence` items. Do not re-litigate those resolved entries. Entries with decision `needs-approval` or `blocked`, or status `open` or `blocked`, are unresolved; surface them to the operator before implementing the affected surfaces. |
 | 6 | `viewport-coverage.json` | Responsive QA: the desktop/tablet/mobile reference set the Figma Fidelity Loop compares against. |
 | 7 | `validation-checklist.md` | Completion review before handback. |
-| 8 | `notes.md` | Operator notes and unresolved questions. Read before building; this file is not validator-required. |
+| 8 | `notes.md` | Operator notes and unresolved questions. Read before building when present. If absent, note its absence in the handback and proceed; its absence alone is not a hard stop. |
 
 The package is the design source of record in this mode. Consult the Figma file
 only through the package, such as when exporting an asset named by a manifest.
