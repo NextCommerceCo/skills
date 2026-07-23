@@ -1,3 +1,10 @@
+"""Lint documented ntk commands against the released command surface.
+
+This intentionally does not defend against shell-adversarial bypasses such as
+$NTK variables, ``sh -c``, /usr/bin/ntk, or word-splitting tricks. It also does
+not fully validate argv arity or argument values.
+"""
+
 import re
 import shlex
 import unittest
@@ -7,17 +14,37 @@ from pathlib import Path
 SKILL = Path(__file__).resolve().parents[1] / "SKILL.md"
 
 SUBCOMMANDS = {"init", "list", "checkout", "pull", "push", "watch", "sass"}
-COMMON_FLAGS = {"--apikey", "-a", "--store", "-s"}
+# Mirrors ntk/ntk_parser.py _add_config_arguments in the released parser.
+COMMON_FLAGS = {
+    "-a",
+    "--apikey",
+    "-s",
+    "--store",
+    "-t",
+    "--theme_id",
+    "-e",
+    "--env",
+    "-sos",
+    "--sass_output_style",
+}
 INIT_FLAGS = {"--name", "-n"} | COMMON_FLAGS
-SASS_FLAGS = COMMON_FLAGS | {"-sos", "--sass_output_style"}
 SHELL_SEPARATORS = {";", "&&", "||", "|", "&", "(", ")"}
+NTK_INVOCATION = re.compile(
+    r"(?<![\w./-])@?ntk[ \t]+([A-Za-z][A-Za-z0-9_-]*)"
+)
+FLAG_TOKEN = re.compile(
+    r"(?<!\S)(-{1,2}[A-Za-z][A-Za-z0-9_-]*(?:=[^\s\"';&|()<>]*)?)"
+)
 
 
 def _shell_tokens(text):
-    lexer = shlex.shlex(text, posix=True, punctuation_chars=";&|()")
-    lexer.commenters = "#"
-    lexer.whitespace_split = True
-    return list(lexer)
+    try:
+        lexer = shlex.shlex(text, posix=True, punctuation_chars=";&|()")
+        lexer.commenters = "#"
+        lexer.whitespace_split = True
+        return list(lexer)
+    except ValueError:
+        return text.split()
 
 
 def _invocations_in_context(text, line_number):
@@ -38,6 +65,63 @@ def _invocations_in_context(text, line_number):
     return invocations
 
 
+def _regex_invocations(text, line_number):
+    invocations = []
+    for match in NTK_INVOCATION.finditer(text):
+        prefix = text[:match.start()]
+        if prefix.lstrip().startswith("#"):
+            continue
+        if prefix.count('"') % 2:
+            opening_quote = prefix.rfind('"')
+            if not re.search(r":\s*$", prefix[:opening_quote]):
+                continue
+        remainder = text[match.end():]
+        boundary = re.search(r"[\"';&|()<>]", remainder)
+        if boundary:
+            remainder = remainder[:boundary.start()]
+        flags = [flag.group(1) for flag in FLAG_TOKEN.finditer(remainder)]
+        invocations.append(
+            (line_number, ["ntk", match.group(1)] + flags)
+        )
+    return invocations
+
+
+def _fenced_invocations(fenced_lines, fence_start):
+    logical_lines = []
+    pending = ""
+    pending_line = fence_start
+    for offset, fenced_line in enumerate(fenced_lines):
+        current_line = fence_start + offset
+        if not pending:
+            pending_line = current_line
+        stripped = fenced_line.rstrip()
+        if stripped.endswith("\\"):
+            pending += stripped[:-1] + " "
+        else:
+            logical_lines.append((pending_line, pending + fenced_line))
+            pending = ""
+    if pending:
+        logical_lines.append((pending_line, pending))
+
+    shell_invocations = []
+    for line_number, logical_line in logical_lines:
+        shell_invocations.extend(
+            _invocations_in_context(logical_line, line_number)
+        )
+
+    regex_invocations = []
+    for offset, fenced_line in enumerate(fenced_lines):
+        regex_invocations.extend(
+            _regex_invocations(fenced_line, fence_start + offset)
+        )
+
+    deduplicated = {}
+    for invocation in shell_invocations + regex_invocations:
+        line_number, tokens = invocation
+        deduplicated.setdefault((line_number, tokens[1]), invocation)
+    return sorted(deduplicated.values(), key=lambda item: item[0])
+
+
 def extract_ntk_invocations(markdown):
     invocations = []
     fenced_lines = []
@@ -45,33 +129,20 @@ def extract_ntk_invocations(markdown):
     fence_marker = None
 
     for line_number, line in enumerate(markdown.splitlines(), start=1):
-        fence = re.match(r"^\s*(`{3,})", line)
+        fence = re.match(r"^\s*(`{3,}|~{3,})", line)
         if fence:
             marker = fence.group(1)
             if fence_marker is None:
                 fence_marker = marker
                 fence_start = line_number + 1
                 fenced_lines = []
-            elif len(marker) >= len(fence_marker):
-                logical_lines = []
-                pending = ""
-                pending_line = fence_start
-                for offset, fenced_line in enumerate(fenced_lines):
-                    current_line = fence_start + offset
-                    if not pending:
-                        pending_line = current_line
-                    stripped = fenced_line.rstrip()
-                    if stripped.endswith("\\"):
-                        pending += stripped[:-1] + " "
-                    else:
-                        logical_lines.append((pending_line, pending + fenced_line))
-                        pending = ""
-                if pending:
-                    logical_lines.append((pending_line, pending))
-                for logical_line_number, logical_line in logical_lines:
-                    invocations.extend(
-                        _invocations_in_context(logical_line, logical_line_number)
-                    )
+            elif (
+                marker[0] == fence_marker[0]
+                and len(marker) >= len(fence_marker)
+            ):
+                invocations.extend(
+                    _fenced_invocations(fenced_lines, fence_start)
+                )
                 fence_marker = None
                 fence_start = None
                 fenced_lines = []
@@ -81,10 +152,15 @@ def extract_ntk_invocations(markdown):
             fenced_lines.append(line)
             continue
 
-        for inline in re.finditer(r"(?<!`)`([^`\n]+)`(?!`)", line):
+        for inline in re.finditer(
+            r"(?<!`)(`{1,2})([^`\n]+)\1(?!`)", line
+        ):
             invocations.extend(
-                _invocations_in_context(inline.group(1), line_number)
+                _invocations_in_context(inline.group(2), line_number)
             )
+
+    if fence_marker is not None:
+        invocations.extend(_fenced_invocations(fenced_lines, fence_start))
 
     return invocations
 
@@ -100,12 +176,7 @@ def assert_command_truth(test_case, markdown):
             ),
         )
 
-        if subcommand == "init":
-            allowed_flags = INIT_FLAGS
-        elif subcommand == "sass":
-            allowed_flags = SASS_FLAGS
-        else:
-            allowed_flags = COMMON_FLAGS
+        allowed_flags = INIT_FLAGS if subcommand == "init" else COMMON_FLAGS
 
         for token in tokens[2:]:
             if not token.startswith("-") or token == "-":
@@ -122,7 +193,20 @@ def assert_command_truth(test_case, markdown):
 
 class CommandTruthTest(unittest.TestCase):
     def test_skill_uses_only_released_ntk_commands_and_flags(self):
-        assert_command_truth(self, SKILL.read_text(encoding="utf-8"))
+        markdown = SKILL.read_text(encoding="utf-8")
+        assert_command_truth(self, markdown)
+
+        expected_embedded = {
+            (line_number, "watch")
+            for line_number, line in enumerate(markdown.splitlines(), start=1)
+            if "@ntk watch" in line or re.search(r"&[ \t]+ntk watch", line)
+        }
+        extracted = {
+            (line_number, tokens[1])
+            for line_number, tokens in extract_ntk_invocations(markdown)
+        }
+        self.assertGreaterEqual(len(expected_embedded), 3)
+        self.assertTrue(expected_embedded <= extracted)
 
     def test_rejects_unknown_subcommand(self):
         fixture = """```bash
@@ -134,10 +218,10 @@ ntk tailwind build
 
     def test_rejects_unknown_init_flag(self):
         fixture = """```bash
-ntk init --theme_id=5
+ntk init --bogus=5
 ```
 """
-        with self.assertRaisesRegex(AssertionError, "theme_id.*line 2"):
+        with self.assertRaisesRegex(AssertionError, "bogus.*line 2"):
             assert_command_truth(self, fixture)
 
     def test_accepts_valid_push(self):
@@ -147,8 +231,83 @@ ntk push templates/index.html
 """
         assert_command_truth(self, fixture)
 
+    def test_make_recipe_rejects_unknown_subcommand(self):
+        fixture = """```make
+dev:
+\t@ntk tailwind build
+```
+"""
+        with self.assertRaisesRegex(AssertionError, "tailwind.*line 3"):
+            assert_command_truth(self, fixture)
+
+    def test_make_recipe_accepts_watch(self):
+        fixture = """```make
+dev:
+\t@ntk watch
+```
+"""
+        assert_command_truth(self, fixture)
+
+    def test_json_script_rejects_unknown_subcommand(self):
+        fixture = """```json
+{"scripts": {"dev": "npm run tailwind:watch & ntk tailwind"}}
+```
+"""
+        with self.assertRaisesRegex(AssertionError, "tailwind.*line 2"):
+            assert_command_truth(self, fixture)
+
+    def test_json_script_accepts_watch(self):
+        fixture = """```json
+{"scripts": {"dev": "npm run tailwind:watch & ntk watch"}}
+```
+"""
+        assert_command_truth(self, fixture)
+
+    def test_json_script_rejects_unknown_flag(self):
+        fixture = """```json
+{"scripts": {"dev": "ntk watch --bogus"}}
+```
+"""
+        with self.assertRaisesRegex(AssertionError, "bogus.*line 2"):
+            assert_command_truth(self, fixture)
+
+    def test_rejects_unknown_subcommand_in_tilde_fence(self):
+        fixture = """~~~bash
+ntk tailwind build
+~~~
+"""
+        with self.assertRaisesRegex(AssertionError, "tailwind.*line 2"):
+            assert_command_truth(self, fixture)
+
+    def test_rejects_unknown_subcommand_in_unclosed_fence(self):
+        fixture = """```bash
+ntk tailwind build
+"""
+        with self.assertRaisesRegex(AssertionError, "tailwind.*line 2"):
+            assert_command_truth(self, fixture)
+
+    def test_accepts_released_theme_flags(self):
+        fixture = """```bash
+ntk checkout --theme_id=5
+ntk pull -t 5
+```
+"""
+        assert_command_truth(self, fixture)
+
+    def test_malformed_quote_does_not_escape_as_value_error(self):
+        fixture = """```bash
+ntk init --name="oops
+```
+"""
+        try:
+            assert_command_truth(self, fixture)
+        except AssertionError:
+            pass
+        except ValueError as error:
+            self.fail("malformed quote raised ValueError: {}".format(error))
+
     def test_parser_reads_fences_inline_code_and_continuations(self):
-        fixture = """Run `ntk list`, then:
+        fixture = """Run `ntk list` and ``ntk watch``, then:
 ```bash
 ntk init \\
   --name=example --apikey=secret --store=example.29next.store
@@ -158,6 +317,7 @@ ntk init \\
             extract_ntk_invocations(fixture),
             [
                 (1, ["ntk", "list"]),
+                (1, ["ntk", "watch"]),
                 (
                     3,
                     [
