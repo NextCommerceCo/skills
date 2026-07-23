@@ -71,6 +71,52 @@ Get the API key from Dashboard > Settings > API Keys. Get the theme_id from `ntk
 
 ---
 
+## Implementation-Handoff Entry Contract
+
+Apply this contract when the work mode is `implementation-handoff`: a
+`next-theme-figma` handoff package exists or was promised because the task
+references one or the upstream skill was run.
+
+If the package directory was not provided, ask the operator for it. Do not
+guess. Run the upstream strict validation gate before implementation:
+
+```bash
+node <next-theme-figma skill dir>/scripts/theme-figma.js validate-package /path/to/handoff
+```
+
+The validator script lives in the installed `next-theme-figma` skill directory,
+which is a sibling of this skill in a `NextCommerceCo/skills` checkout or skills
+install target. If that directory is unavailable, re-run `next-theme-figma` to
+regenerate and validate the package.
+
+**HARD STOP:** In `implementation-handoff` mode, if the package is missing or
+`validate-package` fails, STOP and request the package or its regeneration from
+the operator or `next-theme-figma`. Never silently fall back to re-reading the
+Figma file or re-inferring the design. Do not re-infer the design from the Figma
+source as a fallback.
+
+### Prescribed Reading Order
+
+Read the package in this order. The documented package has all eight files; the
+strict validator requires the first seven, but does not require `notes.md`.
+
+| Order | Package file | Implementation pass |
+|------:|--------------|---------------------|
+| 1 | `figma-handoff.json` | Task context: target store, repo, and Figma source identity. Read first. |
+| 2 | `routes.json` | Templates plan for Step 4: Template Assembly: which templates/pages exist and their section order. |
+| 3 | `sections.json` | Partials/section work: classification decides semantic rebuild vs. asset vs. live Spark component. Use for Step 4 partials and the Step 1 component inventory. |
+| 4 | `assets.json` | Existing asset validation path: `scripts/validate-theme-assets.py --strict` in Step 2: Asset Preparation. |
+| 5 | `spark-divergence-ledger.json` | Intentional platform deviations: treat entries as the pre-approved `intentional-platform-divergence` list for the remediation queue. Do not re-litigate approved entries. |
+| 6 | `viewport-coverage.json` | Responsive QA: the desktop/tablet/mobile reference set the Figma Fidelity Loop compares against. |
+| 7 | `validation-checklist.md` | Completion review before handback. |
+| 8 | `notes.md` | Operator notes and unresolved questions. Read before building; this file is not validator-required. |
+
+The package is the design source of record in this mode. Consult the Figma file
+only through the package, such as when exporting an asset named by a manifest.
+Manifest guarantees are lost if implementation re-derives the design.
+
+---
+
 ## From an Empty Store (Greenfield Path)
 
 Use this path when the merchant store already exists but there is no theme
