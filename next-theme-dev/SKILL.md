@@ -71,6 +71,115 @@ Get the API key from Dashboard > Settings > API Keys. Get the theme_id from `ntk
 
 ---
 
+## From an Empty Store (Greenfield Path)
+
+Use this path when the merchant store already exists but there is no theme
+checkout, local theme directory, `config.yml`, or existing `theme_id`. The goal
+is a new, unpublished Spark theme with a working preview URL. Do not activate
+the new theme during development.
+
+### 1. Get Spark
+
+Clone the public Spark starter over HTTPS into a new local directory:
+
+```bash
+git clone https://github.com/NextCommerceCo/spark.git theme
+cd theme
+```
+
+Keep Spark's existing `.gitignore`; it already ignores `config.yml`.
+
+### 2. Get Theme API Credentials
+
+Go to Dashboard > Settings > API Keys and obtain an API key with these scopes:
+
+- `themes:read`
+- `themes:write`
+
+### 3. Create a New Unpublished Theme
+
+From the Spark directory, run this invocation with the long flags:
+
+```bash
+ntk init --name="<theme name>" --apikey="<api_key>" --store="https://<store-subdomain>.29next.store/"
+```
+
+The short forms `-n`, `-a`, and `-s` also exist. Prefer the long flags in
+handoffs and runbooks.
+
+`ntk init` does not require an existing `theme_id`. It creates a new theme on
+the store through the Admin themes API, then writes `config.yml` in the current
+directory. That file includes the newly assigned `theme_id`.
+
+The new theme is not active and does not affect the live storefront unless
+someone activates it in the dashboard. Do not activate it during development.
+
+Read the complete command output. `ntk init` can exit 0 even when its API call
+fails; a zero exit code is not proof that the theme or `config.yml` was created.
+
+### 4. Preflight With `ntk list`
+
+Before the first push, run:
+
+```bash
+ntk list
+```
+
+Read the output and confirm all three conditions:
+
+1. The output identifies the expected `<store-subdomain>.29next.store` store.
+2. The new `theme_id` written by `ntk init` appears in the theme list.
+3. The theme marked `(Active)` is not the new theme.
+
+Then inspect `config.yml` and confirm its `theme_id` is the intended new theme.
+Never push until that value matches. `ntk list` can also exit 0 when its API call
+fails, so validate the output rather than the exit code.
+
+### 5. Build and Review the Initial Upload
+
+Run the theme's own build and verification pipeline before uploading. Spark uses
+its Makefile/npm pipeline for Tailwind; see "Tailwind Themes". The `ntk` CLI has
+no CSS-build subcommand beyond `sass`.
+
+Review every file intended for the first upload. Push only intentional theme
+files and exclude `configs/settings_data.json` from the initial bulk upload.
+That file is saved Theme Editor state, not ordinary source code. Seed it only as
+a deliberate, separately called-out store-state change.
+
+Follow "ntk Push: Only Changed Files" for explicit file selection and the "Live
+Theme Mutation Approval Gate" before running `ntk push`. Read the full push
+output: `ntk push` can exit 0 even when the API call fails.
+
+### 6. Derive and Verify the Preview URL
+
+The CLI prints the preview URL only while `ntk watch` is running. Do not start a
+watch session merely to discover it. Derive it from the confirmed store
+subdomain and the `theme_id` in `config.yml`:
+
+```text
+https://<store-subdomain>.29next.store/?preview_theme=<theme_id>&skip_cache=1
+```
+
+Open that URL and verify that it renders the uploaded unpublished theme. Confirm
+the URL uses the new theme ID and that the live storefront remains on the theme
+marked `(Active)` by `ntk list`.
+
+### 7. Credential and CLI Safety
+
+Every successful `ntk` command writes the API key in plaintext to `config.yml`.
+Spark's `.gitignore` already ignores that file. If working in a non-Spark bare
+directory instead, add `config.yml` to `.gitignore` before the first `ntk`
+command. Never commit or share `config.yml`.
+
+The complete `ntk` command set is `init`, `list`, `checkout`, `pull`, `push`,
+`watch`, and `sass`. There is no other subcommand.
+
+For `init`, `list`, and `push`, always read the command output and verify the
+result against the store. `ntk` can return exit code 0 even when the API call
+failed; zero is not success.
+
+---
+
 ## Architecture
 
 ### Directory Structure
