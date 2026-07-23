@@ -105,8 +105,11 @@ From the Spark directory, run this invocation with the long flags:
 ntk init --name="<theme name>" --apikey="$THEME_API_KEY" --store="https://<store-subdomain>.29next.store/"
 ```
 
-Set `THEME_API_KEY` from a gitignored environment file or in the shell without
-echoing it. Rotate the key if it was ever pasted literally into a command.
+Set `THEME_API_KEY` from an environment file or in the shell without echoing
+it. Spark's `.gitignore` does not cover conventional env files, so add the
+chosen filename (for example `.theme-build.env`) to `.gitignore` before
+creating it, or keep the file outside the checkout entirely. Rotate the key if
+it was ever pasted literally into a command.
 
 The short forms `-n`, `-a`, and `-s` also exist. Prefer the long flags in
 handoffs and runbooks.
