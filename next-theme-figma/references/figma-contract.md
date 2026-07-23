@@ -8,7 +8,7 @@ Record:
 
 - Figma file URL or file key.
 - Relevant page/frame URLs or node IDs.
-- Target store, theme, repo/worktree, and theme family.
+- Target store, theme, theme project folder, and theme family.
 - Target storefront routes and templates.
 - Current preview URL/theme ID if comparing to an existing build.
 - Work mode: `design-audit`, `handoff-prep`, or `implementation-handoff`.

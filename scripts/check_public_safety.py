@@ -68,6 +68,8 @@ CUSTOMER_TOKEN_RES = (
     re.compile(r"\becomm[ _-]?ops\b", re.IGNORECASE),
     re.compile(r"\bwinter[ _-]?gloves\b", re.IGNORECASE),
     re.compile(r"\boscar[ _-]?prime\b", re.IGNORECASE),
+    re.compile(r"\buv[ _-]?brite\b", re.IGNORECASE),
+    re.compile(r"\breliev[ _-]?core\b", re.IGNORECASE),
     re.compile(r"\bdlx\b", re.IGNORECASE),
 )
 BEARER_RE = re.compile(r"\bBearer\s+([^\s\"'`]+)", re.IGNORECASE)

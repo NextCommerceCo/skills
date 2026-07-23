@@ -36,6 +36,26 @@ class ScanTextTests(unittest.TestCase):
         sample = "Evidence copied from bareearth launch."  # public-safety: allow customer-token
         self.assertIn("customer-token", self.rule_ids(sample))
 
+    def test_new_blocklisted_customer_tokens_fire(self) -> None:
+        tokens = (
+            "uv" + "brite",
+            "uv" + " " + "brite",
+            "uv" + "_" + "brite",
+            "uv" + "-" + "brite",
+            ("uv" + "brite").upper(),
+            "uv" + "​" + "brite",
+            "reliev" + "core",
+            "reliev" + " " + "core",
+            "reliev" + "_" + "core",
+            "reliev" + "-" + "core",
+            ("reliev" + "core").upper(),
+            "reliev" + "​" + "core",
+        )
+        for token in tokens:
+            sample = "copied from " + token + " launch."
+            with self.subTest(token=token):
+                self.assertIn("customer-token", self.rule_ids(sample))
+
     def test_sensitive_values_inside_fence_are_scanned(self) -> None:
         sample = "\n".join(
             [

@@ -7,7 +7,7 @@
     {
       "id": "next-theme-figma",
       "name": "Theme Figma Handoff",
-      "version": "0.2.2",
+      "version": "0.2.3",
       "path": "next-theme-figma/SKILL.md",
       "domain": "storefronts",
       "description": "Prepare Figma storefront designs for NEXT Commerce and Spark theme implementation by validating source structure, classifying sections and assets, recording Spark divergences, and generating a low-inference handoff for next-theme-dev.",
@@ -32,6 +32,7 @@
         "Figma file or selection links with view access",
         "Target Next Commerce store/theme/repo context",
         "Figma MCP or REST/API access when live node inspection or screenshot export is needed",
+        "Node.js (runs the skill's bundled theme-figma.js helper script)",
         "next-theme-dev for downstream theme implementation"
       ],
       "safety": {
@@ -44,7 +45,7 @@
     {
       "id": "next-theme-dev",
       "name": "Theme Development",
-      "version": "1.6.0",
+      "version": "1.6.1",
       "path": "next-theme-dev/SKILL.md",
       "domain": "storefronts",
       "description": "Build, modify, and debug Next Commerce storefront themes, including Spark, Intro Bootstrap, Theme Settings, ntk CLI, DTL templates, and storefront GraphQL.",

@@ -105,9 +105,9 @@ Only one layer should communicate the same sale/discount in a given placement. I
 Use lowercase, kebab-case filenames under a merchant/theme folder where possible:
 
 ```text
-assets/img/uvbrite/hero-product.png
-assets/img/uvbrite/logos/womens-health.svg
-assets/img/uvbrite/pdp/how-it-works.jpg
+assets/img/example-store/hero-product.png
+assets/img/example-store/logos/press-logo.svg
+assets/img/example-store/pdp/how-it-works.jpg
 ```
 
 Name by storefront role, not raw Figma layer names. Store source node IDs in the manifest, not filenames.

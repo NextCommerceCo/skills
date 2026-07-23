@@ -1,6 +1,6 @@
 ---
 name: next-theme-figma
-version: 0.2.2
+version: 0.2.3
 description: |
   Prepare Figma storefront designs for NEXT Commerce and Spark theme
   implementation handoff. Use when auditing, inspecting, extracting assets
@@ -55,15 +55,17 @@ Load only the references needed for the current step:
 Require or infer these before fetching deeply or editing theme code:
 
 - Figma file URL, file key, or selection links for the relevant page/frames.
-- Target store, theme, repo/worktree, and theme family if known.
+- Target store, theme, theme project folder, and theme family if known.
 - Target pages/routes, such as `/`, `/products/<slug>/`, `/pages/<slug>/`.
 - Current preview URL and theme ID when there is an existing theme to compare.
 - Available Figma viewports: desktop, tablet, mobile.
 - Work mode: `design-audit`, `handoff-prep`, or `implementation-handoff`.
 
-Ask only for missing information that blocks the next step. For three raw Figma links with no target or mode, ask for the target store/theme/repo and whether this is audit, handoff prep, or implementation handoff.
+Ask only for missing information that blocks the next step. For three raw Figma links with no target or mode, ask for the target store, theme, and theme project folder and whether this is audit, handoff prep, or implementation handoff.
 
 Useful local CLI:
+
+`<skill-dir>` is the directory this skill is installed into, which depends on the install target — `~/.claude/skills/next-theme-figma` (Claude Code), `~/.codex/skills/next-theme-figma` (Codex), `~/.agents/skills/next-theme-figma` (other agents) — or the `next-theme-figma/` folder of a repo checkout.
 
 ```bash
 node <skill-dir>/scripts/theme-figma.js parse-url "<figma-url>"
@@ -154,7 +156,7 @@ node <skill-dir>/scripts/theme-figma.js new-package \
   --project example-store \
   --figma-url "<figma-url>" \
   --store example.29next.store \
-  --repo /path/to/theme-worktree \
+  --repo /path/to/theme-project \
   --mode implementation-handoff
 ```
 

@@ -103,7 +103,7 @@ Use entries like:
 ```json
 {
   "surface": "PDP variant picker",
-  "pages": ["/products/uvbrite"],
+  "pages": ["/products/example"],
   "figma_expectation": "Large color swatch pills with marketing labels",
   "spark_platform_behavior": "Variant controls must submit attr_<code> values from variant_form",
   "decision": "figma-wins-with-guardrails",
