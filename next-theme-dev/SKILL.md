@@ -1,6 +1,6 @@
 ---
 name: next-theme-dev
-version: 1.4.2
+version: 1.5.0
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
@@ -68,6 +68,141 @@ development:
 ```
 
 Get the API key from Dashboard > Settings > API Keys. Get the theme_id from `ntk list`.
+
+---
+
+## From an Empty Store (Greenfield Path)
+
+Use this path when the merchant store already exists but there is no theme
+checkout, local theme directory, `config.yml`, or existing `theme_id`. The goal
+is a new, unpublished Spark theme with a working preview URL. Do not activate
+the new theme during development.
+
+### 1. Get Spark
+
+Clone the public Spark starter over HTTPS into a new local directory:
+
+```bash
+git clone https://github.com/NextCommerceCo/spark.git theme
+cd theme
+```
+
+Keep Spark's existing `.gitignore`; it already ignores `config.yml`.
+
+### 2. Get Theme API Credentials
+
+Go to Dashboard > Settings > API Keys and obtain an API key with these scopes:
+
+- `themes:read`
+- `themes:write`
+
+### 3. Create a New Unpublished Theme
+
+Install `ntk` first if it is missing (`pip install next-theme-kit`; see the
+Preamble environment check). Then, from the Spark directory, run this
+invocation with the long flags:
+
+```bash
+# Store the key outside committed files and shell history, then:
+ntk init --name="<theme name>" --apikey="$THEME_API_KEY" --store="https://<store-subdomain>.29next.store/"
+```
+
+Set `THEME_API_KEY` from an environment file or in the shell without echoing
+it. Spark's `.gitignore` does not cover conventional env files, so add the
+chosen filename (for example `.theme-build.env`) to `.gitignore` before
+creating it, or keep the file outside the checkout entirely. Rotate the key if
+it was ever pasted literally into a command.
+
+The short forms `-n`, `-a`, and `-s` also exist. Prefer the long flags in
+handoffs and runbooks.
+
+`ntk init` does not require an existing `theme_id`. It creates a new theme on
+the store through the Admin themes API, then writes `config.yml` in the current
+directory. That file includes the newly assigned `theme_id`.
+
+The new theme is not active and does not affect the live storefront unless
+someone activates it in the dashboard. Do not activate it during development.
+
+Read the complete command output. `ntk init` can exit 0 even when its API call
+fails; a zero exit code is not proof that the theme or `config.yml` was created.
+
+### 4. Preflight With `ntk list`
+
+Before the first push, run:
+
+```bash
+ntk list
+```
+
+First inspect `config.yml` and confirm its `store:` value is the expected
+`<store-subdomain>.29next.store` store and its `theme_id` is the intended new
+theme. Never push until both values match.
+
+Then use the `ntk list` output to confirm both conditions:
+
+1. The new `theme_id` written by `ntk init` appears in the theme list.
+2. The theme marked `(Active)` is not the new theme.
+
+`ntk list` can exit 0 when its API call fails, so validate the output rather
+than the exit code.
+
+### 5. Build and Review the Initial Upload
+
+Run the theme's own build and verification pipeline before uploading. Spark uses
+the standalone Tailwind CLI through its Make targets: run `make install-tailwind`
+when needed, then `make verify-theme` (the complete pre-upload check; fall back
+to `make build` or `make css` plus `make css-check` if the target is absent).
+The `ntk` CLI has no CSS-build subcommand beyond `sass`.
+
+Review every file intended for the first upload. After satisfying the "Live
+Theme Mutation Approval Gate", upload the reviewed Spark baseline:
+
+```bash
+# Initial Spark upload, excluding saved Theme Editor state.
+# (css/ source is not an ntk-accepted directory; the compiled
+# assets/main.css artifact is what uploads.)
+for dir in assets configs layouts locales partials templates; do
+  [ -d "$dir" ] && find "$dir" -type f
+done \
+  | grep -v '^configs/settings_data.json$' \
+  | while IFS= read -r file; do ntk push "$file"; done
+```
+
+This first reviewed baseline is the exception to the changed-files-only rule.
+For later uploads, follow "ntk Push: Only Changed Files". The approval gate
+applies to every push, including this non-active theme. `settings_data.json` is
+saved Theme Editor state; seed it only as a deliberate, separately called-out
+store-state change. Read the full push output: `ntk push` can exit 0 even when
+the API call fails.
+
+### 6. Derive and Verify the Preview URL
+
+The CLI prints the preview URL only while `ntk watch` is running. Do not start a
+watch session merely to discover it. Derive it from the confirmed store
+subdomain and the `theme_id` in `config.yml`:
+
+```text
+https://<store-subdomain>.29next.store/?preview_theme=<theme_id>&skip_cache=1
+```
+
+Open that URL and verify that it renders the uploaded unpublished theme. Confirm
+the URL uses the new theme ID and that the live storefront remains on the theme
+marked `(Active)` by `ntk list`.
+
+### 7. Credential and CLI Safety
+
+`ntk init` and `ntk checkout` write `config.yml` — including the API key in
+plaintext. Other commands read it (or take `--apikey`/`--store` per call)
+without persisting it. Spark's `.gitignore` already ignores that file. If
+working in a non-Spark bare directory instead, add `config.yml` to `.gitignore`
+before the first `ntk` command. Never commit or share `config.yml`.
+
+The complete `ntk` command set is `init`, `list`, `checkout`, `pull`, `push`,
+`watch`, and `sass`. There is no other subcommand.
+
+For `init`, `list`, and `push`, always read the command output and verify the
+result against the store. `ntk` can return exit code 0 even when the API call
+failed; zero is not success.
 
 ---
 
