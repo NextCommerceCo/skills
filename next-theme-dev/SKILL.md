@@ -1,6 +1,6 @@
 ---
 name: next-theme-dev
-version: 1.4.2
+version: 1.5.0
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
@@ -101,8 +101,12 @@ Go to Dashboard > Settings > API Keys and obtain an API key with these scopes:
 From the Spark directory, run this invocation with the long flags:
 
 ```bash
-ntk init --name="<theme name>" --apikey="<api_key>" --store="https://<store-subdomain>.29next.store/"
+# Store the key outside committed files and shell history, then:
+ntk init --name="<theme name>" --apikey="$THEME_API_KEY" --store="https://<store-subdomain>.29next.store/"
 ```
+
+Set `THEME_API_KEY` from a gitignored environment file or in the shell without
+echoing it. Rotate the key if it was ever pasted literally into a command.
 
 The short forms `-n`, `-a`, and `-s` also exist. Prefer the long flags in
 handoffs and runbooks.
@@ -125,30 +129,45 @@ Before the first push, run:
 ntk list
 ```
 
-Read the output and confirm all three conditions:
+First inspect `config.yml` and confirm its `store:` value is the expected
+`<store-subdomain>.29next.store` store and its `theme_id` is the intended new
+theme. Never push until both values match.
 
-1. The output identifies the expected `<store-subdomain>.29next.store` store.
-2. The new `theme_id` written by `ntk init` appears in the theme list.
-3. The theme marked `(Active)` is not the new theme.
+Then use the `ntk list` output to confirm both conditions:
 
-Then inspect `config.yml` and confirm its `theme_id` is the intended new theme.
-Never push until that value matches. `ntk list` can also exit 0 when its API call
-fails, so validate the output rather than the exit code.
+1. The new `theme_id` written by `ntk init` appears in the theme list.
+2. The theme marked `(Active)` is not the new theme.
+
+`ntk list` can exit 0 when its API call fails, so validate the output rather
+than the exit code.
 
 ### 5. Build and Review the Initial Upload
 
 Run the theme's own build and verification pipeline before uploading. Spark uses
-its Makefile/npm pipeline for Tailwind; see "Tailwind Themes". The `ntk` CLI has
-no CSS-build subcommand beyond `sass`.
+the standalone Tailwind CLI through its Make targets: run `make install-tailwind`
+when needed, then `make build` or `make css`. The `ntk` CLI has no CSS-build
+subcommand beyond `sass`.
 
-Review every file intended for the first upload. Push only intentional theme
-files and exclude `configs/settings_data.json` from the initial bulk upload.
-That file is saved Theme Editor state, not ordinary source code. Seed it only as
-a deliberate, separately called-out store-state change.
+Review every file intended for the first upload. After satisfying the "Live
+Theme Mutation Approval Gate", upload the reviewed Spark baseline:
 
-Follow "ntk Push: Only Changed Files" for explicit file selection and the "Live
-Theme Mutation Approval Gate" before running `ntk push`. Read the full push
-output: `ntk push` can exit 0 even when the API call fails.
+```bash
+# Initial Spark upload, excluding saved Theme Editor state.
+# (css/ source is not an ntk-accepted directory; the compiled
+# assets/main.css artifact is what uploads.)
+for dir in assets configs layouts locales partials templates; do
+  [ -d "$dir" ] && find "$dir" -type f
+done \
+  | grep -v '^configs/settings_data.json$' \
+  | while IFS= read -r file; do ntk push "$file"; done
+```
+
+This first reviewed baseline is the exception to the changed-files-only rule.
+For later uploads, follow "ntk Push: Only Changed Files". The approval gate
+applies to every push, including this non-active theme. `settings_data.json` is
+saved Theme Editor state; seed it only as a deliberate, separately called-out
+store-state change. Read the full push output: `ntk push` can exit 0 even when
+the API call fails.
 
 ### 6. Derive and Verify the Preview URL
 
