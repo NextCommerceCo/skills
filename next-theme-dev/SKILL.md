@@ -148,8 +148,9 @@ than the exit code.
 
 Run the theme's own build and verification pipeline before uploading. Spark uses
 the standalone Tailwind CLI through its Make targets: run `make install-tailwind`
-when needed, then `make build` or `make css`. The `ntk` CLI has no CSS-build
-subcommand beyond `sass`.
+when needed, then `make verify-theme` (the complete pre-upload check; fall back
+to `make build` or `make css` plus `make css-check` if the target is absent).
+The `ntk` CLI has no CSS-build subcommand beyond `sass`.
 
 Review every file intended for the first upload. After satisfying the "Live
 Theme Mutation Approval Gate", upload the reviewed Spark baseline:
@@ -188,10 +189,11 @@ marked `(Active)` by `ntk list`.
 
 ### 7. Credential and CLI Safety
 
-Every successful `ntk` command writes the API key in plaintext to `config.yml`.
-Spark's `.gitignore` already ignores that file. If working in a non-Spark bare
-directory instead, add `config.yml` to `.gitignore` before the first `ntk`
-command. Never commit or share `config.yml`.
+`ntk init` and `ntk checkout` write `config.yml` — including the API key in
+plaintext. Other commands read it (or take `--apikey`/`--store` per call)
+without persisting it. Spark's `.gitignore` already ignores that file. If
+working in a non-Spark bare directory instead, add `config.yml` to `.gitignore`
+before the first `ntk` command. Never commit or share `config.yml`.
 
 The complete `ntk` command set is `init`, `list`, `checkout`, `pull`, `push`,
 `watch`, and `sass`. There is no other subcommand.

@@ -29,8 +29,9 @@ COMMON_FLAGS = {
 }
 INIT_FLAGS = {"--name", "-n"} | COMMON_FLAGS
 SHELL_SEPARATORS = {";", "&&", "||", "|", "&", "(", ")"}
+# [@+-]* accepts GNU Make recipe prefixes (@, -, +) in any combination.
 NTK_INVOCATION = re.compile(
-    r"(?<![\w./-])@?ntk[ \t]+([A-Za-z][A-Za-z0-9_-]*)"
+    r"(?<![\w./-])[@+-]*ntk[ \t]+([A-Za-z][A-Za-z0-9_-]*)"
 )
 FLAG_TOKEN = re.compile(
     r"(?<!\S)(-{1,2}[A-Za-z][A-Za-z0-9_-]*(?:=[^\s\"';&|()<>]*)?)"
@@ -76,7 +77,8 @@ def _regex_invocations(text, line_number):
             if not re.search(r":\s*$", prefix[:opening_quote]):
                 continue
         remainder = text[match.end():]
-        boundary = re.search(r"[\"';&|()<>]", remainder)
+        # Skip escaped quotes so flags after \"...\" in JSON strings are seen.
+        boundary = re.search(r"(?<!\\)[\"';&|()<>]", remainder)
         if boundary:
             remainder = remainder[:boundary.start()]
         flags = [flag.group(1) for flag in FLAG_TOKEN.finditer(remainder)]
@@ -111,14 +113,20 @@ def _fenced_invocations(fenced_lines, fence_start):
 
     regex_invocations = []
     for offset, fenced_line in enumerate(fenced_lines):
+        # Continuation lines are already joined and scanned by the shell
+        # path above; scanning them again here would emit partial duplicates.
+        if fenced_line.rstrip().endswith("\\"):
+            continue
         regex_invocations.extend(
             _regex_invocations(fenced_line, fence_start + offset)
         )
 
+    # Dedupe only exact duplicates: distinct invocations of the same
+    # subcommand on one line must each stay visible to validation.
     deduplicated = {}
     for invocation in shell_invocations + regex_invocations:
         line_number, tokens = invocation
-        deduplicated.setdefault((line_number, tokens[1]), invocation)
+        deduplicated.setdefault((line_number, tuple(tokens)), invocation)
     return sorted(deduplicated.values(), key=lambda item: item[0])
 
 
@@ -219,6 +227,32 @@ ntk tailwind build
     def test_rejects_unknown_init_flag(self):
         fixture = """```bash
 ntk init --bogus=5
+```
+"""
+        with self.assertRaisesRegex(AssertionError, "bogus.*line 2"):
+            assert_command_truth(self, fixture)
+
+    def test_make_dash_prefix_rejected(self):
+        fixture = """```make
+dev:
+\t-ntk tailwind build
+\t@-ntk tailwind build
+```
+"""
+        with self.assertRaisesRegex(AssertionError, "tailwind.*line 3"):
+            assert_command_truth(self, fixture)
+
+    def test_second_invocation_on_same_line_still_validated(self):
+        fixture = """```bash
+ntk watch && ntk watch --bogus
+```
+"""
+        with self.assertRaisesRegex(AssertionError, "bogus.*line 2"):
+            assert_command_truth(self, fixture)
+
+    def test_flag_after_escaped_quotes_in_json_string_validated(self):
+        fixture = """```json
+{"scripts": {"dev": "ntk init --name=\\\\"foo\\\\" --bogus"}}
 ```
 """
         with self.assertRaisesRegex(AssertionError, "bogus.*line 2"):
