@@ -56,6 +56,7 @@ jobs:
             next-bulk-fulfill/tests \
             next-bulk-subscription/tests \
             next-ops-scan/tests \
+            next-theme-dev/tests \
             next-theme-figma/tests \
             scripts/tests; do
             echo "== $d =="
