@@ -10,7 +10,7 @@ node <skill-dir>/scripts/theme-figma.js new-package \
   --project merchant-slug \
   --figma-url "<figma-url>" \
   --store merchant.29next.store \
-  --repo /path/to/theme-worktree \
+  --repo /path/to/theme-project \
   --mode implementation-handoff
 ```
 

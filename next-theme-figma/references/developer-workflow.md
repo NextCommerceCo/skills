@@ -93,7 +93,7 @@ Only after the package is coherent:
 
 - Load `next-theme-dev`.
 - Read the handoff package.
-- Implement in the target theme worktree.
+- Implement in the target theme project folder.
 - Preserve Spark behavior and push only changed files.
 - Use the reference screenshots and mismatch list as the QA checklist.
 

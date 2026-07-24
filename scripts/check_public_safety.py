@@ -129,6 +129,8 @@ CUSTOMER_TOKEN_RES = (
     _bounded(rf"ecomm{_GAP}ops"),
     _bounded(rf"winter{_GAP}gloves"),
     _bounded(rf"oscar{_GAP}prime"),
+    _bounded(rf"uv{_GAP}brite"),
+    _bounded(rf"reliev{_GAP}core"),
     # Single-word token: the [x] class keeps the literal non-contiguous in this
     # source line while still matching the bare token in scanned text.
     _bounded(r"dl[x]"),

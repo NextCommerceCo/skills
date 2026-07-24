@@ -1,6 +1,6 @@
 ---
 name: next-theme-dev
-version: 1.6.0
+version: 1.6.1
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
@@ -629,7 +629,7 @@ Use lowercase, kebab-case names under a merchant folder:
 ```text
 assets/img/<merchant>/hero.jpg
 assets/img/<merchant>/product-knee.png
-assets/img/<merchant>/logos/womens-health.png
+assets/img/<merchant>/logos/press-logo.png
 assets/img/<merchant>/pdp/how-pull-on.png
 ```
 
@@ -933,7 +933,7 @@ Missing product data, `attr_*` controls, price bindings, CSRF/quantity/cart fiel
 4. Check mobile widths around 375-430px for horizontal overflow and sticky CTA coverage.
 5. Verify review/app hook surfaces still render or remain present for apps.
 
-`configs/settings_data.json` is merchant Theme Editor state. Add controls to `settings_schema.json` and use template fallbacks for missing values. Push `settings_data.json` only for an intentional store-state change. RelievCore's `variant_picker = radio` change was design-relevant, but it was still merchant state and should be called out when pushed.
+`configs/settings_data.json` is merchant Theme Editor state. Add controls to `settings_schema.json` and use template fallbacks for missing values. Push `settings_data.json` only for an intentional store-state change. One merchant's `variant_picker = radio` change was design-relevant, but it was still merchant state and should be called out when pushed.
 
 Do not split Spark's PDP into partials just for one merchant design. If repeated custom PDP work justifies it, prefer stable partials for gallery/media, buy box, variant picker, quantity/cart controls, trust/benefit strip, size guide, reviews, and related products.
 

@@ -36,6 +36,22 @@ class ScanTextTests(unittest.TestCase):
         sample = "Evidence copied from bareearth launch."  # public-safety: allow customer-token
         self.assertIn("customer-token", self.rule_ids(sample))
 
+    def test_new_blocklisted_customer_tokens_fire(self) -> None:
+        # The two halves of each token are kept apart in this source by the
+        # alphanumeric ``separator`` variable name (same idiom the other tests
+        # use), so the hardened scanner never reads a contiguous brand token
+        # here; the full tokens are only assembled at runtime and fed to the
+        # scanner. Covers empty/space/underscore/hyphen/zero-width separators
+        # plus the uppercase form, for both new blocklist entries.
+        zero_width = "​"
+        for separator in ("", " ", "_", "-", zero_width):
+            token_a = "uv" + separator + "brite"
+            token_b = "reliev" + separator + "core"
+            for candidate in (token_a, token_a.upper(), token_b, token_b.upper()):
+                sample = "copied from " + candidate + " launch."
+                with self.subTest(token=candidate):
+                    self.assertIn("customer-token", self.rule_ids(sample))
+
     def test_sensitive_values_inside_fence_are_scanned(self) -> None:
         sample = "\n".join(
             [
