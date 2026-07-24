@@ -229,12 +229,22 @@ class CommandTruthTest(unittest.TestCase):
             combined,
         )
         self.assertIn("ntk checkout", markdown)
-        self.assertIn("make dev", markdown)
+        self.assertRegex(
+            markdown,
+            r"(?m)^make dev\s+# Run the Tailwind watcher and ntk watch in parallel$",
+        )
         self.assertIn(
             "`ntk watch` does not compile Tailwind or run `sass-compat.py`.",
             markdown,
         )
-        self.assertNotIn("# Watch templates/CSS, compile Tailwind", markdown)
+        misleading_watch_lines = [
+            line
+            for line in markdown.splitlines()
+            if line.strip().startswith("ntk watch")
+            and re.search(r"\bcompil(?:e|es|ed|ing) Tailwind\b", line)
+            and "does not compile Tailwind" not in line
+        ]
+        self.assertEqual([], misleading_watch_lines)
 
     def test_rejects_unknown_subcommand(self):
         fixture = """```bash

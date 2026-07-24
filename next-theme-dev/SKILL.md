@@ -72,8 +72,8 @@ For an existing store theme, list themes and then check out the intended theme.
 `ntk checkout` downloads the files and writes `config.yml`:
 
 ```bash
-ntk list --apikey="$THEME_API_KEY" --store="https://<store-subdomain>.29next.store"
-ntk checkout --theme_id=<id> --apikey="$THEME_API_KEY" --store="https://<store-subdomain>.29next.store"
+ntk list --env=development --apikey="$THEME_API_KEY" --store="https://<store-subdomain>.29next.store"
+ntk checkout --env=development --theme_id=<id> --apikey="$THEME_API_KEY" --store="https://<store-subdomain>.29next.store"
 ```
 
 For a new theme, start from a complete theme codebase such as Spark, then run
@@ -286,9 +286,8 @@ without persisting it. Spark's `.gitignore` already ignores that file. If
 working in a non-Spark bare directory instead, add `config.yml` to `.gitignore`
 before the first `ntk` command. Never commit or share `config.yml`.
 
-`config.yml` supports several named environments. Commands use `development`
-by default; pass `-e` or `--env` to select another entry. Confirm the selected
-environment, store, and theme ID before every push or watch session.
+For named environments and target confirmation, follow the connection setup in
+the preamble.
 
 The complete `ntk` command set is `init`, `list`, `checkout`, `pull`, `push`,
 `watch`, and `sass`. There is no other subcommand.
