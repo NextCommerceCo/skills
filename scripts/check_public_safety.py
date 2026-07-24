@@ -11,6 +11,7 @@ import re
 import stat
 import subprocess
 import sys
+import unicodedata
 import urllib.parse
 from collections import Counter
 from dataclasses import dataclass
@@ -45,33 +46,99 @@ SUPPRESSION_RE = re.compile(
     r"public-safety:\s*allow\b(?:\s+([a-z0-9_-]+(?:\s+[a-z0-9_-]+)*))?",
     re.IGNORECASE,
 )
-# Invisible/zero-width characters used to break \b boundaries and slip tokens
-# past the rules: ZWSP/ZWNJ/ZWJ/BOM plus SOFT HYPHEN, WORD JOINER, MONGOLIAN
-# VOWEL SEPARATOR, and the variation selectors.
-ZERO_WIDTH_CHARS = "".join(chr(c) for c in (
+
+# Invisible/zero-width/formatting characters used to break boundaries and slip
+# tokens past the rules. Deleted before matching. Covers the classic zero-width
+# set plus the combining grapheme joiner, invisible math operators, bidirectional
+# controls, variation selectors (both blocks), and the deprecated tag characters.
+_INVISIBLE_CODEPOINTS: list[int] = [
     0x200B, 0x200C, 0x200D, 0xFEFF,  # ZWSP, ZWNJ, ZWJ, BOM
     0x00AD, 0x2060, 0x180E,          # SOFT HYPHEN, WORD JOINER, MONGOLIAN VOWEL SEP
-)) + "".join(chr(c) for c in range(0xFE00, 0xFE10))  # variation selectors
-ZERO_WIDTH_TRANSLATION = str.maketrans("", "", ZERO_WIDTH_CHARS)
+    0x034F,                          # COMBINING GRAPHEME JOINER
+    0x061C,                          # ARABIC LETTER MARK
+    0x200E, 0x200F,                  # LEFT-TO-RIGHT / RIGHT-TO-LEFT MARK
+    0x2061, 0x2062, 0x2063, 0x2064,  # FUNCTION APPLICATION, INVISIBLE TIMES/SEPARATOR/PLUS
+]
+_INVISIBLE_CODEPOINTS += list(range(0x202A, 0x202F))     # bidi embeddings/overrides (202A-202E)
+_INVISIBLE_CODEPOINTS += list(range(0x2066, 0x206A))     # bidi isolates (2066-2069)
+_INVISIBLE_CODEPOINTS += list(range(0xFE00, 0xFE10))     # variation selectors 1-16
+_INVISIBLE_CODEPOINTS += list(range(0xE0100, 0xE01F0))   # variation selectors supplement
+_INVISIBLE_CODEPOINTS += list(range(0xE0000, 0xE0080))   # deprecated tag characters
+ZERO_WIDTH_TRANSLATION = {codepoint: None for codepoint in _INVISIBLE_CODEPOINTS}
+
+# Homoglyph/confusable folding. NFKC already folds fullwidth and many compat
+# forms to ASCII; this table covers the common Greek/Cyrillic lookalikes NFKC
+# leaves alone. Keys are code points, values the ASCII letter they imitate; the
+# rules are case-insensitive so every value is lowercase.
+_CONFUSABLE_GROUPS: dict[str, tuple[int, ...]] = {
+    "a": (0x0430, 0x0410, 0x03B1, 0x0391),
+    "c": (0x0441, 0x0421, 0x03F2),
+    "d": (0x0501,),
+    "e": (0x0435, 0x0415, 0x03B5, 0x0395),
+    "h": (0x04BB, 0x0397),
+    "i": (0x0456, 0x0406, 0x03B9, 0x0399),
+    "j": (0x0458, 0x0408),
+    "k": (0x043A, 0x041A, 0x03BA, 0x039A),
+    "m": (0x043C, 0x041C, 0x039C),
+    "o": (0x043E, 0x041E, 0x03BF, 0x039F),
+    "p": (0x0440, 0x0420, 0x03C1, 0x03A1),
+    "s": (0x0455, 0x0405),
+    "t": (0x0422, 0x03C4, 0x03A4),
+    "v": (0x03BD,),
+    "w": (0x03C9,),
+    "x": (0x0445, 0x0425, 0x03C7, 0x03A7),
+    "y": (0x0443, 0x0423),
+}
+CONFUSABLE_TRANSLATION = {
+    codepoint: ascii_letter
+    for ascii_letter, codepoints in _CONFUSABLE_GROUPS.items()
+    for codepoint in codepoints
+}
+
+HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+# JS/JSON string escapes (\u{1F600}, \uXXXX, \xHH) and CSS escapes (\HH..).
+JS_ESCAPE_RE = re.compile(r"\\u\{([0-9A-Fa-f]{1,6})\}|\\u([0-9A-Fa-f]{4})|\\x([0-9A-Fa-f]{2})")
+CSS_ESCAPE_RE = re.compile(r"\\([0-9A-Fa-f]{1,6})[ \t]?")
+
+# Any run of non-alphanumerics between the parts of a compound token, so a
+# separator outside [ _-] (dot, slash, plus, dashes, repeats, markdown emphasis,
+# collapsed HTML comments) cannot split it. Word edges use (?<![A-Za-z0-9]) /
+# (?![A-Za-z0-9]) rather than \b so surrounding underscores cannot defeat them.
+_GAP = r"[^A-Za-z0-9]*"
+
+
+def _bounded(body: str) -> re.Pattern[str]:
+    """Wrap a token body in alphanumeric edge guards. Used with the ``{_GAP}``
+    interpolation so the pattern's own source line never reassembles a token
+    (the literal parts stay separated by an alphanumeric run in the source)."""
+    return re.compile(rf"(?<![A-Za-z0-9]){body}(?![A-Za-z0-9])", re.IGNORECASE)
+
+
 NEXTCOMMERCE_REPO_RE = re.compile(
     r"(?:https?://github\.com/)?NextCommerceCo/([A-Za-z0-9_.-]+)", re.IGNORECASE
 )
 PRIVATE_REFERENCE_RES = (
-    re.compile(r"\boscar-prime\b", re.IGNORECASE),
-    re.compile(r"\bnext-mind\b", re.IGNORECASE),
-    re.compile(r"\bnext-campaigns-ops\b", re.IGNORECASE),
+    _bounded(rf"oscar{_GAP}prime"),
+    _bounded(rf"next{_GAP}mind"),
+    _bounded(rf"next{_GAP}campaigns{_GAP}ops"),
     re.compile(r"(?:^|[\s`'\"(])executive/", re.IGNORECASE),
-    re.compile(r"\bSellmore-Co/", re.IGNORECASE),
+    _bounded(rf"sellmore{_GAP}co"),
 )
 CUSTOMER_TOKEN_RES = (
-    re.compile(r"\bbare[ _-]?earth\b", re.IGNORECASE),
-    re.compile(r"\becomm[ _-]?ops\b", re.IGNORECASE),
-    re.compile(r"\bwinter[ _-]?gloves\b", re.IGNORECASE),
-    re.compile(r"\boscar[ _-]?prime\b", re.IGNORECASE),
-    re.compile(r"\buv[ _-]?brite\b", re.IGNORECASE),
-    re.compile(r"\breliev[ _-]?core\b", re.IGNORECASE),
-    re.compile(r"\bdlx\b", re.IGNORECASE),
+    _bounded(rf"bare{_GAP}earth"),
+    _bounded(rf"ecomm{_GAP}ops"),
+    _bounded(rf"winter{_GAP}gloves"),
+    _bounded(rf"oscar{_GAP}prime"),
+    _bounded(rf"uv{_GAP}brite"),
+    _bounded(rf"reliev{_GAP}core"),
+    # Single-word token: the [x] class keeps the literal non-contiguous in this
+    # source line while still matching the bare token in scanned text.
+    _bounded(r"dl[x]"),
 )
+# Rules re-checked across a single line break (see cross_line_hits).
+CROSS_LINE_TOKEN_RES = CUSTOMER_TOKEN_RES
+CROSS_LINE_PRIVATE_RES = PRIVATE_REFERENCE_RES
+
 BEARER_RE = re.compile(r"\bBearer\s+([^\s\"'`]+)", re.IGNORECASE)
 AUTHORIZATION_TOKEN_RE = re.compile(
     r"\bAuthorization\s*:\s*Token\s+([^\s\"'`]+)", re.IGNORECASE
@@ -187,25 +254,124 @@ def looks_like_bearer_token(value: str) -> bool:
     return not is_placeholder(value) and len(value) >= 12
 
 
-def decode_until_stable(line: str, max_passes: int = 5) -> str:
-    """Repeatedly HTML-unescape and percent-decode until the string stops
-    changing, so double-encoded evasions (e.g. %252F, &amp;#x2F;) fully resolve.
+def _decode_js_escapes(text: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        digits = match.group(1) or match.group(2) or match.group(3)
+        codepoint = int(digits, 16)
+        return chr(codepoint) if codepoint <= 0x10FFFF else match.group(0)
+
+    return JS_ESCAPE_RE.sub(replace, text)
+
+
+def _decode_css_escapes(text: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        codepoint = int(match.group(1), 16)
+        return chr(codepoint) if codepoint <= 0x10FFFF else match.group(0)
+
+    return CSS_ESCAPE_RE.sub(replace, text)
+
+
+def decode_until_stable(line: str, max_passes: int = 12) -> str:
+    """Repeatedly resolve HTML entities, percent-encoding (including ``+`` for
+    spaces), JS/JSON ``\\uXXXX``/``\\xHH`` escapes, and CSS ``\\HH`` escapes until
+    the string stops changing, so multiply-encoded evasions fully resolve.
     Bounded to avoid pathological loops."""
     current = line
     for _ in range(max_passes):
-        decoded = html.unescape(urllib.parse.unquote(current))
+        decoded = html.unescape(urllib.parse.unquote_plus(current))
+        decoded = _decode_js_escapes(decoded)
+        decoded = _decode_css_escapes(decoded)
         if decoded == current:
             break
         current = decoded
     return current
 
 
-def scan_text(text: str, path: str = "<text>") -> list[Hit]:
+def normalize(text: str) -> str:
+    """Fold a string toward its canonical ASCII form for matching: decode nested
+    encodings, drop invisible/formatting characters, strip HTML comments, apply
+    Unicode NFKC, then fold Greek/Cyrillic confusables to ASCII."""
+    text = decode_until_stable(text)
+    text = HTML_COMMENT_RE.sub("", text)
+    text = text.translate(ZERO_WIDTH_TRANSLATION)
+    text = unicodedata.normalize("NFKC", text)
+    text = text.translate(CONFUSABLE_TRANSLATION)
+    return text
+
+
+def _variants(line: str, normalized: str) -> tuple[str, ...]:
+    return tuple(dict.fromkeys((line, normalized)))
+
+
+def cross_line_hits(
+    path: str,
+    lines: Sequence[str],
+    normalized_lines: Sequence[str],
+    already_seen: set[tuple[int, str]],
+) -> list[Hit]:
+    """Catch a customer-token or private reference split across a single line
+    break. Each adjacent pair of normalized lines is rejoined with one space and
+    re-scanned; only matches that actually span the join (so they were invisible
+    to the per-line pass) are reported, at the first line of the pair. Per-line
+    horizontal-whitespace evasions are already handled by the {_GAP} separator,
+    so the single joining space is enough."""
     hits: list[Hit] = []
 
-    for line_number, line in enumerate(text.splitlines(), 1):
-        normalized = decode_until_stable(line).translate(ZERO_WIDTH_TRANSLATION)
-        variants = tuple(dict.fromkeys((line, normalized)))
+    def emit(index: int, rule_id: str) -> None:
+        key = (index + 1, rule_id)
+        if key in already_seen:
+            return
+        allowed: set[str] = set()
+        for candidate in (lines[index], normalized_lines[index], lines[index + 1], normalized_lines[index + 1]):
+            allowed |= suppressed_rules(candidate)[0]
+        if rule_id in allowed:
+            return
+        already_seen.add(key)
+        excerpt = f"{lines[index].strip()} / {lines[index + 1].strip()}"
+        hits.append(Hit(path, index + 1, rule_id, excerpt))
+
+    for index in range(len(normalized_lines) - 1):
+        first = normalized_lines[index]
+        second = normalized_lines[index + 1]
+        if not first or not second:
+            continue
+        joined = f"{first} {second}"
+        join = len(first)  # index of the joining space; second line starts at join + 1
+
+        def spans_join(match: re.Match[str]) -> bool:
+            return match.start() < join and match.end() > join + 1
+
+        for pattern in CROSS_LINE_TOKEN_RES:
+            if any(spans_join(match) for match in pattern.finditer(joined)):
+                emit(index, "customer-token")
+                break
+
+        private = False
+        for pattern in CROSS_LINE_PRIVATE_RES:
+            if any(spans_join(match) for match in pattern.finditer(joined)):
+                private = True
+                break
+        if not private:
+            for match in NEXTCOMMERCE_REPO_RE.finditer(joined):
+                if not spans_join(match):
+                    continue
+                repo_name = match.group(1).lower().rstrip(".").removesuffix(".git")
+                if repo_name not in ALLOWED_NEXTCOMMERCE_REPOS:
+                    private = True
+                    break
+        if private:
+            emit(index, "private-repo")
+
+    return hits
+
+
+def scan_text(text: str, path: str = "<text>") -> list[Hit]:
+    hits: list[Hit] = []
+    lines = text.splitlines()
+    normalized_lines = [normalize(line) for line in lines]
+
+    for line_number, (line, normalized) in enumerate(zip(lines, normalized_lines), 1):
+        variants = _variants(line, normalized)
         rules_allowed: set[str] = set()
         has_unknown_suppression = False
         for variant in variants:
@@ -269,6 +435,8 @@ def scan_text(text: str, path: str = "<text>") -> list[Hit]:
         ):
             add("phone-pii")
 
+    seen = {(hit.line, hit.rule_id) for hit in hits}
+    hits.extend(cross_line_hits(path, lines, normalized_lines, seen))
     return hits
 
 
@@ -313,11 +481,16 @@ def scan_repository(root: Path) -> list[Hit]:
             hits.append(Hit(display_path, 0, "unreadable", f"unable to read tracked file: {type(error).__name__}"))
             continue
 
-        if b"\0" in data[:BINARY_SNIFF_BYTES]:
-            continue
         try:
             text = data.decode("utf-8")
         except UnicodeDecodeError as error:
+            # A file that is not valid UTF-8 is treated as genuinely binary: if it
+            # also carries a NUL it is silently skipped like binary media,
+            # otherwise it is surfaced so unexpected undecodable text is noticed.
+            # A NUL alone no longer hides an otherwise-decodable text file, which
+            # was a whole-file evasion.
+            if b"\0" in data[:BINARY_SNIFF_BYTES]:
+                continue
             hits.append(Hit(display_path, 0, "unreadable", f"unable to read tracked file: {type(error).__name__}"))
             continue
         hits.extend(scan_text(text, display_path))
