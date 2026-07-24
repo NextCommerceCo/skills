@@ -1,6 +1,6 @@
 ---
 name: next-theme-dev
-version: 1.6.1
+version: 1.6.2
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
@@ -53,21 +53,54 @@ if command -v ntk >/dev/null 2>&1; then command -v ntk; python3 -m pip show next
 python3 --version 2>/dev/null || python --version 2>/dev/null || echo "Python not found"
 
 # Check for theme config
-[ -f config.yml ] && echo "config.yml found" || echo "No config.yml — run 'ntk init' or create one"
+[ -f config.yml ] && echo "config.yml found" || echo "No config.yml — use 'ntk checkout' for an existing theme or 'ntk init' from a complete theme codebase"
 
 # Identify theme
 [ -f manifest.json ] && cat manifest.json || echo "No manifest.json"
 ```
 
-If `config.yml` is missing, the developer needs to create one:
+Use the public Theme Kit guide for connection setup and command behavior:
+`https://developers.nextcommerce.com/docs/storefront/themes/theme-kit`.
+
+Create the API key in Storefront admin under **Settings > API Access**:
+
+1. Create an OAuth app, give it a name, and assign a user.
+2. Enable `themes:read` and `themes:write` in the Permissions tab.
+3. Save the app and copy the generated API key.
+
+For an existing store theme, list themes and then check out the intended theme.
+`ntk checkout` downloads the files and writes `config.yml`:
+
+```bash
+ntk list --env=development --apikey="$THEME_API_KEY" --store="https://<store-subdomain>.29next.store"
+ntk checkout --env=development --theme_id=<id> --apikey="$THEME_API_KEY" --store="https://<store-subdomain>.29next.store"
+```
+
+For a new theme, start from a complete theme codebase such as Spark, then run
+`ntk init`. `ntk init` registers the current codebase and writes `config.yml`;
+it does not scaffold or download theme files. Do not run it from an empty
+directory.
+
+Do not create `config.yml` by hand during normal setup. Manual configuration is
+only a recovery path:
+
 ```yaml
 development:
   apikey: <api_key>
-  store: <store_subdomain>.29next.store
+  store: https://<store-subdomain>.29next.store
   theme_id: <theme_id>
 ```
 
-Get the API key from Dashboard > Settings > API Keys. Get the theme_id from `ntk list`.
+`config.yml` contains the API key in plaintext. Ensure it is gitignored before
+running `ntk init` or `ntk checkout`, and never commit or share it.
+
+The file can contain several environments. Commands use `development` by
+default; use `-e` or `--env` to select another entry. Treat the environment,
+store, and theme ID as one deployment target when requesting approval.
+
+`ntk pull` downloads the same theme files without writing `config.yml`. Use
+`checkout` for initial connection and `pull` for later downloads that must not
+change the saved connection settings.
 
 ---
 
@@ -143,7 +176,8 @@ Keep Spark's existing `.gitignore`; it already ignores `config.yml`.
 
 ### 2. Get Theme API Credentials
 
-Go to Dashboard > Settings > API Keys and obtain an API key with these scopes:
+In Storefront admin, go to **Settings > API Access**, create an OAuth app,
+assign a user, and enable these permissions:
 
 - `themes:read`
 - `themes:write`
@@ -156,7 +190,7 @@ invocation with the long flags:
 
 ```bash
 # Store the key outside committed files and shell history, then:
-ntk init --name="<theme name>" --apikey="$THEME_API_KEY" --store="https://<store-subdomain>.29next.store/"
+ntk init --name="<theme name>" --apikey="$THEME_API_KEY" --store="https://<store-subdomain>.29next.store"
 ```
 
 Set `THEME_API_KEY` from an environment file or in the shell without echoing
@@ -171,6 +205,9 @@ handoffs and runbooks.
 `ntk init` does not require an existing `theme_id`. It creates a new theme on
 the store through the Admin themes API, then writes `config.yml` in the current
 directory. That file includes the newly assigned `theme_id`.
+
+`ntk init` does not create theme directories or starter files. Run it only
+after cloning or copying a complete theme codebase.
 
 The new theme is not active and does not affect the live storefront unless
 someone activates it in the dashboard. Do not activate it during development.
@@ -248,6 +285,9 @@ plaintext. Other commands read it (or take `--apikey`/`--store` per call)
 without persisting it. Spark's `.gitignore` already ignores that file. If
 working in a non-Spark bare directory instead, add `config.yml` to `.gitignore`
 before the first `ntk` command. Never commit or share `config.yml`.
+
+For named environments and target confirmation, follow the connection setup in
+the preamble.
 
 The complete `ntk` command set is `init`, `list`, `checkout`, `pull`, `push`,
 `watch`, and `sass`. There is no other subcommand.
@@ -329,6 +369,7 @@ For detailed reference on template tags, objects, filters, and settings types, u
 
 | Topic | Public docs |
 |-------|-----------|
+| Theme Kit setup and commands | `https://developers.nextcommerce.com/docs/storefront/themes/theme-kit` |
 | Template tags | `https://developers.nextcommerce.com/docs/storefront/themes/templates/tags` |
 | Template filters | `https://developers.nextcommerce.com/docs/storefront/themes/templates/filters` |
 | Template objects | `https://developers.nextcommerce.com/docs/storefront/themes/templates/objects` |
@@ -419,6 +460,11 @@ command, use `AskUserQuestion` to show the operator the exact store, theme, and
 files or watch scope, then obtain explicit confirmation. Do not push or start a
 watch session without that confirmation; approval for one command or watch
 session does not authorize a later one.
+
+While `ntk watch` is running, deleting a recognized local theme file deletes
+the corresponding file from the store. Include that behavior in the approval
+prompt, and do not run watch across cleanup or generator steps that may remove
+files unexpectedly.
 
 ### ntk Push: Only Changed Files
 
@@ -1151,11 +1197,15 @@ Spark uses the Tailwind v4 standalone CLI with no Node dependency. In Spark, pre
 
 ```bash
 make install-tailwind   # One-time local binary install
-ntk watch               # Watch templates/CSS, compile Tailwind, run sass-compat, push
+make dev                # Run the Tailwind watcher and ntk watch in parallel
+ntk watch               # Watch and push files only; does not compile Tailwind
 make css                # One-shot Tailwind compile + sass-compat
 ntk push assets/main.css # Push the compiled CSS artifact
 make release            # Compile, run sass-compat, and stage assets/main.css
 ```
+
+`ntk watch` does not compile Tailwind or run `sass-compat.py`. Spark's
+`make dev` target runs the Tailwind watcher and `ntk watch` together.
 
 For custom Tailwind themes, use one of these setups:
 
@@ -1269,7 +1319,7 @@ Avoid dynamic Tailwind classes in DTL templates. Tailwind only emits classes it 
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `401 Unauthorized` | Bad API key or expired | Regenerate key in Dashboard > Settings > API Keys |
+| `401 Unauthorized` | Bad API key or expired | Create or update the OAuth app in Storefront admin under Settings > API Access |
 | `404 Not Found` | Wrong theme_id or store URL | Run `ntk list` to verify, check `config.yml` |
 | `File not in valid path` | File outside recognized theme directories | Check file is in assets/, configs/, layouts/, locales/, partials/, sass/, templates/, or an optional checkout/ directory |
 | `Connection refused` | Store URL wrong or store offline | Verify `store` value in config.yml uses the `.29next.store` domain |

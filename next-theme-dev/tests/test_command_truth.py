@@ -12,6 +12,7 @@ from pathlib import Path
 
 
 SKILL = Path(__file__).resolve().parents[1] / "SKILL.md"
+README = Path(__file__).resolve().parents[1] / "README.md"
 
 SUBCOMMANDS = {"init", "list", "checkout", "pull", "push", "watch", "sass"}
 # Mirrors ntk/ntk_parser.py _add_config_arguments in the released parser.
@@ -215,6 +216,58 @@ class CommandTruthTest(unittest.TestCase):
         }
         self.assertGreaterEqual(len(expected_embedded), 3)
         self.assertTrue(expected_embedded <= extracted)
+
+    def test_theme_kit_setup_references_current_public_docs(self):
+        markdown = SKILL.read_text(encoding="utf-8")
+        readme = README.read_text(encoding="utf-8")
+        combined = markdown + "\n" + readme
+
+        self.assertNotIn("Settings > API Keys", combined)
+        self.assertIn("Settings > API Access", combined)
+        self.assertIn(
+            "https://developers.nextcommerce.com/docs/storefront/themes/theme-kit",
+            combined,
+        )
+
+        checkout_commands = [
+            tokens
+            for _, tokens in extract_ntk_invocations(markdown)
+            if tokens[1] == "checkout"
+        ]
+        required_checkout_flags = (
+            "--env=development",
+            "--theme_id=",
+            "--apikey=",
+            "--store=https://",
+        )
+        self.assertTrue(
+            any(
+                all(
+                    any(token.startswith(flag) for token in command)
+                    for flag in required_checkout_flags
+                )
+                for command in checkout_commands
+            )
+        )
+
+        bash_blocks = re.findall(r"```bash\s*\n(.*?)^```", markdown, re.MULTILINE | re.DOTALL)
+        spark_blocks = [
+            block
+            for block in bash_blocks
+            if re.search(r"(?m)^\s*make dev\s+#", block)
+        ]
+        self.assertEqual(1, len(spark_blocks))
+        spark_block = spark_blocks[0]
+
+        make_dev = re.search(r"(?m)^\s*make dev\s+#\s*(.+)$", spark_block)
+        ntk_watch = re.search(r"(?m)^\s*ntk watch\s+#\s*(.+)$", spark_block)
+        self.assertIsNotNone(make_dev)
+        self.assertIsNotNone(ntk_watch)
+        self.assertRegex(make_dev.group(1), r"(?i)\btailwind\b.*\bntk watch\b")
+        self.assertRegex(
+            ntk_watch.group(1),
+            r"(?i)\bdoes\s+not\s+compile\s+tailwind\b",
+        )
 
     def test_rejects_unknown_subcommand(self):
         fixture = """```bash

@@ -27,12 +27,16 @@ two together avoids the assistant guessing at what the design intends.
 - **Python 3 installed**, and the theme toolkit **ntk** — your assistant can
   install and check both for you.
 - **A Next Commerce store** with an API key that has theme permissions,
-  created in your store admin under **Dashboard > Settings > API Keys**.
+  created as an OAuth app under **Storefront admin > Settings > API Access**.
 - **The theme's folder on your computer**, with its connection settings file
   pointing at your store and theme. Your assistant sets this up if it's
   missing, and can look up the theme ID for you.
 - For the Spark theme, one extra styling tool is needed — the theme's own
   setup command installs it, and your assistant handles that.
+
+See the public
+[Theme Kit guide](https://developers.nextcommerce.com/docs/storefront/themes/theme-kit)
+for installation, OAuth app setup, and the current command reference.
 
 ## Install
 
