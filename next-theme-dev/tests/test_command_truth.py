@@ -200,23 +200,30 @@ def assert_command_truth(test_case, markdown):
             )
 
 
+TAILWIND_ACTION = (
+    r"(?:compil(?:e|es|ed|ing)|build(?:s|ing)?|built|"
+    r"run(?:s|ning)?|process(?:es|ed|ing)?|handl(?:e|es|ed|ing))"
+)
+
+
 def is_misleading_ntk_watch_claim(line):
     mentions_watch = re.search(r"\bntk watch\b", line, re.IGNORECASE)
-    claims_tailwind_compile = re.search(
-        r"\bcompil(?:e|es|ed|ing)\s+Tailwind\b",
-        line,
+    if not mentions_watch:
+        return False
+
+    claim_text = line[mentions_watch.end():]
+    claims_tailwind_work = re.search(
+        rf"\b{TAILWIND_ACTION}\b[^.!?\n]{{0,80}}\bTailwind\b",
+        claim_text,
         re.IGNORECASE,
     )
-    denies_tailwind_compile = re.search(
-        r"\b(?:does|do)\s+not\s+compil(?:e|es|ed|ing)\s+Tailwind\b",
-        line,
+    denies_tailwind_work = re.search(
+        rf"\b(?:(?:does|do|did|will|can)\s+not|never)\s+"
+        rf"{TAILWIND_ACTION}\b[^.!?\n]{{0,80}}\bTailwind\b",
+        claim_text,
         re.IGNORECASE,
     )
-    return bool(
-        mentions_watch
-        and claims_tailwind_compile
-        and not denies_tailwind_compile
-    )
+    return bool(claims_tailwind_work and not denies_tailwind_work)
 
 
 class CommandTruthTest(unittest.TestCase):
@@ -271,16 +278,26 @@ class CommandTruthTest(unittest.TestCase):
         self.assertEqual([], misleading_watch_lines)
 
     def test_misleading_ntk_watch_claim_detection(self):
-        self.assertTrue(
-            is_misleading_ntk_watch_claim(
-                "When you run ntk watch it also compiles Tailwind."
-            )
-        )
-        self.assertFalse(
-            is_misleading_ntk_watch_claim(
-                "ntk watch does not compile Tailwind."
-            )
-        )
+        misleading_claims = [
+            "When you run ntk watch it also compiles Tailwind.",
+            "ntk watch builds the Tailwind assets.",
+            "NTK WATCH runs Tailwind compilation on save.",
+            "ntk watch compiles Tailwind but does not compile Sass.",
+        ]
+        accurate_claims = [
+            "ntk watch does not compile Tailwind.",
+            "`ntk watch` does not compile Tailwind or run `sass-compat.py`.",
+            "ntk watch never builds the Tailwind assets.",
+            "Run the Tailwind watcher separately from ntk watch.",
+        ]
+
+        for claim in misleading_claims:
+            with self.subTest(claim=claim):
+                self.assertTrue(is_misleading_ntk_watch_claim(claim))
+
+        for claim in accurate_claims:
+            with self.subTest(claim=claim):
+                self.assertFalse(is_misleading_ntk_watch_claim(claim))
 
     def test_rejects_unknown_subcommand(self):
         fixture = """```bash
