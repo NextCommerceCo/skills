@@ -12,6 +12,7 @@ from pathlib import Path
 
 
 SKILL = Path(__file__).resolve().parents[1] / "SKILL.md"
+README = Path(__file__).resolve().parents[1] / "README.md"
 
 SUBCOMMANDS = {"init", "list", "checkout", "pull", "push", "watch", "sass"}
 # Mirrors ntk/ntk_parser.py _add_config_arguments in the released parser.
@@ -215,6 +216,25 @@ class CommandTruthTest(unittest.TestCase):
         }
         self.assertGreaterEqual(len(expected_embedded), 3)
         self.assertTrue(expected_embedded <= extracted)
+
+    def test_theme_kit_guidance_matches_public_docs(self):
+        markdown = SKILL.read_text(encoding="utf-8")
+        readme = README.read_text(encoding="utf-8")
+        combined = markdown + "\n" + readme
+
+        self.assertNotIn("Settings > API Keys", combined)
+        self.assertIn("Settings > API Access", combined)
+        self.assertIn(
+            "https://developers.nextcommerce.com/docs/storefront/themes/theme-kit",
+            combined,
+        )
+        self.assertIn("ntk checkout", markdown)
+        self.assertIn("make dev", markdown)
+        self.assertIn(
+            "`ntk watch` does not compile Tailwind or run `sass-compat.py`.",
+            markdown,
+        )
+        self.assertNotIn("# Watch templates/CSS, compile Tailwind", markdown)
 
     def test_rejects_unknown_subcommand(self):
         fixture = """```bash

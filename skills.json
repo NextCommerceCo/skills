@@ -45,7 +45,7 @@
     {
       "id": "next-theme-dev",
       "name": "Theme Development",
-      "version": "1.6.1",
+      "version": "1.6.2",
       "path": "next-theme-dev/SKILL.md",
       "domain": "storefronts",
       "description": "Build, modify, and debug Next Commerce storefront themes, including Spark, Intro Bootstrap, Theme Settings, ntk CLI, DTL templates, and storefront GraphQL.",
@@ -69,14 +69,14 @@
       "prerequisites": [
         "Python 3 (standard library only for theme work; Pillow required to validate raster assets)",
         "ntk (pip install next-theme-kit)",
-        "A Next Commerce store with an API key (themes:read, themes:write scopes)"
+        "A Next Commerce Storefront OAuth app API key created under Settings > API Access (themes:read, themes:write permissions)"
       ],
       "safety": {
         "mutates_remote": true,
         "writes_local": true,
         "requires_approval": true,
         "network": "next-storefront-theme-api",
-        "notes": "ntk push/watch mutate the live store theme and are approval-gated."
+        "notes": "ntk push/watch mutate the live store theme and are approval-gated; deleting a recognized local file during watch deletes it from the store."
       }
     },
     {
