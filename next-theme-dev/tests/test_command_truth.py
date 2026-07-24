@@ -228,26 +228,46 @@ class CommandTruthTest(unittest.TestCase):
             "https://developers.nextcommerce.com/docs/storefront/themes/theme-kit",
             combined,
         )
-        self.assertRegex(markdown, r"(?m)^ntk checkout\b")
 
-        spark_workflow = markdown.split("### Tailwind Themes", 1)[1].split(
-            "For custom Tailwind themes", 1
-        )[0]
-        command_comments = {}
-        for line in spark_workflow.splitlines():
-            match = re.match(r"^(make dev|ntk watch)\s+#\s+(.+)$", line)
-            if match:
-                command_comments[match.group(1)] = match.group(2).lower()
+        checkout_commands = [
+            tokens
+            for _, tokens in extract_ntk_invocations(markdown)
+            if tokens[1] == "checkout"
+        ]
+        required_checkout_flags = (
+            "--env=development",
+            "--theme_id=",
+            "--apikey=",
+            "--store=https://",
+        )
+        self.assertTrue(
+            any(
+                all(
+                    any(token.startswith(flag) for token in command)
+                    for flag in required_checkout_flags
+                )
+                for command in checkout_commands
+            )
+        )
 
-        self.assertIn("make dev", command_comments)
-        self.assertIn("ntk watch", command_comments)
-        make_dev_comment = command_comments["make dev"]
-        self.assertIn("tailwind", make_dev_comment)
-        self.assertIn("ntk watch", make_dev_comment)
-        ntk_watch_comment = command_comments["ntk watch"]
-        self.assertIn("does not", ntk_watch_comment)
-        self.assertIn("compile", ntk_watch_comment)
-        self.assertIn("tailwind", ntk_watch_comment)
+        bash_blocks = re.findall(r"```bash\s*\n(.*?)^```", markdown, re.MULTILINE | re.DOTALL)
+        spark_blocks = [
+            block
+            for block in bash_blocks
+            if re.search(r"(?m)^\s*make dev\s+#", block)
+        ]
+        self.assertEqual(1, len(spark_blocks))
+        spark_block = spark_blocks[0]
+
+        make_dev = re.search(r"(?m)^\s*make dev\s+#\s*(.+)$", spark_block)
+        ntk_watch = re.search(r"(?m)^\s*ntk watch\s+#\s*(.+)$", spark_block)
+        self.assertIsNotNone(make_dev)
+        self.assertIsNotNone(ntk_watch)
+        self.assertRegex(make_dev.group(1), r"(?i)\btailwind\b.*\bntk watch\b")
+        self.assertRegex(
+            ntk_watch.group(1),
+            r"(?i)\bdoes\s+not\s+compile\s+tailwind\b",
+        )
 
     def test_rejects_unknown_subcommand(self):
         fixture = """```bash
