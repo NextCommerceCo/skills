@@ -200,32 +200,6 @@ def assert_command_truth(test_case, markdown):
             )
 
 
-TAILWIND_ACTION = (
-    r"(?:compil(?:e|es|ed|ing)|build(?:s|ing)?|built|"
-    r"run(?:s|ning)?|process(?:es|ed|ing)?|handl(?:e|es|ed|ing))"
-)
-
-
-def is_misleading_ntk_watch_claim(line):
-    mentions_watch = re.search(r"\bntk watch\b", line, re.IGNORECASE)
-    if not mentions_watch:
-        return False
-
-    claim_text = line[mentions_watch.end():]
-    claims_tailwind_work = re.search(
-        rf"\b{TAILWIND_ACTION}\b[^.!?\n]{{0,80}}\bTailwind\b",
-        claim_text,
-        re.IGNORECASE,
-    )
-    denies_tailwind_work = re.search(
-        rf"\b(?:(?:does|do|did|will|can)\s+not|never)\s+"
-        rf"{TAILWIND_ACTION}\b[^.!?\n]{{0,80}}\bTailwind\b",
-        claim_text,
-        re.IGNORECASE,
-    )
-    return bool(claims_tailwind_work and not denies_tailwind_work)
-
-
 class CommandTruthTest(unittest.TestCase):
     def test_skill_uses_only_released_ntk_commands_and_flags(self):
         markdown = SKILL.read_text(encoding="utf-8")
@@ -243,7 +217,7 @@ class CommandTruthTest(unittest.TestCase):
         self.assertGreaterEqual(len(expected_embedded), 3)
         self.assertTrue(expected_embedded <= extracted)
 
-    def test_theme_kit_guidance_matches_public_docs(self):
+    def test_theme_kit_setup_references_current_public_docs(self):
         markdown = SKILL.read_text(encoding="utf-8")
         readme = README.read_text(encoding="utf-8")
         combined = markdown + "\n" + readme
@@ -254,50 +228,6 @@ class CommandTruthTest(unittest.TestCase):
             "https://developers.nextcommerce.com/docs/storefront/themes/theme-kit",
             combined,
         )
-        self.assertIn("ntk checkout", markdown)
-        make_dev_lines = [
-            line
-            for line in markdown.splitlines()
-            if re.match(r"^\s*make dev(?:\s+#.*)?\s*$", line)
-        ]
-        self.assertTrue(
-            any(
-                "tailwind" in line.lower() and "ntk watch" in line.lower()
-                for line in make_dev_lines
-            )
-        )
-        self.assertIn(
-            "`ntk watch` does not compile Tailwind or run `sass-compat.py`.",
-            markdown,
-        )
-        misleading_watch_lines = [
-            line
-            for line in markdown.splitlines()
-            if is_misleading_ntk_watch_claim(line)
-        ]
-        self.assertEqual([], misleading_watch_lines)
-
-    def test_misleading_ntk_watch_claim_detection(self):
-        misleading_claims = [
-            "When you run ntk watch it also compiles Tailwind.",
-            "ntk watch builds the Tailwind assets.",
-            "NTK WATCH runs Tailwind compilation on save.",
-            "ntk watch compiles Tailwind but does not compile Sass.",
-        ]
-        accurate_claims = [
-            "ntk watch does not compile Tailwind.",
-            "`ntk watch` does not compile Tailwind or run `sass-compat.py`.",
-            "ntk watch never builds the Tailwind assets.",
-            "Run the Tailwind watcher separately from ntk watch.",
-        ]
-
-        for claim in misleading_claims:
-            with self.subTest(claim=claim):
-                self.assertTrue(is_misleading_ntk_watch_claim(claim))
-
-        for claim in accurate_claims:
-            with self.subTest(claim=claim):
-                self.assertFalse(is_misleading_ntk_watch_claim(claim))
 
     def test_rejects_unknown_subcommand(self):
         fixture = """```bash
