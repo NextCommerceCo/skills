@@ -43,7 +43,7 @@ class ThemeToolingReportGuidanceTest(unittest.TestCase):
         self.assertIn("X-Theme-Cache: bypass", self.markdown)
         self.assertNotIn("Template changes via ntk automatically bust", self.markdown)
 
-    def test_preview_touch_and_global_block_rules_are_explicit(self):
+    def test_preview_rules(self):
         self.assertIn("/?deactivate-theme=true", self.markdown)
         self.assertIn("a plain URL does not exit preview", self.markdown)
         self.assertIn("@media (hover: hover)", self.markdown)
