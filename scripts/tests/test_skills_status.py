@@ -21,7 +21,7 @@ class SkillStatusTest(unittest.TestCase):
         skill_file = installed / "SKILL.md"
         skill_file.write_text(
             skill_file.read_text(encoding="utf-8").replace(
-                "version: 1.7.0", f"version: {installed_version}", 1
+                "version: 1.7.1", f"version: {installed_version}", 1
             ),
             encoding="utf-8",
         )
@@ -46,11 +46,11 @@ class SkillStatusTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("stale", result.stdout)
-        self.assertIn("source=1.7.0", result.stdout)
+        self.assertIn("source=1.7.1", result.stdout)
         self.assertIn("installed=1.4.0", result.stdout)
 
     def test_status_reports_unknown_for_non_strict_versions(self):
-        for installed_version in ("1.7.0-rc1", "1.7", "1.7.0+build.1"):
+        for installed_version in ("1.7.1-rc1", "1.7", "1.7.1+build.1"):
             with self.subTest(installed_version=installed_version):
                 result = self.run_status_with_installed_version(installed_version)
 
