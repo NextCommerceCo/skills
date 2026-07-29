@@ -75,6 +75,11 @@ Avoid assets for:
 
 ## Visual Verification Loop
 
+Preflight screenshot capability before implementation handoff. Capture a real
+Figma reference PNG and a real storefront preview PNG at a matching width. If
+either capture path fails, stop or record an explicit accepted gap with its
+owner, routes, viewports, and rationale. DOM metrics alone are not visual QA.
+
 For every route/section:
 
 1. Save Figma refs for each available viewport.

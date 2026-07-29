@@ -52,6 +52,12 @@ cd skills
 ./skills.sh dry-run --target /tmp/next-skills next-ops-scan
 ```
 
+`status` is read-only and prints both the source and installed `SKILL.md`
+versions. A `stale` row means the installed semantic version is older;
+`modified` means the versions match but files differ; `local-newer` prevents a
+newer local copy from being mistaken for an ordinary refresh. Use `dry-run`
+before `install` when reviewing several targets.
+
 Targets:
 
 - `claude` -> `~/.claude/skills`

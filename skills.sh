@@ -84,6 +84,29 @@ resolve_skills() {
   printf '%s\n' "$requested"
 }
 
+compare_semver() {
+  local left="$1"
+  local right="$2"
+  local left_major left_minor left_patch
+  local right_major right_minor right_patch
+
+  IFS=. read -r left_major left_minor left_patch <<< "$left"
+  IFS=. read -r right_major right_minor right_patch <<< "$right"
+  for component in major minor patch; do
+    eval "left_value=\$left_${component}"
+    eval "right_value=\$right_${component}"
+    if (( 10#$left_value < 10#$right_value )); then
+      printf '%s\n' "lt"
+      return
+    fi
+    if (( 10#$left_value > 10#$right_value )); then
+      printf '%s\n' "gt"
+      return
+    fi
+  done
+  printf '%s\n' "eq"
+}
+
 copy_skill() {
   local skill="$1"
   local target_dir="$2"
@@ -95,6 +118,12 @@ copy_skill() {
   local parent_mode
   local diff_status
   local status="unchanged"
+  local source_version
+  local installed_version
+  local version_relation
+
+  source_version="$(awk '/^version:/ {gsub(/["\047]/, "", $2); print $2; exit}' "$src/SKILL.md")"
+  installed_version="missing"
 
   parent="$(dirname "$dest")"
   if [[ -d "$parent" ]]; then
@@ -106,13 +135,30 @@ copy_skill() {
   if [[ ! -d "$dest" ]]; then
     status="create"
   else
+    if [[ -f "$dest/SKILL.md" ]]; then
+      installed_version="$(awk '/^version:/ {gsub(/["\047]/, "", $2); print $2; exit}' "$dest/SKILL.md")"
+      installed_version="${installed_version:-unknown}"
+    else
+      installed_version="unknown"
+    fi
     if diff -qr "$src" "$dest" >/dev/null 2>&1; then
       diff_status=0
     else
       diff_status=$?
     fi
     if [[ "$diff_status" -eq 1 ]]; then
-      status="update"
+      if [[ "$source_version" =~ ^[0-9]+([.][0-9]+){2}$ && "$installed_version" =~ ^[0-9]+([.][0-9]+){2}$ ]]; then
+        version_relation="$(compare_semver "$installed_version" "$source_version")"
+        if [[ "$version_relation" == "lt" ]]; then
+          status="stale"
+        elif [[ "$version_relation" == "gt" ]]; then
+          status="local-newer"
+        else
+          status="modified"
+        fi
+      else
+        status="update"
+      fi
     elif [[ "$diff_status" -gt 1 ]]; then
       echo "Failed to compare $src and $dest" >&2
       return 1
@@ -120,11 +166,13 @@ copy_skill() {
   fi
 
   if [[ "$status" == "unchanged" ]]; then
-    printf '%-10s %s -> %s\n' "$status" "$skill" "$dest"
+    printf '%-12s %s source=%s installed=%s -> %s\n' \
+      "$status" "$skill" "${source_version:-unknown}" "$installed_version" "$dest"
     return 0
   fi
 
-  printf '%-10s %s -> %s\n' "$status" "$skill" "$dest"
+  printf '%-12s %s source=%s installed=%s -> %s\n' \
+    "$status" "$skill" "${source_version:-unknown}" "$installed_version" "$dest"
 
   if [[ "$dry_run" == "false" ]]; then
     if ! mkdir -p "$parent"; then

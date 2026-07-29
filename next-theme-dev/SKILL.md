@@ -1,6 +1,6 @@
 ---
 name: next-theme-dev
-version: 1.6.2
+version: 1.7.0
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
@@ -31,6 +31,7 @@ This skill works with any AI coding tool that can load a markdown file as contex
 | **Recommended** | Clone `NextCommerceCo/skills` and run `./skills.sh`; choose your local agent target and this skill. |
 | **No checkout** | Use `npx skills add NextCommerceCo/skills -g --skill next-theme-dev` and add `-a <agent>` when you want a specific agent. |
 | **Fallback** | Load this `SKILL.md` as a system prompt, context file, rule, or chat upload if your tool does not support native skills. |
+| **Version check** | From a source checkout, run `./skills.sh status all next-theme-dev`. A `stale` row names the source and installed versions; review with `dry-run` before refreshing. |
 
 ---
 
@@ -212,8 +213,8 @@ after cloning or copying a complete theme codebase.
 The new theme is not active and does not affect the live storefront unless
 someone activates it in the dashboard. Do not activate it during development.
 
-Read the complete command output. `ntk init` can exit 0 even when its API call
-fails; a zero exit code is not proof that the theme or `config.yml` was created.
+For automation, add `--json --no-progress` and require a zero exit code plus a
+JSON result with `ok: true`. Human-readable output remains the default.
 
 ### 4. Preflight With `ntk list`
 
@@ -232,8 +233,9 @@ Then use the `ntk list` output to confirm both conditions:
 1. The new `theme_id` written by `ntk init` appears in the theme list.
 2. The theme marked `(Active)` is not the new theme.
 
-`ntk list` can exit 0 when its API call fails, so validate the output rather
-than the exit code.
+In JSON mode, require `ok: true` and confirm the new theme appears in the
+`themes` array. Authentication, request, and server-validation failures return
+non-zero exit codes.
 
 ### 5. Build and Review the Initial Upload
 
@@ -261,8 +263,9 @@ This first reviewed baseline is the exception to the changed-files-only rule.
 For later uploads, follow "ntk Push: Only Changed Files". The approval gate
 applies to every push, including this non-active theme. `settings_data.json` is
 saved Theme Editor state; seed it only as a deliberate, separately called-out
-store-state change. Read the full push output: `ntk push` can exit 0 even when
-the API call fails.
+store-state change. In agent workflows, prefer
+`ntk push <files> --json --no-progress`; inspect every entry in `files` and
+treat `partial_failure: true` as a failed upload.
 
 ### 6. Derive and Verify the Preview URL
 
@@ -290,11 +293,12 @@ For named environments and target confirmation, follow the connection setup in
 the preamble.
 
 The complete `ntk` command set is `init`, `list`, `checkout`, `pull`, `push`,
-`watch`, and `sass`. There is no other subcommand.
+`watch`, `sass`, `validate`, and `capture`. There is no `tailwind` subcommand.
 
-For `init`, `list`, and `push`, always read the command output and verify the
-result against the store. `ntk` can return exit code 0 even when the API call
-failed; zero is not success.
+Use `ntk validate [files]` for local path/extension, JSON, JavaScript encoding,
+and obvious DTL checks. Add `--server` when platform-authoritative template
+parsing is required. Validation is not a runtime render unless the result
+explicitly reports a rendered route/context.
 
 ---
 
@@ -501,11 +505,17 @@ Spark does not use jQuery or `{% core_js %}`. It uses `assets/js/spark-platform.
 ### CDN Caching
 
 CloudFront aggressively caches assets and full pages (5 min on mapped domains):
-- **Always develop on the `.29next.store` network domain** — it bypasses full-page caching
-- Append `?skip_cache` to a URL for edge cases
-- When a page looks reverted after a push, verify the same URL with `?preview_theme={theme_id}&skip_cache=1` before assuming files or settings were lost
-- Template changes via ntk automatically bust the template cache
+- **Always develop on the `.29next.store` network domain** — it bypasses full-page caching, but that alone does not guarantee template-cache freshness
+- Use `?skip_cache=1` on a preview or network-domain URL to bypass both page and template caches on platform versions that expose `X-Theme-Cache: bypass`
+- When a page looks reverted after a push, verify the same URL with `?preview_theme={theme_id}&skip_cache=1` and inspect `X-Theme-*` response headers before assuming files or settings were lost
+- Template saves advance a shared theme revision. Confirm `X-Theme-Revision` changed and `X-Theme-Template` names the expected file
 - Asset changes (CSS/JS) may take a moment to propagate on CDN
+
+Development response headers are intentionally limited to the network domain.
+Useful fields include `X-Theme-Id`, `X-Theme-Template`,
+`X-Theme-Template-Candidates`, `X-Theme-Template-Revision`,
+`X-Theme-Revision`, and `X-Theme-Cache`. Do not expect them on mapped
+production domains.
 
 ### DTL Comments: Single-Line Only
 
@@ -554,6 +564,7 @@ Hard-won lessons from building Spark. These will silently break things if you do
 | **sass-compat is required** | Every Tailwind build must run through `sass-compat.py`. Platform SCSS compiler rejects: `oklch()`, `color-mix()`, `@layer`, `@property`, `:is()`/`:where()`, logical properties, media range syntax |
 | **Spark app hooks are extension surfaces** | Use existing `{% app_hook %}` slots before forking Spark templates for app integrations |
 | **Preview URL** | `https://{store}/?preview_theme={theme_id}` — useful for testing unpublished theme changes |
+| **Preview session pinning** | Visiting `?preview_theme={theme_id}` pins that browser session with a cookie. Use the preview indicator's **Exit preview** action or visit `/?deactivate-theme=true`; a plain URL does not exit preview. |
 | **ntk accepted directories** | Only these are recognized: assets, checkout, configs, layouts, partials, templates, locales, sass. Files outside these are silently ignored |
 | **Asset path mapping** | A local file like `assets/img/merchant/hero.jpg` is uploaded as `assets/img/merchant/hero.jpg`, but templates reference it without the `assets/` prefix: `{{ 'img/merchant/hero.jpg'|asset_url }}` |
 | **Figma export overlays** | Figma frames often include labels, badges, card UI, shadows, or text that Spark also renders. Inspect the node tree before export; export the clean underlying image/fill when the overlay is theme UI |
@@ -774,7 +785,7 @@ Follow the Settings IA principles: organize by merchant mental model, 5+ setting
 ### Step 4: Template Assembly
 
 Build order:
-1. **`layouts/base.html`** — CSS custom properties from settings, global head/scripts, header/footer includes
+1. **`layouts/base.html`** — CSS custom properties from settings, global head/scripts, header/footer includes. Independently injected global components must be wrapped in their own named blocks so page templates can override or suppress them without CSS hacks.
 2. **Partials** — One per design component (`partials/header.html`, `partials/footer.html`, `partials/product_card.html`, etc.)
 3. **Page templates** — `templates/index.html`, `templates/catalogue/product.html`, etc. using `{% extends %}` and `{% block %}`
 4. **Cart/user features** — Client-side only via GraphQL + Web Components (see Side Cart recipe)
@@ -789,6 +800,9 @@ Build order:
   ```
 - For Tailwind output, **run sass-compat.py before every push** (required — platform rejects modern CSS)
 - Test responsive breakpoints: mobile (375px), tablet (768px), desktop (1280px+)
+- Put decorative hover-only behavior behind `@media (hover: hover)`. Touch
+  devices need an explicit tap/button interaction; do not rely on sticky
+  emulated `:hover` state.
 
 ### Step 6: Client-Side Features
 
@@ -805,6 +819,17 @@ For per-user content (cart, auth, wishlists):
 3. Push only changed files: `ntk push templates/index.html partials/header.html`
 4. Check dashboard-side requirements: free shipping/gift features need matching Offers (see Dashboard-Theme Bridge)
 5. Verify cart operations work end-to-end (add, remove, quantity change, checkout)
+
+Before handoff, capture real PNGs rather than substituting DOM geometry:
+
+```bash
+ntk capture --url="/?preview_theme=<theme-id>&skip_cache=1" \
+  --output=qa-output --viewports=desktop,mobile --json --no-progress
+```
+
+`desktop` is 1440px and `mobile` is 390px. The capture waits for fonts, lazy
+media, and a settled page, and reports any failed viewport non-zero. DOM
+metrics can supplement screenshots but never replace them.
 
 ---
 
@@ -896,7 +921,11 @@ curl -I "https://{store}.29next.store/{slug}/?preview_theme={theme_id}&skip_cach
 
 ### Add a Custom Product Template
 
-1. Create `templates/catalogue/product.{slug}.html` (the slug must match the product's URL slug):
+1. Choose a stable `<template-key>` and create
+   `templates/catalogue/product.<template-key>.html`. The product URL slug does
+   not select this filename automatically. Until inheritance between product
+   templates is proven safe for the target platform version, make the custom
+   template standalone and extend only the base layout:
 ```django
 {% extends "layouts/base.html" %}
 {% load core_tags %}
@@ -905,7 +934,27 @@ curl -I "https://{store}.29next.store/{slug}/?preview_theme={theme_id}&skip_cach
 {% endblock %}
 ```
 
-2. Push: `ntk push templates/catalogue/product.{slug}.html`
+2. Validate and push the exact file:
+
+```bash
+ntk validate templates/catalogue/product.<template-key>.html --server --json --no-progress
+ntk push templates/catalogue/product.<template-key>.html --json --no-progress
+```
+
+3. Set the product's `template` field to `<template-key>` in Dashboard or with
+   the Admin API. `ntk` uploads theme files; it does not assign a product's
+   template field.
+4. Request the product route on the preview/network domain with
+   `?preview_theme=<theme-id>&skip_cache=1`. If the custom candidate is missing,
+   invalid, or not assigned, resolution silently falls back to
+   `templates/catalogue/product.html`. Detect that fallback by checking
+   `X-Theme-Template-Candidates` and `X-Theme-Template`; visual similarity alone
+   is not proof that the custom template resolved.
+
+Do not make a merchant-specific product template extend
+`templates/catalogue/product.html` until that inheritance path has an explicit
+platform regression test. Duplicate the required product/PDP contracts in the
+standalone template and preserve the checklist below.
 
 ### Custom Spark PDP Redesigns
 
@@ -1343,9 +1392,11 @@ To debug: check the store's `.29next.store` domain (bypasses caching), look at t
 
 If changes aren't appearing:
 1. Are you on the `.29next.store` domain? (Mapped domains cache for 5 min)
-2. Try appending `?skip_cache` or a unique query string
+2. Use `?skip_cache=1` on a preview/network-domain URL and confirm `X-Theme-Cache: bypass`
 3. For asset changes, hard-refresh the browser (Cmd+Shift+R)
-4. Template changes pushed via ntk should bust the cache automatically — if not, wait ~30 seconds and retry
+4. Confirm `X-Theme-Revision` changed after the push and compare
+   `X-Theme-Template-Candidates` with `X-Theme-Template`; do not diagnose a
+   resolution fallback as propagation delay
 
 ---
 
@@ -1359,4 +1410,5 @@ ntk recognizes these extensions:
 - **Scripts:** `.js`
 - **Media:** `.woff2`, `.gif`, `.ico`, `.png`, `.jpg`, `.jpeg`, `.svg`, `.eot`, `.ttf`, `.woff`, `.webp`, `.mp4`, `.webm`, `.mp3`, `.pdf`
 
-Files with other extensions are silently ignored by ntk push/watch.
+Files with other extensions are rejected by `ntk validate` and reported as
+per-file failures by push/pull machine output.
