@@ -30,7 +30,7 @@ This skill works with any AI coding tool that can load a markdown file as contex
 | **Recommended** | Clone `NextCommerceCo/skills` and run `./skills.sh`; choose your local agent target and this skill. |
 | **No checkout** | Use `npx skills add NextCommerceCo/skills -g --skill next-theme-figma` and add `-a <agent>` when you want a specific agent. |
 | **Fallback** | Load this `SKILL.md` as a system prompt, context file, rule, or chat upload if your tool does not support native skills. |
-| **Version check** | From a source checkout, run `./skills.sh status all next-theme-figma`. A `stale` row names source and installed versions; review with `dry-run` before refreshing. |
+| **Version check** | From a source checkout, run `./skills.sh status all next-theme-figma`. `stale` means the installed copy is older, `modified` means equal versions differ, `local-newer` protects a newer installed copy, and `unknown-version` flags a version outside `X.Y.Z`. Review with `dry-run` before refreshing. |
 
 ## Overview
 
@@ -76,9 +76,9 @@ Run this before interpreting incomplete Figma results:
    and rationale. DOM metrics alone are not visual QA and must never be silently
    substituted for screenshots.
 
-This runbook does not relax the per-route desktop/tablet/mobile coverage gate.
-Every route still needs its own coverage entry and explicit missing-viewport
-status.
+This runbook does not relax the per-route desktop/mobile coverage gate. Every
+route still needs its own coverage entry and explicit missing-viewport status.
+Record tablet coverage separately when the design supplies a tablet frame.
 
 ### 1. Intake Gate
 

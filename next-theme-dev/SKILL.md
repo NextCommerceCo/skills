@@ -31,7 +31,7 @@ This skill works with any AI coding tool that can load a markdown file as contex
 | **Recommended** | Clone `NextCommerceCo/skills` and run `./skills.sh`; choose your local agent target and this skill. |
 | **No checkout** | Use `npx skills add NextCommerceCo/skills -g --skill next-theme-dev` and add `-a <agent>` when you want a specific agent. |
 | **Fallback** | Load this `SKILL.md` as a system prompt, context file, rule, or chat upload if your tool does not support native skills. |
-| **Version check** | From a source checkout, run `./skills.sh status all next-theme-dev`. A `stale` row names the source and installed versions; review with `dry-run` before refreshing. |
+| **Version check** | From a source checkout, run `./skills.sh status all next-theme-dev`. `stale` means the installed copy is older, `modified` means equal versions differ, `local-newer` protects a newer installed copy, and `unknown-version` flags a version outside `X.Y.Z`. Review with `dry-run` before refreshing. |
 
 ---
 
@@ -820,11 +820,12 @@ For per-user content (cart, auth, wishlists):
 4. Check dashboard-side requirements: free shipping/gift features need matching Offers (see Dashboard-Theme Bridge)
 5. Verify cart operations work end-to-end (add, remove, quantity change, checkout)
 
-Before handoff, capture real PNGs rather than substituting DOM geometry:
+Before handoff, run from the theme root and capture real PNGs rather than
+substituting DOM geometry:
 
 ```bash
 ntk capture --url="/?preview_theme=<theme-id>&skip_cache=1" \
-  --output=qa-output --viewports=desktop,mobile --json --no-progress
+  --output=./qa-output --viewports=desktop,mobile --json --no-progress
 ```
 
 `desktop` is 1440px and `mobile` is 390px. The capture waits for fonts, lazy

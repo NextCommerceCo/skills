@@ -157,7 +157,7 @@ copy_skill() {
           status="modified"
         fi
       else
-        status="update"
+        status="unknown-version"
       fi
     elif [[ "$diff_status" -gt 1 ]]; then
       echo "Failed to compare $src and $dest" >&2
