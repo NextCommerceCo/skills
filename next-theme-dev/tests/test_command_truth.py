@@ -14,7 +14,10 @@ from pathlib import Path
 SKILL = Path(__file__).resolve().parents[1] / "SKILL.md"
 README = Path(__file__).resolve().parents[1] / "README.md"
 
-SUBCOMMANDS = {"init", "list", "checkout", "pull", "push", "watch", "sass"}
+SUBCOMMANDS = {
+    "init", "list", "checkout", "pull", "push", "watch", "sass",
+    "validate", "capture",
+}
 # Mirrors ntk/ntk_parser.py _add_config_arguments in the released parser.
 COMMON_FLAGS = {
     "-a",
@@ -27,8 +30,18 @@ COMMON_FLAGS = {
     "--env",
     "-sos",
     "--sass_output_style",
+    "--json",
+    "--quiet",
+    "--no-progress",
 }
 INIT_FLAGS = {"--name", "-n"} | COMMON_FLAGS
+VALIDATE_FLAGS = {"--server"} | COMMON_FLAGS
+CAPTURE_FLAGS = {
+    "--url",
+    "--output",
+    "--viewports",
+    "--settle-timeout",
+} | COMMON_FLAGS
 SHELL_SEPARATORS = {";", "&&", "||", "|", "&", "(", ")"}
 # [@+-]* accepts GNU Make recipe prefixes (@, -, +) in any combination.
 NTK_INVOCATION = re.compile(
@@ -185,7 +198,14 @@ def assert_command_truth(test_case, markdown):
             ),
         )
 
-        allowed_flags = INIT_FLAGS if subcommand == "init" else COMMON_FLAGS
+        if subcommand == "init":
+            allowed_flags = INIT_FLAGS
+        elif subcommand == "validate":
+            allowed_flags = VALIDATE_FLAGS
+        elif subcommand == "capture":
+            allowed_flags = CAPTURE_FLAGS
+        else:
+            allowed_flags = COMMON_FLAGS
 
         for token in tokens[2:]:
             if not token.startswith("-") or token == "-":

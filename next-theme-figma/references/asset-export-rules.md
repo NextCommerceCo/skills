@@ -8,6 +8,10 @@ Export the smallest real Figma node that represents the intended storefront asse
 
 Figma raw image URLs can point at the original uploaded file, not the canvas-rendered crop. Prefer node/image render exports for the selected node so masks, crops, and composed groups match the design.
 
+Batch exact asset node IDs. Do not request a broad parent dominated by repeated
+component instances; repeated stars/icons can consume export caps before the
+intended assets are reached.
+
 ## Prefix Decisions
 
 ### `img:`

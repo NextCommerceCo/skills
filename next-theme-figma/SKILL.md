@@ -1,6 +1,6 @@
 ---
 name: next-theme-figma
-version: 0.2.3
+version: 0.3.0
 description: |
   Prepare Figma storefront designs for NEXT Commerce and Spark theme
   implementation handoff. Use when auditing, inspecting, extracting assets
@@ -30,6 +30,7 @@ This skill works with any AI coding tool that can load a markdown file as contex
 | **Recommended** | Clone `NextCommerceCo/skills` and run `./skills.sh`; choose your local agent target and this skill. |
 | **No checkout** | Use `npx skills add NextCommerceCo/skills -g --skill next-theme-figma` and add `-a <agent>` when you want a specific agent. |
 | **Fallback** | Load this `SKILL.md` as a system prompt, context file, rule, or chat upload if your tool does not support native skills. |
+| **Version check** | From a source checkout, run `./skills.sh status all next-theme-figma`. `stale` means the installed copy is older, `modified` means equal versions differ, `local-newer` protects a newer installed copy, and `unknown-version` flags a version outside `X.Y.Z`. Review with `dry-run` before refreshing. |
 
 ## Overview
 
@@ -49,6 +50,35 @@ Load only the references needed for the current step:
 - `references/designer-checklist.md` when the Figma source is incomplete and the designer/merchant needs actionable fixes.
 
 ## Workflow
+
+### Figma Tool Failure-Mode Runbook
+
+Run this before interpreting incomplete Figma results:
+
+1. If metadata for a large frame is unexpectedly empty or contains the frame
+   without its expected children, treat it as truncation/tool failure, not as
+   an empty design. Record the node ID, dimensions, and failed operation.
+2. Fall back in this order: targeted section node URLs; a full-frame render
+   saved once and sliced locally using recorded geometry; an authorized local
+   `.fig` archive. A `.fig` archive can contain original assets such as videos,
+   but do not inspect a local archive without the operator's authorization.
+3. Export exact asset nodes in bounded batches. Do not export a parent frame
+   dominated by repeated component instances, because repeated stars/icons can
+   exhaust export caps and crowd out the intended assets.
+4. Retry selection synchronization at most three times. If it keeps returning
+   the top-level frame or wrong node, stop retrying and switch to node URLs,
+   render slicing, or the authorized archive.
+5. Before implementation handoff, prove that both a Figma reference PNG and a
+   storefront preview PNG can be captured at matching widths. For a local
+   storefront capture, use `ntk capture --viewports=desktop,mobile`; desktop is
+   1440px and mobile is 390px. If either side cannot produce screenshots, stop
+   or record an explicit `accepted-gap` with owner, affected routes/viewports,
+   and rationale. DOM metrics alone are not visual QA and must never be silently
+   substituted for screenshots.
+
+This runbook does not relax the per-route desktop/mobile coverage gate. Every
+route still needs its own coverage entry and explicit missing-viewport status.
+Record tablet coverage separately when the design supplies a tablet frame.
 
 ### 1. Intake Gate
 
@@ -137,8 +167,10 @@ Do not use page thumbnails, estimated crops, or full PDP screenshots as product 
 
 Repeat until the package is close enough for implementation or all gaps are documented:
 
-1. Capture Figma refs for desktop/tablet/mobile where available.
-2. Compare against existing preview screenshots when a theme already exists.
+1. Complete the screenshot-capability preflight above, then capture Figma refs
+   for desktop/tablet/mobile where available.
+2. Compare against real existing preview screenshots at matching widths when a
+   theme already exists. Never substitute DOM geometry for an unavailable PNG.
 3. Record mismatches by route, section, viewport, and severity.
 4. Mark each mismatch `fix-now`, `spark-divergence`, `designer-input-needed`, or `accepted-gap`.
 5. Update the handoff package.

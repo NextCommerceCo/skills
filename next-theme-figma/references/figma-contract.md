@@ -59,6 +59,11 @@ Check:
 - Hidden variants are inspected for cleaner mobile/desktop crops.
 - Masks, fills, and clipping are understood before asset export.
 
+An unexpectedly childless response for a large frame is a tool/truncation
+failure, not evidence that the design is empty. After at most three failed
+selection-sync attempts, switch to targeted node URLs, full-frame render plus
+local slicing, or an operator-authorized local `.fig` archive.
+
 When rebuilding semantically, preserve Figma grouping where it controls spacing. Do not regroup siblings by meaning if the Figma parent owns the gap, padding, or alignment.
 
 ## Asset Prefix Taxonomy
