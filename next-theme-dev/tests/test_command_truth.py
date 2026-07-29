@@ -16,7 +16,6 @@ README = Path(__file__).resolve().parents[1] / "README.md"
 
 SUBCOMMANDS = {
     "init", "list", "checkout", "pull", "push", "watch", "sass",
-    "validate", "capture",
 }
 # Mirrors ntk/ntk_parser.py _add_config_arguments in the released parser.
 COMMON_FLAGS = {
@@ -30,18 +29,8 @@ COMMON_FLAGS = {
     "--env",
     "-sos",
     "--sass_output_style",
-    "--json",
-    "--quiet",
-    "--no-progress",
 }
 INIT_FLAGS = {"--name", "-n"} | COMMON_FLAGS
-VALIDATE_FLAGS = {"--server"} | COMMON_FLAGS
-CAPTURE_FLAGS = {
-    "--url",
-    "--output",
-    "--viewports",
-    "--settle-timeout",
-} | COMMON_FLAGS
 SHELL_SEPARATORS = {";", "&&", "||", "|", "&", "(", ")"}
 # [@+-]* accepts GNU Make recipe prefixes (@, -, +) in any combination.
 NTK_INVOCATION = re.compile(
@@ -198,14 +187,7 @@ def assert_command_truth(test_case, markdown):
             ),
         )
 
-        if subcommand == "init":
-            allowed_flags = INIT_FLAGS
-        elif subcommand == "validate":
-            allowed_flags = VALIDATE_FLAGS
-        elif subcommand == "capture":
-            allowed_flags = CAPTURE_FLAGS
-        else:
-            allowed_flags = COMMON_FLAGS
+        allowed_flags = INIT_FLAGS if subcommand == "init" else COMMON_FLAGS
 
         for token in tokens[2:]:
             if not token.startswith("-") or token == "-":
@@ -248,6 +230,19 @@ class CommandTruthTest(unittest.TestCase):
             "https://developers.nextcommerce.com/docs/storefront/themes/theme-kit",
             combined,
         )
+        self.assertIn("NEXT Theme Kit 1.2.0", markdown)
+        self.assertIn("NTK_APIKEY", markdown)
+
+        for unreleased_surface in (
+            "ntk validate",
+            "ntk capture",
+            "--json",
+            "--quiet",
+            "--no-progress",
+            "partial_failure",
+        ):
+            with self.subTest(unreleased_surface=unreleased_surface):
+                self.assertNotIn(unreleased_surface, markdown)
 
         checkout_commands = [
             tokens
@@ -257,7 +252,6 @@ class CommandTruthTest(unittest.TestCase):
         required_checkout_flags = (
             "--env=development",
             "--theme_id=",
-            "--apikey=",
             "--store=https://",
         )
         self.assertTrue(
@@ -269,6 +263,7 @@ class CommandTruthTest(unittest.TestCase):
                 for command in checkout_commands
             )
         )
+        self.assertIn('export NTK_APIKEY="$THEME_API_KEY"', markdown)
 
         bash_blocks = re.findall(r"```bash\s*\n(.*?)^```", markdown, re.MULTILINE | re.DOTALL)
         spark_blocks = [

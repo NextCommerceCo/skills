@@ -1,6 +1,6 @@
 ---
 name: next-theme-dev
-version: 1.7.0
+version: 1.7.1
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
@@ -63,18 +63,23 @@ python3 --version 2>/dev/null || python --version 2>/dev/null || echo "Python no
 Use the public Theme Kit guide for connection setup and command behavior:
 `https://developers.nextcommerce.com/docs/storefront/themes/theme-kit`.
 
+The CLI guidance in this skill targets NEXT Theme Kit 1.2.0. Its released
+commands are `init`, `list`, `checkout`, `pull`, `push`, `watch`, and `sass`.
+
 Create the API key in Storefront admin under **Settings > API Access**:
 
 1. Create an OAuth app, give it a name, and assign a user.
 2. Enable `themes:read` and `themes:write` in the Permissions tab.
 3. Save the app and copy the generated API key.
 
-For an existing store theme, list themes and then check out the intended theme.
-`ntk checkout` downloads the files and writes `config.yml`:
+For an existing store theme, load the API key into `NTK_APIKEY`, list themes,
+and then check out the intended theme. `ntk checkout` downloads the files and
+writes `config.yml` without saving an environment-supplied key:
 
 ```bash
-ntk list --env=development --apikey="$THEME_API_KEY" --store="https://<store-subdomain>.29next.store"
-ntk checkout --env=development --theme_id=<id> --apikey="$THEME_API_KEY" --store="https://<store-subdomain>.29next.store"
+export NTK_APIKEY="$THEME_API_KEY"
+ntk list --env=development --store="https://<store-subdomain>.29next.store"
+ntk checkout --env=development --theme_id=<id> --store="https://<store-subdomain>.29next.store"
 ```
 
 For a new theme, start from a complete theme codebase such as Spark, then run
@@ -92,8 +97,12 @@ development:
   theme_id: <theme_id>
 ```
 
-`config.yml` contains the API key in plaintext. Ensure it is gitignored before
-running `ntk init` or `ntk checkout`, and never commit or share it.
+When `--apikey` is used, `ntk init` and `ntk checkout` save the key in
+`config.yml` as plaintext. Prefer `NTK_APIKEY` for CI and agent runs because
+Theme Kit 1.2.0 does not save an environment-supplied key. The environment
+value takes precedence over both `--apikey` and the value in `config.yml`.
+Ensure `config.yml` is gitignored before running either command, and never
+commit or share it.
 
 The file can contain several environments. Commands use `development` by
 default; use `-e` or `--env` to select another entry. Treat the environment,
@@ -190,8 +199,8 @@ Preamble environment check). Then, from the Spark directory, run this
 invocation with the long flags:
 
 ```bash
-# Store the key outside committed files and shell history, then:
-ntk init --name="<theme name>" --apikey="$THEME_API_KEY" --store="https://<store-subdomain>.29next.store"
+# Load THEME_API_KEY from a secret manager or protected environment file, then:
+NTK_APIKEY="$THEME_API_KEY" ntk init --name="<theme name>" --store="https://<store-subdomain>.29next.store"
 ```
 
 Set `THEME_API_KEY` from an environment file or in the shell without echoing
@@ -213,8 +222,11 @@ after cloning or copying a complete theme codebase.
 The new theme is not active and does not affect the live storefront unless
 someone activates it in the dashboard. Do not activate it during development.
 
-For automation, add `--json --no-progress` and require a zero exit code plus a
-JSON result with `ok: true`. Human-readable output remains the default.
+Theme Kit 1.2.0 writes human-readable output. For automation, save and inspect
+the complete output as well as the exit code. Invalid credentials, missing
+resources, persistent connection or throttle failures, and a failed push exit
+non-zero. Other server responses are not guaranteed to do so, so a zero exit
+code alone is not proof that the intended state exists.
 
 ### 4. Preflight With `ntk list`
 
@@ -233,9 +245,8 @@ Then use the `ntk list` output to confirm both conditions:
 1. The new `theme_id` written by `ntk init` appears in the theme list.
 2. The theme marked `(Active)` is not the new theme.
 
-In JSON mode, require `ok: true` and confirm the new theme appears in the
-`themes` array. Authentication, request, and server-validation failures return
-non-zero exit codes.
+Read the human-readable list and confirm the new theme appears before
+continuing. Do not infer success from the exit code alone.
 
 ### 5. Build and Review the Initial Upload
 
@@ -256,16 +267,17 @@ for dir in assets configs layouts locales partials templates; do
   [ -d "$dir" ] && find "$dir" -type f
 done \
   | grep -v '^configs/settings_data.json$' \
-  | while IFS= read -r file; do ntk push "$file"; done
+  | while IFS= read -r file; do ntk push "$file" || exit 1; done
 ```
 
 This first reviewed baseline is the exception to the changed-files-only rule.
 For later uploads, follow "ntk Push: Only Changed Files". The approval gate
 applies to every push, including this non-active theme. `settings_data.json` is
 saved Theme Editor state; seed it only as a deliberate, separately called-out
-store-state change. In agent workflows, prefer
-`ntk push <files> --json --no-progress`; inspect every entry in `files` and
-treat `partial_failure: true` as a failed upload.
+store-state change. Theme Kit 1.2.0 stops a push on the first failed upload and
+exits non-zero, but it does not report per-file results or the files it did not
+attempt. Keep the reviewed file list, read the complete output, and verify the
+remote result before treating a multi-file upload as complete.
 
 ### 6. Derive and Verify the Preview URL
 
@@ -283,22 +295,20 @@ marked `(Active)` by `ntk list`.
 
 ### 7. Credential and CLI Safety
 
-`ntk init` and `ntk checkout` write `config.yml` — including the API key in
-plaintext. Other commands read it (or take `--apikey`/`--store` per call)
-without persisting it. Spark's `.gitignore` already ignores that file. If
-working in a non-Spark bare directory instead, add `config.yml` to `.gitignore`
-before the first `ntk` command. Never commit or share `config.yml`.
+`ntk init` and `ntk checkout` write `config.yml`. A key supplied through
+`--apikey` is saved there as plaintext; a key supplied through `NTK_APIKEY` is
+not. `NTK_APIKEY` takes precedence over both `--apikey` and the saved key.
+Spark's `.gitignore` already ignores `config.yml`. If working in a non-Spark
+bare directory instead, add it to `.gitignore` before the first `ntk` command.
+Never commit or share `config.yml`.
 
 For named environments and target confirmation, follow the connection setup in
 the preamble.
 
-The complete `ntk` command set is `init`, `list`, `checkout`, `pull`, `push`,
-`watch`, `sass`, `validate`, and `capture`. There is no `tailwind` subcommand.
-
-Use `ntk validate [files]` for local path/extension, JSON, JavaScript encoding,
-and obvious DTL checks. Add `--server` when platform-authoritative template
-parsing is required. Validation is not a runtime render unless the result
-explicitly reports a rendered route/context.
+The complete Theme Kit 1.2.0 command set is `init`, `list`, `checkout`, `pull`,
+`push`, `watch`, and `sass`. There is no `tailwind` subcommand. Run the theme's
+own local tests and build checks before upload, then verify the rendered route
+on the preview domain.
 
 ---
 
@@ -820,16 +830,10 @@ For per-user content (cart, auth, wishlists):
 4. Check dashboard-side requirements: free shipping/gift features need matching Offers (see Dashboard-Theme Bridge)
 5. Verify cart operations work end-to-end (add, remove, quantity change, checkout)
 
-Before handoff, run from the theme root and capture real PNGs rather than
-substituting DOM geometry:
-
-```bash
-ntk capture --url="/?preview_theme=<theme-id>&skip_cache=1" \
-  --output=./qa-output --viewports=desktop,mobile --json --no-progress
-```
-
-`desktop` is 1440px and `mobile` is 390px. The capture waits for fonts, lazy
-media, and a settled page, and reports any failed viewport non-zero. DOM
+Before handoff, open the preview URL in the local browser tooling available in
+the work environment and save real PNGs under `./qa-output`. Capture desktop at
+1440px and mobile at 390px. Wait for fonts and lazy media to load, inspect both
+images, and record any route or viewport that could not be captured. DOM
 metrics can supplement screenshots but never replace them.
 
 ---
@@ -935,12 +939,13 @@ curl -I "https://{store}.29next.store/{slug}/?preview_theme={theme_id}&skip_cach
 {% endblock %}
 ```
 
-2. Validate and push the exact file:
+2. Run the theme's local tests and build checks, then push the exact file:
 
 ```bash
-ntk validate templates/catalogue/product.<template-key>.html --server --json --no-progress
-ntk push templates/catalogue/product.<template-key>.html --json --no-progress
+ntk push templates/catalogue/product.<template-key>.html
 ```
+
+Read the complete command output and confirm the preview route after the push.
 
 3. Set the product's `template` field to `<template-key>` in Dashboard or with
    the Admin API. `ntk` uploads theme files; it does not assign a product's
@@ -1411,5 +1416,7 @@ ntk recognizes these extensions:
 - **Scripts:** `.js`
 - **Media:** `.woff2`, `.gif`, `.ico`, `.png`, `.jpg`, `.jpeg`, `.svg`, `.eot`, `.ttf`, `.woff`, `.webp`, `.mp4`, `.webm`, `.mp3`, `.pdf`
 
-Files with other extensions are rejected by `ntk validate` and reported as
-per-file failures by push/pull machine output.
+Theme Kit 1.2.0 ignores files outside its accepted path and extension patterns
+when `ntk push` builds the upload list. It does not validate those files or
+report per-file status, so review the printed upload count and verify the
+remote result.

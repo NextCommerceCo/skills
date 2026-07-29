@@ -40,6 +40,7 @@ class FailureModeRunbookTest(unittest.TestCase):
         )
         self.assertIn("DOM metrics alone are not visual QA", self.markdown)
         self.assertRegex(self.markdown, r"desktop is\s+1440px and mobile is 390px")
+        self.assertNotIn("ntk capture", self.markdown)
         self.assertIn("per-route desktop/mobile coverage gate", self.markdown)
         self.assertIn(
             "Record tablet coverage separately when the design supplies a tablet frame",
