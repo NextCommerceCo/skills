@@ -6,6 +6,7 @@ from pathlib import Path
 
 
 SKILL = Path(__file__).resolve().parents[1] / "SKILL.md"
+README = Path(__file__).resolve().parents[1] / "README.md"
 DEVELOPER_WORKFLOW = (
     Path(__file__).resolve().parents[1] / "references" / "developer-workflow.md"
 )
@@ -15,6 +16,7 @@ class FailureModeRunbookTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.markdown = SKILL.read_text(encoding="utf-8")
+        cls.readme = README.read_text(encoding="utf-8")
         cls.developer_workflow = DEVELOPER_WORKFLOW.read_text(encoding="utf-8")
 
     def test_large_empty_metadata_is_treated_as_tool_failure(self):
@@ -64,6 +66,17 @@ class FailureModeRunbookTest(unittest.TestCase):
             with self.subTest(required=required):
                 self.assertIn(required, self.developer_workflow)
         self.assertNotIn("ntk capture", self.developer_workflow)
+
+    def test_plain_language_readme_explains_visual_evidence_fallback(self):
+        for required in (
+            "Matching design and storefront reference screenshots",
+            "capture the supplied URLs and viewports manually",
+            "does not install Playwright",
+            "managed\n  screenshot service",
+            "owner, routes, viewports, and reason for the gap",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, self.readme)
 
 
 if __name__ == "__main__":

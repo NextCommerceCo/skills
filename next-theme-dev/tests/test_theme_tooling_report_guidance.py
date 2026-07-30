@@ -6,6 +6,7 @@ from pathlib import Path
 
 
 SKILL = Path(__file__).resolve().parents[1] / "SKILL.md"
+README = Path(__file__).resolve().parents[1] / "README.md"
 ACTIVE_PUBLISH_REFERENCE = (
     Path(__file__).resolve().parents[1]
     / "references"
@@ -17,6 +18,7 @@ class ThemeToolingReportGuidanceTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.markdown = SKILL.read_text(encoding="utf-8")
+        cls.readme = README.read_text(encoding="utf-8")
         cls.active_publish = ACTIVE_PUBLISH_REFERENCE.read_text(encoding="utf-8")
 
     def test_product_template_recipe_uses_template_field_not_url_slug(self):
@@ -139,6 +141,20 @@ class ThemeToolingReportGuidanceTest(unittest.TestCase):
         ):
             with self.subTest(required=required):
                 self.assertIn(required, self.markdown)
+
+    def test_plain_language_readme_matches_current_theme_safety_contract(self):
+        for required in (
+            "Python 3.10 or newer",
+            "NEXT Theme Kit 1.2.0",
+            "selected remote theme",
+            "rollback source",
+            "printed upload count",
+            "served theme revision",
+            "real desktop and mobile screenshots",
+            "does not install Playwright",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, self.readme)
 
 
 if __name__ == "__main__":
