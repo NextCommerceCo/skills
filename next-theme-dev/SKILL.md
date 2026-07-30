@@ -51,7 +51,7 @@ Run these checks at the start of every theme task to understand the working cont
 if command -v ntk >/dev/null 2>&1; then
   NTK_PATH="$(command -v ntk)"
   echo "$NTK_PATH"
-  "$NTK_PATH" --help 2>&1 | sed -n '1p'
+  "$NTK_PATH" --help 2>&1 | sed -n '/NEXT Theme Kit version/{p;q;}'
 else
   echo "ntk not installed — install via pipx, uv, or pip"
 fi

@@ -80,6 +80,11 @@ class ThemeToolingReportGuidanceTest(unittest.TestCase):
     def test_preflight_identifies_the_resolved_cli_not_system_python(self):
         self.assertIn('NTK_PATH="$(command -v ntk)"', self.markdown)
         self.assertIn('"$NTK_PATH" --help', self.markdown)
+        self.assertIn(
+            "sed -n '/NEXT Theme Kit version/{p;q;}'", self.markdown
+        )
+        self.assertNotIn("sed -n '1p'", self.markdown)
+        self.assertNotIn('"$NTK_PATH" --version', self.markdown)
         self.assertNotIn("python3 -m pip show next-theme-kit", self.markdown)
         self.assertIn("pipx, uv, and system Python", self.markdown)
 
