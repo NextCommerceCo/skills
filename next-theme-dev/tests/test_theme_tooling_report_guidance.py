@@ -6,12 +6,18 @@ from pathlib import Path
 
 
 SKILL = Path(__file__).resolve().parents[1] / "SKILL.md"
+ACTIVE_PUBLISH_REFERENCE = (
+    Path(__file__).resolve().parents[1]
+    / "references"
+    / "active-theme-publish-and-qa.md"
+)
 
 
 class ThemeToolingReportGuidanceTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.markdown = SKILL.read_text(encoding="utf-8")
+        cls.active_publish = ACTIVE_PUBLISH_REFERENCE.read_text(encoding="utf-8")
 
     def test_product_template_recipe_uses_template_field_not_url_slug(self):
         recipe = re.search(
@@ -71,12 +77,63 @@ class ThemeToolingReportGuidanceTest(unittest.TestCase):
             with self.subTest(unreleased_surface=unreleased_surface):
                 self.assertNotIn(unreleased_surface, self.markdown)
 
+    def test_preflight_identifies_the_resolved_cli_not_system_python(self):
+        self.assertIn('NTK_PATH="$(command -v ntk)"', self.markdown)
+        self.assertIn('"$NTK_PATH" --help', self.markdown)
+        self.assertNotIn("python3 -m pip show next-theme-kit", self.markdown)
+        self.assertIn("pipx, uv, and system Python", self.markdown)
+
+    def test_active_theme_publish_contract_is_bounded_and_recoverable(self):
+        self.assertIn(
+            "references/active-theme-publish-and-qa.md", self.markdown
+        )
+        for required in (
+            "printed upload count",
+            "rollback source",
+            "Additive assets",
+            "Route entry templates last",
+            "configs/settings_data.json",
+            "representative unaffected",
+            "X-Theme-Revision",
+            "explicit approval",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, self.active_publish)
+        self.assertRegex(self.active_publish, r"not an atomic\s+deployment")
+
     def test_screenshot_guidance_keeps_real_desktop_and_mobile_pngs(self):
         self.assertIn("desktop at\n1440px and mobile at 390px", self.markdown)
         self.assertRegex(
             self.markdown,
             r"DOM\s+metrics can supplement screenshots but never replace",
         )
+
+    def test_screenshot_fallback_does_not_add_a_capture_platform(self):
+        for required in (
+            "already available to the current agent",
+            "existing local browser",
+            "Ask the operator to capture",
+            "accepted visual gap",
+            "Do not install or bundle Playwright",
+            "Do not create or depend on a managed",
+            "capture tool or manual owner",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, self.active_publish)
+
+    def test_css_override_triage_checks_rendered_causes_before_escalating(self):
+        for required in (
+            "computed styles",
+            "ancestor opacity",
+            "::before",
+            "::after",
+            "::marker",
+            "direct child selector",
+            "muted color token",
+            "starter-theme or platform defect",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, self.markdown)
 
 
 if __name__ == "__main__":

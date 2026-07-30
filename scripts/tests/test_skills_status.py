@@ -1,5 +1,6 @@
 """Exercise the read-only, version-aware skill status workflow."""
 
+import re
 import shutil
 import subprocess
 import tempfile
@@ -9,6 +10,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "skills.sh"
+SOURCE_SKILL = ROOT / "next-theme-dev" / "SKILL.md"
+SOURCE_VERSION = re.search(
+    r"^version:\s*(\d+\.\d+\.\d+)$",
+    SOURCE_SKILL.read_text(encoding="utf-8"),
+    re.MULTILINE,
+).group(1)
 
 
 class SkillStatusTest(unittest.TestCase):
@@ -21,7 +28,7 @@ class SkillStatusTest(unittest.TestCase):
         skill_file = installed / "SKILL.md"
         skill_file.write_text(
             skill_file.read_text(encoding="utf-8").replace(
-                "version: 1.7.1", f"version: {installed_version}", 1
+                f"version: {SOURCE_VERSION}", f"version: {installed_version}", 1
             ),
             encoding="utf-8",
         )
@@ -46,11 +53,16 @@ class SkillStatusTest(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("stale", result.stdout)
-        self.assertIn("source=1.7.1", result.stdout)
+        self.assertIn(f"source={SOURCE_VERSION}", result.stdout)
         self.assertIn("installed=1.4.0", result.stdout)
 
     def test_status_reports_unknown_for_non_strict_versions(self):
-        for installed_version in ("1.7.1-rc1", "1.7", "1.7.1+build.1"):
+        major, minor, _patch = SOURCE_VERSION.split(".")
+        for installed_version in (
+            f"{SOURCE_VERSION}-rc1",
+            f"{major}.{minor}",
+            f"{SOURCE_VERSION}+build.1",
+        ):
             with self.subTest(installed_version=installed_version):
                 result = self.run_status_with_installed_version(installed_version)
 

@@ -6,12 +6,16 @@ from pathlib import Path
 
 
 SKILL = Path(__file__).resolve().parents[1] / "SKILL.md"
+DEVELOPER_WORKFLOW = (
+    Path(__file__).resolve().parents[1] / "references" / "developer-workflow.md"
+)
 
 
 class FailureModeRunbookTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.markdown = SKILL.read_text(encoding="utf-8")
+        cls.developer_workflow = DEVELOPER_WORKFLOW.read_text(encoding="utf-8")
 
     def test_large_empty_metadata_is_treated_as_tool_failure(self):
         self.assertRegex(
@@ -46,6 +50,20 @@ class FailureModeRunbookTest(unittest.TestCase):
             "Record tablet coverage separately when the design supplies a tablet frame",
             self.markdown,
         )
+
+    def test_screenshot_fallback_reuses_local_or_manual_capability(self):
+        for required in (
+            "already available to the current",
+            "existing local browser",
+            "Give the operator the exact",
+            "accepted gap",
+            "Do not install or bundle Playwright",
+            "managed screenshot",
+            "capture tool or manual owner",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, self.developer_workflow)
+        self.assertNotIn("ntk capture", self.developer_workflow)
 
 
 if __name__ == "__main__":
