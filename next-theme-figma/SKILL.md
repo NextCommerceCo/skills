@@ -1,6 +1,6 @@
 ---
 name: next-theme-figma
-version: 0.3.1
+version: 0.3.2
 description: |
   Prepare Figma storefront designs for NEXT Commerce and Spark theme
   implementation handoff. Use when auditing, inspecting, extracting assets
@@ -69,11 +69,13 @@ Run this before interpreting incomplete Figma results:
    the top-level frame or wrong node, stop retrying and switch to node URLs,
    render slicing, or the authorized archive.
 5. Before implementation handoff, prove that both a Figma reference PNG and a
-   storefront preview PNG can be captured at matching widths. Use the local
-   browser or screenshot tooling available in the work environment for the
-   storefront preview; desktop is 1440px and mobile is 390px. If either side
-   cannot produce screenshots, stop or record an explicit `accepted-gap` with
-   owner, affected routes/viewports, and rationale.
+   storefront preview PNG can be captured at matching widths. Follow the
+   screenshot fallback ladder in `references/developer-workflow.md`; reuse an
+   available agent, connector, local browser, or manual operator capture rather
+   than installing or bundling browser automation for the skill; desktop is
+   1440px and mobile is 390px. If either side cannot produce screenshots, stop
+   or record an explicit `accepted-gap` with owner, affected routes/viewports,
+   and rationale.
    DOM metrics alone are not visual QA and must never be silently substituted
    for screenshots.
 

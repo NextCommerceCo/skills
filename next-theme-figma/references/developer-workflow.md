@@ -75,10 +75,26 @@ Avoid assets for:
 
 ## Visual Verification Loop
 
-Preflight screenshot capability before implementation handoff. Capture a real
-Figma reference PNG and a real storefront preview PNG at a matching width. If
-either capture path fails, stop or record an explicit accepted gap with its
-owner, routes, viewports, and rationale. DOM metrics alone are not visual QA.
+Preflight screenshot capability before implementation handoff. Use this
+fallback ladder for each required Figma reference and storefront preview:
+
+1. Reuse a screenshot or browser capability already available to the current
+   agent or connected environment.
+2. Use the operator's existing local browser, browser developer tools,
+   operating system screenshot command, or normal QA utility.
+3. Give the operator the exact source/preview URLs and target viewports, then
+   ask them to capture and save or attach the images.
+4. If none is available, stop or record an explicit accepted gap with owner,
+   affected routes, viewports, and rationale.
+
+Do not install or bundle Playwright, Chromium, or another browser automation
+package solely for this gate. Do not create or depend on a managed screenshot
+service unless the user explicitly requests one. Record the viewport, source
+URL or Figma node, timestamp, capture tool or manual owner, and saved image path
+for each result. DOM metrics alone are not visual QA.
+
+Capture a real Figma reference PNG and a real storefront preview PNG at a
+matching width. Wait for fonts and lazy media before recording the preview.
 
 For every route/section:
 

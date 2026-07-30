@@ -1,6 +1,6 @@
 ---
 name: next-theme-dev
-version: 1.7.1
+version: 1.8.0
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
@@ -48,7 +48,13 @@ Run these checks at the start of every theme task to understand the working cont
 
 ```bash
 # Check ntk installation
-if command -v ntk >/dev/null 2>&1; then command -v ntk; python3 -m pip show next-theme-kit 2>/dev/null || echo "Package metadata unavailable (common with pipx/uv installs); ntk command is installed."; else echo "ntk not installed — install via pip, pipx, or uv"; fi
+if command -v ntk >/dev/null 2>&1; then
+  NTK_PATH="$(command -v ntk)"
+  echo "$NTK_PATH"
+  "$NTK_PATH" --help 2>&1 | sed -n '/NEXT Theme Kit version/{p;q;}'
+else
+  echo "ntk not installed — install via pipx, uv, or pip"
+fi
 
 # Check Python
 python3 --version 2>/dev/null || python --version 2>/dev/null || echo "Python not found"
@@ -65,6 +71,9 @@ Use the public Theme Kit guide for connection setup and command behavior:
 
 The CLI guidance in this skill targets NEXT Theme Kit 1.2.0. Its released
 commands are `init`, `list`, `checkout`, `pull`, `push`, `watch`, and `sass`.
+Identify the active CLI from the resolved executable and the version line it
+emits. Do not infer its version from a different Python interpreter's package
+metadata: pipx, uv, and system Python can each contain separate installations.
 
 Create the API key in Storefront admin under **Settings > API Access**:
 
@@ -469,11 +478,18 @@ The platform processes all theme files through the DTL engine, including `.js` f
 
 ### Live Theme Mutation Approval Gate
 
-`ntk push` and `ntk watch` both mutate the live store theme. Before running either
-command, use `AskUserQuestion` to show the operator the exact store, theme, and
-files or watch scope, then obtain explicit confirmation. Do not push or start a
-watch session without that confirmation; approval for one command or watch
-session does not authorize a later one.
+`ntk push` and `ntk watch` both mutate the selected remote store theme. Before
+running either command, use `AskUserQuestion` to show the operator the exact
+store, environment, theme ID and status, and files or watch scope, then obtain
+explicit confirmation. Do not push or start a watch session without that
+confirmation; approval for one command or watch session does not authorize a
+later one.
+
+If the selected target is the active theme, read
+`references/active-theme-publish-and-qa.md` completely before publishing. Its
+manifest, rollback, publish-order, cache-bypass, smoke-test, and evidence gates
+are required in addition to this approval. A targeted push reduces scope, but
+it is still a sequential live mutation rather than an atomic deployment.
 
 While `ntk watch` is running, deleting a recognized local theme file deletes
 the corresponding file from the store. Include that behavior in the approval
@@ -814,6 +830,24 @@ Build order:
   devices need an explicit tap/button interaction; do not rely on sticky
   emulated `:hover` state.
 
+#### CSS Override Triage
+
+When a visual property survives an apparently correct CSS change, inspect the
+rendered element before adding another override:
+
+1. Check the winning declaration and computed styles on the element and its
+   ancestors, including inherited `color`, ancestor opacity, filters, and
+   visibility.
+2. Inspect `::before`, `::after`, and `::marker`; generated content can be the
+   visible layer even when the element's own color is correct.
+3. Check whether broad list or typography selectors are leaking into a custom
+   component. Scope fixes to the component and prefer a direct child selector
+   when only one list level should change.
+4. Express de-emphasis with a muted color token when opacity would also fade
+   child content or generated decoration.
+5. Re-check the affected route against the cache-bypassed theme revision before
+   treating the result as a starter-theme or platform defect.
+
 ### Step 6: Client-Side Features
 
 For per-user content (cart, auth, wishlists):
@@ -830,11 +864,17 @@ For per-user content (cart, auth, wishlists):
 4. Check dashboard-side requirements: free shipping/gift features need matching Offers (see Dashboard-Theme Bridge)
 5. Verify cart operations work end-to-end (add, remove, quantity change, checkout)
 
-Before handoff, open the preview URL in the local browser tooling available in
-the work environment and save real PNGs under `./qa-output`. Capture desktop at
-1440px and mobile at 390px. Wait for fonts and lazy media to load, inspect both
-images, and record any route or viewport that could not be captured. DOM
-metrics can supplement screenshots but never replace them.
+Before handoff, use screenshot capability already available in the work
+environment and save real PNGs under `./qa-output`. Capture desktop at
+1440px and mobile at 390px. Do not install or bundle a new browser automation
+dependency solely for this gate. If direct capture is unavailable, give the
+operator the exact preview URLs and viewports for manual capture; if that also
+cannot happen, record an explicit accepted gap with owner and scope. Wait for
+fonts and lazy media to load, inspect both images, and record any route or
+viewport that could not be captured.
+DOM metrics can supplement screenshots but never replace them. For an
+active-theme change, use the complete evidence ladder in
+`references/active-theme-publish-and-qa.md`.
 
 ---
 
