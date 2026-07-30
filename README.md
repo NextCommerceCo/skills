@@ -21,7 +21,7 @@ Both skills expect real screenshot evidence for visual QA, but they reuse tools
 already available to the agent or operator and support manual capture. They do
 not require a bundled browser automation package or screenshot service. When a
 Theme Development task targets an active theme, the skill adds an exact file
-manifest, rollback preparation, upload-count checks, and served-revision
+manifest, rollback source, upload-count checks, and served-revision
 verification.
 
 Each skill directory contains two documents: a `README.md` — a plain-language
