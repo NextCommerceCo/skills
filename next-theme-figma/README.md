@@ -18,7 +18,8 @@ What you get — a complete handoff package containing:
 - A record of every place the real storefront should intentionally differ from
   the Figma picture — live product galleries, variant pickers, cart state, and
   app-injected content that a static design can't show.
-- Reference screenshots of the design at desktop, tablet, and phone sizes.
+- Matching design and storefront reference screenshots at desktop, tablet,
+  and phone sizes, with any missing route or viewport recorded explicitly.
 - A build-order recommendation, a list of unresolved design questions, and a
   completed quality checklist.
 
@@ -31,6 +32,9 @@ What you get — a complete handoff package containing:
   runs it for you.
 - **Context on the target** — which store and theme this is for, and a preview
   link if you're comparing against something already built.
+- **A screenshot option you already use**, such as an agent connector, local
+  browser, developer tools, or operating system capture. If none is available
+  to the assistant, you can capture the supplied URLs and viewports manually.
 
 ## Install
 
@@ -57,5 +61,9 @@ assemble and validate the package. The finished package is what
 - Hard stop on screenshot-heavy pages: a real storefront is never built out of
   big flat images of the design without your explicit approval, because text,
   links, buttons, search visibility, and live product data would all be lost.
+- Visual QA requires real Figma and storefront images at matching widths. The
+  skill does not install Playwright, bundle a browser, or create a managed
+  screenshot service. If capture is unavailable, the handoff records the
+  owner, routes, viewports, and reason for the gap.
 - The package is checked strictly before it's considered done — placeholder or
   unfinished entries fail the check until resolved or explicitly signed off.

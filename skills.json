@@ -7,7 +7,7 @@
     {
       "id": "next-theme-figma",
       "name": "Theme Figma Handoff",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "path": "next-theme-figma/SKILL.md",
       "domain": "storefronts",
       "description": "Prepare Figma storefront designs for NEXT Commerce and Spark theme implementation by validating source structure, classifying sections and assets, recording Spark divergences, and generating a low-inference handoff for next-theme-dev.",
@@ -33,6 +33,7 @@
         "Target Next Commerce store/theme/repo context",
         "Figma MCP or REST/API access when live node inspection or screenshot export is needed",
         "Node.js (runs the skill's bundled theme-figma.js helper script)",
+        "An existing screenshot/browser capability or willingness to provide manual captures; the skill does not bundle browser automation",
         "next-theme-dev for downstream theme implementation"
       ],
       "safety": {
@@ -45,7 +46,7 @@
     {
       "id": "next-theme-dev",
       "name": "Theme Development",
-      "version": "1.8.0",
+      "version": "1.8.1",
       "path": "next-theme-dev/SKILL.md",
       "domain": "storefronts",
       "description": "Build, modify, and debug Next Commerce storefront themes, including Spark, Intro Bootstrap, Theme Settings, ntk CLI, DTL templates, and storefront GraphQL.",
@@ -67,8 +68,9 @@
         "DTL templates"
       ],
       "prerequisites": [
-        "Python 3 (standard library only for theme work; Pillow required to validate raster assets)",
-        "ntk (pip install next-theme-kit)",
+        "Python 3.10 or newer (Pillow is also required to validate raster assets)",
+        "NEXT Theme Kit 1.2.0; resolve the active installation from the ntk executable because pipx, uv, and system Python may differ",
+        "An existing screenshot/browser capability or willingness to provide manual captures for visual changes",
         "A Next Commerce Storefront OAuth app API key created under Settings > API Access (themes:read, themes:write permissions)"
       ],
       "safety": {
@@ -76,7 +78,7 @@
         "writes_local": true,
         "requires_approval": true,
         "network": "next-storefront-theme-api",
-        "notes": "ntk push/watch mutate the live store theme and are approval-gated; deleting a recognized local file during watch deletes it from the store."
+        "notes": "ntk push/watch mutate the selected remote theme and are approval-gated; active-theme pushes also require a bounded file manifest, rollback source, upload-count check, and served-revision verification. Deleting a recognized local file during watch deletes it from the store."
       }
     },
     {

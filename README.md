@@ -8,13 +8,21 @@ Pre-built skills that give AI coding agents deep knowledge of the Next Commerce 
 
 | Skill | What It Does | When to Use |
 |-------|-------------|-------------|
-| [**Theme Figma Handoff**](next-theme-figma/) | Prepare Figma storefront designs for implementation - source validation, section classification, asset manifests, Spark divergence ledger, and visual refs | You have a Figma storefront/PDP/homepage design and need a low-inference handoff before `next-theme-dev` implements it |
-| [**Theme Development**](next-theme-dev/) | Build and customize storefront themes — DTL templates, ntk CLI, Tailwind CSS, settings, side cart | You're editing theme files, setting up a new storefront, or debugging template issues |
+| [**Theme Figma Handoff**](next-theme-figma/) | Prepare Figma storefront designs for implementation: source validation, section classification, asset manifests, Spark divergence ledger, matching visual refs, and documented coverage gaps | You have a Figma storefront/PDP/homepage design and need a low-inference handoff before `next-theme-dev` implements it |
+| [**Theme Development**](next-theme-dev/) | Build and customize storefront themes, including DTL templates, ntk CLI, Tailwind CSS, settings, side cart, active-theme publish safeguards, and visual QA | You're editing theme files, setting up a new storefront, publishing a bounded change, or debugging template and styling issues |
 | [**Bulk Fulfillment Sync**](next-bulk-fulfill/) | Update orders to Fulfilled with tracking numbers from a CSV | Your fulfillment provider shipped orders but tracking didn't sync back — orders stuck in Processing |
 | [**Bulk Fulfillment Move**](next-bulk-move/) | Move fulfillment orders between warehouse locations in bulk — by order-number file or by Product ID / SKU list | Switching fulfillment providers, or moving every FO containing a given SKU/product to a new location |
 | [**Bulk Subscription Actions**](next-bulk-subscription/) | Pause, cancel, or PATCH explicit subscription fields for a list of subscription IDs | Merchant wants to bulk-pause until a date, set supplied renewal timestamps, bulk-cancel, or migrate subscriptions between gateways |
 | [**Daily Ops Risk Scan**](next-ops-scan/) | Read-only scan for Incomplete orders, Rejected orders, and Delivery Tracking failures/staleness | You want a daily queue of risky orders and stuck shipments to reduce support friction and dispute risk |
 | [**New Campaign Setup**](next-campaigns-setup/) | Scaffold and fully configure a new Next Commerce campaign repo — brand init, starter template, campaigns.json seed, API key, store details, and analytics in one pass | Starting a new Next Commerce campaign for a brand |
+
+For design-led theme work, run `next-theme-figma` before `next-theme-dev`.
+Both skills expect real screenshot evidence for visual QA, but they reuse tools
+already available to the agent or operator and support manual capture. They do
+not require a bundled browser automation package or screenshot service. When a
+Theme Development task targets an active theme, the skill adds an exact file
+manifest, rollback preparation, upload-count checks, and served-revision
+verification.
 
 Each skill directory contains two documents: a `README.md` — a plain-language
 guide for the person running the skill (what it does, what you need, how to
