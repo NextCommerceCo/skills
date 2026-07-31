@@ -1,6 +1,6 @@
 ---
 name: next-theme-dev
-version: 1.8.1
+version: 1.8.2
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
@@ -295,7 +295,7 @@ watch session merely to discover it. Derive it from the confirmed store
 subdomain and the `theme_id` in `config.yml`:
 
 ```text
-https://<store-subdomain>.29next.store/?preview_theme=<theme_id>&skip_cache=1
+https://<store-subdomain>.29next.store/?preview_theme=<theme_id>
 ```
 
 Open that URL and verify that it renders the uploaded unpublished theme. Confirm
@@ -355,6 +355,20 @@ Do this before copying patterns between reference themes:
 | **Custom theme** | Mixed or merchant-specific structure | Preserve the local stack. Inspect README/CLAUDE/DESIGN docs before adding tools or renaming conventions |
 
 Intro Bootstrap is a strong reference for DTL patterns, template contexts, URL names, and older storefront conventions. Spark is the modern starter direction: zero jQuery, zero Bootstrap, Tailwind CSS v4, GraphQL-first cart components, named homepage section partials, and public app-hook surfaces. Do not port stack-specific implementation details across themes unless the current theme already uses that stack.
+
+Before attributing a defect to Spark or Intro Bootstrap, compare the exact
+selector, template, asset, or line-ending behavior with the current upstream
+starter and record the installed theme version when known. If the behavior is
+absent upstream, classify it as store-local or version-specific rather than a
+starter-theme defect.
+
+Preserve the runtime contract for the identified family:
+
+| Theme family | Runtime contract to preserve |
+|--------------|------------------------------|
+| **Spark** | `assets/js/spark-platform.js`; Web Components such as `<spark-cart-drawer>`, `<spark-add-to-cart>`, and `<spark-quantity>` from `assets/js/components/spark-*`; and `assets/js/spark-preview.js` when the theme exposes the preview indicator |
+| **Intro Bootstrap** | jQuery loaded before `{% core_js %}`, plus the existing platform cart and side-cart scripts |
+| **Custom theme** | Inspect the local base layout and scripts; do not infer either starter's contract |
 
 ### Template Language
 
@@ -531,17 +545,12 @@ Spark does not use jQuery or `{% core_js %}`. It uses `assets/js/spark-platform.
 ### CDN Caching
 
 CloudFront aggressively caches assets and full pages (5 min on mapped domains):
-- **Always develop on the `.29next.store` network domain** — it bypasses full-page caching, but that alone does not guarantee template-cache freshness
-- Use `?skip_cache=1` on a preview or network-domain URL to bypass both page and template caches on platform versions that expose `X-Theme-Cache: bypass`
-- When a page looks reverted after a push, verify the same URL with `?preview_theme={theme_id}&skip_cache=1` and inspect `X-Theme-*` response headers before assuming files or settings were lost
-- Template saves advance a shared theme revision. Confirm `X-Theme-Revision` changed and `X-Theme-Template` names the expected file
+- **Always develop, preview, debug, and verify on the `.29next.store` network domain** — it bypasses mapped-domain full-page caching
+- Do not use a mapped public storefront domain to decide whether a change landed
+- Check the public domain only after network-domain verification, as a final customer-path smoke test
+- Do not require undocumented query parameters or response headers as proof of deployment
+- Verify the served HTML, expected asset URLs, visible behavior, and screenshots on the network domain
 - Asset changes (CSS/JS) may take a moment to propagate on CDN
-
-Development response headers are intentionally limited to the network domain.
-Useful fields include `X-Theme-Id`, `X-Theme-Template`,
-`X-Theme-Template-Candidates`, `X-Theme-Template-Revision`,
-`X-Theme-Revision`, and `X-Theme-Cache`. Do not expect them on mapped
-production domains.
 
 ### DTL Comments: Single-Line Only
 
@@ -574,27 +583,30 @@ For marketing-forward storefronts, `text-sm` (14px) as the body default feels cr
 
 ## Known Gotchas
 
-Hard-won lessons from building Spark. These will silently break things if you don't know about them.
+Start with shared diagnostics, then apply only the contracts for the identified
+theme family. A merchant-session observation is not a starter-theme defect
+until the exact behavior is confirmed in that starter and version.
 
-| Gotcha | Details |
-|--------|---------|
-| **Product picker returns parent PK** | `settings.gift_product` gives the parent product PK. For cart operations (addCartLines), use `.children.first.pk` to get the variant ID |
-| **Settings group ordering** | Group display order = first-seen in `settings_schema.json`, not JSON key order. Renaming a group makes it appear last |
-| **Settings schema shape** | `settings_schema.json` is top-level section -> group -> array of setting objects. Do not use ad hoc object maps for new public examples |
-| **Spark vs Intro stack mismatch** | Spark is Tailwind + vanilla Web Components. Intro Bootstrap is Bootstrap/SCSS + jQuery/core_js. Preserve the current theme's stack |
-| **Spark reward thresholds** | Spark core exposes one default reward threshold pair. Currency-specific reward rules belong in a theme-developer extension, not hard-coded starter settings |
-| **manifest.json can't be pushed** | ntk excludes `manifest.json` from push/watch. Version is set at `ntk init` only |
-| **Shadow DOM ≠ slotted styles** | Shadow DOM styles don't apply to slotted (light DOM) content. Fix: inject a `<style>` tag into `document.head` with a guard flag to prevent duplicates |
-| **connectedCallback fires early** | `connectedCallback` fires before child elements are parsed. Use a lazy `_ensureRefs()` pattern called from methods that need refs, plus `requestAnimationFrame` for initial updates |
-| **Concurrent mutation guard** | Cart mutations must use an `_isMutating` flag to prevent race conditions from rapid clicks (e.g., quantity +/+ before first response returns) |
-| **sass-compat is required** | Every Tailwind build must run through `sass-compat.py`. Platform SCSS compiler rejects: `oklch()`, `color-mix()`, `@layer`, `@property`, `:is()`/`:where()`, logical properties, media range syntax |
-| **Spark app hooks are extension surfaces** | Use existing `{% app_hook %}` slots before forking Spark templates for app integrations |
-| **Preview URL** | `https://{store}/?preview_theme={theme_id}` — useful for testing unpublished theme changes |
-| **Preview session pinning** | Visiting `?preview_theme={theme_id}` pins that browser session with a cookie. Use the preview indicator's **Exit preview** action or visit `/?deactivate-theme=true`; a plain URL does not exit preview. |
-| **ntk accepted directories** | Only these are recognized: assets, checkout, configs, layouts, partials, templates, locales, sass. Files outside these are silently ignored |
-| **Asset path mapping** | A local file like `assets/img/merchant/hero.jpg` is uploaded as `assets/img/merchant/hero.jpg`, but templates reference it without the `assets/` prefix: `{{ 'img/merchant/hero.jpg'|asset_url }}` |
-| **Figma export overlays** | Figma frames often include labels, badges, card UI, shadows, or text that Spark also renders. Inspect the node tree before export; export the clean underlying image/fill when the overlay is theme UI |
-| **Build artifacts must be committed** | The platform doesn't compile CSS/JS server-side and doesn't preserve binaries on push. Compiled `assets/main.css` (Tailwind) or compiled CSS (build-time SCSS) must be checked in or the theme is unstyled on install. Gitignore the toolchain (binaries, `node_modules/`), commit the artifact |
+| Scope | Gotcha | Details |
+|-------|--------|---------|
+| **Shared** | **Settings group ordering** | Group display order = first-seen in `settings_schema.json`, not JSON key order. Renaming a group makes it appear last |
+| **Shared** | **Settings schema shape** | `settings_schema.json` is top-level section -> group -> array of setting objects. Do not use ad hoc object maps for new public examples |
+| **Shared** | **Theme-family attribution** | Confirm the exact behavior in the current upstream starter and version before calling a merchant-theme issue a Spark or Intro Bootstrap defect |
+| **Shared** | **manifest.json can't be pushed** | ntk excludes `manifest.json` from push/watch. Version is set at `ntk init` only |
+| **Shared** | **Preview URL** | `https://<store-subdomain>.29next.store/?preview_theme=<theme_id>` is the canonical URL for testing unpublished theme changes |
+| **Shared** | **Preview session pinning** | Visiting `?preview_theme=<theme_id>` pins that browser session with a cookie. Use the preview indicator's **Exit preview** action or visit `/?deactivate-theme=true`; a plain URL does not exit preview |
+| **Shared** | **ntk accepted directories** | Only these are recognized: assets, checkout, configs, layouts, partials, templates, locales, sass. Files outside these are silently ignored |
+| **Shared** | **Asset path mapping** | A local file like `assets/img/merchant/hero.jpg` is uploaded as `assets/img/merchant/hero.jpg`, but templates reference it without the `assets/` prefix: `{{ 'img/merchant/hero.jpg'|asset_url }}` |
+| **Shared** | **Figma export overlays** | Figma frames often include labels, badges, card UI, shadows, or text that the theme also renders. Inspect the node tree before export; export the clean underlying image/fill when the overlay is theme UI |
+| **Shared** | **Build artifacts must be committed** | The platform doesn't compile CSS/JS server-side and doesn't preserve binaries on push. Compiled CSS must be checked in or the theme is unstyled on install. Gitignore the toolchain and commit the artifact |
+| **Intro Bootstrap** | **jQuery before core_js** | Preserve jQuery before `{% core_js %}` and retain the existing platform cart/side-cart scripts unless intentionally replacing that stack |
+| **Spark** | **Product picker returns parent PK** | `settings.gift_product` gives the parent product PK. For cart operations (`addCartLines`), use `.children.first.pk` to get the variant ID |
+| **Spark** | **Reward thresholds** | Spark core exposes one default threshold pair. Currency-specific reward rules belong in a theme-developer extension, not hard-coded starter settings |
+| **Spark** | **Shadow DOM ≠ slotted styles** | Shadow DOM styles don't apply to slotted light-DOM content. Inject a guarded `<style>` tag into `document.head` when that pattern is required |
+| **Spark** | **connectedCallback fires early** | `connectedCallback` can fire before child elements are parsed. Use a lazy `_ensureRefs()` pattern plus `requestAnimationFrame` for initial updates |
+| **Spark** | **Concurrent mutation guard** | Cart mutations must use an `_isMutating` flag to prevent races from rapid clicks |
+| **Spark** | **sass-compat is required** | Every Tailwind build must run through `sass-compat.py`; the platform SCSS compiler rejects several modern CSS constructs |
+| **Spark** | **App hooks are extension surfaces** | Use existing `{% app_hook %}` slots before forking Spark templates for app integrations |
 
 ---
 
@@ -793,7 +805,7 @@ The script cannot OCR an image or prove a badge is absent. It makes that limitat
 - Compare product cards, homepage product tiles, PDP galleries, and cart upsells for duplicated discount labels.
 - Confirm media/press logos render as images, not fallback text, and that alt text is sensible.
 - Check mobile crops at 375px and 390px widths. Product, joint/body, or logo subject matter should not be clipped out of the important region.
-- Hard-refresh or add `?skip_cache=1` after asset pushes if the CDN appears stale.
+- Hard-refresh after asset pushes if the browser still holds an older asset.
 
 ### Step 3: Settings Schema Design
 
@@ -845,8 +857,9 @@ rendered element before adding another override:
    when only one list level should change.
 4. Express de-emphasis with a muted color token when opacity would also fade
    child content or generated decoration.
-5. Re-check the affected route against the cache-bypassed theme revision before
-   treating the result as a starter-theme or platform defect.
+5. Re-check the affected route on the `.29next.store` network domain, then
+   compare the exact behavior with the relevant starter and version before
+   treating it as a starter-theme or platform defect.
 
 ### Step 6: Client-Side Features
 
@@ -858,8 +871,8 @@ For per-user content (cart, auth, wishlists):
 
 ### Step 7: Verify & Deploy
 
-1. Preview unpublished changes: `https://{store}/?preview_theme={theme_id}`
-2. Always test on `.29next.store` domain (bypasses CDN full-page cache)
+1. Preview unpublished changes: `https://<store-subdomain>.29next.store/?preview_theme=<theme_id>`
+2. Always verify on the `.29next.store` network domain before checking a mapped public domain
 3. Push only changed files: `ntk push templates/index.html partials/header.html`
 4. Check dashboard-side requirements: free shipping/gift features need matching Offers (see Dashboard-Theme Bridge)
 5. Verify cart operations work end-to-end (add, remove, quantity change, checkout)
@@ -959,7 +972,7 @@ For a custom template file such as `templates/pages/page.story.html`, send `"tem
 After creation, verify the route with the preview theme:
 
 ```bash
-curl -I "https://{store}.29next.store/{slug}/?preview_theme={theme_id}&skip_cache=1"
+curl -I "https://{store}.29next.store/{slug}/?preview_theme={theme_id}"
 ```
 
 **Context gotcha:** Some page routes expose `page.title`, `page.content`, `page.url`, and `page.slug`; older Spark examples use `flatpage.title`, `flatpage.content`, and `flatpage.url`. For merchant templates that need to be portable, support `page.*` first and keep `flatpage.*` as a fallback. Prefer `page.url` or `flatpage.url` when present; use `/<slug>/` only after confirming root-slug routes for the store. Admin page `content` is rich text; keep Django auto-escaping by default, and use `|safe` only for trusted admin-authored HTML after sanitizing any non-admin HTML.
@@ -991,11 +1004,14 @@ Read the complete command output and confirm the preview route after the push.
    the Admin API. `ntk` uploads theme files; it does not assign a product's
    template field.
 4. Request the product route on the preview/network domain with
-   `?preview_theme=<theme-id>&skip_cache=1`. If the custom candidate is missing,
-   invalid, or not assigned, resolution silently falls back to
-   `templates/catalogue/product.html`. Detect that fallback by checking
-   `X-Theme-Template-Candidates` and `X-Theme-Template`; visual similarity alone
-   is not proof that the custom template resolved.
+   `?preview_theme=<theme-id>`. If the custom candidate is missing, invalid, or
+   not assigned, resolution silently falls back to
+   `templates/catalogue/product.html`. Detect that fallback with a
+   template-specific DOM marker or structure and inspect the served HTML. For
+   example, add `data-template="product.<template-key>"` to the custom
+   template's existing root element and confirm that exact attribute is
+   present in the response. Visual similarity alone is not proof that the
+   custom template resolved.
 
 Do not make a merchant-specific product template extend
 `templates/catalogue/product.html` until that inheritance path has an explicit
@@ -1401,7 +1417,7 @@ Troubleshooting CSS failures:
 
 - **Local Tailwind/build failure:** `make css` fails before upload. Fix `css/input.css`, the local Tailwind binary, or the command setup.
 - **Platform Sass/compiler failure:** local build passes but upload/storefront CSS parsing fails. Run `make css-check`; the failure should point to an unsupported construct and file. Minimize the generated CSS if needed, then extend `sass-compat.py` only for a safe, known transform.
-- **CDN/cache issue:** pushed CSS is correct but the storefront looks stale. Test on the `.29next.store` domain, hard-refresh, or append `?skip_cache=1`.
+- **CDN/cache issue:** pushed CSS is correct but the storefront looks stale. Test on the `.29next.store` network domain and hard-refresh before checking a mapped public domain.
 - **Missing uploaded compiled CSS:** templates changed but styling did not. Rebuild `assets/main.css` and push that file explicitly.
 
 Avoid dynamic Tailwind classes in DTL templates. Tailwind only emits classes it can see at build time, so `bg-{{ settings.primary_color }}` and string-built utilities disappear from `assets/main.css`. Use CSS custom properties (`bg-[var(--primary-color)]`) or static conditionals that include complete class names.
@@ -1438,11 +1454,11 @@ To debug: check the store's `.29next.store` domain (bypasses caching), look at t
 
 If changes aren't appearing:
 1. Are you on the `.29next.store` domain? (Mapped domains cache for 5 min)
-2. Use `?skip_cache=1` on a preview/network-domain URL and confirm `X-Theme-Cache: bypass`
-3. For asset changes, hard-refresh the browser (Cmd+Shift+R)
-4. Confirm `X-Theme-Revision` changed after the push and compare
-   `X-Theme-Template-Candidates` with `X-Theme-Template`; do not diagnose a
-   resolution fallback as propagation delay
+2. Confirm the preview URL contains the intended `preview_theme` ID and that an old preview cookie is not selecting another theme
+3. Inspect the served HTML for the expected template-specific marker or exact changed HTML string
+4. For asset changes, request the asset URL found in the served HTML and confirm an exact changed CSS or JavaScript token. When the platform serves the built file byte-for-byte, compare the downloaded and local file checksums
+5. Hard-refresh the browser (Cmd+Shift+R)
+6. Exercise the affected behavior and compare desktop/mobile screenshots before diagnosing a propagation problem
 
 ---
 

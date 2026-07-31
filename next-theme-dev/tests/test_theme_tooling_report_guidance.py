@@ -38,18 +38,47 @@ class ThemeToolingReportGuidanceTest(unittest.TestCase):
         self.assertRegex(recipe, r"product's `template` field to `<template-key>`")
         self.assertIn('{% extends "layouts/base.html" %}', recipe)
         self.assertIn("silently falls back", recipe)
-        self.assertIn("X-Theme-Template-Candidates", recipe)
-        self.assertIn("X-Theme-Template", recipe)
+        self.assertIn('data-template="product.<template-key>"', recipe)
+        self.assertIn("confirm that exact attribute", recipe)
+        self.assertNotIn("X-Theme-Template-Candidates", recipe)
+        self.assertNotIn("X-Theme-Template", recipe)
 
-    def test_cache_guidance_distinguishes_page_and_template_freshness(self):
-        self.assertRegex(
+    def test_cache_guidance_uses_network_domain_as_canonical_verification(self):
+        self.assertIn(
+            "Always develop, preview, debug, and verify on the `.29next.store` "
+            "network domain",
             self.markdown,
-            r"network domain.*bypasses full-page caching, but that alone does "
-            r"not guarantee template-cache freshness",
         )
-        self.assertIn("X-Theme-Revision", self.markdown)
-        self.assertIn("X-Theme-Cache: bypass", self.markdown)
-        self.assertNotIn("Template changes via ntk automatically bust", self.markdown)
+        self.assertIn(
+            "Do not use a mapped public storefront domain to decide whether a "
+            "change landed",
+            self.markdown,
+        )
+        self.assertIn(
+            "confirm an exact changed CSS or JavaScript token", self.markdown
+        )
+        self.assertIn(
+            "compare the downloaded and local file checksums", self.markdown
+        )
+        combined = self.markdown + "\n" + self.active_publish
+        self.assertNotIn("skip_cache", combined)
+        self.assertNotIn("X-Theme-", combined)
+
+    def test_theme_family_attribution_and_runtime_contracts_are_explicit(self):
+        for required in (
+            "compare the exact",
+            "current upstream starter",
+            "store-local or version-specific",
+            "spark-platform.js",
+            "<spark-cart-drawer>",
+            "<spark-add-to-cart>",
+            "<spark-quantity>",
+            "spark-preview.js",
+            "jQuery loaded before `{% core_js %}`",
+            "Custom theme",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, self.markdown)
 
     def test_preview_rules(self):
         self.assertIn("/?deactivate-theme=true", self.markdown)
@@ -101,7 +130,7 @@ class ThemeToolingReportGuidanceTest(unittest.TestCase):
             "Route entry templates last",
             "configs/settings_data.json",
             "representative unaffected",
-            "X-Theme-Revision",
+            "served HTML",
             "explicit approval",
         ):
             with self.subTest(required=required):
@@ -149,7 +178,7 @@ class ThemeToolingReportGuidanceTest(unittest.TestCase):
             "selected remote theme",
             "rollback source",
             "printed upload count",
-            "served theme revision",
+            "served storefront result",
             "real desktop and mobile screenshots",
             "does not install Playwright",
         ):

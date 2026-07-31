@@ -17,6 +17,8 @@ It knows:
 - The Spark theme's styling pipeline and its non-obvious build steps.
 - How to debug stubborn CSS by checking computed styles, ancestor opacity,
   generated content, and selector scope before adding another override.
+- How to separate shared diagnostics from Spark-, Intro Bootstrap-, and
+  store-specific behavior before attributing a defect to a starter theme.
 - How to collect desktop and mobile visual evidence without requiring a new
   browser automation dependency.
 - Ready-made recipes: brand colors and fonts, custom pages, product page
@@ -76,12 +78,12 @@ consistent with how that theme is built.
   approval.
 - Active-theme changes use an additional publish checklist. It requires a
   rollback source, compares the printed upload count with the approved file
-  manifest, and verifies the served theme revision plus affected and
+  manifest, and verifies the served storefront result plus affected and
   representative unaffected routes.
 - Your saved Theme Editor settings are treated as merchant-owned state — they
   are only touched when the task genuinely requires it.
-- Verification happens on the store's direct address, sidestepping the
-  5-minute page cache, so you always see the real current state.
+- Verification happens first on the store's `.29next.store` network domain;
+  the mapped public domain is only a final customer-path smoke test.
 - Visual changes require real desktop and mobile screenshots. Existing local
   tools or manual captures are valid; DOM measurements do not replace images,
   and any missing coverage must be recorded explicitly.
