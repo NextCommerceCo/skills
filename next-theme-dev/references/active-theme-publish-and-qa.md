@@ -49,23 +49,25 @@ count differs from the approved manifest, stop. Assume earlier files may have
 completed, inspect the remote result, and choose either a bounded repair or the
 prepared rollback with fresh approval.
 
-## Verify The Served Revision
+## Verify The Served Result
 
 Verification must test what the storefront actually serves:
 
-1. Use the `.29next.store` network domain with `skip_cache=1` and the exact
-   active-theme URL. Use a clean browser context or first visit
+1. Use the `.29next.store` network domain and the exact active-theme URL. Do
+   not use a mapped public domain to decide whether the publish landed. Use a
+   clean browser context or first visit
    `/?deactivate-theme=true` so an old preview cookie does not select another
    theme.
 2. Verify every affected route plus at least one representative unaffected
    smoke route when shared files changed.
-3. Inspect `X-Theme-Id`, `X-Theme-Revision`, `X-Theme-Template`, and
-   `X-Theme-Cache`. Record the expected and observed theme ID/revision and the
-   selected template. These development headers may be absent on a mapped
-   production domain.
+3. Inspect the served HTML for the expected template-specific structure and
+   asset URLs. For custom template selection, use a stable DOM marker or unique
+   structure rather than visual similarity alone.
 4. For visual changes, inspect real screenshots at desktop 1440px and mobile
    390px after fonts and lazy media load. Exercise affected interactions rather
    than checking only initial paint.
+5. Check the mapped public domain only after network-domain verification, as a
+   final customer-path smoke test.
 
 ## Screenshot Fallback Ladder
 
@@ -93,11 +95,11 @@ Record enough information for another operator to reproduce the result:
 - UTC publish and verification timestamps.
 - Environment, store, active theme ID, and exact URLs tested.
 - Approved file manifest, printed upload count, and rollback source.
-- Expected and observed `X-Theme-Id`, `X-Theme-Revision`,
-  `X-Theme-Template`, and `X-Theme-Cache` values.
+- Expected template-specific structure and asset URLs observed in the served
+  HTML.
 - Viewport, screenshot path, and capture tool or manual owner for each image.
 - Affected-route checks, unaffected smoke-route checks, interaction results,
   and any accepted gaps.
 
-Do not declare the active-theme publish complete until the served revision,
-route checks, and required visual evidence agree with the approved change.
+Do not declare the active-theme publish complete until the served HTML, route
+checks, and required visual evidence agree with the approved change.
