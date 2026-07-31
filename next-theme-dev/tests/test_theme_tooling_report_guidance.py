@@ -38,7 +38,8 @@ class ThemeToolingReportGuidanceTest(unittest.TestCase):
         self.assertRegex(recipe, r"product's `template` field to `<template-key>`")
         self.assertIn('{% extends "layouts/base.html" %}', recipe)
         self.assertIn("silently falls back", recipe)
-        self.assertIn("template-specific DOM marker", recipe)
+        self.assertIn('data-template="product.<template-key>"', recipe)
+        self.assertIn("confirm that exact attribute", recipe)
         self.assertNotIn("X-Theme-Template-Candidates", recipe)
         self.assertNotIn("X-Theme-Template", recipe)
 
@@ -53,6 +54,12 @@ class ThemeToolingReportGuidanceTest(unittest.TestCase):
             "change landed",
             self.markdown,
         )
+        self.assertIn(
+            "confirm an exact changed CSS or JavaScript token", self.markdown
+        )
+        self.assertIn(
+            "compare the downloaded and local file checksums", self.markdown
+        )
         combined = self.markdown + "\n" + self.active_publish
         self.assertNotIn("skip_cache", combined)
         self.assertNotIn("X-Theme-", combined)
@@ -63,6 +70,9 @@ class ThemeToolingReportGuidanceTest(unittest.TestCase):
             "current upstream starter",
             "store-local or version-specific",
             "spark-platform.js",
+            "<spark-cart-drawer>",
+            "<spark-add-to-cart>",
+            "<spark-quantity>",
             "spark-preview.js",
             "jQuery loaded before `{% core_js %}`",
             "Custom theme",

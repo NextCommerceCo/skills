@@ -366,7 +366,7 @@ Preserve the runtime contract for the identified family:
 
 | Theme family | Runtime contract to preserve |
 |--------------|------------------------------|
-| **Spark** | `assets/js/spark-platform.js`, Spark Web Components, and `assets/js/spark-preview.js` when the theme exposes the preview indicator |
+| **Spark** | `assets/js/spark-platform.js`; Web Components such as `<spark-cart-drawer>`, `<spark-add-to-cart>`, and `<spark-quantity>` from `assets/js/components/spark-*`; and `assets/js/spark-preview.js` when the theme exposes the preview indicator |
 | **Intro Bootstrap** | jQuery loaded before `{% core_js %}`, plus the existing platform cart and side-cart scripts |
 | **Custom theme** | Inspect the local base layout and scripts; do not infer either starter's contract |
 
@@ -1007,8 +1007,11 @@ Read the complete command output and confirm the preview route after the push.
    `?preview_theme=<theme-id>`. If the custom candidate is missing, invalid, or
    not assigned, resolution silently falls back to
    `templates/catalogue/product.html`. Detect that fallback with a
-   template-specific DOM marker or structure and inspect the served HTML;
-   visual similarity alone is not proof that the custom template resolved.
+   template-specific DOM marker or structure and inspect the served HTML. For
+   example, add `data-template="product.<template-key>"` to the custom
+   template's existing root element and confirm that exact attribute is
+   present in the response. Visual similarity alone is not proof that the
+   custom template resolved.
 
 Do not make a merchant-specific product template extend
 `templates/catalogue/product.html` until that inheritance path has an explicit
@@ -1452,9 +1455,10 @@ To debug: check the store's `.29next.store` domain (bypasses caching), look at t
 If changes aren't appearing:
 1. Are you on the `.29next.store` domain? (Mapped domains cache for 5 min)
 2. Confirm the preview URL contains the intended `preview_theme` ID and that an old preview cookie is not selecting another theme
-3. Inspect the served HTML for the expected template-specific structure and asset URLs
-4. For asset changes, hard-refresh the browser (Cmd+Shift+R)
-5. Exercise the affected behavior and compare desktop/mobile screenshots before diagnosing a propagation problem
+3. Inspect the served HTML for the expected template-specific marker or exact changed HTML string
+4. For asset changes, request the asset URL found in the served HTML and confirm an exact changed CSS or JavaScript token. When the platform serves the built file byte-for-byte, compare the downloaded and local file checksums
+5. Hard-refresh the browser (Cmd+Shift+R)
+6. Exercise the affected behavior and compare desktop/mobile screenshots before diagnosing a propagation problem
 
 ---
 
