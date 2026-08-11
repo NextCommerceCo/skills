@@ -10,7 +10,7 @@ Do not try to resolve an entire storefront in one fuzzy pass. For each route:
 2. List section order.
 3. Inspect each section's layer tree.
 4. Classify sections and assets.
-5. Record Spark divergences.
+5. Record platform divergences.
 6. Capture reference screenshots.
 7. Validate the handoff package.
 
@@ -27,7 +27,7 @@ Allowed classes:
 - `semantic-rebuild`: live HTML/CSS/DTL with real text, links, forms, FAQ, grids, tables, nav/footer, etc.
 - `composed-asset`: an intentional `img-group:` export.
 - `background-asset`: a `bg:` image behind live content.
-- `live-spark-component`: Spark/platform commerce component or live data surface.
+- `live-commerce-component`: theme/platform commerce component or live data surface.
 - `platform-app-hook`: app/widget/hook slot that must remain available.
 - `screenshot-fallback`: static bitmap fallback with explicit approval.
 
@@ -39,7 +39,7 @@ For each section, include:
 - Classification and rationale.
 - Target theme files/partials if known.
 - Asset IDs.
-- Spark divergence IDs.
+- Platform divergence IDs.
 - Behavior notes.
 - Responsive notes.
 - Unresolved gaps.
@@ -102,7 +102,7 @@ For every route/section:
 2. Capture existing preview screenshots if there is an existing theme.
 3. Compare Figma versus preview/build at matching widths.
 4. Record mismatches by section and viewport.
-5. Decide status: `fix-now`, `spark-divergence`, `designer-input-needed`, or `accepted-gap`.
+5. Decide status: `fix-now`, `platform-divergence`, `designer-input-needed`, or `accepted-gap`.
 6. Update manifests.
 7. Re-check changed viewports.
 
@@ -115,7 +115,7 @@ Only after the package is coherent:
 - Load `next-theme-dev`.
 - Read the handoff package.
 - Implement in the target theme project folder.
-- Preserve Spark behavior and push only changed files.
+- Preserve the recorded theme-family runtime behavior and push only changed files.
 - Use the reference screenshots and mismatch list as the QA checklist.
 
 Do not let `next-theme-figma` drift into ntk pushes, DTL rewrites, CSS builds, or commerce behavior implementation. That belongs to `next-theme-dev`.

@@ -32,7 +32,7 @@ Share this when the Figma source needs designer or merchant cleanup before a low
 - `img:` assets are fully contained and not accidentally clipped.
 - `bg:` images are fills on the section/column that owns the background.
 - `img-group:` wraps the exact composed visual to export.
-- Product art is clean if Spark should render sale badges or live price state.
+- Product art is clean if the theme/platform should render sale badges or live price state.
 - Logos/icons are individual assets, not typed approximations.
 
 ## Typography And Color

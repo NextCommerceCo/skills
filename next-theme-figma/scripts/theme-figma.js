@@ -4,19 +4,24 @@ const fs = require('fs');
 const path = require('path');
 
 const SCHEMA = {
-  handoff: 'next-theme-figma/handoff/v0',
+  handoff: 'next-theme-figma/handoff/v1',
   routes: 'next-theme-figma/routes/v0',
   sections: 'next-theme-figma/sections/v0',
   assets: 'next-theme-figma/assets/v0',
-  divergence: 'next-theme-figma/spark-divergence/v0',
+  divergence: 'next-theme-figma/platform-divergence/v1',
   coverage: 'next-theme-figma/viewport-coverage/v0',
+};
+
+const LEGACY_SCHEMA = {
+  handoff: 'next-theme-figma/handoff/v0',
+  divergence: 'next-theme-figma/spark-divergence/v0',
 };
 
 const CLASSIFICATIONS = new Set([
   'semantic-rebuild',
   'composed-asset',
   'background-asset',
-  'live-spark-component',
+  'live-commerce-component',
   'platform-app-hook',
   'screenshot-fallback',
 ]);
@@ -24,9 +29,11 @@ const CLASSIFICATIONS = new Set([
 const ASSET_PREFIXES = new Set(['img', 'bg', 'img-group']);
 const ASSET_FORMATS = new Set(['png', 'jpg', 'jpeg', 'svg', 'webp']);
 const OPTIMIZATION_STATUSES = new Set(['not-started', 'source-selected', 'optimized', 'blocked']);
-const DIVERGENCE_DECISIONS = new Set(['spark-wins', 'figma-wins-with-guardrails', 'needs-approval', 'blocked']);
+const DIVERGENCE_DECISIONS = new Set(['platform-wins', 'figma-wins-with-guardrails', 'needs-approval', 'blocked']);
 const DIVERGENCE_STATUSES = new Set(['open', 'approved', 'implemented', 'blocked', 'accepted-gap']);
 const MODES = new Set(['design-audit', 'handoff-prep', 'implementation-handoff']);
+const THEME_FAMILIES = new Set(['spark', 'intro-bootstrap', 'custom']);
+const RUNTIME_CONTRACTS = new Set(['web-components', 'jquery-core-js', 'unknown']);
 const VIEWPORT_WIDTHS = {
   desktop: new Set([1440]),
   tablet: new Set([768]),
@@ -93,6 +100,8 @@ new-package options:
   --repo PATH
   --preview-url URL
   --theme-id ID
+  --theme-family spark|intro-bootstrap|custom
+  --runtime-contract web-components|jquery-core-js|unknown
   --mode design-audit|handoff-prep|implementation-handoff
   --routes "/,/products/example"
   --fixture FILE
@@ -196,6 +205,10 @@ function createPackage(opts) {
   }
 
   const fixture = opts.fixture ? readFixture(path.resolve(String(opts.fixture))) : null;
+  const fixtureUsesLegacyV0 = fixture?.handoff?.schema_version === LEGACY_SCHEMA.handoff;
+  const divergenceFilename = fixtureUsesLegacyV0
+    ? 'spark-divergence-ledger.json'
+    : 'platform-divergence-ledger.json';
   const figmaUrl = opts['figma-url'] || fixture?.handoff?.figma?.url || '';
   const figma = figmaUrl ? parseFigmaInput(figmaUrl) : {};
   const generatedAt = new Date().toISOString();
@@ -208,7 +221,7 @@ function createPackage(opts) {
     'routes.json',
     'sections.json',
     'assets.json',
-    'spark-divergence-ledger.json',
+    divergenceFilename,
     'viewport-coverage.json',
     'validation-checklist.md',
     'notes.md',
@@ -234,13 +247,14 @@ function createPackage(opts) {
       repo: opts.repo || '',
       preview_url: opts['preview-url'] || '',
       theme_id: opts['theme-id'] || '',
-      theme_family: '',
+      theme_family: opts['theme-family'] || 'custom',
+      runtime_contract: opts['runtime-contract'] || 'unknown',
     },
     manifests: {
       routes: 'routes.json',
       sections: 'sections.json',
       assets: 'assets.json',
-      spark_divergence_ledger: 'spark-divergence-ledger.json',
+      platform_divergence_ledger: 'platform-divergence-ledger.json',
       viewport_coverage: 'viewport-coverage.json',
     },
     unresolved_questions: [],
@@ -292,7 +306,7 @@ function createPackage(opts) {
 
   writeJson(path.join(out, 'assets.json'), buildAssetsManifest(project, figma, fixture?.assets));
 
-  writeJson(path.join(out, 'spark-divergence-ledger.json'), fixture?.divergence || {
+  writeJson(path.join(out, divergenceFilename), fixture?.divergence || {
     schema_version: SCHEMA.divergence,
     entries: [
       {
@@ -300,8 +314,8 @@ function createPackage(opts) {
         surface: '',
         pages: [],
         figma_expectation: '',
-        spark_platform_behavior: '',
-        decision: 'spark-wins',
+        platform_behavior: '',
+        decision: 'platform-wins',
         implementation_guardrail: '',
         status: 'open',
         approved_by: '',
@@ -408,7 +422,6 @@ function validatePackage(dir, strict = true) {
     'routes.json',
     'sections.json',
     'assets.json',
-    'spark-divergence-ledger.json',
     'viewport-coverage.json',
     'validation-checklist.md',
   ];
@@ -417,28 +430,56 @@ function validatePackage(dir, strict = true) {
     if (!fs.existsSync(path.join(dir, file))) errors.push(`missing ${file}`);
   }
 
-  const handoff = readJson(path.join(dir, 'figma-handoff.json'), errors);
+  const rawHandoff = readJson(path.join(dir, 'figma-handoff.json'), errors);
+  const legacyV0 = rawHandoff?.schema_version === LEGACY_SCHEMA.handoff;
+  const divergenceFilename = legacyV0
+    ? 'spark-divergence-ledger.json'
+    : 'platform-divergence-ledger.json';
+  if (!fs.existsSync(path.join(dir, divergenceFilename))) errors.push(`missing ${divergenceFilename}`);
+
+  const rawDivergence = readJson(path.join(dir, divergenceFilename), errors);
+  if (legacyV0 && rawHandoff?.manifests?.spark_divergence_ledger !== divergenceFilename) {
+    errors.push(`figma-handoff.json: manifests.spark_divergence_ledger must be "${divergenceFilename}" for v0`);
+  }
+  if (legacyV0 && rawDivergence?.schema_version !== LEGACY_SCHEMA.divergence) {
+    errors.push(`${divergenceFilename}: schema_version must be "${LEGACY_SCHEMA.divergence}" for v0`);
+  }
+  const { handoff, divergence } = legacyV0
+    ? normalizeLegacyV0(rawHandoff, rawDivergence)
+    : { handoff: rawHandoff, divergence: rawDivergence };
+  if (legacyV0) {
+    warnings.push(
+      'deprecated v0 handoff accepted; migrate to next-theme-figma/handoff/v1 and '
+      + 'platform-divergence-ledger.json using platform_divergence_ledger, '
+      + 'platform_behavior, platform-wins, and next-theme-figma/platform-divergence/v1',
+    );
+  }
+
   const routes = readJson(path.join(dir, 'routes.json'), errors);
   const sections = readJson(path.join(dir, 'sections.json'), errors);
   const assets = readJson(path.join(dir, 'assets.json'), errors);
-  const divergence = readJson(path.join(dir, 'spark-divergence-ledger.json'), errors);
   const coverage = readJson(path.join(dir, 'viewport-coverage.json'), errors);
 
   expectSchema(handoff, SCHEMA.handoff, 'figma-handoff.json', errors);
   expectSchema(routes, SCHEMA.routes, 'routes.json', errors);
   expectSchema(sections, SCHEMA.sections, 'sections.json', errors);
   expectSchema(assets, SCHEMA.assets, 'assets.json', errors);
-  expectSchema(divergence, SCHEMA.divergence, 'spark-divergence-ledger.json', errors);
+  expectSchema(divergence, SCHEMA.divergence, divergenceFilename, errors);
   expectSchema(coverage, SCHEMA.coverage, 'viewport-coverage.json', errors);
 
   if (handoff && !handoff.figma?.url && !handoff.figma?.file_key) {
     errors.push('figma-handoff.json: no Figma URL or file key recorded');
   }
+  if (handoff) validateThemeIdentity(handoff, errors);
+  if (handoff && !legacyV0
+      && handoff.manifests?.platform_divergence_ledger !== 'platform-divergence-ledger.json') {
+    errors.push('figma-handoff.json: manifests.platform_divergence_ledger must be "platform-divergence-ledger.json"');
+  }
 
   const routeEntries = expectArray(routes, 'routes', 'routes.json', errors);
   const sectionEntries = expectArray(sections, 'sections', 'sections.json', errors);
   const assetEntries = expectArray(assets, 'assets', 'assets.json', errors);
-  const divergenceEntries = expectArray(divergence, 'entries', 'spark-divergence-ledger.json', errors);
+  const divergenceEntries = expectArray(divergence, 'entries', divergenceFilename, errors);
   const viewportConfig = expectObject(coverage, 'viewports', 'viewport-coverage.json', errors);
   const coverageEntries = expectArray(coverage, 'coverage', 'viewport-coverage.json', errors);
 
@@ -531,13 +572,13 @@ function validatePackage(dir, strict = true) {
   }
 
   if (divergenceEntries) {
-    if (!divergenceEntries.length) issue(strict, errors, warnings, 'spark-divergence-ledger.json: no divergence entries recorded');
+    if (!divergenceEntries.length) issue(strict, errors, warnings, 'platform-divergence-ledger.json: no divergence entries recorded');
     for (const entry of divergenceEntries) {
       const id = entry.divergence_id || entry.surface || 'divergence';
       if (!entry.surface) issue(strict, errors, warnings, `${id}: missing surface`);
       if (!entry.pages || !entry.pages.length) issue(strict, errors, warnings, `${id}: missing pages`);
       if (!entry.figma_expectation) issue(strict, errors, warnings, `${id}: missing figma_expectation`);
-      if (!entry.spark_platform_behavior) issue(strict, errors, warnings, `${id}: missing spark_platform_behavior`);
+      if (!entry.platform_behavior) issue(strict, errors, warnings, `${id}: missing platform_behavior`);
       if (!entry.implementation_guardrail) issue(strict, errors, warnings, `${id}: missing implementation_guardrail`);
       if (!entry.decision) {
         errors.push(`${id}: missing decision`);
@@ -577,6 +618,55 @@ function validatePackage(dir, strict = true) {
     process.exit(1);
   }
   console.log(`[next-theme-figma] PASS (${strict ? 'strict' : 'non-strict'}) with ${warnings.length} warning(s)`);
+}
+
+function normalizeLegacyV0(handoff, divergence) {
+  const normalizedHandoff = handoff ? {
+    ...handoff,
+    schema_version: SCHEMA.handoff,
+    target: {
+      ...(handoff.target || {}),
+      theme_family: 'spark',
+      runtime_contract: 'web-components',
+    },
+    manifests: {
+      ...(handoff.manifests || {}),
+      platform_divergence_ledger: 'platform-divergence-ledger.json',
+    },
+  } : handoff;
+  const normalizedDivergence = divergence ? {
+    ...divergence,
+    schema_version: SCHEMA.divergence,
+    entries: Array.isArray(divergence.entries)
+      ? divergence.entries.map((entry) => ({
+        ...entry,
+        platform_behavior: entry.platform_behavior ?? entry.spark_platform_behavior,
+        decision: entry.decision === 'spark-wins' ? 'platform-wins' : entry.decision,
+      }))
+      : divergence.entries,
+  } : divergence;
+  return { handoff: normalizedHandoff, divergence: normalizedDivergence };
+}
+
+function validateThemeIdentity(handoff, errors) {
+  const family = handoff.target?.theme_family;
+  const runtime = handoff.target?.runtime_contract;
+  if (!THEME_FAMILIES.has(family)) {
+    errors.push(`figma-handoff.json: target.theme_family must be one of ${Array.from(THEME_FAMILIES).join(', ')}`);
+  }
+  if (!RUNTIME_CONTRACTS.has(runtime)) {
+    errors.push(`figma-handoff.json: target.runtime_contract must be one of ${Array.from(RUNTIME_CONTRACTS).join(', ')}`);
+  }
+  const expectedRuntime = {
+    spark: 'web-components',
+    'intro-bootstrap': 'jquery-core-js',
+  }[family];
+  if (expectedRuntime && runtime && runtime !== expectedRuntime) {
+    errors.push(
+      `figma-handoff.json: target.theme_family "${family}" contradicts `
+      + `target.runtime_contract "${runtime}"; expected "${expectedRuntime}"`,
+    );
+  }
 }
 
 function issue(strict, errors, warnings, message) {
@@ -640,8 +730,8 @@ function checklistTemplate(project) {
 - [ ] Screenshot fallbacks have explicit approval or are removed.
 - [ ] Assets use source node IDs and img/bg/img-group prefixes.
 - [ ] Product media replacement decisions are recorded.
-- [ ] Spark divergence ledger covers PDP/cart/header/app surfaces.
-- [ ] Visual mismatches are marked fix-now, spark-divergence, designer-input-needed, or accepted-gap.
+- [ ] Platform divergence ledger covers PDP/cart/header/app surfaces.
+- [ ] Visual mismatches are marked fix-now, platform-divergence, designer-input-needed, or accepted-gap.
 - [ ] Package validates with theme-figma.js validate-package.
 - [ ] Handoff notes tell next-theme-dev where to start.
 `;

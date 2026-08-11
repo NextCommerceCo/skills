@@ -6,9 +6,9 @@ Use this whenever the Figma design touches live commerce behavior. Spark/platfor
 
 Do not implement Figma literally where it would break storefront behavior. Record the intended divergence, the Spark/platform owner, and the implementation guardrail.
 
-Allowed divergence statuses:
+Allowed divergence decisions:
 
-- `spark-wins`: keep Spark/platform behavior and adapt visual styling around it.
+- `platform-wins`: keep Spark/platform behavior and adapt visual styling around it.
 - `figma-wins-with-guardrails`: implement the design while preserving required Spark contracts.
 - `needs-approval`: user/designer must choose.
 - `blocked`: missing source, product data, app config, or platform capability.
@@ -94,7 +94,7 @@ Product cards often need:
 - Backend product images rather than exported Figma screenshots.
 - Theme settings or dashboard collections/products.
 
-Classify product card sections as `live-spark-component` unless they are explicitly editorial/static cards.
+Classify product card sections as `live-commerce-component` unless they are explicitly editorial/static cards.
 
 ## Common Ledger Entries
 
@@ -105,7 +105,7 @@ Use entries like:
   "surface": "PDP variant picker",
   "pages": ["/products/example"],
   "figma_expectation": "Large color swatch pills with marketing labels",
-  "spark_platform_behavior": "Variant controls must submit attr_<code> values from variant_form",
+  "platform_behavior": "Variant controls must submit attr_<code> values from variant_form",
   "decision": "figma-wins-with-guardrails",
   "implementation_guardrail": "Style labels around real radio inputs; do not rename input names",
   "status": "open"

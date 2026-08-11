@@ -92,17 +92,17 @@ If Figma uses product images that should ultimately come from backend product me
 
 - Mark `replace_with_backend_product_media: true`.
 - Record the Figma media as a visual reference, not the final storefront source.
-- Keep Spark product image aspect-ratio behavior unless the implementation explicitly changes the component safely.
+- Keep the target theme's product image aspect-ratio behavior unless the implementation explicitly changes the component safely.
 
 ## Badge Doubling
 
 Audit promotional labels in three places:
 
 - Pixels baked into product art.
-- Spark-rendered sale badges, price blocks, or product cards.
+- Theme-rendered sale badges, price blocks, or product cards.
 - Dashboard product compare-at/sale state.
 
-Only one layer should communicate the same sale/discount in a given placement. If the image includes a badge but Spark should own live sale state, request clean product art or record a divergence.
+Only one layer should communicate the same sale/discount in a given placement. If the image includes a badge but the platform should own live sale state, request clean product art or record a divergence.
 
 ## Naming
 

@@ -58,7 +58,15 @@ class AssetContractTest(unittest.TestCase):
         ], text=True, capture_output=True)
 
     def test_committed_fixtures_use_canonical_asset_schema(self):
-        for name in ("complete-package.json", "placeholder-package.json"):
+        for name in (
+            "spark-v1-package.json",
+            "intro-v1-package.json",
+            "custom-v1-package.json",
+            "complete-package.json",
+            "legacy-v0-package.json",
+            "contradiction-package.json",
+            "placeholder-package.json",
+        ):
             with self.subTest(name=name):
                 fixture = self.load_fixture(name)
                 self.assertEqual(fixture["assets"]["schema_version"], "next-theme-figma/assets/v0")
@@ -155,7 +163,7 @@ class AssetContractTest(unittest.TestCase):
             asset.parent.mkdir(parents=True)
             asset.write_text('<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600"><rect width="1200" height="600" fill="#ddd"/></svg>\n', encoding="utf-8")
 
-            generator_input = self.load_fixture("complete-package.json")
+            generator_input = self.load_fixture("spark-v1-package.json")
             generator_input["assets"]["assets"] = [{
                 "asset_id": "hero-background",
                 "section_id": "hero-1",
@@ -183,6 +191,26 @@ class AssetContractTest(unittest.TestCase):
             self.assertEqual(generated_assets["assets"][0]["format"], "svg")
             self.assertNotIn("requires_alpha", generated_assets["assets"][0])
             self.assertIs(generated_assets["assets"][0]["clean_export_verified"], False)
+
+            generated_handoff = json.loads((package / "figma-handoff.json").read_text(encoding="utf-8"))
+            self.assertEqual(generated_handoff["schema_version"], "next-theme-figma/handoff/v1")
+            self.assertEqual(generated_handoff["target"]["theme_family"], "spark")
+            self.assertEqual(generated_handoff["target"]["runtime_contract"], "web-components")
+            self.assertEqual(
+                generated_handoff["manifests"]["platform_divergence_ledger"],
+                "platform-divergence-ledger.json",
+            )
+            self.assertTrue((package / "platform-divergence-ledger.json").exists())
+            self.assertFalse((package / "spark-divergence-ledger.json").exists())
+            generated_divergence = json.loads(
+                (package / "platform-divergence-ledger.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                generated_divergence["schema_version"],
+                "next-theme-figma/platform-divergence/v1",
+            )
+            self.assertEqual(generated_divergence["entries"][0]["decision"], "platform-wins")
+            self.assertIn("platform_behavior", generated_divergence["entries"][0])
 
             own = subprocess.run(["node", str(GENERATOR), "validate-package", str(package)], text=True, capture_output=True)
             self.assertEqual(own.returncode, 0, own.stderr + own.stdout)
@@ -219,7 +247,7 @@ class AssetContractTest(unittest.TestCase):
             package = Path(temp) / "handoff"
             command = [
                 "node", str(GENERATOR), "new-package", "--out", str(package),
-                "--project", "example-store", "--fixture", str(FIXTURES / "complete-package.json"),
+                "--project", "example-store", "--fixture", str(FIXTURES / "spark-v1-package.json"),
             ]
             first = subprocess.run(command, text=True, capture_output=True)
             self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
@@ -228,6 +256,91 @@ class AssetContractTest(unittest.TestCase):
             self.assertIn("refusing to overwrite", refused.stderr)
             forced = subprocess.run(command + ["--force"], text=True, capture_output=True)
             self.assertEqual(forced.returncode, 0, forced.stderr + forced.stdout)
+
+    @unittest.skipUnless(shutil.which("node"), "node is required for generator contract execution")
+    def test_default_generator_emits_v1(self):
+        with tempfile.TemporaryDirectory() as temp:
+            package = Path(temp) / "handoff"
+            result = subprocess.run([
+                "node", str(GENERATOR), "new-package", "--out", str(package),
+                "--project", "example-store",
+                "--figma-url", "https://www.figma.com/design/example-key/example",
+                "--theme-family", "intro-bootstrap",
+                "--runtime-contract", "jquery-core-js",
+            ], text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            handoff = json.loads((package / "figma-handoff.json").read_text(encoding="utf-8"))
+            divergence = json.loads(
+                (package / "platform-divergence-ledger.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(handoff["schema_version"], "next-theme-figma/handoff/v1")
+            self.assertEqual(handoff["target"]["theme_family"], "intro-bootstrap")
+            self.assertEqual(handoff["target"]["runtime_contract"], "jquery-core-js")
+            self.assertIn("platform_divergence_ledger", handoff["manifests"])
+            self.assertEqual(
+                divergence["schema_version"],
+                "next-theme-figma/platform-divergence/v1",
+            )
+            self.assertIn("platform_behavior", divergence["entries"][0])
+            self.assertEqual(divergence["entries"][0]["decision"], "platform-wins")
+
+    @unittest.skipUnless(shutil.which("node"), "node is required for schema validation")
+    def test_family_fixture_validation_matrix(self):
+        expected = {
+            "spark-v1-package.json": (0, "PASS (strict)"),
+            "intro-v1-package.json": (0, "PASS (strict)"),
+            "custom-v1-package.json": (0, "PASS (strict)"),
+        }
+        for fixture_name, (returncode, marker) in expected.items():
+            with self.subTest(fixture=fixture_name), tempfile.TemporaryDirectory() as temp:
+                package = Path(temp) / "handoff"
+                generated = subprocess.run([
+                    "node", str(GENERATOR), "new-package", "--out", str(package),
+                    "--project", "example-store", "--fixture", str(FIXTURES / fixture_name),
+                ], text=True, capture_output=True)
+                self.assertEqual(generated.returncode, 0, generated.stderr + generated.stdout)
+                result = subprocess.run([
+                    "node", str(GENERATOR), "validate-package", str(package),
+                ], text=True, capture_output=True)
+                self.assertEqual(result.returncode, returncode, result.stderr + result.stdout)
+                self.assertIn(marker, result.stdout)
+
+    @unittest.skipUnless(shutil.which("node"), "node is required for schema validation")
+    def test_v0_warning(self):
+        for mode in ([], ["--non-strict"]):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temp:
+                package = Path(temp) / "handoff"
+                generated = subprocess.run([
+                    "node", str(GENERATOR), "new-package", "--out", str(package),
+                    "--project", "example-store", "--fixture",
+                    str(FIXTURES / "legacy-v0-package.json"),
+                ], text=True, capture_output=True)
+                self.assertEqual(generated.returncode, 0, generated.stderr + generated.stdout)
+                result = subprocess.run([
+                    "node", str(GENERATOR), "validate-package", str(package), *mode,
+                ], text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                self.assertIn("Warning: deprecated v0 handoff accepted", result.stdout)
+                self.assertIn("platform-divergence-ledger.json", result.stdout)
+                self.assertNotIn("Error:", result.stdout)
+
+    @unittest.skipUnless(shutil.which("node"), "node is required for schema validation")
+    def test_identity_contradiction_is_hard_in_both_modes(self):
+        for mode in ([], ["--non-strict"]):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temp:
+                package = Path(temp) / "handoff"
+                generated = subprocess.run([
+                    "node", str(GENERATOR), "new-package", "--out", str(package),
+                    "--project", "example-store", "--fixture",
+                    str(FIXTURES / "contradiction-package.json"),
+                ], text=True, capture_output=True)
+                self.assertEqual(generated.returncode, 0, generated.stderr + generated.stdout)
+                result = subprocess.run([
+                    "node", str(GENERATOR), "validate-package", str(package), *mode,
+                ], text=True, capture_output=True)
+                self.assertNotEqual(result.returncode, 0, result.stderr + result.stdout)
+                self.assertIn("theme_family", result.stdout)
+                self.assertIn("runtime_contract", result.stdout)
 
 
 if __name__ == "__main__":
