@@ -47,6 +47,23 @@ class FamilyParityTest(unittest.TestCase):
         self.assertIn("ZIP upload and\ndashboard install", greenfield)
         self.assertIn("Do not invent or recommend an upstream git URL", greenfield)
 
+    def test_shared_preflight_uses_family_specific_theme_id_sources(self):
+        greenfield = _h2(self.markdown, "From an Empty Store (Greenfield Path)")
+        preflight = re.search(
+            r"^### 5\. Preflight With `ntk list`\n(.*?)(?=^### |\Z)",
+            greenfield,
+            re.MULTILINE | re.DOTALL,
+        )
+        self.assertIsNotNone(preflight)
+        preflight = preflight.group(1)
+
+        self.assertIn("For Spark, use the\n   ID written by `ntk init`", preflight)
+        self.assertIn(
+            "For Intro Bootstrap and dashboard-installed custom\n"
+            "   themes, use the ID written by `ntk checkout`",
+            preflight,
+        )
+
     def test_handoff_identity_is_the_recorded_family_identification(self):
         architecture = _h2(self.markdown, "Architecture")
         family_section = re.search(

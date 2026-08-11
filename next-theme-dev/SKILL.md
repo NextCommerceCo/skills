@@ -289,7 +289,10 @@ theme. Never push until both values match.
 
 Then use the `ntk list` output to confirm both conditions:
 
-1. The new `theme_id` written by `ntk init` appears in the theme list.
+1. The intended new `theme_id` appears in the theme list. For Spark, use the
+   ID written by `ntk init`. For Intro Bootstrap and dashboard-installed custom
+   themes, use the ID written by `ntk checkout` after selecting the installed
+   theme.
 2. The theme marked `(Active)` is not the new theme.
 
 Read the human-readable list and confirm the new theme appears before
