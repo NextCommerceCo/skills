@@ -1,6 +1,6 @@
 ---
 name: next-theme-figma
-version: 0.4.0
+version: 0.4.1
 description: |
   Prepare Figma storefront designs for NEXT Commerce theme
   implementation handoff. Use when auditing, inspecting, extracting assets
@@ -59,16 +59,26 @@ Run this before interpreting incomplete Figma results:
 1. If metadata for a large frame is unexpectedly empty or contains the frame
    without its expected children, treat it as truncation/tool failure, not as
    an empty design. Record the node ID, dimensions, and failed operation.
-2. Fall back in this order: targeted section node URLs; a full-frame render
-   saved once and sliced locally using recorded geometry; an authorized local
-   `.fig` archive. A `.fig` archive can contain original assets such as videos,
-   but do not inspect a local archive without the operator's authorization.
-3. Export exact asset nodes in bounded batches. Do not export a parent frame
-   dominated by repeated component instances, because repeated stars/icons can
-   exhaust export caps and crowd out the intended assets.
+2. Treat Figma tool calls as a budgeted resource: session rate limits and
+   per-request asset caps are real. Reuse saved node data and renders instead
+   of spending calls on the same source repeatedly.
+3. Use this ordered export fallback ladder:
+   1. Prefer exporting the smallest useful parent section or frame over many
+      leaf-node calls when it preserves the intended composition.
+   2. Export distinct production asset nodes in bounded batches. Avoid a broad
+      parent dominated by repeated component instances, where repeated icons
+      can exhaust caps and crowd out the intended assets.
+   3. If per-node export floods the cap for a composed icon, recover that
+      composition through an available Figma plugin-API export.
+   4. Use an operator-authorized local `.fig` archive when tool exports cannot
+      recover original assets. An archive can contain sources such as videos;
+      never inspect one without authorization.
+   5. As the last rung, save one full-page render and crop section imagery
+      locally using recorded geometry. Record that the crop came from a render.
 4. Retry selection synchronization at most three times. If it keeps returning
-   the top-level frame or wrong node, stop retrying and switch to node URLs,
-   render slicing, or the authorized archive.
+   the top-level frame or wrong node, stop retrying and switch to targeted section node URLs,
+   the full-frame render slicing last rung, or the
+   authorized `.fig` archive.
 5. Before implementation handoff, prove that both a Figma reference PNG and a
    storefront preview PNG can be captured at matching widths. Follow the
    screenshot fallback ladder in `references/developer-workflow.md`; reuse an

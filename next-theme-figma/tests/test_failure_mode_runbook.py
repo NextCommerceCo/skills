@@ -32,7 +32,20 @@ class FailureModeRunbookTest(unittest.TestCase):
             self.assertIn(fallback, self.markdown)
 
     def test_export_and_selection_retries_are_bounded(self):
-        self.assertIn("Export exact asset nodes in bounded batches", self.markdown)
+        self.assertIn("Treat Figma tool calls as a budgeted resource", self.markdown)
+        self.assertIn(
+            "session rate limits and\n   per-request asset caps are real",
+            self.markdown,
+        )
+        ladder = [
+            "parent section or frame",
+            "production asset nodes in bounded batches",
+            "plugin-API export",
+            "operator-authorized local `.fig` archive",
+            "last rung, save one full-page render",
+        ]
+        positions = [self.markdown.index(rung) for rung in ladder]
+        self.assertEqual(positions, sorted(positions))
         self.assertIn("Retry selection synchronization at most three times", self.markdown)
 
     def test_screenshot_preflight_is_a_hard_visual_qa_gate(self):

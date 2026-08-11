@@ -43,6 +43,24 @@ class ThemeToolingReportGuidanceTest(unittest.TestCase):
         self.assertNotIn("X-Theme-Template-Candidates", recipe)
         self.assertNotIn("X-Theme-Template", recipe)
 
+    def test_staged_rollout_is_labeled_observed_and_uses_marker_detection(self):
+        recipe = re.search(
+            r"^### Add a Custom Product Template\n(.*?)(?=^### |\Z)",
+            self.markdown,
+            re.MULTILINE | re.DOTALL,
+        )
+        self.assertIsNotNone(recipe)
+        recipe = recipe.group(1)
+
+        self.assertIn("Observed staged-rollout pattern", recipe)
+        self.assertIn(
+            "missing template ⇒ default template (observed; "
+            "not platform-documented — verify on the target store before relying on it)",
+            recipe,
+        )
+        self.assertIn("no product-field change is needed at cutover", recipe)
+        self.assertIn("DOM marker", recipe)
+
     def test_cache_guidance_uses_network_domain_as_canonical_verification(self):
         self.assertIn(
             "Always develop, preview, debug, and verify on the `.29next.store` "
@@ -63,6 +81,52 @@ class ThemeToolingReportGuidanceTest(unittest.TestCase):
         combined = self.markdown + "\n" + self.active_publish
         self.assertNotIn("skip_cache", combined)
         self.assertNotIn("X-Theme-", combined)
+
+    def test_cache_turnover_requires_repeated_cookie_less_marker_checks(self):
+        for required in (
+            "Page-cache turnover is per-edge and non-atomic",
+            "Sample repeatedly; never judge cache turnover from one fetch",
+            "cookie-less requests against the `.29next.store` network domain",
+            "exact template-specific DOM marker",
+            "supplement these screenshots; they do not replace them",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, self.markdown)
+
+    def test_crlf_gotcha_and_minified_html_counting_are_explicit(self):
+        self.assertRegex(
+            self.markdown,
+            r"\| \*\*Shared\*\* \| \*\*CRLF line endings\*\* \|.*"
+            r"detect line endings first and preserve or normalize them deliberately",
+        )
+        self.assertIn("`grep -c` counts lines, not\n   occurrences", self.markdown)
+        self.assertIn(
+            "grep -o 'data-template=\"product.<template-key>\"' served.html | wc -l",
+            self.markdown,
+        )
+
+    def test_typography_preflight_resolves_effective_stack_before_styling(self):
+        preflight = re.search(
+            r"^### Step 1\.75: Effective Typography Preflight\n"
+            r"(.*?)(?=^### |\Z)",
+            self.markdown,
+            re.MULTILINE | re.DOTALL,
+        )
+        self.assertIsNotNone(preflight)
+        preflight = preflight.group(1)
+
+        for required in (
+            "Before styling any custom template",
+            "current theme settings first",
+            "then the derived rules in the base layout",
+            "store-derived base may hardcode families",
+            "Custom templates inherit this effective stack",
+            "do not redeclare fonts per node",
+            "references/intro-preservation-contract.md",
+            "`Typography Inheritance`",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, preflight)
 
     def test_theme_family_attribution_and_runtime_contracts_are_explicit(self):
         for required in (
