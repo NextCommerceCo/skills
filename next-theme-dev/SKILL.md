@@ -492,7 +492,7 @@ These will silently break things if ignored:
 
 ### Full-Page Caching: The Server vs. Client Boundary
 
-This is the most important architectural constraint in Next Commerce themes. All storefront pages are **fully cached for 5 minutes** on mapped domains. The cache is keyed by URL + language + currency combination — so each locale variant (EN+USD, FR+EUR, etc.) has its own cached page, and all visitors with that same locale see the same cached HTML.
+This is the most important architectural constraint in Next Commerce themes. All storefront pages are **fully cached for 5 minutes** on mapped domains. The `.29next.store` network domain bypasses that mapped-domain edge cache layer; it does not bypass the page cache itself. After a push, page-cache turnover remains per-edge and non-atomic on any domain. The cache is keyed by URL + language + currency combination — so each locale variant (EN+USD, FR+EUR, etc.) has its own cached page, and all visitors with that same locale see the same cached HTML.
 
 This means product pricing is safe in templates (it varies by currency, and the cache handles that). But per-user data — cart, authentication, wishlists — is unique to each individual and fundamentally incompatible with page caching.
 
@@ -610,7 +610,7 @@ Spark does not use jQuery or `{% core_js %}`. It uses `assets/js/spark-platform.
 ### CDN Caching
 
 CloudFront aggressively caches assets and full pages (5 min on mapped domains):
-- **Always develop, preview, debug, and verify on the `.29next.store` network domain** — it bypasses mapped-domain full-page caching
+- **Always develop, preview, debug, and verify on the `.29next.store` network domain** — it bypasses the roughly five-minute mapped-domain edge cache layer, not the page cache itself
 - Do not use a mapped public storefront domain to decide whether a change landed
 - Check the public domain only after network-domain verification, as a final customer-path smoke test
 - Do not require undocumented query parameters or response headers as proof of deployment
@@ -708,6 +708,19 @@ Accept any of: Figma link, screenshot, PDF, or verbal description. Extract:
 
 Identify the theme family before implementation. Spark designs should map to Tailwind tokens, Web Components, homepage section partials, and app hooks. Intro Bootstrap designs should map to Bootstrap/SCSS and the existing jQuery/platform side cart where present. If a `DESIGN.md` exists in the project, it is the **source of truth** for all visual decisions. Read it before making UI choices. In `implementation-handoff` mode, the handoff package is the design source of record and `DESIGN.md` governs house style where the package is silent; surface direct conflicts to the operator per the Implementation-Handoff Entry Contract.
 
+### Step 1.25: Effective Typography Preflight
+
+Before styling any custom template, resolve the store's effective font stack in
+this order: current theme settings first, including font or typography controls
+supported by the identified family, then the derived rules in the base layout
+and compiled styles. A store-derived base may hardcode families that its
+upstream starter does not, so inspect the installed code and state rather than
+assuming upstream defaults. Custom templates inherit this effective stack
+unless they explicitly declare otherwise. Prefer settings-driven tokens, and
+do not redeclare fonts per node to paper over drift. For the Intro Bootstrap
+adapter, follow `references/intro-preservation-contract.md` section
+`Typography Inheritance` rather than duplicating that family contract here.
+
 ### Step 1.5: Figma Fidelity Loop
 
 When a Figma source is provided, treat the Figma file as a visual spec, not merely an asset bucket. Run this loop proactively so visual deltas are found, fixed, or documented before handoff.
@@ -729,19 +742,6 @@ its matching screenshots.
 If the task covers several pages, walk one page or section group at a time. It is acceptable to use subagents for independent section audits, but give them raw Figma/build screenshots or URLs and ask for deltas, not implementation conclusions.
 
 **Hard stop:** Do not ship a page made mostly of full-section screenshots as a shortcut unless the user explicitly asks for a static visual prototype. A photocopy can be useful for diagnosis, but production storefronts should preserve text, links, controls, SEO, accessibility, live product data, and responsive behavior.
-
-### Step 1.75: Effective Typography Preflight
-
-Before styling any custom template, resolve the store's effective font stack in
-this order: current theme settings first, including font or typography controls
-supported by the identified family, then the derived rules in the base layout
-and compiled styles. A store-derived base may hardcode families that its
-upstream starter does not, so inspect the installed code and state rather than
-assuming upstream defaults. Custom templates inherit this effective stack
-unless they explicitly declare otherwise. Prefer settings-driven tokens, and
-do not redeclare fonts per node to paper over drift. For the Intro Bootstrap
-adapter, follow `references/intro-preservation-contract.md` section
-`Typography Inheritance` rather than duplicating that family contract here.
 
 ### Step 2: Asset Preparation
 
@@ -1598,7 +1598,7 @@ Template errors show as 500 pages on the storefront. Common causes:
 - Missing `{% load %}` tags for custom template tag libraries
 - Using `{% url 'name' %}` with wrong URL name — check the URLs reference
 
-To debug: check the store's `.29next.store` domain (bypasses caching), look at the browser's network tab for 500 responses, and read the error message in the response body.
+To debug: check the store's `.29next.store` domain (it bypasses the mapped-domain edge cache layer, not the page cache itself), look at the browser's network tab for 500 responses, and read the error message in the response body.
 
 ### GraphQL Issues
 
@@ -1608,7 +1608,7 @@ To debug: check the store's `.29next.store` domain (bypasses caching), look at t
 ### Cache Issues
 
 If changes aren't appearing:
-1. Page-cache turnover is per-edge and non-atomic. After a push, consecutive
+1. Page-cache turnover is per-edge and non-atomic on any domain. After a push, consecutive
    fetches of the same URL can alternate between old and new responses for
    minutes. Sample repeatedly; never judge cache turnover from one fetch.
 2. Make cookie-less requests against the `.29next.store` network domain so a
