@@ -16,7 +16,7 @@
   },
   "sections": {
     "schema_version": "next-theme-figma/sections/v0",
-    "sections": [{"section_id": "hero-1", "route_id": "home", "order": 1, "figma_names": {"desktop": "hero1-desktop", "tablet": "", "mobile": "hero1-mobile"}, "figma_nodes": {"desktop": "20:1", "tablet": "", "mobile": "20:2"}, "classification": "background-asset", "classification_rationale": "Live copy overlays an exported background.", "implementation_target": {"template": "partials/home/hero.html", "partials": [], "assets": ["hero-background"], "settings": []}, "commerce_surface": "", "asset_ids": ["hero-background"], "divergence_ids": ["header-state"], "responsive_notes": "Use the mobile crop below 768px.", "behavior_notes": "Keep heading and CTA live.", "unresolved_gaps": [], "screenshot_fallback_approved": false}]
+    "sections": [{"section_id": "hero-1", "route_id": "home", "order": 1, "figma_names": {"desktop": "hero1-desktop", "tablet": "", "mobile": "hero1-mobile"}, "figma_nodes": {"desktop": "20:1", "tablet": "", "mobile": "20:2"}, "classification": "live-spark-component", "classification_rationale": "Preserve the legacy live commerce implementation.", "implementation_target": {"template": "partials/home/hero.html", "partials": [], "assets": ["hero-background"], "settings": []}, "commerce_surface": "add-to-cart", "asset_ids": ["hero-background"], "divergence_ids": ["header-state"], "responsive_notes": "Use the mobile crop below 768px.", "behavior_notes": "Keep heading and CTA live.", "unresolved_gaps": [], "screenshot_fallback_approved": false}]
   },
   "assets": {
     "schema_version": "next-theme-figma/assets/v0",

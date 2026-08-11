@@ -26,6 +26,27 @@ class AssetContractTest(unittest.TestCase):
     def load_fixture(self, name):
         return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
 
+    def materialize_fixture(self, package, fixture):
+        package.mkdir(parents=True)
+        divergence_filename = (
+            "spark-divergence-ledger.json"
+            if fixture["handoff"]["schema_version"] == "next-theme-figma/handoff/v0"
+            else "platform-divergence-ledger.json"
+        )
+        files = {
+            "figma-handoff.json": fixture["handoff"],
+            "routes.json": fixture["routes"],
+            "sections.json": fixture["sections"],
+            "assets.json": fixture["assets"],
+            divergence_filename: fixture["divergence"],
+            "viewport-coverage.json": fixture["coverage"],
+        }
+        for filename, body in files.items():
+            (package / filename).write_text(json.dumps(body), encoding="utf-8")
+        (package / "validation-checklist.md").write_text(
+            "# Validation checklist\n", encoding="utf-8"
+        )
+
     def run_downstream_asset(self, temp, filename, declared_format, *, requires_alpha=None,
                              contents=None, alt="Example icon"):
         theme = temp / "theme"
@@ -60,8 +81,8 @@ class AssetContractTest(unittest.TestCase):
     def test_committed_fixtures_use_canonical_asset_schema(self):
         for name in (
             "spark-v1-package.json",
-            "intro-v1-package.json",
-            "custom-v1-package.json",
+            "intro-vone-package.json",
+            "custom-vone-package.json",
             "complete-package.json",
             "legacy-v0-package.json",
             "contradiction-package.json",
@@ -288,8 +309,8 @@ class AssetContractTest(unittest.TestCase):
     def test_family_fixture_validation_matrix(self):
         expected = {
             "spark-v1-package.json": (0, "PASS (strict)"),
-            "intro-v1-package.json": (0, "PASS (strict)"),
-            "custom-v1-package.json": (0, "PASS (strict)"),
+            "intro-vone-package.json": (0, "PASS (strict)"),
+            "custom-vone-package.json": (0, "PASS (strict)"),
         }
         for fixture_name, (returncode, marker) in expected.items():
             with self.subTest(fixture=fixture_name), tempfile.TemporaryDirectory() as temp:
@@ -306,22 +327,78 @@ class AssetContractTest(unittest.TestCase):
                 self.assertIn(marker, result.stdout)
 
     @unittest.skipUnless(shutil.which("node"), "node is required for schema validation")
-    def test_v0_warning(self):
+    def test_legacy_warning(self):
         for mode in ([], ["--non-strict"]):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temp:
                 package = Path(temp) / "handoff"
-                generated = subprocess.run([
-                    "node", str(GENERATOR), "new-package", "--out", str(package),
-                    "--project", "example-store", "--fixture",
-                    str(FIXTURES / "legacy-v0-package.json"),
-                ], text=True, capture_output=True)
-                self.assertEqual(generated.returncode, 0, generated.stderr + generated.stdout)
+                fixture = self.load_fixture("legacy-v0-package.json")
+                self.assertEqual(fixture["handoff"]["target"]["theme_family"], "Spark")
+                self.assertEqual(
+                    fixture["sections"]["sections"][0]["classification"],
+                    "live-spark-component",
+                )
+                self.materialize_fixture(package, fixture)
                 result = subprocess.run([
                     "node", str(GENERATOR), "validate-package", str(package), *mode,
                 ], text=True, capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
                 self.assertIn("Warning: deprecated v0 handoff accepted", result.stdout)
                 self.assertIn("platform-divergence-ledger.json", result.stdout)
+                self.assertNotIn("Error:", result.stdout)
+
+    @unittest.skipUnless(shutil.which("node"), "node is required for schema validation")
+    def test_new_package_refuses_legacy_fixture(self):
+        with tempfile.TemporaryDirectory() as temp:
+            package = Path(temp) / "handoff"
+            result = subprocess.run([
+                "node", str(GENERATOR), "new-package", "--out", str(package),
+                "--project", "example-store", "--fixture",
+                str(FIXTURES / "legacy-v0-package.json"),
+            ], text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertIn("new-package refuses legacy", result.stderr)
+            self.assertIn("next-theme-figma/handoff/v1", result.stderr)
+            self.assertFalse(package.exists())
+
+    @unittest.skipUnless(shutil.which("node"), "node is required for schema validation")
+    def test_legacy_foreign_identity_is_hard_in_both_modes(self):
+        cases = (
+            (
+                {"theme_family": "intro-bootstrap", "runtime_contract": "web-components"},
+                "theme_family",
+                "intro-bootstrap",
+            ),
+            ({"runtime_contract": "jquery-core-js"}, "runtime_contract", "jquery-core-js"),
+        )
+        for identity, field, value in cases:
+            for mode in ([], ["--non-strict"]):
+                with self.subTest(field=field, mode=mode), tempfile.TemporaryDirectory() as temp:
+                    fixture = self.load_fixture("legacy-v0-package.json")
+                    fixture["handoff"]["target"].update(identity)
+                    package = Path(temp) / "handoff"
+                    self.materialize_fixture(package, fixture)
+                    result = subprocess.run([
+                        "node", str(GENERATOR), "validate-package", str(package), *mode,
+                    ], text=True, capture_output=True)
+                    self.assertNotEqual(result.returncode, 0, result.stderr + result.stdout)
+                    self.assertIn(field, result.stdout)
+                    self.assertIn(value, result.stdout)
+                    self.assertIn("v0 packages are Spark-only", result.stdout)
+                    self.assertIn("next-theme-figma/handoff/v1", result.stdout)
+
+    @unittest.skipUnless(shutil.which("node"), "node is required for schema validation")
+    def test_legacy_missing_family_is_accepted(self):
+        for mode in ([], ["--non-strict"]):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temp:
+                fixture = self.load_fixture("legacy-v0-package.json")
+                fixture["handoff"]["target"].pop("theme_family")
+                package = Path(temp) / "handoff"
+                self.materialize_fixture(package, fixture)
+                result = subprocess.run([
+                    "node", str(GENERATOR), "validate-package", str(package), *mode,
+                ], text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                self.assertIn("Warning: deprecated v0 handoff accepted", result.stdout)
                 self.assertNotIn("Error:", result.stdout)
 
     @unittest.skipUnless(shutil.which("node"), "node is required for schema validation")

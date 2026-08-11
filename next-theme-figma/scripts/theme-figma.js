@@ -205,10 +205,13 @@ function createPackage(opts) {
   }
 
   const fixture = opts.fixture ? readFixture(path.resolve(String(opts.fixture))) : null;
-  const fixtureUsesLegacyV0 = fixture?.handoff?.schema_version === LEGACY_SCHEMA.handoff;
-  const divergenceFilename = fixtureUsesLegacyV0
-    ? 'spark-divergence-ledger.json'
-    : 'platform-divergence-ledger.json';
+  if (fixture?.handoff?.schema_version === LEGACY_SCHEMA.handoff) {
+    throw new Error(
+      `new-package refuses legacy ${LEGACY_SCHEMA.handoff} fixtures; migrate the fixture to `
+      + `${SCHEMA.handoff} with platform-divergence-ledger.json before generating`,
+    );
+  }
+  const divergenceFilename = 'platform-divergence-ledger.json';
   const figmaUrl = opts['figma-url'] || fixture?.handoff?.figma?.url || '';
   const figma = figmaUrl ? parseFigmaInput(figmaUrl) : {};
   const generatedAt = new Date().toISOString();
@@ -444,6 +447,7 @@ function validatePackage(dir, strict = true) {
   if (legacyV0 && rawDivergence?.schema_version !== LEGACY_SCHEMA.divergence) {
     errors.push(`${divergenceFilename}: schema_version must be "${LEGACY_SCHEMA.divergence}" for v0`);
   }
+  if (legacyV0) validateLegacyV0Identity(rawHandoff, errors);
   const { handoff, divergence } = legacyV0
     ? normalizeLegacyV0(rawHandoff, rawDivergence)
     : { handoff: rawHandoff, divergence: rawDivergence };
@@ -456,7 +460,8 @@ function validatePackage(dir, strict = true) {
   }
 
   const routes = readJson(path.join(dir, 'routes.json'), errors);
-  const sections = readJson(path.join(dir, 'sections.json'), errors);
+  const rawSections = readJson(path.join(dir, 'sections.json'), errors);
+  const sections = legacyV0 ? normalizeLegacyV0Sections(rawSections) : rawSections;
   const assets = readJson(path.join(dir, 'assets.json'), errors);
   const coverage = readJson(path.join(dir, 'viewport-coverage.json'), errors);
 
@@ -646,6 +651,45 @@ function normalizeLegacyV0(handoff, divergence) {
       : divergence.entries,
   } : divergence;
   return { handoff: normalizedHandoff, divergence: normalizedDivergence };
+}
+
+function normalizeLegacyV0Sections(sections) {
+  if (!sections || !Array.isArray(sections.sections)) return sections;
+  return {
+    ...sections,
+    sections: sections.sections.map((section) => ({
+      ...section,
+      classification: section.classification === 'live-spark-component'
+        ? 'live-commerce-component'
+        : section.classification,
+    })),
+  };
+}
+
+function validateLegacyV0Identity(handoff, errors) {
+  const family = handoff?.target?.theme_family;
+  const runtime = handoff?.target?.runtime_contract;
+  const familyIsSpark = typeof family === 'string' && family.trim().toLowerCase() === 'spark';
+  const runtimeIsWebComponents = typeof runtime === 'string'
+    && runtime.trim() === 'web-components';
+
+  if (!isMissingOrEmpty(family) && !familyIsSpark) {
+    errors.push(
+      `figma-handoff.json: legacy v0 target.theme_family ${JSON.stringify(family)} is invalid; `
+      + `v0 packages are Spark-only; migrate to ${SCHEMA.handoff} to declare another family`,
+    );
+  }
+  if (!isMissingOrEmpty(runtime) && !runtimeIsWebComponents) {
+    errors.push(
+      `figma-handoff.json: legacy v0 target.runtime_contract ${JSON.stringify(runtime)} is invalid; `
+      + `v0 packages are Spark-only and require "web-components"; migrate to ${SCHEMA.handoff} `
+      + 'to declare another runtime contract',
+    );
+  }
+}
+
+function isMissingOrEmpty(value) {
+  return value == null || (typeof value === 'string' && value.trim() === '');
 }
 
 function validateThemeIdentity(handoff, errors) {
