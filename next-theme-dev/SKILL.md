@@ -609,8 +609,8 @@ Spark does not use jQuery or `{% core_js %}`. It uses `assets/js/spark-platform.
 
 ### CDN Caching
 
-CloudFront aggressively caches assets and full pages (5 min on mapped domains):
-- **Always develop, preview, debug, and verify on the `.29next.store` network domain** — it bypasses the roughly five-minute mapped-domain edge cache layer, not the page cache itself
+CloudFront aggressively caches assets and full pages (5 minutes on mapped domains):
+- **Always develop, preview, debug, and verify on the `.29next.store` network domain** — it bypasses the 5-minute mapped-domain edge cache layer, not the page cache itself
 - Do not use a mapped public storefront domain to decide whether a change landed
 - Check the public domain only after network-domain verification, as a final customer-path smoke test
 - Do not require undocumented query parameters or response headers as proof of deployment
@@ -736,8 +736,10 @@ When a Figma source is provided, treat the Figma file as a visual spec, not mere
 Narrated screen recordings are an optional, high-bandwidth review input.
 Transcribe the narration, turn each concrete complaint into a remediation-queue
 entry with route, section, viewport, severity, and mismatch status, then verify
-each fix individually. A recording never substitutes for the visual-QA loop or
-its matching screenshots.
+each fix individually. These entries join the same remediation queue as step 6
+and use its exact status set: `fix-now`, `intentional-platform-divergence`, or
+`blocked-input-needed`. A recording never substitutes for the visual-QA loop
+or its matching screenshots.
 
 If the task covers several pages, walk one page or section group at a time. It is acceptable to use subagents for independent section audits, but give them raw Figma/build screenshots or URLs and ask for deltas, not implementation conclusions.
 
@@ -1036,6 +1038,26 @@ scripting language is acceptable. Each feedback round should regenerate the
 whole family identically, so merchant feedback becomes data edits rather than
 hand-editing the same change into multiple files.
 
+For example, the per-item data map can be keyed by template slug:
+
+```json
+{
+  "overview": {
+    "headline": "A clear overview",
+    "hero_asset": "assets/img/overview-hero.webp",
+    "sections": ["hero", "features", "faq"]
+  },
+  "details": {
+    "headline": "The useful details",
+    "hero_asset": "assets/img/details-hero.webp",
+    "sections": ["hero", "specifications", "faq"]
+  }
+}
+```
+
+Keep the generator and its data inside the theme project, for example in its
+`scripts/` folder, and make every run regenerate every template in the family.
+
 ### Add a Custom Page Template
 
 1. For the default page template, modify or create `templates/pages/page.html`. For a custom page template selectable from the dashboard/API, create `templates/pages/page.<template-name>.html` (replace `<template-name>` with the actual template slug):
@@ -1121,7 +1143,11 @@ Read the complete command output and confirm the preview route after the push.
 
    **Observed staged-rollout pattern (not a documented platform contract):**
    set the field while the custom template file exists only on the draft
-   theme. On the live theme, `missing template ⇒ default template (observed; not platform-documented — verify on the target store before relying on it)`.
+   theme. On the live theme, `missing template ⇒ default template`.
+
+   > **Observed behavior, not platform-documented:** Verify this fallback on
+   > the target store before relying on it.
+
    Live traffic therefore stays on the default template while the preview uses
    the custom one. Cut over by pushing the custom file and its dependencies to
    the live theme ID; no product-field change is needed at cutover. Confirm the
@@ -1610,7 +1636,7 @@ To debug: check the store's `.29next.store` domain (it bypasses the mapped-domai
 If changes aren't appearing:
 1. Page-cache turnover is per-edge and non-atomic on any domain. After a push, consecutive
    fetches of the same URL can alternate between old and new responses for
-   minutes. Sample repeatedly; never judge cache turnover from one fetch.
+   several minutes. Sample repeatedly; never judge cache turnover from one fetch.
 2. Make cookie-less requests against the `.29next.store` network domain so a
    preview-session cookie does not select another theme.
 3. Confirm the preview URL contains the intended `preview_theme` ID when

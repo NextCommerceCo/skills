@@ -77,7 +77,7 @@ Run this before interpreting incomplete Figma results:
       locally using recorded geometry. Record that the crop came from a render.
 4. Retry selection synchronization at most three times. If it keeps returning
    the top-level frame or wrong node, stop retrying and switch to targeted section node URLs,
-   the full-frame render slicing last rung, or the
+   the full-page-render last rung, or the
    authorized `.fig` archive.
 5. Before implementation handoff, prove that both a Figma reference PNG and a
    storefront preview PNG can be captured at matching widths. Follow the

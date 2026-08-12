@@ -28,7 +28,7 @@ class FailureModeRunbookTest(unittest.TestCase):
                 re.DOTALL,
             ),
         )
-        for fallback in ("targeted section node URLs", "full-frame render", ".fig"):
+        for fallback in ("targeted section node URLs", "full-page-render last rung", ".fig"):
             self.assertIn(fallback, self.markdown)
 
     def test_export_and_selection_retries_are_bounded(self):

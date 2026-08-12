@@ -53,11 +53,13 @@ class ThemeToolingReportGuidanceTest(unittest.TestCase):
         recipe = recipe.group(1)
 
         self.assertIn("Observed staged-rollout pattern", recipe)
-        self.assertIn(
-            "missing template ⇒ default template (observed; "
-            "not platform-documented — verify on the target store before relying on it)",
+        self.assertRegex(
             recipe,
+            r"`missing template ⇒ default template`\.\s+"
+            r"> \*\*Observed behavior, not platform-documented:\*\* Verify this "
+            r"fallback on\s+> the target store before relying on it\.",
         )
+        self.assertNotRegex(recipe, r"`[^`\n]*platform-documented[^`\n]*`")
         self.assertIn("no product-field change is needed at cutover", recipe)
         self.assertIn("DOM marker", recipe)
 
@@ -84,9 +86,10 @@ class ThemeToolingReportGuidanceTest(unittest.TestCase):
 
     def test_cache_turnover_requires_repeated_cookie_less_marker_checks(self):
         for required in (
-            "bypasses the roughly five-minute mapped-domain edge cache layer, "
+            "bypasses the 5-minute mapped-domain edge cache layer, "
             "not the page cache itself",
             "Page-cache turnover is per-edge and non-atomic on any domain",
+            "responses for\n   several minutes",
             "Sample repeatedly; never judge cache turnover from one fetch",
             "cookie-less requests against the `.29next.store` network domain",
             "exact template-specific DOM marker",
@@ -95,6 +98,8 @@ class ThemeToolingReportGuidanceTest(unittest.TestCase):
             with self.subTest(required=required):
                 self.assertIn(required, self.markdown)
         self.assertNotIn("bypasses caching", self.markdown)
+        self.assertNotIn("roughly", self.markdown)
+        self.assertNotIn("5 min on mapped domains", self.markdown)
 
     def test_crlf_gotcha_and_minified_html_counting_are_explicit(self):
         self.assertRegex(
@@ -149,6 +154,12 @@ class ThemeToolingReportGuidanceTest(unittest.TestCase):
             r"remediation-queue\s+entry with route, section, viewport, severity, "
             r"and mismatch status",
         )
+        self.assertIn("same remediation queue as step 6", fidelity_loop)
+        self.assertIn(
+            "`fix-now`, `intentional-platform-divergence`, or\n"
+            "`blocked-input-needed`",
+            fidelity_loop,
+        )
         self.assertIn(
             "A recording never substitutes for the visual-QA loop",
             fidelity_loop,
@@ -189,6 +200,18 @@ class ThemeToolingReportGuidanceTest(unittest.TestCase):
             family_recipe,
             r"merchant feedback becomes data edits rather than\s+hand-editing",
         )
+        for required in (
+            '"overview"',
+            '"details"',
+            '"headline"',
+            '"hero_asset"',
+            '"sections"',
+            "inside the theme project",
+            "`scripts/` folder",
+            "every run regenerate every template in the family",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, family_recipe)
 
     def test_theme_family_attribution_and_runtime_contracts_are_explicit(self):
         for required in (
