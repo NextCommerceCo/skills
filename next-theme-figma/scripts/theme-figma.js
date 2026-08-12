@@ -218,25 +218,29 @@ function createPackage(opts) {
   }
 
   const fixtureHandoff = fixture?.handoff;
-  const cliThemeFamily = opts['theme-family'] || 'custom';
-  const cliRuntimeContract = opts['runtime-contract'] || 'unknown';
-  const themeFamily = fixtureHandoff
-    ? fixtureHandoff.target?.theme_family
-    : cliThemeFamily;
-  const runtimeContract = fixtureHandoff
-    ? fixtureHandoff.target?.runtime_contract
-    : cliRuntimeContract;
+  const hasThemeFamilyFlag = Object.prototype.hasOwnProperty.call(opts, 'theme-family');
+  const hasRuntimeContractFlag = Object.prototype.hasOwnProperty.call(opts, 'runtime-contract');
+  const fixtureThemeFamily = fixtureHandoff?.target?.theme_family;
+  const fixtureRuntimeContract = fixtureHandoff?.target?.runtime_contract;
+  const hasFixtureThemeFamily = fixtureHandoff && !isMissingOrEmpty(fixtureThemeFamily);
+  const hasFixtureRuntimeContract = fixtureHandoff && !isMissingOrEmpty(fixtureRuntimeContract);
+  const themeFamily = hasFixtureThemeFamily
+    ? fixtureThemeFamily
+    : (hasThemeFamilyFlag ? opts['theme-family'] : 'custom');
+  const runtimeContract = hasFixtureRuntimeContract
+    ? fixtureRuntimeContract
+    : (hasRuntimeContractFlag ? opts['runtime-contract'] : 'unknown');
 
   if (fixtureHandoff) {
     const conflicts = [];
-    if (Object.prototype.hasOwnProperty.call(opts, 'theme-family')
+    if (hasFixtureThemeFamily && hasThemeFamilyFlag
         && opts['theme-family'] !== themeFamily) {
       conflicts.push(
         `--theme-family ${JSON.stringify(opts['theme-family'])} conflicts with fixture handoff `
         + `target.theme_family ${JSON.stringify(themeFamily)}`,
       );
     }
-    if (Object.prototype.hasOwnProperty.call(opts, 'runtime-contract')
+    if (hasFixtureRuntimeContract && hasRuntimeContractFlag
         && opts['runtime-contract'] !== runtimeContract) {
       conflicts.push(
         `--runtime-contract ${JSON.stringify(opts['runtime-contract'])} conflicts with fixture handoff `
@@ -251,8 +255,8 @@ function createPackage(opts) {
   const identityErrors = themeIdentityErrors(
     themeFamily,
     runtimeContract,
-    fixtureHandoff ? 'fixture handoff target.theme_family' : '--theme-family',
-    fixtureHandoff ? 'fixture handoff target.runtime_contract' : '--runtime-contract',
+    hasFixtureThemeFamily ? 'fixture handoff target.theme_family' : '--theme-family',
+    hasFixtureRuntimeContract ? 'fixture handoff target.runtime_contract' : '--runtime-contract',
   );
   if (identityErrors.length) throw new Error(identityErrors[0]);
   const divergenceFilename = 'platform-divergence-ledger.json';
@@ -278,7 +282,14 @@ function createPackage(opts) {
     throw new Error(`refusing to overwrite existing package files (${existing.join(', ')}); pass --force to replace them`);
   }
 
-  const handoff = fixture?.handoff || {
+  const handoff = fixture?.handoff ? {
+    ...fixture.handoff,
+    target: {
+      ...(fixture.handoff.target || {}),
+      theme_family: themeFamily,
+      runtime_contract: runtimeContract,
+    },
+  } : {
     schema_version: SCHEMA.handoff,
     generated_at: generatedAt,
     generator: 'next-theme-figma',
