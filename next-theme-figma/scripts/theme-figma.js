@@ -33,6 +33,11 @@ const DIVERGENCE_DECISIONS = new Set(['platform-wins', 'figma-wins-with-guardrai
 const DIVERGENCE_STATUSES = new Set(['open', 'approved', 'implemented', 'blocked', 'accepted-gap']);
 const MODES = new Set(['design-audit', 'handoff-prep', 'implementation-handoff']);
 const THEME_FAMILIES = new Set(['spark', 'intro-bootstrap', 'custom']);
+const THEME_FAMILY_RUNTIME_CONTRACTS = new Map([
+  ['spark', 'web-components'],
+  ['intro-bootstrap', 'jquery-core-js'],
+  ['custom', null],
+]);
 const RUNTIME_CONTRACTS = new Set(['web-components', 'jquery-core-js', 'unknown']);
 const VIEWPORT_WIDTHS = {
   desktop: new Set([1440]),
@@ -40,7 +45,7 @@ const VIEWPORT_WIDTHS = {
   mobile: new Set([375, 390]),
 };
 
-main();
+if (require.main === module) main();
 
 function main() {
   const [command, ...argv] = process.argv.slice(2);
@@ -203,6 +208,15 @@ function createPackage(opts) {
   if (!MODES.has(mode)) {
     throw new Error(`--mode must be one of ${Array.from(MODES).join(', ')}`);
   }
+  const themeFamily = opts['theme-family'] || 'custom';
+  const runtimeContract = opts['runtime-contract'] || 'unknown';
+  const identityErrors = themeIdentityErrors(
+    themeFamily,
+    runtimeContract,
+    '--theme-family',
+    '--runtime-contract',
+  );
+  if (identityErrors.length) throw new Error(identityErrors[0]);
 
   const fixture = opts.fixture ? readFixture(path.resolve(String(opts.fixture))) : null;
   if (fixture?.handoff?.schema_version === LEGACY_SCHEMA.handoff) {
@@ -250,8 +264,8 @@ function createPackage(opts) {
       repo: opts.repo || '',
       preview_url: opts['preview-url'] || '',
       theme_id: opts['theme-id'] || '',
-      theme_family: opts['theme-family'] || 'custom',
-      runtime_contract: opts['runtime-contract'] || 'unknown',
+      theme_family: themeFamily,
+      runtime_contract: runtimeContract,
     },
     manifests: {
       routes: 'routes.json',
@@ -447,7 +461,7 @@ function validatePackage(dir, strict = true) {
   if (legacyV0 && rawDivergence?.schema_version !== LEGACY_SCHEMA.divergence) {
     errors.push(`${divergenceFilename}: schema_version must be "${LEGACY_SCHEMA.divergence}" for v0`);
   }
-  if (legacyV0) validateLegacyV0Identity(rawHandoff, errors);
+  if (legacyV0) validateLegacyV0Identity(rawHandoff, strict, errors, warnings);
   const { handoff, divergence } = legacyV0
     ? normalizeLegacyV0(rawHandoff, rawDivergence)
     : { handoff: rawHandoff, divergence: rawDivergence };
@@ -666,21 +680,27 @@ function normalizeLegacyV0Sections(sections) {
   };
 }
 
-function validateLegacyV0Identity(handoff, errors) {
+function validateLegacyV0Identity(handoff, strict, errors, warnings) {
   const family = handoff?.target?.theme_family;
   const runtime = handoff?.target?.runtime_contract;
   const familyIsSpark = typeof family === 'string' && family.trim().toLowerCase() === 'spark';
   const runtimeIsWebComponents = typeof runtime === 'string'
-    && runtime.trim() === 'web-components';
+    && runtime.trim().toLowerCase() === 'web-components';
 
   if (!isMissingOrEmpty(family) && !familyIsSpark) {
-    errors.push(
+    issue(
+      strict,
+      errors,
+      warnings,
       `figma-handoff.json: legacy v0 target.theme_family ${JSON.stringify(family)} is invalid; `
       + `v0 packages are Spark-only; migrate to ${SCHEMA.handoff} to declare another family`,
     );
   }
   if (!isMissingOrEmpty(runtime) && !runtimeIsWebComponents) {
-    errors.push(
+    issue(
+      strict,
+      errors,
+      warnings,
       `figma-handoff.json: legacy v0 target.runtime_contract ${JSON.stringify(runtime)} is invalid; `
       + `v0 packages are Spark-only and require "web-components"; migrate to ${SCHEMA.handoff} `
       + 'to declare another runtime contract',
@@ -695,22 +715,34 @@ function isMissingOrEmpty(value) {
 function validateThemeIdentity(handoff, errors) {
   const family = handoff.target?.theme_family;
   const runtime = handoff.target?.runtime_contract;
+  errors.push(...themeIdentityErrors(
+    family,
+    runtime,
+    'figma-handoff.json: target.theme_family',
+    'target.runtime_contract',
+  ));
+}
+
+function themeIdentityErrors(family, runtime, familyLabel, runtimeLabel) {
+  const errors = [];
   if (!THEME_FAMILIES.has(family)) {
-    errors.push(`figma-handoff.json: target.theme_family must be one of ${Array.from(THEME_FAMILIES).join(', ')}`);
+    errors.push(`${familyLabel} must be one of ${Array.from(THEME_FAMILIES).join(', ')}`);
   }
   if (!RUNTIME_CONTRACTS.has(runtime)) {
-    errors.push(`figma-handoff.json: target.runtime_contract must be one of ${Array.from(RUNTIME_CONTRACTS).join(', ')}`);
+    errors.push(`${runtimeLabel} must be one of ${Array.from(RUNTIME_CONTRACTS).join(', ')}`);
   }
-  const expectedRuntime = {
-    spark: 'web-components',
-    'intro-bootstrap': 'jquery-core-js',
-  }[family];
+  if (THEME_FAMILIES.has(family) && !THEME_FAMILY_RUNTIME_CONTRACTS.has(family)) {
+    errors.push(`${familyLabel} "${family}" has no runtime contract policy`);
+    return errors;
+  }
+  const expectedRuntime = THEME_FAMILY_RUNTIME_CONTRACTS.get(family);
   if (expectedRuntime && runtime && runtime !== expectedRuntime) {
     errors.push(
-      `figma-handoff.json: target.theme_family "${family}" contradicts `
-      + `target.runtime_contract "${runtime}"; expected "${expectedRuntime}"`,
+      `${familyLabel} "${family}" contradicts `
+      + `${runtimeLabel} "${runtime}"; expected "${expectedRuntime}"`,
     );
   }
+  return errors;
 }
 
 function issue(strict, errors, warnings, message) {
@@ -855,3 +887,9 @@ function expectObject(value, key, label, errors) {
 function printJson(value) {
   console.log(JSON.stringify(value, null, 2));
 }
+
+module.exports = {
+  THEME_FAMILIES,
+  THEME_FAMILY_RUNTIME_CONTRACTS,
+  validateThemeIdentity,
+};
