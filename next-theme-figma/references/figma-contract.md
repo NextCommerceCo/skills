@@ -46,7 +46,7 @@ Expected widths:
 - Tablet: 768px when available.
 - Mobile: 375px or 390px when available.
 
-If a viewport is missing, record it as an unresolved design gap and do not invent responsive behavior silently. It is fine to proceed when the implementation agent can preserve existing Spark behavior, but the handoff should make the missing source explicit.
+If a viewport is missing, record it as an unresolved design gap and do not invent responsive behavior silently. It is fine to proceed when the implementation agent can preserve existing theme behavior, but the handoff should make the missing source explicit.
 
 ## Layer Tree And Layout
 
@@ -96,7 +96,7 @@ Prefer Figma variables or named styles for:
 - State colors.
 - Spacing scales.
 
-If the file only has hard-coded values, record the actual hex/spacing values and whether they should become Spark theme settings, CSS custom properties, or one-off section styles.
+If the file only has hard-coded values, record the actual hex/spacing values and whether they should become theme settings, CSS custom properties, or one-off section styles.
 
 ## Dynamic Commerce Surfaces
 
@@ -110,7 +110,7 @@ Flag any section touching:
 - Reviews, ratings, loyalty, subscriptions, memberships, or app widgets.
 - Account, cart count, or header state.
 
-These require a Spark divergence decision before implementation. Read `spark-commerce-surfaces.md`.
+These require a platform divergence decision before implementation. Read the commerce-surface reference for the handoff's `theme_family`.
 
 ## Contract Result
 

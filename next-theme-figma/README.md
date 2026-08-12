@@ -45,7 +45,7 @@ ask whoever set up your AI assistant — or ask the assistant itself.
 
 Ask your AI assistant something like:
 
-> Use next-theme-figma to prepare this Spark storefront Figma design for
+> Use next-theme-figma to prepare this storefront Figma design for
 > implementation. Here's the link.
 
 The workflow: check the design is complete enough to start → map every page
