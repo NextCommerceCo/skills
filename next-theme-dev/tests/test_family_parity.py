@@ -57,7 +57,8 @@ class FamilyParityTest(unittest.TestCase):
         self.assertIsNotNone(preflight)
         preflight = preflight.group(1)
 
-        self.assertIn("For Spark, use the\n   ID written by `ntk init`", preflight)
+        self.assertIn("For Spark, use the", preflight)
+        self.assertIn("ID written by `ntk init`", preflight)
         self.assertIn(
             "For Intro Bootstrap and dashboard-installed custom\n"
             "   themes, use the ID written by `ntk checkout`",
@@ -104,12 +105,24 @@ class FamilyParityTest(unittest.TestCase):
         )
         self.assertIsNotNone(cart)
         self.assertIsNotNone(side_cart)
-        guidance = cart.group(1) + side_cart.group(1)
+        cart_guidance = cart.group(1)
+        side_cart_guidance = side_cart.group(1)
 
-        self.assertGreaterEqual(guidance.count("properties { key value }"), 2)
-        self.assertIn("former CartLineNode `attributes`\nfield was removed", guidance)
-        self.assertNotIn("attributes {", guidance)
-        self.assertRegex(guidance, r"create, update, and remove")
+        self.assertGreaterEqual(cart_guidance.count("properties { key value }"), 1)
+        self.assertEqual(
+            self.markdown.count("properties { key value }"),
+            cart_guidance.count("properties { key value }"),
+        )
+        self.assertIn("former CartLineNode `attributes`", cart_guidance)
+        self.assertIn("field was removed platform-side", cart_guidance)
+        self.assertNotIn("attributes {", cart_guidance)
+        self.assertIn(
+            "`### Cart and User State (Client-Side State Required)`",
+            side_cart_guidance,
+        )
+        self.assertNotIn("properties { key value }", side_cart_guidance)
+        self.assertNotIn("removed CartLineNode", side_cart_guidance)
+        self.assertRegex(side_cart_guidance, r"create, update, and remove")
 
     def test_family_specific_template_preservation_is_explicit(self):
         self.assertIn(
@@ -138,7 +151,6 @@ class FamilyParityTest(unittest.TestCase):
             "show.cart",
             "hide.cart",
             "storefront_cart_id",
-            "a single delegated `change` listener on\n  `#cart-modal`",
             "## `cart:add` Form and Buy-Box Contract",
             "{{ settings.<name> }}",
             "## Typography Inheritance",
@@ -149,6 +161,15 @@ class FamilyParityTest(unittest.TestCase):
         ):
             with self.subTest(required=required):
                 self.assertIn(required, self.intro_reference)
+
+        self.assertIn("a single delegated `change` listener on", self.intro_reference)
+        self.assertIn("`#cart-modal`", self.intro_reference)
+        self.assertIn(
+            "`### Cart and User State (Client-Side State Required)`",
+            self.intro_reference,
+        )
+        self.assertNotIn("properties { key value }", self.intro_reference)
+        self.assertNotIn("removed CartLineNode", self.intro_reference)
 
         self.assertGreaterEqual(
             self.intro_reference.count("Intro Bootstrap 1.2.0,"),

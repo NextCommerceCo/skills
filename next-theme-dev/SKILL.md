@@ -176,11 +176,11 @@ picking a winner.
 The current v1 handoff records `target.theme_family` and
 `target.runtime_contract` in `figma-handoff.json`; confirm that identity before
 applying family-specific patterns. Legacy v0 packages remain readable during
-the deprecation window: the validator normalizes
-`spark-divergence-ledger.json` and `spark-wins` to the v1 contract and emits a
-deprecation warning. Treat that warning as a migration prompt, not a validation
-failure. The strict `validate-package` HARD STOP still applies to actual
-validation failures.
+the deprecation window: the `validate-package` command in `next-theme-figma`'s
+bundled `scripts/theme-figma.js` normalizes `spark-divergence-ledger.json` and
+`spark-wins` to the v1 contract and emits a deprecation warning. Treat that
+warning as a migration prompt, not a validation failure. The strict
+`validate-package` HARD STOP still applies to actual validation failures.
 
 ---
 
@@ -896,7 +896,7 @@ Build order:
 1. **`layouts/base.html`** — Preserve the identified family's stylesheet and script order while wiring settings, global head/scripts, and header/footer includes. Independently injected global components must be wrapped in their own named blocks when the family exposes that override surface so page templates can override or suppress them without CSS hacks.
 2. **Partials** — One per design component (`partials/header.html`, `partials/footer.html`, `partials/product_card.html`, etc.)
 3. **Page templates** — `templates/index.html`, `templates/catalogue/product.html`, etc. using `{% extends %}` and `{% block %}`
-4. **Cart/user features** — Keep per-user state client-side. In Spark, use the existing GraphQL/Web Component contract; in Intro Bootstrap, preserve the existing form POST, jQuery, GraphQL side-cart, and `{% core_js %}` integration described in the Side Cart recipe and `references/intro-preservation-contract.md`.
+4. **Cart/user features** — Keep per-user state client-side. In Spark, use the existing GraphQL/Web Component contract; in Intro Bootstrap, preserve the existing form POST, jQuery, GraphQL side-cart, and `{% core_js %}` integration described in `### Side Cart Customization` and `references/intro-preservation-contract.md`.
 
 ### Step 5: Styling
 
@@ -1251,8 +1251,10 @@ Because of full-page caching, cart and user state must be resolved client-side;
 server-side template variables for that per-visitor data can be cached and show
 stale or wrong data. Use the storefront GraphQL API at `/api/graphql/` for
 client-side cart reads/mutations and user queries. Preserve a family's existing
-server form POST where it is the established add-to-cart contract; Intro
-Bootstrap's PDP POST is not permission to render cart state in cached DTL.
+server form POST where it is the established add-to-cart contract. The
+existence of Intro Bootstrap's server-side add-to-cart POST does not permit
+rendering per-visitor cart state in cached DTL templates; cart and user state
+must still be fetched client-side.
 
 Use GraphQL for:
 - Cart operations: `createCart`, `addCartLines`, `updateCartLines`, `removeCartLines`
@@ -1302,9 +1304,10 @@ Side carts are one of the most common theme customization requests. Start by ide
 - Keep jQuery before `{% core_js %}` in `layouts/base.html`.
 - Style with Bootstrap 5 and existing SCSS partials.
 - Use DTL for the static shell and translations, and the existing JS for cart mutations.
-- Keep cart-line `properties { key value }` in all three GraphQL operations:
-  create, update, and remove. Do not restore the removed CartLineNode
-  `attributes` field.
+- Apply the family-neutral cart-line schema rule in
+  `### Cart and User State (Client-Side State Required)`. In Intro Bootstrap,
+  the create, update, and remove operations in `assets/js/side_cart.js` must
+  move together.
 - Preserve the `storefront_cart_id` cookie, the single delegated `change`
   listener on `#cart-modal`, and platform-owned remove/population wiring in
   `{% core_js %}`. See `references/intro-preservation-contract.md`.
