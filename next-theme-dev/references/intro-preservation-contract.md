@@ -54,10 +54,10 @@ outside overridable template blocks (Intro Bootstrap 1.2.0,
   actions and emits `show.cart` and `hide.cart` while managing the drawer and
   body state (Intro Bootstrap 1.2.0, `assets/js/cart.js:2-42`).
 - `assets/js/side_cart.js` owns create, update, and remove GraphQL operations.
-  All three request cart-line `properties { key value }`; the three selections
-  must move together in any schema edit (Intro Bootstrap 1.2.0,
-  `assets/js/side_cart.js:4-222`). Do not restore the removed CartLineNode
-  `attributes` shape.
+  The three cart-line selections must move together in any schema edit (Intro
+  Bootstrap 1.2.0, `assets/js/side_cart.js:4-222`). For the family-neutral
+  schema rule, see `### Cart and User State (Client-Side State Required)` in
+  `../SKILL.md`.
 - Cart identity is the `storefront_cart_id` cookie managed through
   `PrimeCookies` (Intro Bootstrap 1.2.0,
   `assets/js/side_cart.js:628-633`; Intro Bootstrap 1.2.0,

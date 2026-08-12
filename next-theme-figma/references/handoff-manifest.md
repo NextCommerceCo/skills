@@ -119,7 +119,7 @@ Version 1 makes the handoff vocabulary family-neutral and adds explicit theme id
 - Change the divergence schema from `next-theme-figma/spark-divergence/v0` to `next-theme-figma/platform-divergence/v1`.
 - Add the required `target.theme_family` and `target.runtime_contract` fields using the values and combinations above.
 
-The route, section, asset, and viewport-coverage schema strings remain at v0. Legacy v0 packages are interpreted as Spark with the `web-components` runtime and currently validate with a deprecation warning. This compatibility path will be removed in a future minor release, version 0.5.0 or later, so downstream repositories have at least one release to migrate.
+The route, section, asset, and viewport-coverage schema strings remain at v0. Legacy v0 packages are interpreted as Spark with the `web-components` runtime and validate with a deprecation warning when their optional identity fields match that legacy identity. A foreign legacy family or runtime is an error in strict mode; non-strict mode reports it as a warning and accepts the package for migration. This compatibility path will be removed in a future minor release, version 0.5.0 or later, so downstream repositories have at least one release to migrate.
 
 ## Completeness Check
 
