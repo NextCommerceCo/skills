@@ -390,6 +390,48 @@ class AssetContractTest(unittest.TestCase):
             self.assertFalse(package.exists())
 
     @unittest.skipUnless(shutil.which("node"), "node is required for generator contract execution")
+    def test_partial_fixture_runtime_flag(self):
+        with tempfile.TemporaryDirectory() as temp:
+            temp = Path(temp)
+            fixture = self.load_fixture("spark-vone-package.json")
+            fixture["handoff"]["target"].pop("runtime_contract")
+            fixture_path = temp / "partial-fixture.json"
+            fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
+            package = temp / "handoff"
+            result = subprocess.run([
+                "node", str(GENERATOR), "new-package", "--out", str(package),
+                "--project", "example-store", "--fixture", str(fixture_path),
+                "--runtime-contract", "web-components",
+            ], text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            handoff = json.loads((package / "figma-handoff.json").read_text(encoding="utf-8"))
+            self.assertEqual(handoff["target"]["theme_family"], "spark")
+            self.assertEqual(handoff["target"]["runtime_contract"], "web-components")
+
+    @unittest.skipUnless(shutil.which("node"), "node is required for generator contract execution")
+    def test_partial_fixture_field_conflict(self):
+        with tempfile.TemporaryDirectory() as temp:
+            temp = Path(temp)
+            fixture = self.load_fixture("spark-vone-package.json")
+            fixture["handoff"]["target"].pop("runtime_contract")
+            fixture_path = temp / "partial-fixture.json"
+            fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
+            package = temp / "handoff"
+            result = subprocess.run([
+                "node", str(GENERATOR), "new-package", "--out", str(package),
+                "--project", "example-store", "--fixture", str(fixture_path),
+                "--theme-family", "custom", "--runtime-contract", "web-components",
+            ], text=True, capture_output=True)
+            self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+            self.assertIn(
+                '--theme-family "custom" conflicts with fixture handoff '
+                'target.theme_family "spark"',
+                result.stderr,
+            )
+            self.assertNotIn("target.runtime_contract", result.stderr)
+            self.assertFalse(package.exists())
+
+    @unittest.skipUnless(shutil.which("node"), "node is required for generator contract execution")
     def test_same_fixture_identity_flags_pass(self):
         with tempfile.TemporaryDirectory() as temp:
             package = Path(temp) / "handoff"
