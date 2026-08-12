@@ -204,20 +204,6 @@ function inferSection(frameName) {
 function createPackage(opts) {
   const out = path.resolve(requireOpt(opts, 'out'));
   const project = requireOpt(opts, 'project');
-  const mode = opts.mode || 'handoff-prep';
-  if (!MODES.has(mode)) {
-    throw new Error(`--mode must be one of ${Array.from(MODES).join(', ')}`);
-  }
-  const themeFamily = opts['theme-family'] || 'custom';
-  const runtimeContract = opts['runtime-contract'] || 'unknown';
-  const identityErrors = themeIdentityErrors(
-    themeFamily,
-    runtimeContract,
-    '--theme-family',
-    '--runtime-contract',
-  );
-  if (identityErrors.length) throw new Error(identityErrors[0]);
-
   const fixture = opts.fixture ? readFixture(path.resolve(String(opts.fixture))) : null;
   if (fixture?.handoff?.schema_version === LEGACY_SCHEMA.handoff) {
     throw new Error(
@@ -225,6 +211,50 @@ function createPackage(opts) {
       + `${SCHEMA.handoff} with platform-divergence-ledger.json before generating`,
     );
   }
+
+  const mode = opts.mode || 'handoff-prep';
+  if (!MODES.has(mode)) {
+    throw new Error(`--mode must be one of ${Array.from(MODES).join(', ')}`);
+  }
+
+  const fixtureHandoff = fixture?.handoff;
+  const cliThemeFamily = opts['theme-family'] || 'custom';
+  const cliRuntimeContract = opts['runtime-contract'] || 'unknown';
+  const themeFamily = fixtureHandoff
+    ? fixtureHandoff.target?.theme_family
+    : cliThemeFamily;
+  const runtimeContract = fixtureHandoff
+    ? fixtureHandoff.target?.runtime_contract
+    : cliRuntimeContract;
+
+  if (fixtureHandoff) {
+    const conflicts = [];
+    if (Object.prototype.hasOwnProperty.call(opts, 'theme-family')
+        && opts['theme-family'] !== themeFamily) {
+      conflicts.push(
+        `--theme-family ${JSON.stringify(opts['theme-family'])} conflicts with fixture handoff `
+        + `target.theme_family ${JSON.stringify(themeFamily)}`,
+      );
+    }
+    if (Object.prototype.hasOwnProperty.call(opts, 'runtime-contract')
+        && opts['runtime-contract'] !== runtimeContract) {
+      conflicts.push(
+        `--runtime-contract ${JSON.stringify(opts['runtime-contract'])} conflicts with fixture handoff `
+        + `target.runtime_contract ${JSON.stringify(runtimeContract)}`,
+      );
+    }
+    if (conflicts.length) {
+      throw new Error(`${conflicts.join('; ')}; fixture-provided identity governs`);
+    }
+  }
+
+  const identityErrors = themeIdentityErrors(
+    themeFamily,
+    runtimeContract,
+    fixtureHandoff ? 'fixture handoff target.theme_family' : '--theme-family',
+    fixtureHandoff ? 'fixture handoff target.runtime_contract' : '--runtime-contract',
+  );
+  if (identityErrors.length) throw new Error(identityErrors[0]);
   const divergenceFilename = 'platform-divergence-ledger.json';
   const figmaUrl = opts['figma-url'] || fixture?.handoff?.figma?.url || '';
   const figma = figmaUrl ? parseFigmaInput(figmaUrl) : {};
