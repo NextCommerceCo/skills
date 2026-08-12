@@ -79,8 +79,10 @@ class AssetContractTest(unittest.TestCase):
         ], text=True, capture_output=True)
 
     def test_committed_fixtures_use_canonical_asset_schema(self):
+        # Use -vone- because the public-safety high-entropy rule flags -v1-
+        # when it appears in fixture path strings.
         for name in (
-            "spark-v1-package.json",
+            "spark-vone-package.json",
             "intro-vone-package.json",
             "custom-vone-package.json",
             "complete-package.json",
@@ -184,7 +186,7 @@ class AssetContractTest(unittest.TestCase):
             asset.parent.mkdir(parents=True)
             asset.write_text('<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="600" viewBox="0 0 1200 600"><rect width="1200" height="600" fill="#ddd"/></svg>\n', encoding="utf-8")
 
-            generator_input = self.load_fixture("spark-v1-package.json")
+            generator_input = self.load_fixture("spark-vone-package.json")
             generator_input["assets"]["assets"] = [{
                 "asset_id": "hero-background",
                 "section_id": "hero-1",
@@ -268,7 +270,7 @@ class AssetContractTest(unittest.TestCase):
             package = Path(temp) / "handoff"
             command = [
                 "node", str(GENERATOR), "new-package", "--out", str(package),
-                "--project", "example-store", "--fixture", str(FIXTURES / "spark-v1-package.json"),
+                "--project", "example-store", "--fixture", str(FIXTURES / "spark-vone-package.json"),
             ]
             first = subprocess.run(command, text=True, capture_output=True)
             self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
@@ -305,10 +307,63 @@ class AssetContractTest(unittest.TestCase):
             self.assertIn("platform_behavior", divergence["entries"][0])
             self.assertEqual(divergence["entries"][0]["decision"], "platform-wins")
 
+    @unittest.skipUnless(shutil.which("node"), "node is required for generator contract execution")
+    def test_generator_rejects_invalid_identity_before_creating_output(self):
+        cases = (
+            (
+                ["--theme-family", "unsupported"],
+                "--theme-family must be one of spark, intro-bootstrap, custom",
+            ),
+            (
+                ["--runtime-contract", "unsupported"],
+                "--runtime-contract must be one of web-components, jquery-core-js, unknown",
+            ),
+            (
+                ["--theme-family", "spark", "--runtime-contract", "jquery-core-js"],
+                '--theme-family "spark" contradicts --runtime-contract "jquery-core-js"; '
+                'expected "web-components"',
+            ),
+        )
+        for flags, marker in cases:
+            with self.subTest(flags=flags), tempfile.TemporaryDirectory() as temp:
+                package = Path(temp) / "handoff"
+                result = subprocess.run([
+                    "node", str(GENERATOR), "new-package", "--out", str(package),
+                    "--project", "example-store", *flags,
+                ], text=True, capture_output=True)
+                self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+                self.assertIn(marker, result.stderr)
+                self.assertFalse(package.exists())
+
+    @unittest.skipUnless(shutil.which("node"), "node is required for schema validation")
+    def test_theme_family_runtime_map_is_lockstep_and_fail_closed(self):
+        probe = subprocess.run([
+            "node", "-e", """
+const contract = require(process.argv[1]);
+for (const family of contract.THEME_FAMILIES) {
+  if (!contract.THEME_FAMILY_RUNTIME_CONTRACTS.has(family)) {
+    throw new Error(`missing runtime policy for ${family}`);
+  }
+}
+if (contract.THEME_FAMILY_RUNTIME_CONTRACTS.get('custom') !== null) {
+  throw new Error('custom runtime policy must be null');
+}
+contract.THEME_FAMILY_RUNTIME_CONTRACTS.delete('spark');
+const errors = [];
+contract.validateThemeIdentity({
+  target: { theme_family: 'spark', runtime_contract: 'web-components' },
+}, errors);
+if (!errors.some((error) => error.includes('has no runtime contract policy'))) {
+  throw new Error(`missing fail-closed validation error: ${errors.join('; ')}`);
+}
+""", str(GENERATOR),
+        ], text=True, capture_output=True)
+        self.assertEqual(probe.returncode, 0, probe.stderr + probe.stdout)
+
     @unittest.skipUnless(shutil.which("node"), "node is required for schema validation")
     def test_family_fixture_validation_matrix(self):
         expected = {
-            "spark-v1-package.json": (0, "PASS (strict)"),
+            "spark-vone-package.json": (0, "PASS (strict)"),
             "intro-vone-package.json": (0, "PASS (strict)"),
             "custom-vone-package.json": (0, "PASS (strict)"),
         }
@@ -333,6 +388,7 @@ class AssetContractTest(unittest.TestCase):
                 package = Path(temp) / "handoff"
                 fixture = self.load_fixture("legacy-v0-package.json")
                 self.assertEqual(fixture["handoff"]["target"]["theme_family"], "Spark")
+                fixture["handoff"]["target"]["runtime_contract"] = "Web-Components"
                 self.assertEqual(
                     fixture["sections"]["sections"][0]["classification"],
                     "live-spark-component",
@@ -361,7 +417,7 @@ class AssetContractTest(unittest.TestCase):
             self.assertFalse(package.exists())
 
     @unittest.skipUnless(shutil.which("node"), "node is required for schema validation")
-    def test_legacy_foreign_identity_is_hard_in_both_modes(self):
+    def test_legacy_foreign_identity_strict_error_non_strict_warning(self):
         cases = (
             (
                 {"theme_family": "intro-bootstrap", "runtime_contract": "web-components"},
@@ -371,7 +427,10 @@ class AssetContractTest(unittest.TestCase):
             ({"runtime_contract": "jquery-core-js"}, "runtime_contract", "jquery-core-js"),
         )
         for identity, field, value in cases:
-            for mode in ([], ["--non-strict"]):
+            for mode, expected_returncode, marker in (
+                ([], 1, "Error:"),
+                (["--non-strict"], 0, "Warning:"),
+            ):
                 with self.subTest(field=field, mode=mode), tempfile.TemporaryDirectory() as temp:
                     fixture = self.load_fixture("legacy-v0-package.json")
                     fixture["handoff"]["target"].update(identity)
@@ -380,11 +439,17 @@ class AssetContractTest(unittest.TestCase):
                     result = subprocess.run([
                         "node", str(GENERATOR), "validate-package", str(package), *mode,
                     ], text=True, capture_output=True)
-                    self.assertNotEqual(result.returncode, 0, result.stderr + result.stdout)
+                    self.assertEqual(
+                        result.returncode, expected_returncode,
+                        result.stderr + result.stdout,
+                    )
+                    self.assertIn(marker, result.stdout)
                     self.assertIn(field, result.stdout)
                     self.assertIn(value, result.stdout)
                     self.assertIn("v0 packages are Spark-only", result.stdout)
                     self.assertIn("next-theme-figma/handoff/v1", result.stdout)
+                    if mode:
+                        self.assertIn("PASS (non-strict)", result.stdout)
 
     @unittest.skipUnless(shutil.which("node"), "node is required for schema validation")
     def test_legacy_missing_family_is_accepted(self):
