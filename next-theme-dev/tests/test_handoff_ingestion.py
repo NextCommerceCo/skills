@@ -18,7 +18,7 @@ PACKAGE_FILES = (
     "routes.json",
     "sections.json",
     "assets.json",
-    "spark-divergence-ledger.json",
+    "platform-divergence-ledger.json",
     "viewport-coverage.json",
     "validation-checklist.md",
     "notes.md",
@@ -207,6 +207,22 @@ def assert_handoff_ingestion(test_case, markdown):
         "'implementation-handoff'",
     )
 
+    for required in (
+        "`platform-wins`",
+        "`figma-wins-with-guardrails`",
+        "`spark-divergence-ledger.json`",
+        "`spark-wins`",
+        "deprecation window",
+        "migration prompt",
+        "target.theme_family",
+        "target.runtime_contract",
+    ):
+        test_case.assertIn(
+            required,
+            section,
+            "missing v1/legacy migration contract {!r}".format(required),
+        )
+
 
 def _transform_handoff_section(test_case, markdown, transform):
     match = HANDOFF_SECTION.search(markdown)
@@ -224,13 +240,28 @@ class HandoffIngestionTest(unittest.TestCase):
     def test_real_skill_has_complete_handoff_ingestion_contract(self):
         assert_handoff_ingestion(self, self.markdown)
 
-    def test_rejects_missing_spark_divergence_ledger(self):
+    def test_rejects_missing_platform_divergence_ledger(self):
         fixture = _transform_handoff_section(
             self,
             self.markdown,
             lambda section: section.replace(
-                "spark-divergence-ledger.json",
-                "spark-divergence-log.json",
+                "platform-divergence-ledger.json",
+                "platform-divergence-log.json",
+            ),
+        )
+
+        with self.assertRaisesRegex(
+            AssertionError, "platform-divergence-ledger[.]json"
+        ):
+            assert_handoff_ingestion(self, fixture)
+
+    def test_rejects_missing_legacy_window_filename(self):
+        fixture = _transform_handoff_section(
+            self,
+            self.markdown,
+            lambda section: section.replace(
+                "`spark-divergence-ledger.json`",
+                "`legacy-divergence-ledger.json`",
             ),
         )
 

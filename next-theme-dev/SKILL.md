@@ -1,6 +1,6 @@
 ---
 name: next-theme-dev
-version: 1.8.2
+version: 1.9.0
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
@@ -39,7 +39,7 @@ This skill works with any AI coding tool that can load a markdown file as contex
 
 If the task starts from a Figma storefront design, run `next-theme-figma` first
 when practical. That upstream skill validates the Figma source, classifies
-sections/assets, records Spark/platform divergences, captures reference
+sections/assets, records theme/platform divergences, captures reference
 screenshots, and produces the implementation handoff. Use this skill after that
 handoff exists to make the actual DTL, Spark, CSS, ntk, and storefront QA
 changes.
@@ -157,11 +157,11 @@ strict validator requires the first seven, but does not require `notes.md`.
 
 | Order | Package file | Implementation pass |
 |------:|--------------|---------------------|
-| 1 | `figma-handoff.json` | Task context: target store, repo, and Figma source identity. Read first. |
+| 1 | `figma-handoff.json` | Task context: target store, repo, Figma source, theme family, and runtime contract. Read first. |
 | 2 | `routes.json` | Templates plan for Step 4: Template Assembly: which templates/pages exist and their section order. |
-| 3 | `sections.json` | Partials/section work: classification decides semantic rebuild vs. asset vs. live Spark component. Use for Step 4 partials and the Step 1 component inventory. |
+| 3 | `sections.json` | Partials/section work: classification decides semantic rebuild vs. asset vs. live commerce component. Use for Step 4 partials and the Step 1 component inventory. |
 | 4 | `assets.json` | Existing asset validation path: `scripts/validate-theme-assets.py --strict` in Step 2: Asset Preparation. |
-| 5 | `spark-divergence-ledger.json` | Intentional platform deviations: only entries with decision `spark-wins` or `figma-wins-with-guardrails` and status `approved`, `implemented`, or `accepted-gap` are pre-approved `intentional-platform-divergence` items. Do not re-litigate those resolved entries. Entries with decision `needs-approval` or `blocked`, or status `open` or `blocked`, are unresolved; surface them to the operator before implementing the affected surfaces. |
+| 5 | `platform-divergence-ledger.json` | Intentional platform deviations: only entries with decision `platform-wins` or `figma-wins-with-guardrails` and status `approved`, `implemented`, or `accepted-gap` are pre-approved `intentional-platform-divergence` items. Do not re-litigate those resolved entries. Entries with decision `needs-approval` or `blocked`, or status `open` or `blocked`, are unresolved; surface them to the operator before implementing the affected surfaces. |
 | 6 | `viewport-coverage.json` | Responsive QA: the desktop/tablet/mobile reference set the Figma Fidelity Loop compares against. Availability is per route: check the route's `coverage` entry (`figma_ref`/`status`), not just the global `viewports` flags. |
 | 7 | `validation-checklist.md` | Completion review before handback. |
 | 8 | `notes.md` | Operator notes and unresolved questions. Read before building when present. If absent, note its absence in the handback and proceed; its absence alone is not a hard stop. |
@@ -173,18 +173,35 @@ Manifest guarantees are lost if implementation re-derives the design. A theme's
 when the two conflict directly, surface the conflict to the operator instead of
 picking a winner.
 
+The current v1 handoff records `target.theme_family` and
+`target.runtime_contract` in `figma-handoff.json`; confirm that identity before
+applying family-specific patterns. Legacy v0 packages remain readable during
+the deprecation window: the `validate-package` command in `next-theme-figma`'s
+bundled `scripts/theme-figma.js` normalizes `spark-divergence-ledger.json` and
+`spark-wins` to the v1 contract and emits a deprecation warning. Treat that
+warning as a migration prompt, not a validation failure. The strict
+`validate-package` HARD STOP still applies to actual validation failures.
+
 ---
 
 ## From an Empty Store (Greenfield Path)
 
 Use this path when the merchant store already exists but there is no theme
 checkout, local theme directory, `config.yml`, or existing `theme_id`. The goal
-is a new, unpublished Spark theme with a working preview URL. Do not activate
-the new theme during development.
+is a new, unpublished theme in the selected family with a working preview URL.
+Do not activate the new theme during development.
 
-### 1. Get Spark
+### 1. Identify and Choose the Theme Family
 
-Clone the public Spark starter over HTTPS into a new local directory:
+Identify the family before acquiring starter code or running setup. Use the
+markers and runtime-contract tables in `Identify the Theme Family First` below,
+then choose Spark, Intro Bootstrap, or a custom theme with the operator. Do not
+default to Spark merely because the store is empty.
+
+### 2. Acquire the Selected Theme
+
+**Spark branch:** Clone the public Spark starter over HTTPS into a new local
+directory:
 
 ```bash
 git clone https://github.com/NextCommerceCo/spark.git theme
@@ -193,7 +210,16 @@ cd theme
 
 Keep Spark's existing `.gitignore`; it already ignores `config.yml`.
 
-### 2. Get Theme API Credentials
+**Intro Bootstrap branch:** Intro Bootstrap is distributed as a ZIP upload and
+dashboard install, not as a public git clone. Obtain the approved ZIP from the
+operator, use the Storefront dashboard theme-install flow to install it as an
+unpublished theme, and then check out that installed theme after credentials
+are available. Do not invent or recommend an upstream git URL.
+
+**Custom-theme branch:** Obtain the owner-approved complete theme codebase or
+installable package. Preserve its local runtime and build contract.
+
+### 3. Get Theme API Credentials
 
 In Storefront admin, go to **Settings > API Access**, create an OAuth app,
 assign a user, and enable these permissions:
@@ -201,11 +227,13 @@ assign a user, and enable these permissions:
 - `themes:read`
 - `themes:write`
 
-### 3. Create a New Unpublished Theme
+### 4. Create or Check Out the New Unpublished Theme
 
 Install `ntk` first if it is missing (`pip install next-theme-kit`; see the
-Preamble environment check). Then, from the Spark directory, run this
-invocation with the long flags:
+Preamble environment check).
+
+**Spark branch:** From the Spark directory, run this invocation with the long
+flags:
 
 ```bash
 # Load THEME_API_KEY from a secret manager or protected environment file, then:
@@ -228,6 +256,16 @@ directory. That file includes the newly assigned `theme_id`.
 `ntk init` does not create theme directories or starter files. Run it only
 after cloning or copying a complete theme codebase.
 
+**Intro Bootstrap branch:** After the dashboard ZIP install, use `ntk list` to
+find the installed unpublished theme ID, then use the existing-theme
+`ntk checkout` flow from the Preamble. Do not run `ntk init` from an empty
+directory and do not substitute Spark files for the Intro package.
+
+**Custom-theme branch:** Follow the owner-approved package/install path. Use
+`ntk init` only when the local directory is already a complete theme codebase;
+otherwise install it through the dashboard and check it out as an existing
+theme.
+
 The new theme is not active and does not affect the live storefront unless
 someone activates it in the dashboard. Do not activate it during development.
 
@@ -237,7 +275,7 @@ resources, persistent connection or throttle failures, and a failed push exit
 non-zero. Other server responses are not guaranteed to do so, so a zero exit
 code alone is not proof that the intended state exists.
 
-### 4. Preflight With `ntk list`
+### 5. Preflight With `ntk list`
 
 Before the first push, run:
 
@@ -251,22 +289,29 @@ theme. Never push until both values match.
 
 Then use the `ntk list` output to confirm both conditions:
 
-1. The new `theme_id` written by `ntk init` appears in the theme list.
+1. The intended new `theme_id` appears in the theme list. For Spark, use the
+   ID written by `ntk init`. For Intro Bootstrap and dashboard-installed custom
+   themes, use the ID written by `ntk checkout` after selecting the installed
+   theme.
 2. The theme marked `(Active)` is not the new theme.
 
 Read the human-readable list and confirm the new theme appears before
 continuing. Do not infer success from the exit code alone.
 
-### 5. Build and Review the Initial Upload
+### 6. Build and Review the Initial Upload
 
-Run the theme's own build and verification pipeline before uploading. Spark uses
-the standalone Tailwind CLI through its Make targets: run `make install-tailwind`
-when needed, then `make verify-theme` (the complete pre-upload check; fall back
-to `make build` or `make css` plus `make css-check` if the target is absent).
-The `ntk` CLI has no CSS-build subcommand beyond `sass`.
+Run the selected theme's own build and verification pipeline before uploading.
+For Spark, use the standalone Tailwind CLI through its Make targets: run
+`make install-tailwind` when needed, then `make verify-theme` (the complete
+pre-upload check; fall back to `make build` or `make css` plus `make css-check`
+if the target is absent). For Intro Bootstrap, preserve its `sass/main.scss` to
+`assets/main.css` path and use `ntk watch` for local Sass compilation only after
+the live-mutation approval gate; watch also pushes. The `ntk` CLI has no
+CSS-build subcommand beyond `sass`.
 
-Review every file intended for the first upload. After satisfying the "Live
-Theme Mutation Approval Gate", upload the reviewed Spark baseline:
+**Spark branch:** Review every file intended for the first upload. After
+satisfying the "Live Theme Mutation Approval Gate", upload the reviewed Spark
+baseline:
 
 ```bash
 # Initial Spark upload, excluding saved Theme Editor state.
@@ -288,7 +333,16 @@ exits non-zero, but it does not report per-file results or the files it did not
 attempt. Keep the reviewed file list, read the complete output, and verify the
 remote result before treating a multi-file upload as complete.
 
-### 6. Derive and Verify the Preview URL
+**Intro Bootstrap branch:** The dashboard ZIP install is the initial baseline;
+do not replace it with a Spark upload. Review the SCSS source, obtain approval
+before `ntk watch`, inspect the generated `assets/main.css`, and follow "ntk
+Push: Only Changed Files" for subsequent targeted changes.
+
+**Custom-theme branch:** Treat a dashboard-installed package as the baseline,
+or use the Spark-style reviewed first-upload loop only when the approved custom
+source is a complete local codebase that still needs registration.
+
+### 7. Derive and Verify the Preview URL
 
 The CLI prints the preview URL only while `ntk watch` is running. Do not start a
 watch session merely to discover it. Derive it from the confirmed store
@@ -302,7 +356,7 @@ Open that URL and verify that it renders the uploaded unpublished theme. Confirm
 the URL uses the new theme ID and that the live storefront remains on the theme
 marked `(Active)` by `ntk list`.
 
-### 7. Credential and CLI Safety
+### 8. Credential and CLI Safety
 
 `ntk init` and `ntk checkout` write `config.yml`. A key supplied through
 `--apikey` is saved there as plaintext; a key supplied through `NTK_APIKEY` is
@@ -354,7 +408,18 @@ Do this before copying patterns between reference themes:
 | **Intro Bootstrap** | `sass/main.scss`, Bootstrap classes, `assets/js/cart.js`, `assets/js/side_cart.js`, jQuery before `{% core_js %}` | Bootstrap 5, SCSS, platform side cart scripts, jQuery/core_js integration |
 | **Custom theme** | Mixed or merchant-specific structure | Preserve the local stack. Inspect README/CLAUDE/DESIGN docs before adding tools or renaming conventions |
 
+For a v1 `next-theme-figma` handoff, `target.theme_family` and
+`target.runtime_contract` are the recorded outcome of this identification.
+Confirm those fields agree with the checked-out theme before implementation;
+use the Implementation-Handoff Entry Contract when they do not.
+
 Intro Bootstrap is a strong reference for DTL patterns, template contexts, URL names, and older storefront conventions. Spark is the modern starter direction: zero jQuery, zero Bootstrap, Tailwind CSS v4, GraphQL-first cart components, named homepage section partials, and public app-hook surfaces. Do not port stack-specific implementation details across themes unless the current theme already uses that stack.
+
+Never recommend replacing a working Intro Bootstrap runtime -- including its
+jQuery lifecycle, SCSS pipeline, and GraphQL fetch client -- with Spark's Web
+Components or Tailwind stack merely because Spark is newer. A theme-family
+migration is a separate, owner-approved project, not a byproduct of a design or
+maintenance task.
 
 Before attributing a defect to Spark or Intro Bootstrap, compare the exact
 selector, template, asset, or line-ending behavior with the current upstream
@@ -647,11 +712,11 @@ Identify the theme family before implementation. Spark designs should map to Tai
 When a Figma source is provided, treat the Figma file as a visual spec, not merely an asset bucket. Run this loop proactively so visual deltas are found, fixed, or documented before handoff.
 
 1. **Map the design.** Identify the Figma file key, desktop/tablet/mobile frames, page/frame names, and section order. Record which storefront route/template each frame maps to. In `implementation-handoff` mode, this mapping already exists: take the file key, frames, section order, and route mapping from `figma-handoff.json`, `routes.json`, and `sections.json` instead of re-deriving them from the Figma file.
-2. **Classify every section before building.** Decide what should be semantic HTML/CSS, what should use live platform data, what should be an exported image/vector asset, and what is intentionally a static composed frame. Text, buttons, controls, product selectors, prices, tables, FAQs, and nav/footer links should normally be rendered by the theme, not baked into a screenshot. In `implementation-handoff` mode, surfaces covered by unresolved `spark-divergence-ledger.json` entries, using the resolved and unresolved definitions in the Implementation-Handoff Entry Contract, must be surfaced to the operator before building them.
+2. **Classify every section before building.** Decide what should be semantic HTML/CSS, what should use live platform data, what should be an exported image/vector asset, and what is intentionally a static composed frame. Text, buttons, controls, product selectors, prices, tables, FAQs, and nav/footer links should normally be rendered by the theme, not baked into a screenshot. In `implementation-handoff` mode, surfaces covered by unresolved `platform-divergence-ledger.json` entries, using the resolved and unresolved definitions in the Implementation-Handoff Entry Contract, must be surfaced to the operator before building them.
 3. **Extract the smallest real assets.** Inspect children, fills, masks, vectors, and hidden variants. Export the underlying image fill/vector node or intended composed asset. Full-frame exports are diagnostic unless the design intentionally calls for a static bitmap composition.
 4. **Assemble semantically.** Build sections with real DTL/HTML, CSS, accessible controls, and platform contracts. Use extracted assets only for visual media, logos, product art, iconography, or intentional composites.
 5. **Push and compare.** After upload, capture the preview URL and the matching Figma frame/section at the same viewport. In `implementation-handoff` mode, compare against the reference screenshots recorded in `viewport-coverage.json` for the matching route's `coverage` entry. A viewport has no design reference when it is globally unavailable or the route's entry lacks a `figma_ref` or marks the viewport missing (for example `documented-missing`): do not re-read the Figma file to invent one; implement responsive behavior at that viewport with theme judgment and record it in the handback as a package-documented gap. Compare section-by-section for image crop, asset choice, typography, spacing, alignment, colors, text wrapping, CTA size, touch targets, footer/header, and responsive behavior.
-6. **Create a remediation queue.** For each mismatch, mark it `fix-now`, `intentional-platform-divergence`, or `blocked-input-needed`. In `implementation-handoff` mode, mismatches already recorded as resolved in `spark-divergence-ledger.json` are `intentional-platform-divergence` items and must not be re-opened. Platform divergences include Spark PDP gallery behavior, live variant pickers, backend product imagery, app hooks, cart/auth state, and other dynamic commerce surfaces.
+6. **Create a remediation queue.** For each mismatch, mark it `fix-now`, `intentional-platform-divergence`, or `blocked-input-needed`. In `implementation-handoff` mode, mismatches already recorded as resolved in `platform-divergence-ledger.json` are `intentional-platform-divergence` items and must not be re-opened. Platform divergences include the identified family's PDP/gallery behavior, live variant pickers, backend product imagery, app hooks, cart/auth state, and other dynamic commerce surfaces.
 7. **Repeat.** Patch the `fix-now` items, push changed files only, and re-run visual/DOM checks. Continue until the page is close to Figma or every remaining difference is explicitly documented for the user.
 
 If the task covers several pages, walk one page or section group at a time. It is acceptable to use subagents for independent section audits, but give them raw Figma/build screenshots or URLs and ask for deltas, not implementation conclusions.
@@ -662,7 +727,10 @@ If the task covers several pages, walk one page or section group at a time. It i
 
 This is the **#1 time bottleneck** — design assets are merchant-specific and can't be templated.
 
-- **Fonts:** Convert to `.woff2`, create `@font-face` declarations in CSS, add font files to `assets/`
+- **Fonts:** Preserve the identified family's typography contract. Add local
+  `.woff2` assets and `@font-face` only when the design and current theme call
+  for them. In Intro Bootstrap, inspect `font_script`, `font_body`, and
+  `font_header` settings plus the derived base before changing typography.
 - **Images:** Hero images, product photography, lifestyle shots, product cutouts, and press logos must come from the merchant or the design source. Use placeholders only while blocked, and replace them before QA
 - **Icons:** Prefer inline SVG (smallest payload, style-able) or an icon font. Avoid individual image files for icons
 - **Optimization:** All assets serve via CDN. Keep routine images under 200KB when quality allows. `ntk` supports WebP, but the current accepted extension list does not include AVIF.
@@ -671,7 +739,9 @@ This is the **#1 time bottleneck** — design assets are merchant-specific and c
 
 ### Figma Asset Export Runbook
 
-Use this runbook before exporting design assets into Spark. The main rule: **do not export a visible Figma frame until you know whether it is the real asset or a composed UI artifact.**
+Use this runbook before exporting design assets into the identified theme. The
+main rule: **do not export a visible Figma frame until you know whether it is
+the real asset or a composed UI artifact.**
 
 **Identify the file key and node IDs**
 
@@ -823,10 +893,10 @@ Follow the Settings IA principles: organize by merchant mental model, 5+ setting
 ### Step 4: Template Assembly
 
 Build order:
-1. **`layouts/base.html`** — CSS custom properties from settings, global head/scripts, header/footer includes. Independently injected global components must be wrapped in their own named blocks so page templates can override or suppress them without CSS hacks.
+1. **`layouts/base.html`** — Preserve the identified family's stylesheet and script order while wiring settings, global head/scripts, and header/footer includes. Independently injected global components must be wrapped in their own named blocks when the family exposes that override surface so page templates can override or suppress them without CSS hacks.
 2. **Partials** — One per design component (`partials/header.html`, `partials/footer.html`, `partials/product_card.html`, etc.)
 3. **Page templates** — `templates/index.html`, `templates/catalogue/product.html`, etc. using `{% extends %}` and `{% block %}`
-4. **Cart/user features** — Client-side only via GraphQL + Web Components (see Side Cart recipe)
+4. **Cart/user features** — Keep per-user state client-side. In Spark, use the existing GraphQL/Web Component contract; in Intro Bootstrap, preserve the existing form POST, jQuery, GraphQL side-cart, and `{% core_js %}` integration described in `### Side Cart Customization` and `references/intro-preservation-contract.md`.
 
 ### Step 5: Styling
 
@@ -864,10 +934,14 @@ rendered element before adding another override:
 ### Step 6: Client-Side Features
 
 For per-user content (cart, auth, wishlists):
-- Use GraphQL API at `/api/graphql/` with CSRF token
-- Build as Web Components (Shadow DOM + light DOM hybrid)
-- Dispatch events on `document` for cross-component communication
-- Store cart ID in `sessionStorage` + cookie
+- Use the identified family's existing client-side API and transport contract.
+- In Spark, preserve its `/api/graphql/` requests with CSRF, Web Components,
+  document event bus, and `sessionStorage` plus cookie cart identity.
+- In Intro Bootstrap, preserve its jQuery runtime, existing GraphQL side-cart
+  fetch transport and injected endpoint, `storefront_cart_id` cookie, and
+  platform `{% core_js %}` wiring; do not retrofit Spark components or add
+  Spark transport assumptions.
+- In a custom theme, inspect and preserve the local client/runtime contract.
 
 ### Step 7: Verify & Deploy
 
@@ -1018,6 +1092,12 @@ Do not make a merchant-specific product template extend
 platform regression test. Duplicate the required product/PDP contracts in the
 standalone template and preserve the checklist below.
 
+Use the identified family's preservation strategy at the available override
+surface. **Spark:** prefer extending/overriding the theme's template blocks.
+**Intro Bootstrap:** extract and preserve the working commerce core verbatim;
+read `references/intro-preservation-contract.md` completely before changing an
+Intro buy box, scripts, cart, settings, typography, or base-layout blocks.
+
 ### Custom Spark PDP Redesigns
 
 Spark PDP work is behavior preservation first, visual matching second. A static Figma PDP can look correct while silently breaking variant matching, price updates, cart submission, subscriptions, reviews, or app tracking.
@@ -1165,9 +1245,16 @@ Menus support up to 3 levels of nesting. Read the objects reference for all `ite
 3. With variables: `{% t "cart.item_count" with count=cart.num_items %}`
 4. Push all changed locale files
 
-### Cart and User State (GraphQL — Required)
+### Cart and User State (Client-Side State Required)
 
-Because of full-page caching, all cart and user interactions must go through the Storefront GraphQL API at `/api/graphql/`. This is not optional — server-side template variables for cart/user data will be cached and show stale or wrong data to visitors.
+Because of full-page caching, cart and user state must be resolved client-side;
+server-side template variables for that per-visitor data can be cached and show
+stale or wrong data. Use the storefront GraphQL API at `/api/graphql/` for
+client-side cart reads/mutations and user queries. Preserve a family's existing
+server form POST where it is the established add-to-cart contract. The
+existence of Intro Bootstrap's server-side add-to-cart POST does not permit
+rendering per-visitor cart state in cached DTL templates; cart and user state
+must still be fetched client-side.
 
 Use GraphQL for:
 - Cart operations: `createCart`, `addCartLines`, `updateCartLines`, `removeCartLines`
@@ -1175,7 +1262,7 @@ Use GraphQL for:
 - User state: `me` query (authentication, profile)
 - Any data that varies per visitor
 
-Include CSRF token in all requests:
+For new Spark-style GraphQL requests, include the CSRF token:
 ```javascript
 function getCookie(name) {
     const value = `; ${document.cookie}`;
@@ -1195,7 +1282,18 @@ fetch('/api/graphql/', {
 })
 ```
 
+Do not force that transport example onto an existing family client. Intro
+Bootstrap's side cart uses the endpoint injected by `partials/side_cart.html`
+and its established plain fetch contract; preserve it together with the
+platform runtime.
+
 Read the public GraphQL reference for the full schema, all available queries/mutations, and example payloads.
+
+For cart-line selections, `properties { key value }` is the current storefront
+schema in both Spark and Intro Bootstrap. The former CartLineNode `attributes`
+field was removed platform-side. Keep `properties { key value }` aligned in
+create, update, and remove operations; changing only one operation leaves the
+other cart paths incompatible.
 
 ### Side Cart Customization
 
@@ -1206,6 +1304,13 @@ Side carts are one of the most common theme customization requests. Start by ide
 - Keep jQuery before `{% core_js %}` in `layouts/base.html`.
 - Style with Bootstrap 5 and existing SCSS partials.
 - Use DTL for the static shell and translations, and the existing JS for cart mutations.
+- Apply the family-neutral cart-line schema rule in
+  `### Cart and User State (Client-Side State Required)`. In Intro Bootstrap,
+  the create, update, and remove operations in `assets/js/side_cart.js` must
+  move together.
+- Preserve the `storefront_cart_id` cookie, the single delegated `change`
+  listener on `#cart-modal`, and platform-owned remove/population wiring in
+  `{% core_js %}`. See `references/intro-preservation-contract.md`.
 
 **Spark side cart pattern:**
 - Use `assets/js/spark-cart.js` as the GraphQL cart client.
@@ -1265,7 +1370,10 @@ Side carts are one of the most common theme customization requests. Start by ide
 
 - **Web Component timing**: Load component scripts BEFORE template inclusion. Use `_ensureRefs()` lazy pattern since `connectedCallback` fires before children parse. For slotted content styling, inject `<style>` into `document.head` with a guard flag (Shadow DOM styles don't reach slotted elements).
 
-- **Design from Figma**: When a design is provided (Figma, screenshot, or description), map visual elements to this component architecture. The CSS lives in the theme's SCSS/CSS, the behavior in the Web Components, and merchant-configurable values in theme settings.
+- **Design from Figma (Spark)**: When a design targets Spark, map visual
+  elements to this component architecture. For Intro Bootstrap or a custom
+  family, preserve that family's CSS and behavior contracts instead of
+  introducing Spark Web Components.
 
 **Files to create/modify:**
 
@@ -1283,7 +1391,7 @@ Side carts are one of the most common theme customization requests. Start by ide
 | `configs/settings_schema.json` | Add Side Cart settings section |
 | `css/input.css` or `sass/components/_sidecart.scss` | Side cart styling, depending on theme stack |
 
-**Important constraints:**
+**Important Spark constraints:**
 - No non-ASCII characters in JS files (platform processes through DTL engine)
 - All cart mutations require CSRF token (`X-CSRFToken` header from `csrftoken` cookie)
 - Cart ID stored in both `sessionStorage` and cookie for cross-tab persistence
