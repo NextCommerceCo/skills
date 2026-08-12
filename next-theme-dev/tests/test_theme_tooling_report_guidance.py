@@ -43,6 +43,26 @@ class ThemeToolingReportGuidanceTest(unittest.TestCase):
         self.assertNotIn("X-Theme-Template-Candidates", recipe)
         self.assertNotIn("X-Theme-Template", recipe)
 
+    def test_staged_rollout_is_labeled_observed_and_uses_marker_detection(self):
+        recipe = re.search(
+            r"^### Add a Custom Product Template\n(.*?)(?=^### |\Z)",
+            self.markdown,
+            re.MULTILINE | re.DOTALL,
+        )
+        self.assertIsNotNone(recipe)
+        recipe = recipe.group(1)
+
+        self.assertIn("Observed staged-rollout pattern", recipe)
+        self.assertRegex(
+            recipe,
+            r"`missing template ⇒ default template`\.\s+"
+            r"> \*\*Observed behavior, not platform-documented:\*\* Verify this "
+            r"fallback on\s+> the target store before relying on it\.",
+        )
+        self.assertNotRegex(recipe, r"`[^`\n]*platform-documented[^`\n]*`")
+        self.assertIn("no product-field change is needed at cutover", recipe)
+        self.assertIn("DOM marker", recipe)
+
     def test_cache_guidance_uses_network_domain_as_canonical_verification(self):
         self.assertIn(
             "Always develop, preview, debug, and verify on the `.29next.store` "
@@ -63,6 +83,135 @@ class ThemeToolingReportGuidanceTest(unittest.TestCase):
         combined = self.markdown + "\n" + self.active_publish
         self.assertNotIn("skip_cache", combined)
         self.assertNotIn("X-Theme-", combined)
+
+    def test_cache_turnover_requires_repeated_cookie_less_marker_checks(self):
+        for required in (
+            "bypasses the 5-minute mapped-domain edge cache layer, "
+            "not the page cache itself",
+            "Page-cache turnover is per-edge and non-atomic on any domain",
+            "responses for\n   several minutes",
+            "Sample repeatedly; never judge cache turnover from one fetch",
+            "cookie-less requests against the `.29next.store` network domain",
+            "exact template-specific DOM marker",
+            "supplement these screenshots; they do not replace them",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, self.markdown)
+        self.assertNotIn("bypasses caching", self.markdown)
+        self.assertNotIn("roughly", self.markdown)
+        self.assertNotIn("5 min on mapped domains", self.markdown)
+
+    def test_crlf_gotcha_and_minified_html_counting_are_explicit(self):
+        self.assertRegex(
+            self.markdown,
+            r"\| \*\*Shared\*\* \| \*\*CRLF line endings\*\* \|.*"
+            r"detect line endings first and preserve or normalize them deliberately",
+        )
+        self.assertIn("`grep -c` counts lines, not\n   occurrences", self.markdown)
+        self.assertIn(
+            "grep -o 'data-template=\"product.<template-key>\"' served.html | wc -l",
+            self.markdown,
+        )
+
+    def test_typography_preflight_resolves_effective_stack_before_styling(self):
+        preflight = re.search(
+            r"^### Step 1\.25: Effective Typography Preflight\n"
+            r"(.*?)(?=^### |\Z)",
+            self.markdown,
+            re.MULTILINE | re.DOTALL,
+        )
+        self.assertIsNotNone(preflight)
+        self.assertLess(
+            preflight.start(),
+            self.markdown.index("### Step 1.5: Figma Fidelity Loop"),
+        )
+        preflight = preflight.group(1)
+
+        for required in (
+            "Before styling any custom template",
+            "current theme settings first",
+            "then the derived rules in the base layout",
+            "store-derived base may hardcode families",
+            "Custom templates inherit this effective stack",
+            "do not redeclare fonts per node",
+            "references/intro-preservation-contract.md",
+            "`Typography Inheritance`",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, preflight)
+
+    def test_recording_remediation_contract(self):
+        fidelity_loop = re.search(
+            r"^### Step 1\.5: Figma Fidelity Loop\n(.*?)(?=^### |\Z)",
+            self.markdown,
+            re.MULTILINE | re.DOTALL,
+        )
+        self.assertIsNotNone(fidelity_loop)
+        fidelity_loop = fidelity_loop.group(1)
+
+        self.assertRegex(
+            fidelity_loop,
+            r"remediation-queue\s+entry with route, section, viewport, severity, "
+            r"and mismatch status",
+        )
+        self.assertIn("same remediation queue as step 6", fidelity_loop)
+        self.assertIn(
+            "`fix-now`, `intentional-platform-divergence`, or\n"
+            "`blocked-input-needed`",
+            fidelity_loop,
+        )
+        self.assertIn(
+            "A recording never substitutes for the visual-QA loop",
+            fidelity_loop,
+        )
+
+    def test_settings_suitability_contract(self):
+        settings_design = re.search(
+            r"^### Step 3: Settings Schema Design\n(.*?)(?=^### |\Z)",
+            self.markdown,
+            re.MULTILINE | re.DOTALL,
+        )
+        self.assertIsNotNone(settings_design)
+        settings_design = settings_design.group(1)
+
+        self.assertIn("Before hardcoding any copy", settings_design)
+        self.assertRegex(
+            settings_design,
+            r"Merchant-iterable copy such as trust lines, shipping promises, "
+            r"legal blocks,\s+and promotional text belongs in "
+            r"`settings_schema\.json` and a wired template\s+region from the start",
+        )
+
+    def test_related_template_family_is_generated_from_one_source(self):
+        family_recipe = re.search(
+            r"^### Generate a Family of Related Templates\n(.*?)(?=^### |\Z)",
+            self.markdown,
+            re.MULTILINE | re.DOTALL,
+        )
+        self.assertIsNotNone(family_recipe)
+        family_recipe = family_recipe.group(1)
+
+        self.assertRegex(
+            family_recipe,
+            r"generate every template from\s+one source: a design-system module "
+            r"plus a per-item data dictionary or map",
+        )
+        self.assertRegex(
+            family_recipe,
+            r"merchant feedback becomes data edits rather than\s+hand-editing",
+        )
+        for required in (
+            '"overview"',
+            '"details"',
+            '"headline"',
+            '"hero_asset"',
+            '"sections"',
+            "inside the theme project",
+            "`scripts/` folder",
+            "every run regenerate every template in the family",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(required, family_recipe)
 
     def test_theme_family_attribution_and_runtime_contracts_are_explicit(self):
         for required in (

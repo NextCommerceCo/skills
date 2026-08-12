@@ -1,6 +1,6 @@
 ---
 name: next-theme-dev
-version: 1.9.0
+version: 1.10.0
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
@@ -492,7 +492,7 @@ These will silently break things if ignored:
 
 ### Full-Page Caching: The Server vs. Client Boundary
 
-This is the most important architectural constraint in Next Commerce themes. All storefront pages are **fully cached for 5 minutes** on mapped domains. The cache is keyed by URL + language + currency combination — so each locale variant (EN+USD, FR+EUR, etc.) has its own cached page, and all visitors with that same locale see the same cached HTML.
+This is the most important architectural constraint in Next Commerce themes. All storefront pages are **fully cached for 5 minutes** on mapped domains. The `.29next.store` network domain bypasses that mapped-domain edge cache layer; it does not bypass the page cache itself. After a push, page-cache turnover remains per-edge and non-atomic on any domain. The cache is keyed by URL + language + currency combination — so each locale variant (EN+USD, FR+EUR, etc.) has its own cached page, and all visitors with that same locale see the same cached HTML.
 
 This means product pricing is safe in templates (it varies by currency, and the cache handles that). But per-user data — cart, authentication, wishlists — is unique to each individual and fundamentally incompatible with page caching.
 
@@ -609,8 +609,8 @@ Spark does not use jQuery or `{% core_js %}`. It uses `assets/js/spark-platform.
 
 ### CDN Caching
 
-CloudFront aggressively caches assets and full pages (5 min on mapped domains):
-- **Always develop, preview, debug, and verify on the `.29next.store` network domain** — it bypasses mapped-domain full-page caching
+CloudFront aggressively caches assets and full pages (5 minutes on mapped domains):
+- **Always develop, preview, debug, and verify on the `.29next.store` network domain** — it bypasses the 5-minute mapped-domain edge cache layer, not the page cache itself
 - Do not use a mapped public storefront domain to decide whether a change landed
 - Check the public domain only after network-domain verification, as a final customer-path smoke test
 - Do not require undocumented query parameters or response headers as proof of deployment
@@ -657,6 +657,7 @@ until the exact behavior is confirmed in that starter and version.
 | **Shared** | **Settings group ordering** | Group display order = first-seen in `settings_schema.json`, not JSON key order. Renaming a group makes it appear last |
 | **Shared** | **Settings schema shape** | `settings_schema.json` is top-level section -> group -> array of setting objects. Do not use ad hoc object maps for new public examples |
 | **Shared** | **Theme-family attribution** | Confirm the exact behavior in the current upstream starter and version before calling a merchant-theme issue a Spark or Intro Bootstrap defect |
+| **Shared** | **CRLF line endings** | Theme files may use CRLF endings. Byte-exact text edits can then fail confusingly; detect line endings first and preserve or normalize them deliberately |
 | **Shared** | **manifest.json can't be pushed** | ntk excludes `manifest.json` from push/watch. Version is set at `ntk init` only |
 | **Shared** | **Preview URL** | `https://<store-subdomain>.29next.store/?preview_theme=<theme_id>` is the canonical URL for testing unpublished theme changes |
 | **Shared** | **Preview session pinning** | Visiting `?preview_theme=<theme_id>` pins that browser session with a cookie. Use the preview indicator's **Exit preview** action or visit `/?deactivate-theme=true`; a plain URL does not exit preview |
@@ -707,6 +708,19 @@ Accept any of: Figma link, screenshot, PDF, or verbal description. Extract:
 
 Identify the theme family before implementation. Spark designs should map to Tailwind tokens, Web Components, homepage section partials, and app hooks. Intro Bootstrap designs should map to Bootstrap/SCSS and the existing jQuery/platform side cart where present. If a `DESIGN.md` exists in the project, it is the **source of truth** for all visual decisions. Read it before making UI choices. In `implementation-handoff` mode, the handoff package is the design source of record and `DESIGN.md` governs house style where the package is silent; surface direct conflicts to the operator per the Implementation-Handoff Entry Contract.
 
+### Step 1.25: Effective Typography Preflight
+
+Before styling any custom template, resolve the store's effective font stack in
+this order: current theme settings first, including font or typography controls
+supported by the identified family, then the derived rules in the base layout
+and compiled styles. A store-derived base may hardcode families that its
+upstream starter does not, so inspect the installed code and state rather than
+assuming upstream defaults. Custom templates inherit this effective stack
+unless they explicitly declare otherwise. Prefer settings-driven tokens, and
+do not redeclare fonts per node to paper over drift. For the Intro Bootstrap
+adapter, follow `references/intro-preservation-contract.md` section
+`Typography Inheritance` rather than duplicating that family contract here.
+
 ### Step 1.5: Figma Fidelity Loop
 
 When a Figma source is provided, treat the Figma file as a visual spec, not merely an asset bucket. Run this loop proactively so visual deltas are found, fixed, or documented before handoff.
@@ -718,6 +732,14 @@ When a Figma source is provided, treat the Figma file as a visual spec, not mere
 5. **Push and compare.** After upload, capture the preview URL and the matching Figma frame/section at the same viewport. In `implementation-handoff` mode, compare against the reference screenshots recorded in `viewport-coverage.json` for the matching route's `coverage` entry. A viewport has no design reference when it is globally unavailable or the route's entry lacks a `figma_ref` or marks the viewport missing (for example `documented-missing`): do not re-read the Figma file to invent one; implement responsive behavior at that viewport with theme judgment and record it in the handback as a package-documented gap. Compare section-by-section for image crop, asset choice, typography, spacing, alignment, colors, text wrapping, CTA size, touch targets, footer/header, and responsive behavior.
 6. **Create a remediation queue.** For each mismatch, mark it `fix-now`, `intentional-platform-divergence`, or `blocked-input-needed`. In `implementation-handoff` mode, mismatches already recorded as resolved in `platform-divergence-ledger.json` are `intentional-platform-divergence` items and must not be re-opened. Platform divergences include the identified family's PDP/gallery behavior, live variant pickers, backend product imagery, app hooks, cart/auth state, and other dynamic commerce surfaces.
 7. **Repeat.** Patch the `fix-now` items, push changed files only, and re-run visual/DOM checks. Continue until the page is close to Figma or every remaining difference is explicitly documented for the user.
+
+Narrated screen recordings are an optional, high-bandwidth review input.
+Transcribe the narration, turn each concrete complaint into a remediation-queue
+entry with route, section, viewport, severity, and mismatch status, then verify
+each fix individually. These entries join the same remediation queue as step 6
+and use its exact status set: `fix-now`, `intentional-platform-divergence`, or
+`blocked-input-needed`. A recording never substitutes for the visual-QA loop
+or its matching screenshots.
 
 If the task covers several pages, walk one page or section group at a time. It is acceptable to use subagents for independent section audits, but give them raw Figma/build screenshots or URLs and ask for deltas, not implementation conclusions.
 
@@ -881,6 +903,12 @@ The script cannot OCR an image or prove a badge is absent. It makes that limitat
 
 Map design tokens to merchant-configurable settings in `configs/settings_schema.json`:
 
+Before hardcoding any copy into a template, run a settings-suitability pass.
+Merchant-iterable copy such as trust lines, shipping promises, legal blocks,
+and promotional text belongs in `settings_schema.json` and a wired template
+region from the start. One settings edit should replace a template edit, push,
+and cache-wait round trip for each copy iteration.
+
 1. **Colors** → `color` type fields (primary, secondary, accent, background)
 2. **Fonts** → `text` type fields for font family names
 3. **Feature toggles** → `checkbox` type fields (show/hide sections)
@@ -950,6 +978,13 @@ For per-user content (cart, auth, wishlists):
 3. Push only changed files: `ntk push templates/index.html partials/header.html`
 4. Check dashboard-side requirements: free shipping/gift features need matching Offers (see Dashboard-Theme Bridge)
 5. Verify cart operations work end-to-end (add, remove, quantity change, checkout)
+6. When asserting on served markup, remember that `grep -c` counts lines, not
+   occurrences; minified single-line HTML therefore caps the result at one.
+   Count each match instead:
+
+   ```bash
+   grep -o 'data-template="product.<template-key>"' served.html | wc -l
+   ```
 
 Before handoff, use screenshot capability already available in the work
 environment and save real PNGs under `./qa-output`. Capture desktop at
@@ -994,6 +1029,34 @@ active-theme change, use the complete evidence ladder in
 ```
 
 3. Push both files: `ntk push configs/settings_schema.json layouts/base.html`
+
+### Generate a Family of Related Templates
+
+When several similar pages share a design system, generate every template from
+one source: a design-system module plus a per-item data dictionary or map. Any
+scripting language is acceptable. Each feedback round should regenerate the
+whole family identically, so merchant feedback becomes data edits rather than
+hand-editing the same change into multiple files.
+
+For example, the per-item data map can be keyed by template slug:
+
+```json
+{
+  "overview": {
+    "headline": "A clear overview",
+    "hero_asset": "assets/img/overview-hero.webp",
+    "sections": ["hero", "features", "faq"]
+  },
+  "details": {
+    "headline": "The useful details",
+    "hero_asset": "assets/img/details-hero.webp",
+    "sections": ["hero", "specifications", "faq"]
+  }
+}
+```
+
+Keep the generator and its data inside the theme project, for example in its
+`scripts/` folder, and make every run regenerate every template in the family.
 
 ### Add a Custom Page Template
 
@@ -1077,6 +1140,19 @@ Read the complete command output and confirm the preview route after the push.
 3. Set the product's `template` field to `<template-key>` in Dashboard or with
    the Admin API. `ntk` uploads theme files; it does not assign a product's
    template field.
+
+   **Observed staged-rollout pattern (not a documented platform contract):**
+   set the field while the custom template file exists only on the draft
+   theme. On the live theme, `missing template ⇒ default template`.
+
+   > **Observed behavior, not platform-documented:** Verify this fallback on
+   > the target store before relying on it.
+
+   Live traffic therefore stays on the default template while the preview uses
+   the custom one. Cut over by pushing the custom file and its dependencies to
+   the live theme ID; no product-field change is needed at cutover. Confirm the
+   fallback and the custom resolution separately with the DOM marker below.
+
 4. Request the product route on the preview/network domain with
    `?preview_theme=<theme-id>`. If the custom candidate is missing, invalid, or
    not assigned, resolution silently falls back to
@@ -1551,7 +1627,7 @@ Template errors show as 500 pages on the storefront. Common causes:
 - Missing `{% load %}` tags for custom template tag libraries
 - Using `{% url 'name' %}` with wrong URL name — check the URLs reference
 
-To debug: check the store's `.29next.store` domain (bypasses caching), look at the browser's network tab for 500 responses, and read the error message in the response body.
+To debug: check the store's `.29next.store` domain (it bypasses the mapped-domain edge cache layer, not the page cache itself), look at the browser's network tab for 500 responses, and read the error message in the response body.
 
 ### GraphQL Issues
 
@@ -1561,12 +1637,18 @@ To debug: check the store's `.29next.store` domain (bypasses caching), look at t
 ### Cache Issues
 
 If changes aren't appearing:
-1. Are you on the `.29next.store` domain? (Mapped domains cache for 5 min)
-2. Confirm the preview URL contains the intended `preview_theme` ID and that an old preview cookie is not selecting another theme
-3. Inspect the served HTML for the expected template-specific marker or exact changed HTML string
-4. For asset changes, request the asset URL found in the served HTML and confirm an exact changed CSS or JavaScript token. When the platform serves the built file byte-for-byte, compare the downloaded and local file checksums
-5. Hard-refresh the browser (Cmd+Shift+R)
-6. Exercise the affected behavior and compare desktop/mobile screenshots before diagnosing a propagation problem
+1. Page-cache turnover is per-edge and non-atomic on any domain. After a push, consecutive
+   fetches of the same URL can alternate between old and new responses for
+   several minutes. Sample repeatedly; never judge cache turnover from one fetch.
+2. Make cookie-less requests against the `.29next.store` network domain so a
+   preview-session cookie does not select another theme.
+3. Confirm the preview URL contains the intended `preview_theme` ID when
+   verifying an unpublished theme.
+4. Assert on the exact template-specific DOM marker or changed HTML string,
+   not general appearance.
+5. For asset changes, request the asset URL found in the served HTML and confirm an exact changed CSS or JavaScript token. When the platform serves the built file byte-for-byte, compare the downloaded and local file checksums.
+6. Hard-refresh the browser (Cmd+Shift+R).
+7. Exercise the affected behavior and compare desktop/mobile screenshots before diagnosing a propagation problem. Repeated fetches and DOM markers supplement these screenshots; they do not replace them.
 
 ---
 
