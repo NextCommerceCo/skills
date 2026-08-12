@@ -335,6 +335,72 @@ class AssetContractTest(unittest.TestCase):
                 self.assertIn(marker, result.stderr)
                 self.assertFalse(package.exists())
 
+    @unittest.skipUnless(shutil.which("node"), "node is required for generator contract execution")
+    def test_generator_uses_valid_fixture_identity_without_cli_flags(self):
+        with tempfile.TemporaryDirectory() as temp:
+            package = Path(temp) / "handoff"
+            result = subprocess.run([
+                "node", str(GENERATOR), "new-package", "--out", str(package),
+                "--project", "example-store", "--fixture",
+                str(FIXTURES / "custom-vone-package.json"),
+            ], text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            handoff = json.loads((package / "figma-handoff.json").read_text(encoding="utf-8"))
+            self.assertEqual(handoff["target"]["theme_family"], "custom")
+            self.assertEqual(handoff["target"]["runtime_contract"], "unknown")
+
+    @unittest.skipUnless(shutil.which("node"), "node is required for generator contract execution")
+    def test_generator_rejects_invalid_fixture_identity_with_fixture_labels(self):
+        with tempfile.TemporaryDirectory() as temp:
+            temp = Path(temp)
+            fixture = self.load_fixture("custom-vone-package.json")
+            fixture["handoff"]["target"]["theme_family"] = "unsupported"
+            fixture_path = temp / "invalid-fixture.json"
+            fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
+            package = temp / "handoff"
+            result = subprocess.run([
+                "node", str(GENERATOR), "new-package", "--out", str(package),
+                "--project", "example-store", "--fixture", str(fixture_path),
+            ], text=True, capture_output=True)
+            self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+            self.assertIn(
+                "fixture handoff target.theme_family must be one of",
+                result.stderr,
+            )
+            self.assertNotIn("--theme-family must be one of", result.stderr)
+            self.assertFalse(package.exists())
+
+    @unittest.skipUnless(shutil.which("node"), "node is required for generator contract execution")
+    def test_generator_rejects_identity_flag_conflicting_with_fixture(self):
+        with tempfile.TemporaryDirectory() as temp:
+            package = Path(temp) / "handoff"
+            result = subprocess.run([
+                "node", str(GENERATOR), "new-package", "--out", str(package),
+                "--project", "example-store", "--fixture",
+                str(FIXTURES / "custom-vone-package.json"),
+                "--theme-family", "spark",
+            ], text=True, capture_output=True)
+            self.assertEqual(result.returncode, 1, result.stderr + result.stdout)
+            self.assertIn(
+                '--theme-family "spark" conflicts with fixture handoff '
+                'target.theme_family "custom"',
+                result.stderr,
+            )
+            self.assertIn("fixture-provided identity governs", result.stderr)
+            self.assertFalse(package.exists())
+
+    @unittest.skipUnless(shutil.which("node"), "node is required for generator contract execution")
+    def test_same_fixture_identity_flags_pass(self):
+        with tempfile.TemporaryDirectory() as temp:
+            package = Path(temp) / "handoff"
+            result = subprocess.run([
+                "node", str(GENERATOR), "new-package", "--out", str(package),
+                "--project", "example-store", "--fixture",
+                str(FIXTURES / "custom-vone-package.json"),
+                "--theme-family", "custom", "--runtime-contract", "unknown",
+            ], text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+
     @unittest.skipUnless(shutil.which("node"), "node is required for schema validation")
     def test_theme_family_runtime_map_is_lockstep_and_fail_closed(self):
         probe = subprocess.run([
@@ -471,12 +537,10 @@ if (!errors.some((error) => error.includes('has no runtime contract policy'))) {
         for mode in ([], ["--non-strict"]):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temp:
                 package = Path(temp) / "handoff"
-                generated = subprocess.run([
-                    "node", str(GENERATOR), "new-package", "--out", str(package),
-                    "--project", "example-store", "--fixture",
-                    str(FIXTURES / "contradiction-package.json"),
-                ], text=True, capture_output=True)
-                self.assertEqual(generated.returncode, 0, generated.stderr + generated.stdout)
+                self.materialize_fixture(
+                    package,
+                    self.load_fixture("contradiction-package.json"),
+                )
                 result = subprocess.run([
                     "node", str(GENERATOR), "validate-package", str(package), *mode,
                 ], text=True, capture_output=True)

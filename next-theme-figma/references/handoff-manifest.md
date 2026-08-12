@@ -96,6 +96,12 @@ Handoff schema `next-theme-figma/handoff/v1` requires both identity fields under
 
 Spark uses `web-components`; Intro Bootstrap uses `jquery-core-js`. A `custom` theme may use any listed runtime contract. A family/runtime contradiction is always a hard validation error, including in non-strict mode.
 
+For `new-package`, `--theme-family` and `--runtime-contract` set the identity
+when no fixture handoff is supplied. When `--fixture` provides a handoff, its
+`target.theme_family` and `target.runtime_contract` govern. Supplying either
+identity flag with the same value is allowed; a flag that conflicts with the
+fixture value is a hard error.
+
 ## Divergence Decision Values
 
 Use:
