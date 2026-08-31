@@ -1,10 +1,30 @@
 """Pin the parent/variant cart identity contract in public theme guidance."""
 
+import re
 import unittest
 from pathlib import Path
 
 
 SKILL = Path(__file__).resolve().parents[1] / "SKILL.md"
+
+
+def extract_section(markdown, start, end):
+    matches = {}
+    for label, anchor in (("start", start), ("end", end)):
+        matches[label] = list(
+            re.finditer(rf"^{re.escape(anchor)}$", markdown, flags=re.MULTILINE)
+        )
+        if len(matches[label]) != 1:
+            raise AssertionError(
+                f"expected exactly one {label} heading {anchor!r}, "
+                f"found {len(matches[label])}"
+            )
+
+    start_index = matches["start"][0].end()
+    end_index = matches["end"][0].start()
+    if end_index <= start_index:
+        raise AssertionError(f"end heading {end!r} must follow start heading {start!r}")
+    return markdown[start_index:end_index]
 
 
 class TestCartProductIdentityGuidance(unittest.TestCase):
@@ -17,7 +37,7 @@ class TestCartProductIdentityGuidance(unittest.TestCase):
 
     @classmethod
     def _section(cls, start, end):
-        return cls.markdown.split(start, 1)[1].split(end, 1)[0]
+        return extract_section(cls.markdown, start, end)
 
     @staticmethod
     def _normalized(text):
@@ -34,6 +54,16 @@ class TestCartProductIdentityGuidance(unittest.TestCase):
         self.assertIn("resolves `firstof` candidates left-to-right", guidance)
         self.assertIn("standalone PK is the fallback", guidance)
 
+    def test_section_extraction_fails_loudly_for_missing_anchors(self):
+        cases = {
+            "start": ("end\n", "start", "end"),
+            "end": ("start\n", "start", "end"),
+        }
+        for label, arguments in cases.items():
+            with self.subTest(label=label):
+                with self.assertRaisesRegex(AssertionError, f"{label} heading"):
+                    extract_section(*arguments)
+
     def test_pdp_wrapper_and_form_share_the_initial_identity(self):
         guidance = self._normalized(self.pdp)
         self.assertIn(
@@ -46,9 +76,11 @@ class TestCartProductIdentityGuidance(unittest.TestCase):
 
     def test_variant_selection_updates_the_form_identity(self):
         guidance = self._normalized(self.pdp)
-        self.assertIn("preserve `SparkVariantState.updateFormAction()`", guidance)
+        self.assertIn("`SparkVariantState.updateFormAction()`", guidance)
+        self.assertIn("spark-variant-state.js#L75-L80", guidance)
         self.assertIn("form action follows the selected child", guidance)
-        self.assertIn("reads the updated form action", guidance)
+        self.assertIn("gives that form action precedence", guidance)
+        self.assertIn("spark-add-to-cart.js#L132-L145", guidance)
 
     def test_form_and_graphql_share_the_identity_rule(self):
         guidance = self._normalized(self.side_cart)
@@ -56,7 +88,8 @@ class TestCartProductIdentityGuidance(unittest.TestCase):
         self.assertIn("`addCartLines`", guidance)
         self.assertIn("require `result.success`", guidance)
         self.assertIn("compare the returned or re-fetched cart", guidance)
-        self.assertIn("total quantity must increase by the requested amount", guidance)
+        self.assertIn("quantities across every line", guidance)
+        self.assertIn("aggregate must increase by the requested amount", guidance)
 
 
 if __name__ == "__main__":
