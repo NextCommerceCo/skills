@@ -4,15 +4,17 @@
 from __future__ import annotations
 
 import argparse
-import json
-import re
 import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from skill_catalog import (  # noqa: E402
+    SEMVER_RE,
+    load_manifest_text,
+    validate_catalog,
+)
 
-SEMVER_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
-FRONTMATTER_VERSION_RE = re.compile(r"^version:\s*['\"]?([^'\"\s]+)", re.MULTILINE)
 
 
 def semver(value: str) -> tuple[int, int, int]:
@@ -26,16 +28,6 @@ def run_git(root: Path, *args: str) -> str:
     return subprocess.check_output(
         ["git", "-C", str(root), *args], text=True, stderr=subprocess.STDOUT
     )
-
-
-def load_manifest_text(text: str, label: str) -> dict:
-    try:
-        manifest = json.loads(text)
-    except json.JSONDecodeError as error:
-        raise ValueError(f"{label}: invalid JSON: {error}") from error
-    if not isinstance(manifest, dict) or not isinstance(manifest.get("skills"), list):
-        raise ValueError(f"{label}: expected an object with a skills array")
-    return manifest
 
 
 def version_map(manifest: dict, label: str) -> dict[str, str]:
@@ -66,28 +58,15 @@ def changed_skill_ids(paths: list[str], known_ids: set[str]) -> set[str]:
 
 
 def validate(root: Path, base: str | None = None) -> list[str]:
-    errors: list[str] = []
+    errors = validate_catalog(root, check_readme=True)
     manifest_path = root / "skills.json"
     try:
-        manifest = load_manifest_text(manifest_path.read_text(), str(manifest_path))
+        manifest = load_manifest_text(
+            manifest_path.read_text(encoding="utf-8"), str(manifest_path)
+        )
         current_versions = version_map(manifest, "skills.json.skills")
     except (OSError, ValueError) as error:
         return [str(error)]
-
-    for entry in manifest["skills"]:
-        skill_id = entry["id"]
-        skill_path = root / entry.get("path", "")
-        if not skill_path.is_file():
-            errors.append(f"{skill_id}: SKILL.md missing at {skill_path}")
-            continue
-        match = FRONTMATTER_VERSION_RE.search(skill_path.read_text())
-        if not match:
-            errors.append(f"{skill_path}: version missing from frontmatter")
-        elif match.group(1) != entry["version"]:
-            errors.append(
-                f"{skill_path}: frontmatter version {match.group(1)!r} does not "
-                f"match skills.json {entry['version']!r}"
-            )
 
     if not base:
         return errors

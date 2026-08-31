@@ -12,9 +12,9 @@ Usage:
   ./skills.sh list
   ./skills.sh status [claude|codex|agents|all] [skill|all]
   ./skills.sh status --target <skills-dir> [skill|all]
-  ./skills.sh dry-run [claude|codex|agents|all] [skill|all]
-  ./skills.sh install [claude|codex|agents|all] [skill|all]
-  ./skills.sh install --target <skills-dir> [skill|all]
+  ./skills.sh dry-run [claude|codex|agents|all] [skill|all]  # deprecated alias: status
+  ./skills.sh install [--force] [claude|codex|agents|all] [skill|all]
+  ./skills.sh install [--force] --target <skills-dir> [skill|all]
 
 Examples:
   ./skills.sh
@@ -22,7 +22,7 @@ Examples:
   ./skills.sh install codex
   ./skills.sh install codex next-ops-scan
   ./skills.sh status --target /tmp/next-skills next-ops-scan
-  ./skills.sh dry-run --target /tmp/next-skills next-ops-scan
+  ./skills.sh install --force --target /tmp/next-skills next-ops-scan
 
 Targets:
   claude  -> ~/.claude/skills
@@ -45,12 +45,7 @@ platform_target() {
 }
 
 skill_ids() {
-  find "$ROOT" -mindepth 2 -maxdepth 2 -name SKILL.md -print |
-    while IFS= read -r path; do
-      path="${path#"$ROOT"/}"
-      printf '%s\n' "${path%/SKILL.md}"
-    done |
-    sort
+  python3 "$ROOT/scripts/skill_catalog.py" --root "$ROOT" list
 }
 
 is_skill_id() {
@@ -111,6 +106,7 @@ copy_skill() {
   local skill="$1"
   local target_dir="$2"
   local dry_run="$3"
+  local force="$4"
   local src="$ROOT/$skill"
   local dest="$target_dir/$skill"
   local parent
@@ -175,6 +171,10 @@ copy_skill() {
     "$status" "$skill" "${source_version:-unknown}" "$installed_version" "$dest"
 
   if [[ "$dry_run" == "false" ]]; then
+    if [[ "$force" != "true" && "$status" =~ ^(modified|local-newer|unknown-version)$ ]]; then
+      echo "Refusing to overwrite $status skill $dest; review it and rerun install with --force." >&2
+      return 1
+    fi
     if ! mkdir -p "$parent"; then
       echo "Failed to create target parent $parent" >&2
       return 1
@@ -225,6 +225,7 @@ sync_target() {
   local target_dir="$1"
   local skill_filter="$2"
   local dry_run="$3"
+  local force="$4"
   local skill
   local resolved
   local failed=0
@@ -233,7 +234,7 @@ sync_target() {
   resolved="$(resolve_skills "$skill_filter")" || return 2
   while IFS= read -r skill; do
     [[ -n "$skill" ]] || continue
-    if ! copy_skill "$skill" "$target_dir" "$dry_run"; then
+    if ! copy_skill "$skill" "$target_dir" "$dry_run" "$force"; then
       failed=1
     fi
   done <<< "$resolved"
@@ -244,24 +245,45 @@ sync_platform() {
   local platform="$1"
   local skill_filter="$2"
   local dry_run="$3"
+  local force="$4"
   local failed=0
   local target_dir
+  local canonical
+  local seen_targets=""
   local rc
 
   if [[ "$platform" == "all" ]]; then
-    sync_platform claude "$skill_filter" "$dry_run" || { rc=$?; [[ "$rc" -eq 2 ]] && return 2; [[ "$failed" -lt "$rc" ]] && failed="$rc"; }
-    sync_platform codex "$skill_filter" "$dry_run" || { rc=$?; [[ "$rc" -eq 2 ]] && return 2; [[ "$failed" -lt "$rc" ]] && failed="$rc"; }
-    sync_platform agents "$skill_filter" "$dry_run" || { rc=$?; [[ "$rc" -eq 2 ]] && return 2; [[ "$failed" -lt "$rc" ]] && failed="$rc"; }
+    for platform in claude codex agents; do
+      target_dir="$(platform_target "$platform")" || return 2
+      if ! canonical="$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).expanduser().resolve(strict=False))' "$target_dir")"; then
+        echo "Failed to resolve physical target $target_dir; Python 3 is required." >&2
+        return 1
+      fi
+      if [[ -z "$canonical" ]]; then
+        echo "Resolved physical target is empty for $target_dir." >&2
+        return 1
+      fi
+      if printf '%s\n' "$seen_targets" | grep -Fqx "$canonical"; then
+        printf '\nSkipping duplicate target: %s -> %s\n' "$target_dir" "$canonical"
+        continue
+      fi
+      seen_targets="${seen_targets}${canonical}"$'\n'
+      sync_target "$target_dir" "$skill_filter" "$dry_run" "$force" || {
+        rc=$?
+        [[ "$rc" -eq 2 ]] && return 2
+        [[ "$failed" -lt "$rc" ]] && failed="$rc"
+      }
+    done
     return "$failed"
   fi
 
   target_dir="$(platform_target "$platform")" || return 2
-  sync_target "$target_dir" "$skill_filter" "$dry_run"
+  sync_target "$target_dir" "$skill_filter" "$dry_run" "$force"
 }
 
 guided() {
   if [[ ! -t 0 ]]; then
-    sync_platform all all true
+    sync_platform all all true false
     return
   fi
 
@@ -295,14 +317,14 @@ guided() {
 
   echo
   echo "Preview:"
-  sync_platform "$platform" "$skill_filter" true
+  sync_platform "$platform" "$skill_filter" true false
 
   echo
   printf 'Install these changes? [y/N]: '
   read -r confirm
   case "$confirm" in
     y|Y|yes|YES)
-      if ! sync_platform "$platform" "$skill_filter" false; then
+      if ! sync_platform "$platform" "$skill_filter" false false; then
         echo
         echo "Install completed with errors." >&2
         return 1
@@ -330,35 +352,41 @@ case "$action" in
       skill_filter="${3:-all}"
       [[ -n "$target" ]] || { echo "Missing --target directory." >&2; exit 2; }
       [[ $# -le 3 ]] || { echo "Too many arguments for status --target." >&2; exit 2; }
-      sync_target "$target" "$skill_filter" true
+      sync_target "$target" "$skill_filter" true false
     else
       platform="${1:-all}"
       skill_filter="${2:-all}"
       [[ $# -le 2 ]] || { echo "Too many arguments for status." >&2; exit 2; }
-      sync_platform "$platform" "$skill_filter" true
+      sync_platform "$platform" "$skill_filter" true false
     fi
     ;;
   dry-run)
+    echo "warning: dry-run is deprecated; use status" >&2
     if [[ "${1:-}" == "--target" ]]; then
       target="${2:-}"
       skill_filter="${3:-all}"
       [[ -n "$target" ]] || { echo "Missing --target directory." >&2; exit 2; }
       [[ $# -le 3 ]] || { echo "Too many arguments for dry-run --target." >&2; exit 2; }
-      sync_target "$target" "$skill_filter" true
+      sync_target "$target" "$skill_filter" true false
     else
       platform="${1:-all}"
       skill_filter="${2:-all}"
       [[ $# -le 2 ]] || { echo "Too many arguments for dry-run." >&2; exit 2; }
-      sync_platform "$platform" "$skill_filter" true
+      sync_platform "$platform" "$skill_filter" true false
     fi
     ;;
   install)
+    force="false"
+    if [[ "${1:-}" == "--force" ]]; then
+      force="true"
+      shift
+    fi
     if [[ "${1:-}" == "--target" ]]; then
       target="${2:-}"
       skill_filter="${3:-all}"
       [[ -n "$target" ]] || { echo "Missing --target directory." >&2; exit 2; }
       [[ $# -le 3 ]] || { echo "Too many arguments for install --target." >&2; exit 2; }
-      if ! sync_target "$target" "$skill_filter" false; then
+      if ! sync_target "$target" "$skill_filter" false "$force"; then
         echo
         echo "Install completed with errors." >&2
         exit 1
@@ -369,7 +397,7 @@ case "$action" in
       platform="${1:-all}"
       skill_filter="${2:-all}"
       [[ $# -le 2 ]] || { echo "Too many arguments for install." >&2; exit 2; }
-      if ! sync_platform "$platform" "$skill_filter" false; then
+      if ! sync_platform "$platform" "$skill_filter" false "$force"; then
         echo
         echo "Install completed with errors." >&2
         exit 1
@@ -381,7 +409,7 @@ case "$action" in
   claude|codex|agents|all)
     skill_filter="${1:-all}"
     [[ $# -le 1 ]] || { echo "Too many arguments for $action." >&2; exit 2; }
-    if ! sync_platform "$action" "$skill_filter" false; then
+    if ! sync_platform "$action" "$skill_filter" false false; then
       echo
       echo "Install completed with errors." >&2
       exit 1
