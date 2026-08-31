@@ -42,7 +42,7 @@ their READMEs (for example, `next-theme-figma` runs upstream of
 For most Next Commerce users, the most reliable path is to clone this repo and
 run the bundled installer. It previews changes before writing, supports common
 local agent profiles, and does not depend on external installer UX changing over
-time.
+time. The installer uses Python 3 to read and validate the canonical catalog.
 
 **Clone and run the guided installer:**
 
