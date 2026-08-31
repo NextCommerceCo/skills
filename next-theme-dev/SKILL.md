@@ -666,7 +666,7 @@ until the exact behavior is confirmed in that starter and version.
 | **Shared** | **Figma export overlays** | Figma frames often include labels, badges, card UI, shadows, or text that the theme also renders. Inspect the node tree before export; export the clean underlying image/fill when the overlay is theme UI |
 | **Shared** | **Build artifacts must be committed** | The platform doesn't compile CSS/JS server-side and doesn't preserve binaries on push. Compiled CSS must be checked in or the theme is unstyled on install. Gitignore the toolchain and commit the artifact |
 | **Intro Bootstrap** | **jQuery before core_js** | Preserve jQuery before `{% core_js %}` and retain the existing platform cart/side-cart scripts unless intentionally replacing that stack |
-| **Spark** | **Resolve purchasable cart identity** | A product picker can return a parent or a standalone product. For a server-rendered default, use `{% firstof settings.gift_product.children.first.pk settings.gift_product.pk as gift_product_pk %}`. If the UI exposes variant choice, submit the selected child's PK rather than always using the first child. |
+| **Spark** | **Resolve purchasable cart identity** | A product picker can return a parent or a standalone product. For a server-rendered default, use `{% firstof settings.gift_product.children.first.pk settings.gift_product.pk as gift_product_pk %}`. Django resolves `firstof` candidates left-to-right and treats a missing `children.first.pk` lookup as false, so the standalone PK is the fallback. If the UI exposes variant choice, submit the selected child's PK rather than always using the first child. Use a role-specific assigned name such as `gift_product_pk` for a configured gift or `atc_pk` for a PDP form. |
 | **Spark** | **Reward thresholds** | Spark core exposes one default threshold pair. Currency-specific reward rules belong in a theme-developer extension, not hard-coded starter settings |
 | **Spark** | **Shadow DOM ≠ slotted styles** | Shadow DOM styles don't apply to slotted light-DOM content. Inject a guarded `<style>` tag into `document.head` when that pattern is required |
 | **Spark** | **connectedCallback fires early** | `connectedCallback` can fire before child elements are parsed. Use a lazy `_ensureRefs()` pattern plus `requestAnimationFrame` for initial updates |
@@ -1191,7 +1191,7 @@ Before changing `templates/catalogue/product.html`, read the local Spark docs if
 | Variant controls | Keep real controls named `attr_<code>` from `variant_form`. Custom swatches/buttons must update those real controls and values. |
 | Price bindings | Keep a visible price node with `data-price` and a compare-at node with `data-price-retail`, hidden when empty. |
 | Quantity | Keep a real `quantity` field or `<spark-quantity name="quantity">` inside the cart form. |
-| Add-to-cart form | Resolve `{% firstof product.children.first.pk product.pk as atc_pk %}` before the form. Keep `id="add-to-cart"`, CSRF, hidden `cart_form` fields, submit button, and POST action to `{% url 'cart:add' pk=atc_pk %}`. If the PDP has a variant chooser, keep the submitted PK synchronized to the selected child. |
+| Add-to-cart form | Resolve `{% firstof product.children.first.pk product.pk as atc_pk %}` before the wrapper and form. Initialize both `<spark-add-to-cart product-id="{{ atc_pk }}">` and the POST action `{% url 'cart:add' pk=atc_pk %}` from that identity. Keep `id="add-to-cart"`, CSRF, hidden `cart_form` fields, and the submit button. If the PDP has a variant chooser, preserve `SparkVariantState.updateFormAction()` so the form action follows the selected child; `spark-add-to-cart` reads the updated form action before its fallback `product-id`. |
 | Subscription hooks | Preserve `<spark-subscription>` when `product.get_interval` and `interval_count_choices` exist. |
 | App hooks | Preserve PDP app hooks such as `product_rating_summary`, `product_info`, `product_footer`, `product_reviews`, `product_review_cta`, `view_product`, and `add_to_cart`. |
 | Inventory states | Preserve `session.availability.is_available_to_buy` branches and selected-variant CTA disablement. |
@@ -1437,9 +1437,15 @@ Side carts are one of the most common theme customization requests. Start by ide
 - **Cart product identity**: cart lines require a purchasable product PK. Resolve
   a parent product to the selected child variant; let a standalone product use
   its own PK. For a server-rendered default with no chooser, use
-  `{% firstof product.children.first.pk product.pk as atc_pk %}`. The identity
-  rule applies to form posts and GraphQL `addCartLines`; their failure responses
-  can still differ, so verify that the cart changed.
+  `{% firstof product.children.first.pk product.pk as atc_pk %}`. Django's
+  [`firstof`](https://docs.djangoproject.com/en/4.2/ref/templates/builtins/#firstof)
+  tag resolves candidates left-to-right, so an empty child lookup falls back to
+  the standalone PK. The same identity rule applies to form posts and GraphQL
+  `addCartLines`. For GraphQL, require `result.success`, surface `result.errors`,
+  and compare the returned or re-fetched cart with its pre-mutation state: the
+  selected product PK must be present and its total quantity must increase by
+  the requested amount. Apply the same before/after cart check to the native
+  form path after its response completes.
 
 - **Reward thresholds**: Core Spark uses one default threshold pair (`usd_goal_1`, `usd_goal_2`). Do not expose hard-coded multi-currency fields in the starter. If a merchant needs store-specific currency logic, extend the wrapper partial and schema deliberately.
 
