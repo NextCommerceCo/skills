@@ -165,6 +165,8 @@ the skill). To add a new skill:
 9. Run `python3 scripts/check_skill_versions.py --base origin/main`
 10. Open a PR
 
+CI auto-discovers `tests/` directories and `.js` files, so adding a new skill does not require editing the CI workflow.
+
 ### Skill versioning
 
 Every tracked file inside a skill directory is part of that skill's versioned

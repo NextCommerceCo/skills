@@ -47,18 +47,21 @@ jobs:
           find . -path ./.git -prune -o -name '*.py' -print \
             | xargs -I{} python3 -m py_compile {}
       - name: Node syntax check
-        run: node --check next-theme-figma/scripts/theme-figma.js
+        run: |
+          set -euo pipefail
+          js_files=$(find . -name '*.js' -not -path './.git/*' | sort)
+          [ -n "$js_files" ]
+          while IFS= read -r f; do
+            node --check "$f"
+          done <<< "$js_files"
+      - name: Installer syntax check
+        run: bash -n skills.sh
       - name: Offline unit tests (no live API calls)
         run: |
-          set -e
-          for d in \
-            next-bulk-move/tests \
-            next-bulk-fulfill/tests \
-            next-bulk-subscription/tests \
-            next-ops-scan/tests \
-            next-theme-dev/tests \
-            next-theme-figma/tests \
-            scripts/tests; do
+          set -euo pipefail
+          test_dirs=$(find . -type d -name tests -not -path './.git/*' | sort)
+          [ "$(awk 'NF { count++ } END { print count + 0 }' <<< "$test_dirs")" -ge 7 ]
+          while IFS= read -r d; do
             echo "== $d =="
             python3 -m unittest discover -s "$d"
-          done
+          done <<< "$test_dirs"
