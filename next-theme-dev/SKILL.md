@@ -1,6 +1,6 @@
 ---
 name: next-theme-dev
-version: 1.10.0
+version: 1.10.1
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
@@ -666,7 +666,7 @@ until the exact behavior is confirmed in that starter and version.
 | **Shared** | **Figma export overlays** | Figma frames often include labels, badges, card UI, shadows, or text that the theme also renders. Inspect the node tree before export; export the clean underlying image/fill when the overlay is theme UI |
 | **Shared** | **Build artifacts must be committed** | The platform doesn't compile CSS/JS server-side and doesn't preserve binaries on push. Compiled CSS must be checked in or the theme is unstyled on install. Gitignore the toolchain and commit the artifact |
 | **Intro Bootstrap** | **jQuery before core_js** | Preserve jQuery before `{% core_js %}` and retain the existing platform cart/side-cart scripts unless intentionally replacing that stack |
-| **Spark** | **Product picker returns parent PK** | `settings.gift_product` gives the parent product PK. For cart operations (`addCartLines`), use `.children.first.pk` to get the variant ID |
+| **Spark** | **Resolve purchasable cart identity** | A product picker can return a parent or a standalone product. For a server-rendered default, use `{% firstof settings.gift_product.children.first.pk settings.gift_product.pk as gift_product_pk %}`. Platform-pinned Django 4.2 resolves `firstof` candidates left-to-right and treats a missing `children.first.pk` lookup as false, so the standalone PK is the fallback. If the UI exposes variant choice, submit the selected child's PK rather than always using the first child. |
 | **Spark** | **Reward thresholds** | Spark core exposes one default threshold pair. Currency-specific reward rules belong in a theme-developer extension, not hard-coded starter settings |
 | **Spark** | **Shadow DOM ≠ slotted styles** | Shadow DOM styles don't apply to slotted light-DOM content. Inject a guarded `<style>` tag into `document.head` when that pattern is required |
 | **Spark** | **connectedCallback fires early** | `connectedCallback` can fire before child elements are parsed. Use a lazy `_ensureRefs()` pattern plus `requestAnimationFrame` for initial updates |
@@ -1191,7 +1191,7 @@ Before changing `templates/catalogue/product.html`, read the local Spark docs if
 | Variant controls | Keep real controls named `attr_<code>` from `variant_form`. Custom swatches/buttons must update those real controls and values. |
 | Price bindings | Keep a visible price node with `data-price` and a compare-at node with `data-price-retail`, hidden when empty. |
 | Quantity | Keep a real `quantity` field or `<spark-quantity name="quantity">` inside the cart form. |
-| Add-to-cart form | Keep `id="add-to-cart"`, CSRF, hidden `cart_form` fields, submit button, and POST action to `{% url 'cart:add' pk=product.pk %}`. |
+| Add-to-cart form | Resolve `{% firstof product.children.first.pk product.pk as atc_pk %}` before the wrapper and form. Initialize both `<spark-add-to-cart product-id="{{ atc_pk }}">` and the POST action `{% url 'cart:add' pk=atc_pk %}` from that identity. Keep `id="add-to-cart"`, CSRF, hidden `cart_form` fields, and the submit button. If the PDP has a variant chooser, preserve [`SparkVariantState.updateFormAction()`](https://github.com/NextCommerceCo/spark/blob/1.1.3/assets/js/spark-variant-state.js#L75-L80) so the form action follows the selected child. The [Spark add-to-cart resolver](https://github.com/NextCommerceCo/spark/blob/1.1.3/assets/js/components/spark-add-to-cart.js#L132-L145) gives that form action precedence over its fallback `product-id`. |
 | Subscription hooks | Preserve `<spark-subscription>` when `product.get_interval` and `interval_count_choices` exist. |
 | App hooks | Preserve PDP app hooks such as `product_rating_summary`, `product_info`, `product_footer`, `product_reviews`, `product_review_cta`, `view_product`, and `add_to_cart`. |
 | Inventory states | Preserve `session.availability.is_available_to_buy` branches and selected-variant CTA disablement. |
@@ -1434,7 +1434,23 @@ Side carts are one of the most common theme customization requests. Start by ide
 
 - **Success validation**: Check `result.success` not `result.cart.numItems > 0`. The latter fails on empty cart after removing last item. Surface `result.errors` array for descriptive messages instead of generic "Could not add to cart".
 
-- **Product picker PK gotcha**: `settings.gift_product` returns the parent product PK. For cart operations (`addCartLines`), use `.children.first.pk` to get the actual variant ID.
+- **Cart product identity**: cart lines require a purchasable product PK. Resolve
+  a parent product to the selected child variant; let a standalone product use
+  its own PK. For a server-rendered default with no chooser, use
+  `{% firstof product.children.first.pk product.pk as atc_pk %}`. On
+  platform-pinned Django 4.2, the
+  [`firstof`](https://docs.djangoproject.com/en/4.2/ref/templates/builtins/#firstof)
+  tag resolves candidates left-to-right, so an empty child lookup falls back to
+  the standalone PK. The same identity rule applies to form posts and GraphQL
+  `addCartLines`. For GraphQL, require `result.success`, surface `result.errors`,
+  and compare the returned or re-fetched cart with its pre-mutation state. First
+  capture the purchasable leaf PK actually submitted: `atc_pk` for the
+  server-rendered default, or the selected child PK from the updated form action
+  or GraphQL `productId` after a variant choice. Sum quantities across every
+  line whose `product.pk` matches that submitted leaf PK; the aggregate must
+  increase by the requested amount whether the server merges an existing line
+  or creates a new one. Apply the same before/after cart check to the native
+  form path after its response completes.
 
 - **Reward thresholds**: Core Spark uses one default threshold pair (`usd_goal_1`, `usd_goal_2`). Do not expose hard-coded multi-currency fields in the starter. If a merchant needs store-specific currency logic, extend the wrapper partial and schema deliberately.
 
