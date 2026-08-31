@@ -555,6 +555,16 @@ function validatePackage(dir, strict = true) {
       if (!route.figma_frames || !Object.values(route.figma_frames).some((frame) => frame && frame.node_id)) {
         issue(strict, errors, warnings, `${route.route_id || 'route'}: no Figma route frame node IDs recorded`);
       }
+      for (const name of ['desktop', 'tablet', 'mobile']) {
+        checkPackageFile(
+          dir,
+          (route.reference_screenshots || {})[name],
+          `${route.route_id || 'route'}: reference_screenshots.${name}`,
+          strict,
+          errors,
+          warnings,
+        );
+      }
     }
   }
 
@@ -666,6 +676,22 @@ function validatePackage(dir, strict = true) {
           errors.push(`viewport-coverage.json: ${name} expected_width must be a number`);
         } else if (!VIEWPORT_WIDTHS[name].has(width)) {
           errors.push(`viewport-coverage.json: ${name} expected_width must be one of ${Array.from(VIEWPORT_WIDTHS[name]).join(', ')}`);
+        }
+      }
+    }
+  }
+  for (const entry of coverageEntries || []) {
+    for (const name of ['desktop', 'tablet', 'mobile']) {
+      if (entry[name] && typeof entry[name] === 'object') {
+        for (const reference of ['figma_ref', 'preview_ref']) {
+          checkPackageFile(
+            dir,
+            entry[name][reference],
+            `${entry.route_id || 'coverage'}: ${name}.${reference}`,
+            strict,
+            errors,
+            warnings,
+          );
         }
       }
     }
@@ -788,6 +814,17 @@ function themeIdentityErrors(family, runtime, familyLabel, runtimeLabel) {
 
 function issue(strict, errors, warnings, message) {
   (strict ? errors : warnings).push(message);
+}
+
+function checkPackageFile(dir, value, label, strict, errors, warnings) {
+  if (typeof value !== 'string' || !value) return;
+  if (path.isAbsolute(value) || value.split(/[\\/]/).includes('..')) {
+    errors.push(`${label}: must be a relative path inside the package`);
+    return;
+  }
+  if (!fs.existsSync(path.join(dir, value))) {
+    issue(strict, errors, warnings, `${label}: file not found: ${value}`);
+  }
 }
 
 function readFixture(file) {

@@ -1,6 +1,6 @@
 ---
 name: next-theme-figma
-version: 0.4.1
+version: 0.4.2
 description: |
   Prepare Figma storefront designs for NEXT Commerce theme
   implementation handoff. Use when auditing, inspecting, extracting assets
@@ -215,6 +215,8 @@ node <skill-dir>/scripts/theme-figma.js validate-package /path/to/handoff/exampl
 ```
 
 Validation is strict by default: placeholder or incomplete routes, nodes, assets, and divergence entries fail. Use `--non-strict` only while drafting. `new-package` refuses to replace its package files unless `--force` is supplied explicitly.
+
+Strict validation also fails when a `reference_screenshots` or `figma_ref`/`preview_ref` path does not exist inside the package (non-strict warns).
 
 A complete handoff includes:
 

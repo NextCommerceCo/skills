@@ -46,6 +46,23 @@ class AssetContractTest(unittest.TestCase):
         (package / "validation-checklist.md").write_text(
             "# Validation checklist\n", encoding="utf-8"
         )
+        self.materialize_reference_files(package, fixture)
+
+    def materialize_reference_files(self, package, fixture):
+        references = []
+        for route in fixture["routes"].get("routes", []):
+            references.extend(route.get("reference_screenshots", {}).values())
+        for entry in fixture["coverage"].get("coverage", []):
+            for name in ("desktop", "tablet", "mobile"):
+                viewport = entry.get(name)
+                if isinstance(viewport, dict):
+                    references.extend(
+                        viewport.get(field) for field in ("figma_ref", "preview_ref")
+                    )
+        for reference in filter(None, references):
+            target = package / reference
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"reference")
 
     def run_downstream_asset(self, temp, filename, declared_format, *, requires_alpha=None,
                              contents=None, alt="Example icon"):
@@ -208,6 +225,7 @@ class AssetContractTest(unittest.TestCase):
                 "--project", "example-store", "--fixture", str(generator_fixture),
             ], text=True, capture_output=True)
             self.assertEqual(generated.returncode, 0, generated.stderr + generated.stdout)
+            self.materialize_reference_files(package, generator_input)
 
             generated_assets = json.loads((package / "assets.json").read_text(encoding="utf-8"))
             self.assertEqual(generated_assets["assets"][0]["asset_url_path"], "img/example-store/hero.svg")
@@ -483,6 +501,10 @@ if (!errors.some((error) => error.includes('has no runtime contract policy'))) {
                     "--project", "example-store", "--fixture", str(FIXTURES / fixture_name),
                 ], text=True, capture_output=True)
                 self.assertEqual(generated.returncode, 0, generated.stderr + generated.stdout)
+                self.materialize_reference_files(
+                    package,
+                    self.load_fixture(fixture_name),
+                )
                 result = subprocess.run([
                     "node", str(GENERATOR), "validate-package", str(package),
                 ], text=True, capture_output=True)
