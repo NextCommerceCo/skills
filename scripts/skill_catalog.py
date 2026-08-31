@@ -17,6 +17,7 @@ from pathlib import Path
 
 SEMVER_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 SKILL_ID_RE = re.compile(r"^next-[a-z0-9]+(?:-[a-z0-9]+)*$")
+DOMAIN_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 FRONTMATTER_FIELD_RE = re.compile(
     r"^(?P<field>name|version):\s*['\"]?(?P<value>[^'\"\s]+)", re.MULTILINE
 )
@@ -79,7 +80,9 @@ def catalog_entries(manifest: dict, label: str = "skills.json.skills") -> list[d
             raise CatalogError(
                 f"{item_label} ({skill_id}): path must be {expected_path!r}, got {path!r}"
             )
-        _nonempty_string(entry, "domain", item_label)
+        domain = _nonempty_string(entry, "domain", item_label)
+        if not DOMAIN_RE.fullmatch(domain):
+            raise CatalogError(f"{item_label} ({skill_id}): invalid domain {domain!r}")
         _nonempty_string(entry, "description", item_label)
         _string_list(entry, "triggers", item_label)
         _string_list(entry, "prerequisites", item_label)
@@ -132,11 +135,11 @@ def validate_catalog(root: Path, *, check_readme: bool = False) -> list[str]:
         for field in ("name", "version"):
             if field not in fields:
                 errors.append(f"{skill_path}: {field} missing from frontmatter")
-        if fields.get("name") not in (None, skill_id):
+        if "name" in fields and fields["name"] != skill_id:
             errors.append(
                 f"{skill_path}: frontmatter name {fields['name']!r} does not match {skill_id!r}"
             )
-        if fields.get("version") not in (None, entry["version"]):
+        if "version" in fields and fields["version"] != entry["version"]:
             errors.append(
                 f"{skill_path}: frontmatter version {fields['version']!r} does not "
                 f"match skills.json {entry['version']!r}"

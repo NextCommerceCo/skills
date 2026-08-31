@@ -61,7 +61,9 @@ def validate(root: Path, base: str | None = None) -> list[str]:
     errors = validate_catalog(root, check_readme=True)
     manifest_path = root / "skills.json"
     try:
-        manifest = load_manifest_text(manifest_path.read_text(), str(manifest_path))
+        manifest = load_manifest_text(
+            manifest_path.read_text(encoding="utf-8"), str(manifest_path)
+        )
         current_versions = version_map(manifest, "skills.json.skills")
     except (OSError, ValueError) as error:
         return [str(error)]

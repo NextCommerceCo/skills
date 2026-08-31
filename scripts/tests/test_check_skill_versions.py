@@ -119,6 +119,16 @@ class SkillVersionTests(unittest.TestCase):
                 any("generated skills table is stale" in error for error in versions.validate(root))
             )
 
+    def test_domain_must_use_catalog_slug_format(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_skill(root, "1.0.0")
+            manifest = json.loads((root / "skills.json").read_text())
+            manifest["skills"][0]["domain"] = "bad/domain"
+            (root / "skills.json").write_text(json.dumps(manifest))
+
+            self.assertTrue(any("invalid domain" in error for error in versions.validate(root)))
+
 
 if __name__ == "__main__":
     unittest.main()

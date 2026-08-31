@@ -255,7 +255,14 @@ sync_platform() {
   if [[ "$platform" == "all" ]]; then
     for platform in claude codex agents; do
       target_dir="$(platform_target "$platform")" || return 2
-      canonical="$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).expanduser().resolve(strict=False))' "$target_dir")"
+      if ! canonical="$(python3 -c 'import pathlib,sys; print(pathlib.Path(sys.argv[1]).expanduser().resolve(strict=False))' "$target_dir")"; then
+        echo "Failed to resolve physical target $target_dir; Python 3 is required." >&2
+        return 1
+      fi
+      if [[ -z "$canonical" ]]; then
+        echo "Resolved physical target is empty for $target_dir." >&2
+        return 1
+      fi
       if printf '%s\n' "$seen_targets" | grep -Fqx "$canonical"; then
         printf '\nSkipping duplicate target: %s -> %s\n' "$target_dir" "$canonical"
         continue
