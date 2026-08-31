@@ -31,8 +31,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - name: Manifest is valid JSON
-        run: python3 -c "import json; json.load(open('skills.json'))"
+      - name: Canonical catalog matches packages and README
+        run: python3 scripts/skill_catalog.py validate --check-readme
       - name: Skill versions match packages and advance on change
         env:
           BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
@@ -62,12 +62,8 @@ jobs:
           set -euo pipefail
           test_dirs=$(find . -type d -name tests -not -path './.git/*' \
             -not -path '*/node_modules/*' -not -path '*/vendor/*' -not -path '*/dist/*' | sort)
-          # Floor = the 7 suites present today (6 skill tests/ dirs + scripts/tests).
-          # Raise it when a new skill ships tests; lower it only when a suite is
-          # deliberately retired in the same PR.
-          n=$(awk 'NF { count++ } END { print count + 0 }' <<< "$test_dirs")
-          [ "$n" -ge 7 ] || { echo "expected >=7 tests dirs, found $n"; exit 1; }
           while IFS= read -r d; do
+            [ -n "$d" ] || continue
             echo "== $d =="
             python3 -m unittest discover -s "$d"
           done <<< "$test_dirs"

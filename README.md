@@ -6,15 +6,17 @@ Pre-built skills that give AI coding agents deep knowledge of the Next Commerce 
 
 ## Skills
 
-| Skill | What It Does | When to Use |
-|-------|-------------|-------------|
-| [**Theme Figma Handoff**](next-theme-figma/) | Prepare Figma storefront designs for implementation: source validation, section classification, asset manifests, Spark divergence ledger, matching visual refs, and documented coverage gaps | You have a Figma storefront/PDP/homepage design and need a low-inference handoff before `next-theme-dev` implements it |
-| [**Theme Development**](next-theme-dev/) | Build and customize storefront themes, including DTL templates, ntk CLI, Tailwind CSS, settings, side cart, active-theme publish safeguards, and visual QA | You're editing theme files, setting up a new storefront, publishing a bounded change, or debugging template and styling issues |
-| [**Bulk Fulfillment Sync**](next-bulk-fulfill/) | Update orders to Fulfilled with tracking numbers from a CSV | Your fulfillment provider shipped orders but tracking didn't sync back — orders stuck in Processing |
-| [**Bulk Fulfillment Move**](next-bulk-move/) | Move fulfillment orders between warehouse locations in bulk — by order-number file or by Product ID / SKU list | Switching fulfillment providers, or moving every FO containing a given SKU/product to a new location |
-| [**Bulk Subscription Actions**](next-bulk-subscription/) | Pause, cancel, or PATCH explicit subscription fields for a list of subscription IDs | Merchant wants to bulk-pause until a date, set supplied renewal timestamps, bulk-cancel, or migrate subscriptions between gateways |
-| [**Daily Ops Risk Scan**](next-ops-scan/) | Read-only scan for Incomplete orders, Rejected orders, and Delivery Tracking failures/staleness | You want a daily queue of risky orders and stuck shipments to reduce support friction and dispute risk |
-| [**New Campaign Setup**](next-campaigns-setup/) | Scaffold and fully configure a new Next Commerce campaign repo — brand init, starter template, campaigns.json seed, API key, store details, and analytics in one pass | Starting a new Next Commerce campaign for a brand |
+<!-- BEGIN GENERATED SKILLS TABLE -->
+| Skill | Domain | What It Does |
+|-------|--------|--------------|
+| [**Theme Figma Handoff**](next-theme-figma/) | Storefronts | Prepare Figma storefront designs for NEXT Commerce theme implementation by validating source structure, identifying the theme family and runtime contract, classifying sections and assets, recording platform divergences, and generating a low-inference handoff for next-theme-dev. |
+| [**Theme Development**](next-theme-dev/) | Storefronts | Build, modify, and debug Next Commerce storefront themes, including Spark, Intro Bootstrap, Theme Settings, ntk CLI, DTL templates, and storefront GraphQL. |
+| [**Bulk Fulfillment Tracking Sync**](next-bulk-fulfill/) | Operations | Update orders to Fulfilled status with tracking numbers from a CSV when a fulfillment provider's automation fails to sync back. |
+| [**Bulk Fulfillment Order Move**](next-bulk-move/) | Operations | Move fulfillment orders between warehouse locations in bulk — driven either by a flat file of order numbers or by a Product ID / SKU list. Handles cancellation requests for processing FOs, location discovery, and dry-run validation. |
+| [**Bulk Subscription Actions**](next-bulk-subscription/) | Operations | Apply official subscription actions (pause, cancel) or PATCH updates (renewal date, interval, gateway, address) to a list of subscription IDs from a CSV/XLSX via the Admin API. Handles baseline selection, dry-run, rate limiting, and verification. |
+| [**Daily Ops Risk Scan**](next-ops-scan/) | Operations | Run a read-only daily operations risk scan for one Next Commerce store, finding Incomplete orders, Rejected orders, and Delivery Tracking failures or stale shipments with manual next steps. |
+| [**New Campaign Setup**](next-campaigns-setup/) | Campaigns | End-to-end setup for a new CPK campaign — scaffolds the project, copies a starter template, seeds campaigns.json, downloads CLAUDE.md, then wires up config.js and campaigns.json with API key, store details, and analytics in one pass. |
+<!-- END GENERATED SKILLS TABLE -->
 
 For design-led theme work, run `next-theme-figma` before `next-theme-dev`.
 Both skills expect real screenshot evidence for visual QA, but they reuse tools
@@ -53,19 +55,22 @@ cd skills
 **Preview or install directly:**
 
 ```bash
+git pull --ff-only
 ./skills.sh status
 ./skills.sh install codex
 ./skills.sh install codex next-ops-scan
 ./skills.sh status --target /tmp/next-skills next-ops-scan
-./skills.sh dry-run --target /tmp/next-skills next-ops-scan
+./skills.sh install --force --target /tmp/next-skills next-ops-scan
 ```
 
 `status` is read-only and prints both the source and installed `SKILL.md`
 versions. A `stale` row means the installed semantic version is older;
-`modified` means the versions match but files differ; `local-newer` prevents a
-newer local copy from being mistaken for an ordinary refresh; and
-`unknown-version` means one side does not use the required `X.Y.Z` format. Use
-`dry-run` before `install` when reviewing several targets.
+`modified` means the versions match but files differ; `local-newer` means the
+installed copy has a later version; and `unknown-version` means one side does
+not use the required `X.Y.Z` format. `install` upgrades missing or stale copies,
+but refuses to overwrite `modified`, `local-newer`, or `unknown-version` copies
+unless you pass `--force`. Review those directories before forcing an update.
+The older `dry-run` command remains as a deprecated alias for `status`.
 
 Targets:
 
@@ -77,9 +82,11 @@ Targets:
 Restart local agent sessions after updating skills so the refreshed instructions
 are loaded.
 
-Updating an existing skill directory uses `rsync` so the destination path remains
-present while files are refreshed. Install `rsync` before using `skills.sh` on
-minimal environments that do not include it by default.
+First installs are staged and moved into place. Updating an existing skill
+directory uses `rsync --delete` so the destination path remains present while
+files are refreshed; a forced update therefore removes files that are not in the
+source package. Install `rsync` before updating on minimal environments that do
+not include it by default.
 
 ### Ask Your AI Tool to Install
 
@@ -139,14 +146,17 @@ prompt, context file, rule, or chat upload according to that tool's conventions.
 
 ## Machine-Readable Index
 
-For AI agents that need to programmatically discover available skills, [`skills.json`](skills.json) provides a structured manifest with skill IDs, descriptions, trigger phrases, and prerequisites. Agents can fetch this single file to decide which skill to load.
+For AI agents that need to programmatically discover available skills,
+[`skills.json`](skills.json) is the canonical catalog. It drives installer
+enumeration, the generated table above, and CI package-parity checks. Agents can
+fetch this single file to decide which skill to load.
 
 ## Prerequisites
 
-Each skill lists its own requirements in the file. Common across all skills:
-
-- Access to a Next Commerce store
-- An API key with the scopes specified by the skill (create at **Dashboard > Settings > API Access**)
+Each skill lists its own runtime, access, and tool requirements in `skills.json`
+and its package documentation. Requirements differ: some packages are read-only
+markdown, while others include Node.js or Python helpers and need platform API
+access.
 
 ## Contributing
 
@@ -158,9 +168,9 @@ the skill). To add a new skill:
 2. Add a `SKILL.md` with YAML frontmatter (`name`, `version`, `description`, `allowed-tools`) followed by the skill instructions in markdown
 3. Add a "Using This Skill" section that points to the repo install guidance
 4. Add a `README.md` written for non-technical readers: what the skill does, what the person needs, and how to ask for it — plain language, no code examples (use tables for data examples and `[!IMPORTANT]` callouts for things that matter)
-5. Add an entry to `skills.json`
-6. Update this README's skills table and any installer notes that should mention the skill
-7. Run `./skills.sh status` to confirm the local installer can discover the skill
+5. Add an entry to `skills.json`; this is the canonical catalog used by the installer
+6. Run `python3 scripts/skill_catalog.py readme --write` to regenerate the root skills table
+7. Run `./skills.sh list` to confirm the installer sees the catalog entry
 8. Bump the skill version in both `SKILL.md` and `skills.json`
 9. Run `python3 scripts/check_skill_versions.py --base origin/main`
 10. Open a PR
