@@ -88,7 +88,12 @@ class TestCartProductIdentityGuidance(unittest.TestCase):
         self.assertIn("`addCartLines`", guidance)
         self.assertIn("require `result.success`", guidance)
         self.assertIn("compare the returned or re-fetched cart", guidance)
+        self.assertIn("purchasable leaf PK actually submitted", guidance)
+        self.assertIn("`atc_pk` for the server-rendered default", guidance)
+        self.assertIn("selected child PK from the updated form action", guidance)
+        self.assertIn("GraphQL `productId`", guidance)
         self.assertIn("quantities across every line", guidance)
+        self.assertIn("matches that submitted leaf PK", guidance)
         self.assertIn("aggregate must increase by the requested amount", guidance)
 
 

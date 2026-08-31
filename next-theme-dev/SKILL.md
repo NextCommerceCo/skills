@@ -1443,11 +1443,14 @@ Side carts are one of the most common theme customization requests. Start by ide
   tag resolves candidates left-to-right, so an empty child lookup falls back to
   the standalone PK. The same identity rule applies to form posts and GraphQL
   `addCartLines`. For GraphQL, require `result.success`, surface `result.errors`,
-  and compare the returned or re-fetched cart with its pre-mutation state. Sum
-  quantities across every line whose `product.pk` matches the selected product;
-  that aggregate must increase by the requested amount whether the server
-  merges an existing line or creates a new one. Apply the same before/after cart
-  check to the native form path after its response completes.
+  and compare the returned or re-fetched cart with its pre-mutation state. First
+  capture the purchasable leaf PK actually submitted: `atc_pk` for the
+  server-rendered default, or the selected child PK from the updated form action
+  or GraphQL `productId` after a variant choice. Sum quantities across every
+  line whose `product.pk` matches that submitted leaf PK; the aggregate must
+  increase by the requested amount whether the server merges an existing line
+  or creates a new one. Apply the same before/after cart check to the native
+  form path after its response completes.
 
 - **Reward thresholds**: Core Spark uses one default threshold pair (`usd_goal_1`, `usd_goal_2`). Do not expose hard-coded multi-currency fields in the starter. If a merchant needs store-specific currency logic, extend the wrapper partial and schema deliberately.
 
