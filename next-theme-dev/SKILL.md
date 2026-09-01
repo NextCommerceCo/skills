@@ -1,6 +1,6 @@
 ---
 name: next-theme-dev
-version: 1.11.0
+version: 1.12.0
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
@@ -533,6 +533,15 @@ Product prices, categories, filters      Checkout state
 
 The `/cart/`, `/checkout/`, and `/accounts/` paths are excluded from full-page caching, but any content in shared layouts (headers, footers via `layouts/base.html`) renders on every cached page.
 
+### Never Use `{% csrf_token %}` Form POSTs for Add-to-Cart in Custom Templates
+
+Full-page caching bakes the **cache-priming visitor's** CSRF token into the cached HTML. Every other visitor in that locale gets served a token that doesn't match their own `csrftoken` cookie, so a form POST to `cart:add` fails with a 403 — intermittently, only for some visitors, and never for the developer who just primed the cache. This class of bug is extremely hard to reproduce (it presents as "add to cart randomly hangs for some users") and has caused real production incidents. The platform-recommended fix is to run the add through the Storefront GraphQL API with `X-CSRFToken` read from the `csrftoken` cookie (cookie-sourced tokens are per-visitor, so they are cache-safe).
+
+Two traps to avoid:
+
+1. **Do not "simplify" an existing GraphQL add-to-cart back to a form POST.** If a merchant theme has a custom GraphQL add-to-cart, it was almost certainly built to escape this exact bug. Reverting it reintroduces a known-solved production incident.
+2. **Do not trust platform source as permission.** The platform codebase contains mechanisms (`refresh_csrf()`, the `openSideCart` cookie) that make cached-page form POSTs look supported. These are internal plumbing for the standard Intro Bootstrap product-page flow — not a sanctioned pattern for custom templates.
+
 ### Compiled CSS Must Be Committed (Installable Themes)
 
 The platform does not compile CSS server-side. Build tools (Tailwind binary, npm, Sass CLIs) are not preserved on `ntk push` and don't come down on `ntk pull`. This means **the compiled, minified output (`assets/main.css` for Tailwind themes, the compiled CSS for SCSS themes that build locally) MUST be committed to the repo** for the theme to be installable.
@@ -678,6 +687,7 @@ until the exact behavior is confirmed in that starter and version.
 | **Shared** | **Asset path mapping** | A local file like `assets/img/merchant/hero.jpg` is uploaded as `assets/img/merchant/hero.jpg`, but templates reference it without the `assets/` prefix: `{{ 'img/merchant/hero.jpg'|asset_url }}` |
 | **Shared** | **Figma export overlays** | Figma frames often include labels, badges, card UI, shadows, or text that the theme also renders. Inspect the node tree before export; export the clean underlying image/fill when the overlay is theme UI |
 | **Shared** | **Build artifacts must be committed** | The platform doesn't compile CSS/JS server-side and doesn't preserve binaries on push. Compiled CSS must be checked in or the theme is unstyled on install. Gitignore the toolchain and commit the artifact |
+| **Shared** | **Stale stored cart IDs** | A cached cart ID (sessionStorage/cookie) goes dead after checkout completion or expiry, but mutations against it return HTTP 200 with a null payload + `errors` — silent failure if you only check truthiness. Discard the ID and recover via `createCart` (returns the session's current cart); never retry the dead ID |
 | **Intro Bootstrap** | **jQuery before core_js** | Preserve jQuery before `{% core_js %}` and retain the existing platform cart/side-cart scripts unless intentionally replacing that stack |
 | **Spark** | **Resolve purchasable cart identity** | A product picker can return a parent or a standalone product. For a server-rendered default, use `{% firstof settings.gift_product.children.first.pk settings.gift_product.pk as gift_product_pk %}`. Platform-pinned Django 4.2 resolves `firstof` candidates left-to-right and treats a missing `children.first.pk` lookup as false, so the standalone PK is the fallback. If the UI exposes variant choice, submit the selected child's PK rather than always using the first child. |
 | **Spark** | **Reward thresholds** | Spark core exposes one default threshold pair. Currency-specific reward rules belong in a theme-developer extension, not hard-coded starter settings |
@@ -1454,7 +1464,7 @@ Side carts are one of the most common theme customization requests. Start by ide
 
 - **Event bus**: Spark cart components communicate via custom events on `document`: `spark:cart:updated` (after any mutation), `spark:cart:added` (item added), `spark:cart:toggle` (open/close drawer). Other components listen on `document` for these events — no direct component coupling.
 
-- **Cart persistence**: Cart ID stored in both `sessionStorage` (fast access) and a 30-day cookie (cross-tab persistence). On page load, check `sessionStorage` first, fall back to cookie. Always sync both after cart creation.
+- **Cart persistence**: Cart ID stored in both `sessionStorage` (fast access) and a 30-day cookie (cross-tab persistence). On page load, check `sessionStorage` first, fall back to cookie. Always sync both after cart creation. **Never trust a stored cart ID blindly**: a completed checkout closes the cart and expiry kills it, but the stored ID lives on. Mutations against a dead cart return HTTP 200 with `data.addCartLines: null` plus `errors` — code that only checks for a truthy payload fails silently, and the dead ID bricks add-to-cart for the rest of the tab's life. On any mutation failure: discard the stored ID, run `createCart` (it returns the session's current cart — cheap and always valid), and retry once. Simplest robust pattern: skip caching entirely and `createCart` before each mutation, exactly like the platform's own side_cart.js does on every drawer open.
 
 - **Mutation guard**: All cart mutations must check/set an `_isMutating` flag to prevent race conditions from rapid clicks (e.g., quantity +/+ before first response returns). Reset the flag in `finally` block.
 
@@ -1512,7 +1522,7 @@ Side carts are one of the most common theme customization requests. Start by ide
 **Important Spark constraints:**
 - No non-ASCII characters in JS files (platform processes through DTL engine)
 - All cart mutations require CSRF token (`X-CSRFToken` header from `csrftoken` cookie)
-- Cart ID stored in both `sessionStorage` and cookie for cross-tab persistence
+- Cart ID stored in both `sessionStorage` and cookie for cross-tab persistence — stale IDs (post-checkout, expiry) must be discarded and recovered via `createCart`, never retried
 - Use `Intl.NumberFormat` for client-side currency formatting (matches browser locale)
 - Only push changed files with ntk, never the entire theme
 
