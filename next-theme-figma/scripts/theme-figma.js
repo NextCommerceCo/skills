@@ -818,12 +818,32 @@ function issue(strict, errors, warnings, message) {
 
 function checkPackageFile(dir, value, label, strict, errors, warnings) {
   if (typeof value !== 'string' || !value) return;
-  if (path.isAbsolute(value) || value.split(/[\\/]/).includes('..')) {
+  if (path.isAbsolute(value) || /^(?:[A-Za-z]:[\\/]|\\\\)/.test(value)) {
     errors.push(`${label}: must be a relative path inside the package`);
     return;
   }
-  if (!fs.existsSync(path.join(dir, value))) {
+  // Containment is checked on the resolved path, not the literal string, so
+  // drive-letter/UNC prefixes and symlinked segments cannot escape the package.
+  const packageRoot = path.resolve(dir);
+  const target = path.resolve(dir, value);
+  if (target !== packageRoot && !target.startsWith(packageRoot + path.sep)) {
+    errors.push(`${label}: must be a relative path inside the package`);
+    return;
+  }
+  let real;
+  try {
+    real = fs.realpathSync(target);
+  } catch {
     issue(strict, errors, warnings, `${label}: file not found: ${value}`);
+    return;
+  }
+  const realRoot = fs.realpathSync(packageRoot);
+  if (real !== realRoot && !real.startsWith(realRoot + path.sep)) {
+    errors.push(`${label}: resolves outside the package (symlink escape): ${value}`);
+    return;
+  }
+  if (!fs.statSync(real).isFile()) {
+    issue(strict, errors, warnings, `${label}: not a file: ${value}`);
   }
 }
 

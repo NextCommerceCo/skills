@@ -124,6 +124,56 @@ class ReferenceFilesTest(unittest.TestCase):
             result.stdout,
         )
 
+    def test_missing_coverage_preview_ref_fails_strict(self):
+        with tempfile.TemporaryDirectory() as temp:
+            fixture = self.load_fixture()
+            package = Path(temp) / "handoff"
+            self.materialize_fixture(package, fixture)
+            fixture["coverage"]["coverage"][0]["desktop"]["preview_ref"] = (
+                "refs/missing-preview.png"
+            )
+            self.write_manifest(package, "viewport-coverage.json", fixture["coverage"])
+
+            result = self.run_validator(package)
+
+        self.assertNotEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn(
+            "desktop.preview_ref: file not found: refs/missing-preview.png",
+            result.stdout,
+        )
+
+    def test_reference_pointing_at_directory_fails_strict(self):
+        with tempfile.TemporaryDirectory() as temp:
+            fixture = self.load_fixture()
+            package = Path(temp) / "handoff"
+            self.materialize_fixture(package, fixture)
+            fixture["routes"]["routes"][0]["reference_screenshots"]["desktop"] = "refs"
+            self.write_manifest(package, "routes.json", fixture["routes"])
+
+            result = self.run_validator(package)
+
+        self.assertNotEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("not a file: refs", result.stdout)
+
+    def test_symlink_escaping_package_is_an_error(self):
+        with tempfile.TemporaryDirectory() as temp:
+            fixture = self.load_fixture()
+            package = Path(temp) / "handoff"
+            self.materialize_fixture(package, fixture)
+            outside = Path(temp) / "outside.png"
+            outside.write_bytes(b"png")
+            link = package / "refs" / "escape.png"
+            link.symlink_to(outside)
+            fixture["routes"]["routes"][0]["reference_screenshots"]["desktop"] = (
+                "refs/escape.png"
+            )
+            self.write_manifest(package, "routes.json", fixture["routes"])
+
+            result = self.run_validator(package)
+
+        self.assertNotEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("resolves outside the package (symlink escape)", result.stdout)
+
     def test_reference_path_escaping_package_is_an_error(self):
         for mode in ((), ("--non-strict",)):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temp:
