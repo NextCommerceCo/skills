@@ -7,7 +7,7 @@
     {
       "id": "next-theme-figma",
       "name": "Theme Figma Handoff",
-      "version": "0.4.2",
+      "version": "0.5.0",
       "path": "next-theme-figma/SKILL.md",
       "domain": "storefronts",
       "description": "Prepare Figma storefront designs for NEXT Commerce theme implementation by validating source structure, identifying the theme family and runtime contract, classifying sections and assets, recording platform divergences, and generating a low-inference handoff for next-theme-dev.",
@@ -46,7 +46,7 @@
     {
       "id": "next-theme-dev",
       "name": "Theme Development",
-      "version": "1.10.1",
+      "version": "1.11.0",
       "path": "next-theme-dev/SKILL.md",
       "domain": "storefronts",
       "description": "Build, modify, and debug Next Commerce storefront themes, including Spark, Intro Bootstrap, Theme Settings, ntk CLI, DTL templates, and storefront GraphQL.",
@@ -116,7 +116,7 @@
       "version": "1.3.0",
       "path": "next-bulk-move/SKILL.md",
       "domain": "operations",
-      "description": "Move fulfillment orders between warehouse locations in bulk — driven either by a flat file of order numbers or by a Product ID / SKU list. Handles cancellation requests for processing FOs, location discovery, and dry-run validation.",
+      "description": "Move fulfillment orders between warehouse locations in bulk \u2014 driven either by a flat file of order numbers or by a Product ID / SKU list. Handles cancellation requests for processing FOs, location discovery, and dry-run validation.",
       "triggers": [
         "bulk move orders",
         "move fulfillment orders",
@@ -209,7 +209,7 @@
       "version": "1.1.3",
       "path": "next-campaigns-setup/SKILL.md",
       "domain": "campaigns",
-      "description": "End-to-end setup for a new CPK campaign — scaffolds the project, copies a starter template, seeds campaigns.json, downloads CLAUDE.md, then wires up config.js and campaigns.json with API key, store details, and analytics in one pass.",
+      "description": "End-to-end setup for a new CPK campaign \u2014 scaffolds the project, copies a starter template, seeds campaigns.json, downloads CLAUDE.md, then wires up config.js and campaigns.json with API key, store details, and analytics in one pass.",
       "canonical_context": {
         "role": "Public catalog entry for CPK setup only; Campaigns OS runtime flows should follow the campaigns-os package handoff",
         "campaigns_os_source": "https://github.com/NextCommerceCo/campaigns-os",

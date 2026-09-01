@@ -20,6 +20,8 @@ PACKAGE_FILES = (
     "assets.json",
     "platform-divergence-ledger.json",
     "viewport-coverage.json",
+    "geometry.json",
+    "copy.json",
     "validation-checklist.md",
     "notes.md",
 )
@@ -338,7 +340,7 @@ class HandoffIngestionTest(unittest.TestCase):
         with self.assertRaisesRegex(
             AssertionError,
             r"reading-order row/filename problem: table must contain "
-            r"exactly 8 data rows; found 1",
+            r"exactly {} data rows; found 1".format(len(PACKAGE_FILES)),
         ):
             assert_handoff_ingestion(self, fixture)
 
@@ -417,7 +419,9 @@ class HandoffIngestionTest(unittest.TestCase):
         with self.assertRaisesRegex(
             AssertionError,
             r"reading-order row/filename problem: table must contain "
-            r"exactly 8 data rows; found 7",
+            r"exactly {} data rows; found {}".format(
+                len(PACKAGE_FILES), len(PACKAGE_FILES) - 1
+            ),
         ):
             assert_handoff_ingestion(self, fixture)
 

@@ -1,6 +1,6 @@
 ---
 name: next-theme-dev
-version: 1.10.1
+version: 1.11.0
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
@@ -152,8 +152,11 @@ Figma source as a fallback.
 
 ### Prescribed Reading Order
 
-Read the package in this order. The documented package has all eight files; the
-strict validator requires the first seven, but does not require `notes.md`.
+Read the package in this order. The documented package has all ten files; the
+strict validator requires the first nine, but does not require `notes.md`.
+`geometry.json` and `copy.json` are required in this mode specifically: they
+are the deterministic acceptance instruments for fidelity and copy, and a
+package without them cannot be gated, only eyeballed.
 
 | Order | Package file | Implementation pass |
 |------:|--------------|---------------------|
@@ -163,8 +166,10 @@ strict validator requires the first seven, but does not require `notes.md`.
 | 4 | `assets.json` | Existing asset validation path: `scripts/validate-theme-assets.py --strict` in Step 2: Asset Preparation. |
 | 5 | `platform-divergence-ledger.json` | Intentional platform deviations: only entries with decision `platform-wins` or `figma-wins-with-guardrails` and status `approved`, `implemented`, or `accepted-gap` are pre-approved `intentional-platform-divergence` items. Do not re-litigate those resolved entries. Entries with decision `needs-approval` or `blocked`, or status `open` or `blocked`, are unresolved; surface them to the operator before implementing the affected surfaces. |
 | 6 | `viewport-coverage.json` | Responsive QA: the desktop/tablet/mobile reference set the Figma Fidelity Loop compares against. Availability is per route: check the route's `coverage` entry (`figma_ref`/`status`), not just the global `viewports` flags. |
-| 7 | `validation-checklist.md` | Completion review before handback. |
-| 8 | `notes.md` | Operator notes and unresolved questions. Read before building when present. If absent, note its absence in the handback and proceed; its absence alone is not a hard stop. |
+| 7 | `geometry.json` | The per-element boxes the build must reproduce, extracted from Figma metadata. Drives `scripts/assert-geometry.mjs`, which gates every fix round before pixel scoring. |
+| 8 | `copy.json` | The verbatim text inventory and its allowed deviations. Drives the copy lint in the builder and repair gates. |
+| 9 | `validation-checklist.md` | Completion review before handback. |
+| 10 | `notes.md` | Operator notes and unresolved questions. Read before building when present. If absent, note its absence in the handback and proceed; its absence alone is not a hard stop. |
 
 The package is the design source of record in this mode. Consult the Figma file
 only through the package, such as when exporting an asset named by a manifest.
@@ -480,6 +485,14 @@ For detailed reference on template tags, objects, filters, and settings types, u
 | Translations / i18n | `https://developers.nextcommerce.com/docs/storefront/themes/translations` |
 | Storefront GraphQL API | `https://developers.nextcommerce.com/docs/storefront/graphql` |
 
+Bundled references in this skill:
+
+| Topic | Reference |
+|-------|-----------|
+| Geometry assertion, copy lint, post-push readback, frozen-surface tests | `references/geometry-and-readback-gates.md` |
+| Active-theme publish evidence ladder | `references/active-theme-publish-and-qa.md` |
+| Intro Bootstrap preservation contract | `references/intro-preservation-contract.md` |
+
 If a local `developer-docs` checkout is available, it is useful for source-level docs changes and exact MDX references. Public merchant guidance should still point to `developers.nextcommerce.com`, not local absolute paths.
 
 When you need to know what variables a template has access to, the objects reference includes a **Template Contexts** table that maps every template path to its available view-specific variables, plus a **Dashboard Cross-Reference** showing where variable data is configured in the admin.
@@ -729,6 +742,7 @@ When a Figma source is provided, treat the Figma file as a visual spec, not mere
 2. **Classify every section before building.** Decide what should be semantic HTML/CSS, what should use live platform data, what should be an exported image/vector asset, and what is intentionally a static composed frame. Text, buttons, controls, product selectors, prices, tables, FAQs, and nav/footer links should normally be rendered by the theme, not baked into a screenshot. In `implementation-handoff` mode, surfaces covered by unresolved `platform-divergence-ledger.json` entries, using the resolved and unresolved definitions in the Implementation-Handoff Entry Contract, must be surfaced to the operator before building them.
 3. **Extract the smallest real assets.** Inspect children, fills, masks, vectors, and hidden variants. Export the underlying image fill/vector node or intended composed asset. Full-frame exports are diagnostic unless the design intentionally calls for a static bitmap composition.
 4. **Assemble semantically.** Build sections with real DTL/HTML, CSS, accessible controls, and platform contracts. Use extracted assets only for visual media, logos, product art, iconography, or intentional composites.
+4a. **Assert geometry before judging pixels.** In `implementation-handoff` mode, run `scripts/assert-geometry.mjs` against the package's `geometry.json` for the route and viewport, and run the copy lint against `copy.json`. Fix what they name before anything else. Mean per-section pixel mismatch is telemetry, never the acceptance instrument: a text block indented 40px too far moves well under 1% of a section's pixels and reads as plainly wrong, so a percentage plateaus at a "close enough" that is not. Every fix-round item cites the crop file **and** the manifest numbers for that element; the crop and the manifest win over anyone's recollection of the frame. Read `references/geometry-and-readback-gates.md` before the first run.
 5. **Push and compare.** After upload, capture the preview URL and the matching Figma frame/section at the same viewport. In `implementation-handoff` mode, compare against the reference screenshots recorded in `viewport-coverage.json` for the matching route's `coverage` entry. A viewport has no design reference when it is globally unavailable or the route's entry lacks a `figma_ref` or marks the viewport missing (for example `documented-missing`): do not re-read the Figma file to invent one; implement responsive behavior at that viewport with theme judgment and record it in the handback as a package-documented gap. Compare section-by-section for image crop, asset choice, typography, spacing, alignment, colors, text wrapping, CTA size, touch targets, footer/header, and responsive behavior.
 6. **Create a remediation queue.** For each mismatch, mark it `fix-now`, `intentional-platform-divergence`, or `blocked-input-needed`. In `implementation-handoff` mode, mismatches already recorded as resolved in `platform-divergence-ledger.json` are `intentional-platform-divergence` items and must not be re-opened. Platform divergences include the identified family's PDP/gallery behavior, live variant pickers, backend product imagery, app hooks, cart/auth state, and other dynamic commerce surfaces.
 7. **Repeat.** Patch the `fix-now` items, push changed files only, and re-run visual/DOM checks. Continue until the page is close to Figma or every remaining difference is explicitly documented for the user.
@@ -976,6 +990,18 @@ For per-user content (cart, auth, wishlists):
 1. Preview unpublished changes: `https://<store-subdomain>.29next.store/?preview_theme=<theme_id>`
 2. Always verify on the `.29next.store` network domain before checking a mapped public domain
 3. Push only changed files: `ntk push templates/index.html partials/header.html`
+3a. Run the readback gate immediately after every push:
+
+   ```bash
+   python3 <skill-dir>/scripts/readback-assert.py \
+     --expect ./qa-output/readback-expectations.json --repo-root .
+   ```
+
+   It checks route status, that the served `assets/main.css` is byte-identical
+   to the committed file, that the mapped sections rendered, and that the page
+   is a plausible height rather than a collapsed shell. Those failures are
+   otherwise found by a scoring round or a bisect of diagnostic pushes. See
+   `references/geometry-and-readback-gates.md`.
 4. Check dashboard-side requirements: free shipping/gift features need matching Offers (see Dashboard-Theme Bridge)
 5. Verify cart operations work end-to-end (add, remove, quantity change, checkout)
 6. When asserting on served markup, remember that `grep -c` counts lines, not

@@ -25,6 +25,9 @@ class ReferenceFilesTest(unittest.TestCase):
             "platform-divergence-ledger.json": fixture["divergence"],
             "viewport-coverage.json": fixture["coverage"],
         }
+        for optional in ("geometry", "copy"):
+            if optional in fixture:
+                files["{}.json".format(optional)] = fixture[optional]
         for filename, body in files.items():
             (package / filename).write_text(json.dumps(body), encoding="utf-8")
         (package / "validation-checklist.md").write_text(
