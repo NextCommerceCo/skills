@@ -188,6 +188,59 @@ class ReadbackAssertTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("no offline capture", result.stdout)
 
+    def test_capture_without_a_body_file_is_reported(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            captures = root / "captures"
+            captures.mkdir()
+            key = hashlib.sha1(PDP_URL.encode("utf-8")).hexdigest()
+            (captures / f"{key}.json").write_text(
+                json.dumps({"url": PDP_URL, "status": 200}), encoding="utf-8"
+            )
+            expect_path = root / "expect.json"
+            expect_path.write_text(json.dumps(expectations(1000)), encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable, str(SCRIPT),
+                    "--expect", str(expect_path),
+                    "--offline-dir", str(captures),
+                    "--repo-root", str(root),
+                ],
+                text=True,
+                capture_output=True,
+            )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("has no body file", result.stdout)
+
+    def test_empty_response_body_is_still_a_valid_capture(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            captures = root / "captures"
+            captures.mkdir()
+            self.capture(captures, PDP_URL, 204, b"")
+            self.capture(captures, CSS_URL, 200, b"")
+            assets = root / "assets"
+            assets.mkdir()
+            (assets / "main.css").write_bytes(b"")
+            body = expectations(self.rendered_length())
+            body["routes"][0]["expect_status"] = 204
+            del body["routes"][0]["expect_content_length"]
+            del body["routes"][0]["expect_section_count"]
+            body["routes"][0]["section_markers"] = []
+            expect_path = root / "expect.json"
+            expect_path.write_text(json.dumps(body), encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable, str(SCRIPT),
+                    "--expect", str(expect_path),
+                    "--offline-dir", str(captures),
+                    "--repo-root", str(root),
+                ],
+                text=True,
+                capture_output=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_wrong_schema_version_is_an_input_error(self):
         with tempfile.TemporaryDirectory() as temp:
             expect_path = Path(temp) / "expect.json"

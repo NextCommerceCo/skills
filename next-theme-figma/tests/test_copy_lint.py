@@ -43,9 +43,20 @@ MANIFEST = {
             "role": "cta",
             "text": "Shop the collection",
         },
+        {
+            "copy_id": "hero_note",
+            "section_id": "hero-1",
+            "node_id": "20:5",
+            "role": "body",
+            # Smart apostrophes, an em dash, and curly quotes, as the designer
+            # typed them in Figma.
+            "text": "It’s the roaster’s pick — “small batch, every week”",
+        },
     ],
     "allowed_deviations": [],
 }
+
+STRAIGHT_NOTE = "It's the roaster's pick - \"small batch, every week\""
 
 CLEAN_TEMPLATE = """<section data-geo-section="hero-1">
   <h1>{{ settings.hero_heading|default:'Everything your morning needs' }}</h1>
@@ -120,12 +131,36 @@ class CopyLintTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_smart_punctuation_is_not_copy_drift(self):
+        # The manifest holds the designer's curly quotes, apostrophes, and em
+        # dash; the template renders straight ASCII. Only normalize() makes
+        # these the same string, so this fails if that folding regresses.
         template = CLEAN_TEMPLATE.replace(
-            "Ground fresh, shipped the same week, and roasted in small batches.",
-            "Ground fresh, shipped the same week, and roasted in small batches.",
-        ).replace(
-            "<a href=\"/collections/all/\">Shop the collection</a>",
-            "<a href=\"/collections/all/\">Shop  the\n  collection</a>",
+            "</section>",
+            '  <p class="note">%s</p>\n</section>' % STRAIGHT_NOTE,
+        )
+        result = self.run_lint(MANIFEST, {"hero.html": template})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_smart_punctuation_folding_is_load_bearing(self):
+        # Negative control for the test above: with the note absent from the
+        # manifest, the same template is drift. Proves the PASS came from
+        # normalization, not from the string being ignored as a candidate.
+        manifest = json.loads(json.dumps(MANIFEST))
+        manifest["strings"] = [
+            entry for entry in manifest["strings"] if entry["copy_id"] != "hero_note"
+        ]
+        template = CLEAN_TEMPLATE.replace(
+            "</section>",
+            '  <p class="note">%s</p>\n</section>' % STRAIGHT_NOTE,
+        )
+        result = self.run_lint(manifest, {"hero.html": template})
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("NOT IN MANIFEST", result.stdout)
+
+    def test_whitespace_runs_are_not_copy_drift(self):
+        template = CLEAN_TEMPLATE.replace(
+            '<a href="/collections/all/">Shop the collection</a>',
+            '<a href="/collections/all/">Shop  the\n  collection</a>',
         )
         result = self.run_lint(MANIFEST, {"hero.html": template})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

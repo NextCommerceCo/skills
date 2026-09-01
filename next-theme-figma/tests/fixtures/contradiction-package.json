@@ -209,7 +209,7 @@
               {
                 "section_id": "buy-box-1",
                 "node_id": "20:1",
-                "selector": "[data-geo-section=\"hero-1\"]",
+                "selector": "[data-geo-section=\"buy-box-1\"]",
                 "box": {
                   "x": 0,
                   "y": 0,
@@ -285,7 +285,7 @@
               {
                 "section_id": "buy-box-1",
                 "node_id": "21:1",
-                "selector": "[data-geo-section=\"hero-1\"]",
+                "selector": "[data-geo-section=\"buy-box-1\"]",
                 "box": {
                   "x": 0,
                   "y": 0,

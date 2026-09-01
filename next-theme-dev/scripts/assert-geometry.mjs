@@ -465,6 +465,14 @@ function describeMissing(entry) {
   return `selector matched ${entry.count} elements; it must match exactly one`;
 }
 
+/**
+ * `tolerance_px` relaxes position and size only. Alignment and gap keep the
+ * run's tolerances on purpose: an element being elastic in size or position
+ * does not license it to break a shared edge or a designed gap, and those are
+ * exactly the contracts a loosened element is most likely to break. An element
+ * that should leave a shared edge belongs out of the alignment group, not
+ * inside it with a raised tolerance.
+ */
 function elementTolerance(element, tolerances) {
   if (typeof element.tolerance_px !== 'number') return tolerances;
   return { ...tolerances, position: element.tolerance_px, size: element.tolerance_px };

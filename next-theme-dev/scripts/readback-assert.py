@@ -74,9 +74,17 @@ class Fetcher:
         body_path = self.offline_dir / f"{key}.body"
         if not meta_path.is_file():
             raise RuntimeError(f"{url}: no offline capture at {meta_path}")
+        # A missing body file is a broken capture, not an empty response. Left
+        # to default to b"", it would surface as an asset-sha256 mismatch
+        # against the hash of nothing, which reads like a real serve failure.
+        # A genuinely empty response is captured as an empty file.
+        if not body_path.is_file():
+            raise RuntimeError(
+                f"{url}: offline capture at {meta_path} has no body file "
+                f"({body_path}); re-run the capture"
+            )
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        body = body_path.read_bytes() if body_path.is_file() else b""
-        return int(meta["status"]), body
+        return int(meta["status"]), body_path.read_bytes()
 
 
 def strip_markup(html: str) -> str:

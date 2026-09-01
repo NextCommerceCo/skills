@@ -97,8 +97,11 @@ the element boxes the implementation must reproduce.
 - **`gaps` record the spacing that must hold** between two siblings, so a
   changed margin is reported as a gap, not as two unrelated position deltas.
 - **`tolerance_px` on an element** overrides the comparator's position and size
-  tolerance for that element. Use it for genuinely elastic content, and record
-  why in the section's package notes.
+  tolerance for that element, and nothing else. Alignment groups and gaps keep
+  the run's tolerances: an elastic element still has to hold its shared edge
+  and its designed gap. If it should not, take it out of the alignment group
+  instead of raising its tolerance. Use `tolerance_px` for genuinely elastic
+  content, and record why in the section's package notes.
 - **`assert` names which checks the extraction can actually support**, as a
   subset of `position-x`, `position-y`, `width`, `height`. It defaults to all
   four. A Figma text layer's box is its text frame, and that is not always the

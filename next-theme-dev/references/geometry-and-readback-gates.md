@@ -65,6 +65,12 @@ still form a visibly ragged edge. Override per run with
 `--position-tolerance`, `--size-tolerance`, `--alignment-tolerance`,
 `--gap-tolerance`, or per element with `tolerance_px` in the manifest.
 
+`tolerance_px` relaxes **position and size only**. Alignment and gap keep the
+run's tolerances, because an element being elastic does not license it to break
+a shared edge or a designed gap, and those are the contracts a loosened element
+is most likely to break. If an element genuinely should leave a shared edge,
+take it out of the alignment group rather than raising its tolerance.
+
 An element can also narrow what is asserted. `assert` names the subset of
 `position-x`, `position-y`, `width`, and `height` the extraction supports, and
 `align_anchor` (`left`, `center`, `right`) selects the point the horizontal

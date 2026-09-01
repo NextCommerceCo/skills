@@ -322,6 +322,20 @@ class AssertGeometryTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("position.x-center", result.stdout)
 
+    def test_tolerance_px_does_not_relax_alignment(self):
+        # An elastic element still holds its shared edge. Documented in
+        # references/geometry-and-readback-gates.md; asserted here so the
+        # scope of tolerance_px cannot drift silently.
+        manifest = json.loads(json.dumps(MANIFEST))
+        section = manifest["routes"][0]["viewports"]["desktop"]["sections"][0]
+        section["elements"][1]["tolerance_px"] = 48
+        measured = boxes()
+        measured["boxes"]["hero-1::hero_body"]["x"] = 140
+        result, report = self.compare(measured, manifest)
+        self.assertEqual(result.returncode, 1)
+        failing = {check["check"] for check in self.failing_checks(report)}
+        self.assertEqual(failing, {"alignment"})
+
     def test_probe_snippet_names_every_selector(self):
         with tempfile.TemporaryDirectory() as temp:
             manifest_path = Path(temp) / "geometry.json"
