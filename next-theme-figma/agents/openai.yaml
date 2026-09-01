@@ -1,0 +1,4 @@
+interface:
+  display_name: "NEXT Theme Figma"
+  short_description: "Prepare Figma storefront handoffs for NEXT themes"
+  default_prompt: "Use $next-theme-figma to prepare a storefront Figma design for implementation handoff."

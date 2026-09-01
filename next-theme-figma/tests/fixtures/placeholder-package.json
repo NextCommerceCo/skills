@@ -1,0 +1,325 @@
+{
+  "handoff": {
+    "schema_version": "next-theme-figma/handoff/v1",
+    "generated_at": "2026-01-01T00:00:00.000Z",
+    "generator": "next-theme-figma",
+    "project": "example-store",
+    "mode": "implementation-handoff",
+    "figma": {
+      "url": "https://www.figma.com/design/example-key/example",
+      "file_key": "example-key",
+      "entry_node_id": ""
+    },
+    "target": {
+      "theme_family": "custom",
+      "runtime_contract": "unknown"
+    },
+    "manifests": {
+      "platform_divergence_ledger": "platform-divergence-ledger.json",
+      "geometry": "geometry.json",
+      "copy": "copy.json"
+    },
+    "unresolved_questions": []
+  },
+  "routes": {
+    "schema_version": "next-theme-figma/routes/v0",
+    "routes": [
+      {
+        "route_id": "home",
+        "storefront_path": "/",
+        "theme_template": "",
+        "figma_frames": {
+          "desktop": {
+            "name": "",
+            "node_id": "",
+            "url": ""
+          },
+          "tablet": {
+            "name": "",
+            "node_id": "",
+            "url": ""
+          },
+          "mobile": {
+            "name": "",
+            "node_id": "",
+            "url": ""
+          }
+        },
+        "section_order": []
+      }
+    ]
+  },
+  "sections": {
+    "schema_version": "next-theme-figma/sections/v0",
+    "sections": [
+      {
+        "section_id": "example-1",
+        "route_id": "home",
+        "classification": "semantic-rebuild",
+        "classification_rationale": "Replace this example.",
+        "figma_nodes": {
+          "desktop": "",
+          "tablet": "",
+          "mobile": ""
+        },
+        "implementation_target": {
+          "template": ""
+        },
+        "screenshot_fallback_approved": false
+      }
+    ]
+  },
+  "assets": {
+    "schema_version": "next-theme-figma/assets/v0",
+    "figma_file_key": "example-key",
+    "project": "example-store",
+    "assets": [
+      {
+        "asset_id": "example-asset",
+        "section_id": "example-1",
+        "path": "",
+        "asset_url_path": "",
+        "figma_node_id": "",
+        "source_layer_name": "",
+        "prefix": "img",
+        "role": "",
+        "alt": "",
+        "format": "png",
+        "expected_width": 0,
+        "expected_height": 0,
+        "requires_alpha": false,
+        "canvas_rendered": true,
+        "optimization_status": "not-started",
+        "replace_with_backend_product_media": false,
+        "clean_export_verified": false
+      }
+    ]
+  },
+  "divergence": {
+    "schema_version": "next-theme-figma/platform-divergence/v1",
+    "entries": [
+      {
+        "divergence_id": "example-divergence",
+        "surface": "",
+        "pages": [],
+        "figma_expectation": "",
+        "platform_behavior": "",
+        "decision": "platform-wins",
+        "implementation_guardrail": "",
+        "status": "open"
+      }
+    ]
+  },
+  "coverage": {
+    "schema_version": "next-theme-figma/viewport-coverage/v0",
+    "viewports": {
+      "desktop": {
+        "expected_width": 1440,
+        "available": false
+      },
+      "tablet": {
+        "expected_width": 768,
+        "available": false
+      },
+      "mobile": {
+        "expected_width": 375,
+        "available": false
+      }
+    },
+    "coverage": [
+      {
+        "route_id": "home",
+        "desktop": {
+          "figma_ref": "",
+          "preview_ref": "",
+          "status": "missing"
+        },
+        "tablet": {
+          "figma_ref": "",
+          "preview_ref": "",
+          "status": "missing"
+        },
+        "mobile": {
+          "figma_ref": "",
+          "preview_ref": "",
+          "status": "missing"
+        },
+        "notes": ""
+      }
+    ]
+  },
+  "geometry": {
+    "schema_version": "next-theme-figma/geometry/v1",
+    "project": "example-store",
+    "source": "figma-metadata",
+    "extracted_at": "2026-01-01T00:00:00.000Z",
+    "routes": [
+      {
+        "route_id": "home",
+        "viewports": {
+          "desktop": {
+            "frame_node_id": "10:1",
+            "frame_width": 1440,
+            "frame_height": 2400,
+            "sections": [
+              {
+                "section_id": "example-1",
+                "node_id": "20:1",
+                "selector": "[data-geo-section=\"example-1\"]",
+                "box": {
+                  "x": 0,
+                  "y": 0,
+                  "width": 1440,
+                  "height": 720
+                },
+                "elements": [
+                  {
+                    "element_id": "hero_heading",
+                    "node_id": "20:2",
+                    "selector": "[data-geo=\"hero-heading\"]",
+                    "role": "text",
+                    "box": {
+                      "x": 120,
+                      "y": 180,
+                      "width": 560,
+                      "height": 96
+                    }
+                  },
+                  {
+                    "element_id": "hero_body",
+                    "node_id": "20:3",
+                    "selector": "[data-geo=\"hero-body\"]",
+                    "role": "text",
+                    "box": {
+                      "x": 120,
+                      "y": 300,
+                      "width": 480,
+                      "height": 72
+                    }
+                  },
+                  {
+                    "element_id": "hero_cta",
+                    "node_id": "20:4",
+                    "selector": "[data-geo=\"hero-cta\"]",
+                    "role": "control",
+                    "box": {
+                      "x": 120,
+                      "y": 404,
+                      "width": 200,
+                      "height": 56
+                    }
+                  }
+                ],
+                "alignment_groups": [
+                  {
+                    "group_id": "hero_text_left",
+                    "edge": "left",
+                    "element_ids": [
+                      "hero_heading",
+                      "hero_body",
+                      "hero_cta"
+                    ]
+                  }
+                ],
+                "gaps": [
+                  {
+                    "gap_id": "heading_to_body",
+                    "axis": "vertical",
+                    "from": "hero_heading",
+                    "to": "hero_body",
+                    "value": 24
+                  }
+                ]
+              }
+            ]
+          },
+          "mobile": {
+            "frame_node_id": "10:2",
+            "frame_width": 375,
+            "frame_height": 3200,
+            "sections": [
+              {
+                "section_id": "example-1",
+                "node_id": "21:1",
+                "selector": "[data-geo-section=\"example-1\"]",
+                "box": {
+                  "x": 0,
+                  "y": 0,
+                  "width": 375,
+                  "height": 560
+                },
+                "elements": [
+                  {
+                    "element_id": "hero_heading",
+                    "node_id": "21:2",
+                    "selector": "[data-geo=\"hero-heading\"]",
+                    "role": "text",
+                    "box": {
+                      "x": 20,
+                      "y": 120,
+                      "width": 335,
+                      "height": 120
+                    }
+                  },
+                  {
+                    "element_id": "hero_cta",
+                    "node_id": "21:3",
+                    "selector": "[data-geo=\"hero-cta\"]",
+                    "role": "control",
+                    "box": {
+                      "x": 20,
+                      "y": 300,
+                      "width": 335,
+                      "height": 48
+                    }
+                  }
+                ],
+                "alignment_groups": [
+                  {
+                    "group_id": "hero_text_left",
+                    "edge": "left",
+                    "element_ids": [
+                      "hero_heading",
+                      "hero_cta"
+                    ]
+                  }
+                ],
+                "gaps": []
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "copy": {
+    "schema_version": "next-theme-figma/copy/v1",
+    "project": "example-store",
+    "source": "figma-text-layers",
+    "extracted_at": "2026-01-01T00:00:00.000Z",
+    "strings": [
+      {
+        "copy_id": "hero_heading",
+        "section_id": "example-1",
+        "node_id": "20:2",
+        "role": "heading",
+        "text": "Everything your morning needs"
+      },
+      {
+        "copy_id": "hero_body",
+        "section_id": "example-1",
+        "node_id": "20:3",
+        "role": "body",
+        "text": "Ground fresh, shipped the same week, and roasted in small batches."
+      },
+      {
+        "copy_id": "hero_cta",
+        "section_id": "example-1",
+        "node_id": "20:4",
+        "role": "cta",
+        "text": "Shop the collection"
+      }
+    ],
+    "allowed_deviations": []
+  }
+}

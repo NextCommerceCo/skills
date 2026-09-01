@@ -1,6 +1,6 @@
 ---
 name: next-campaigns-setup
-version: 1.1.0
+version: 1.1.3
 description: |
   End-to-end setup for a new campaign-page-kit (CPK) campaign — uses
   campaign-init --non-interactive to scaffold the project, download the starter
@@ -29,11 +29,9 @@ This skill works with any AI coding tool that can load a markdown file as contex
 
 | Tool | How to Use |
 |------|-----------|
-| **Claude Code** | Install to `~/.claude/skills/next-campaigns-setup/` (see repo README). Invoke with `/next-campaigns-setup`. |
-| **OpenAI Codex** | Pass as a system prompt: `codex --system-prompt next-campaigns-setup/SKILL.md` |
-| **Cursor** | Add to `.cursor/rules/` or reference in your project's AI context files. |
-| **GitHub Copilot** | Add to `.github/copilot-instructions.md` or include via `@workspace` reference. |
-| **Other agents** | Load `SKILL.md` as context/system prompt. The instructions are tool-agnostic markdown. |
+| **Recommended** | Clone `NextCommerceCo/skills` and run `./skills.sh`; choose your local agent target and this skill. |
+| **No checkout** | Use `npx skills add NextCommerceCo/skills -g --skill next-campaigns-setup` and add `-a <agent>` when you want a specific agent. |
+| **Fallback** | Load this `SKILL.md` as a system prompt, context file, rule, or chat upload if your tool does not support native skills. |
 
 ---
 
@@ -41,7 +39,7 @@ Scaffold and configure a new campaign-page-kit campaign in one pass.
 
 Boundary with other campaign skills:
 - Use this skill for repo/project bootstrap: brand folder, page-kit init, starter template copy, `campaigns.json`, `CLAUDE.md`, and first config values.
-- In the linked Campaign Runtime flow, use this skill only when `campaign-os doctor --context` returns `next.stage = setup`. Consume `campaign-runtime.build.json` and `.campaign-runtime/build-context.json`, then emit `.campaign-runtime/setup-handoff.json` for `next-campaigns-build`.
+- In the linked Campaigns OS runtime flow, use this skill only when public `campaigns-os next --packet <packet>` or `campaigns-os doctor --packet <packet>` routes the handoff to setup. Consume `campaign-runtime.build.json` and `.campaign-runtime/build-context.json`, then emit `.campaign-runtime/setup-handoff.json` for `next-campaigns-build`.
 - Use `next-campaigns-build` when a CampaignSpec/design exists and pages need to be wired end-to-end from spec/API/design into page-kit.
 - Use `next-campaigns-os` for CampaignSpec lifecycle work: map inspection, multi-funnel planning, QA results, Linear/run-through orchestration, promotion decisions, and split-test config.
 - This skill may consume a CampaignSpec if one is provided, but it should not try to replace the build skill's page wiring or the OS skill's lifecycle decisions.
@@ -203,8 +201,8 @@ If the user supplied a CampaignSpec, pre-fill from:
 
 **Required:**
 - **API key** — the Campaign Cart API key for this store
-- **Store name** — short display name (e.g. "Winter Gloves Co")
-- **Store URL** — the main store domain (e.g. `https://wintergloves.com`)
+- **Store name** — short display name (e.g. "Example Store")
+- **Store URL** — the main store domain (e.g. `https://example-store.com`)
 
 **Recommended but optional:**
 - **Store phone** — display format (e.g. `1-800-555-0100`) and tel format (e.g. `+18005550100`)
@@ -228,7 +226,7 @@ Do not make the user guess through a wall of tracking surfaces. Ask for GTM/Face
 Read `<CPK_ROOT>/[brand-name]/src/[campaign-slug]/assets/config.js`. Make these changes:
 
 1. **`apiKey`** — replace the placeholder value with the provided API key
-2. **`storeName`** — replace with a lowercase-hyphenated slug derived from the store name (e.g. "Winter Gloves Co" → `'winter-gloves-co'`). This is an analytics identifier, not a display name.
+2. **`storeName`** — replace with a lowercase-hyphenated slug derived from the store name (e.g. "Example Store" → `'example-store'`). This is an analytics identifier, not a display name.
 3. **GTM** (only if a real ID is provided):
    - Set `gtm.enabled` to `true`
    - Set `gtm.settings.containerId` to the provided ID

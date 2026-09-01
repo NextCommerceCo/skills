@@ -5,12 +5,57 @@
   "homepage": "https://github.com/NextCommerceCo/skills",
   "skills": [
     {
+      "id": "next-theme-figma",
+      "name": "Theme Figma Handoff",
+      "version": "0.5.0",
+      "path": "next-theme-figma/SKILL.md",
+      "domain": "storefronts",
+      "description": "Prepare Figma storefront designs for NEXT Commerce theme implementation by validating source structure, identifying the theme family and runtime contract, classifying sections and assets, recording platform divergences, and generating a low-inference handoff for next-theme-dev.",
+      "related_skills": [
+        {
+          "id": "next-theme-dev",
+          "relationship": "Downstream implementation skill that consumes the Figma handoff and performs DTL/theme edits"
+        }
+      ],
+      "triggers": [
+        "Figma storefront design",
+        "theme-family Figma handoff",
+        "theme from Figma",
+        "PDP Figma design",
+        "homepage Figma sections",
+        "Figma asset extraction",
+        "mobile tablet desktop Figma fidelity",
+        "visual compare Figma theme",
+        "prepare handoff for next-theme-dev"
+      ],
+      "prerequisites": [
+        "Figma file or selection links with view access",
+        "Target Next Commerce store/theme/repo context",
+        "Figma MCP or REST/API access when live node inspection or screenshot export is needed",
+        "Node.js (runs the skill's bundled theme-figma.js helper script)",
+        "An existing screenshot/browser capability or willingness to provide manual captures; the skill does not bundle browser automation",
+        "next-theme-dev for downstream theme implementation"
+      ],
+      "safety": {
+        "mutates_remote": false,
+        "writes_local": true,
+        "requires_approval": false,
+        "network": "figma-api-optional-readonly"
+      }
+    },
+    {
       "id": "next-theme-dev",
       "name": "Theme Development",
-      "version": "1.2.0",
+      "version": "1.12.0",
       "path": "next-theme-dev/SKILL.md",
       "domain": "storefronts",
       "description": "Build, modify, and debug Next Commerce storefront themes, including Spark, Intro Bootstrap, Theme Settings, ntk CLI, DTL templates, and storefront GraphQL.",
+      "related_skills": [
+        {
+          "id": "next-theme-figma",
+          "relationship": "Upstream Figma source validation and handoff preparation before implementation"
+        }
+      ],
       "triggers": [
         "Spark theme",
         "Intro Bootstrap",
@@ -23,15 +68,23 @@
         "DTL templates"
       ],
       "prerequisites": [
-        "Python 3",
-        "ntk (pip install next-theme-kit)",
-        "A Next Commerce store with API key (themes:read, themes:write scopes)"
-      ]
+        "Python 3.10 or newer (Pillow is also required to validate raster assets)",
+        "NEXT Theme Kit 1.2.0; resolve the active installation from the ntk executable because pipx, uv, and system Python may differ",
+        "An existing screenshot/browser capability or willingness to provide manual captures for visual changes",
+        "A Next Commerce Storefront OAuth app API key created under Settings > API Access (themes:read, themes:write permissions)"
+      ],
+      "safety": {
+        "mutates_remote": true,
+        "writes_local": true,
+        "requires_approval": true,
+        "network": "next-storefront-theme-api",
+        "notes": "ntk push/watch mutate the selected remote theme and are approval-gated; active-theme pushes also require a bounded file manifest, rollback source, upload-count check, and served-revision verification. Deleting a recognized local file during watch deletes it from the store."
+      }
     },
     {
       "id": "next-bulk-fulfill",
       "name": "Bulk Fulfillment Tracking Sync",
-      "version": "1.0.0",
+      "version": "1.4.0",
       "path": "next-bulk-fulfill/SKILL.md",
       "domain": "operations",
       "description": "Update orders to Fulfilled status with tracking numbers from a CSV when a fulfillment provider's automation fails to sync back.",
@@ -44,18 +97,26 @@
         "tracking numbers didn't sync"
       ],
       "prerequisites": [
-        "Python 3",
-        "requests library (pip install requests)",
-        "A Next Commerce store with API key (fulfillment_orders:read, fulfillment_orders:write scopes)"
-      ]
+        "Python 3 (standard library only; no third-party packages)",
+        "A Next Commerce store with an API key (fulfillment_orders:read, fulfillment_orders:write scopes)",
+        "Admin API token in a local .env ({SUBDOMAIN}_NEXT_ADMIN_API_TOKEN) or the environment"
+      ],
+      "safety": {
+        "mutates_remote": true,
+        "writes_local": true,
+        "requires_approval": true,
+        "network": "next-admin-api",
+        "token_env": "NEXT_ADMIN_API_TOKEN",
+        "notes": "Creates fulfillments only under --execute; dry-run is the default. Also fetches the published Admin API spec from developers.nextcommerce.com (read-only, no token) to validate carrier slugs."
+      }
     },
     {
       "id": "next-bulk-move",
       "name": "Bulk Fulfillment Order Move",
-      "version": "1.1.0",
+      "version": "1.3.0",
       "path": "next-bulk-move/SKILL.md",
       "domain": "operations",
-      "description": "Move fulfillment orders between warehouse locations in bulk — driven either by a flat file of order numbers or by a Product ID / SKU list. Handles cancellation requests for processing FOs, location discovery, and dry-run validation.",
+      "description": "Move fulfillment orders between warehouse locations in bulk \u2014 driven either by a flat file of order numbers or by a Product ID / SKU list. Handles cancellation requests for processing FOs, location discovery, and dry-run validation.",
       "triggers": [
         "bulk move orders",
         "move fulfillment orders",
@@ -67,16 +128,23 @@
         "move fulfillment orders by product"
       ],
       "prerequisites": [
-        "Python 3",
-        "requests library (pip install requests)",
-        "pandas library (pip install pandas)",
-        "A Next Commerce store with API key (fulfillment_orders:read, fulfillment_orders:write, locations:read scopes)"
-      ]
+        "Python 3 (standard library only; no third-party packages)",
+        "A Next Commerce store with an API key (fulfillment_orders:read, fulfillment_orders:write, locations:read scopes)",
+        "Admin API token in a local .env ({SUBDOMAIN}_NEXT_ADMIN_API_TOKEN) or the environment"
+      ],
+      "safety": {
+        "mutates_remote": true,
+        "writes_local": true,
+        "requires_approval": true,
+        "network": "next-admin-api",
+        "token_env": "NEXT_ADMIN_API_TOKEN",
+        "notes": "Cancels/moves fulfillment orders only under --execute; dry-run is the default."
+      }
     },
     {
       "id": "next-bulk-subscription",
       "name": "Bulk Subscription Actions",
-      "version": "1.1.0",
+      "version": "1.3.0",
       "path": "next-bulk-subscription/SKILL.md",
       "domain": "operations",
       "description": "Apply official subscription actions (pause, cancel) or PATCH updates (renewal date, interval, gateway, address) to a list of subscription IDs from a CSV/XLSX via the Admin API. Handles baseline selection, dry-run, rate limiting, and verification.",
@@ -91,22 +159,61 @@
         "bulk subscription edit"
       ],
       "prerequisites": [
-        "Python 3",
-        "requests library (pip install requests)",
-        "A Next Commerce store with API key (subscriptions:write scope)"
-      ]
+        "Python 3 (standard library only; no third-party packages)",
+        "A Next Commerce store with an API key (subscriptions:read, subscriptions:write scopes)",
+        "Admin API token in a local .env ({SUBDOMAIN}_NEXT_ADMIN_API_TOKEN) or the environment"
+      ],
+      "safety": {
+        "mutates_remote": true,
+        "writes_local": true,
+        "requires_approval": true,
+        "network": "next-admin-api",
+        "token_env": "NEXT_ADMIN_API_TOKEN",
+        "notes": "Runs allowlisted subscription actions only under --execute; dry-run is the default."
+      }
+    },
+    {
+      "id": "next-ops-scan",
+      "name": "Daily Ops Risk Scan",
+      "version": "0.2.0",
+      "path": "next-ops-scan/SKILL.md",
+      "domain": "operations",
+      "description": "Run a read-only daily operations risk scan for one Next Commerce store, finding Incomplete orders, Rejected orders, and Delivery Tracking failures or stale shipments with manual next steps.",
+      "triggers": [
+        "daily ops scan",
+        "risk scan",
+        "find risky orders",
+        "check incomplete orders",
+        "check rejected orders",
+        "stuck shipments",
+        "delivery failures",
+        "reduce disputes"
+      ],
+      "prerequisites": [
+        "Python 3 (standard library only; no third-party packages)",
+        "A Next Commerce store with an API key (orders:read plus fulfillment read access for delivery statuses)",
+        "Admin API token in a local .env ({SUBDOMAIN}_NEXT_ADMIN_API_TOKEN) or the environment"
+      ],
+      "safety": {
+        "mutates_remote": false,
+        "writes_local": true,
+        "requires_approval": false,
+        "network": "next-admin-api-readonly",
+        "token_env": "NEXT_ADMIN_API_TOKEN",
+        "notes": "Read-only scan; writes a local results CSV."
+      }
     },
     {
       "id": "next-campaigns-setup",
       "name": "New Campaign Setup",
-      "version": "1.1.0",
+      "version": "1.1.3",
       "path": "next-campaigns-setup/SKILL.md",
       "domain": "campaigns",
-      "description": "End-to-end setup for a new CPK campaign — scaffolds the project, copies a starter template, seeds campaigns.json, downloads CLAUDE.md, then wires up config.js and campaigns.json with API key, store details, and analytics in one pass.",
+      "description": "End-to-end setup for a new CPK campaign \u2014 scaffolds the project, copies a starter template, seeds campaigns.json, downloads CLAUDE.md, then wires up config.js and campaigns.json with API key, store details, and analytics in one pass.",
       "canonical_context": {
-        "role": "Public catalog entry for CPK setup only",
+        "role": "Public catalog entry for CPK setup only; Campaigns OS runtime flows should follow the campaigns-os package handoff",
         "campaigns_os_source": "https://github.com/NextCommerceCo/campaigns-os",
-        "internal_orchestration_source": "NextCommerceCo/next-campaigns-ops"
+        "orchestration_note": "Campaigns OS runtime flows use the public package handoff"
       },
       "related_skills": [
         {
@@ -138,7 +245,14 @@
         "A CPK project root (sellmore.campaigns.cpk or equivalent)",
         "Campaign Cart API key for the store",
         "CPK_ROOT environment variable or path to campaign root"
-      ]
+      ],
+      "safety": {
+        "mutates_remote": false,
+        "writes_local": true,
+        "requires_approval": true,
+        "network": "outbound-template-fetch",
+        "notes": "Writes a Campaign Cart API key and store details into local plaintext config (config.js/campaigns.json); review before running."
+      }
     }
   ]
 }

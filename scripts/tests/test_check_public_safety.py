@@ -1,0 +1,393 @@
+from __future__ import annotations
+
+import importlib.util
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+
+SCRIPT = Path(__file__).resolve().parents[1] / "check_public_safety.py"
+SPEC = importlib.util.spec_from_file_location("check_public_safety", SCRIPT)
+assert SPEC and SPEC.loader
+safety = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = safety
+SPEC.loader.exec_module(safety)
+
+
+def initialize_git_repository(root: Path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+
+
+def track(root: Path, *paths: str) -> None:
+    subprocess.run(["git", "add", "--", *paths], cwd=root, check=True)
+
+
+class ScanTextTests(unittest.TestCase):
+    def rule_ids(self, text: str) -> set[str]:
+        return {hit.rule_id for hit in safety.scan_text(text, "sample.md")}
+
+    def test_private_repo_reference_fires(self) -> None:
+        sample = "See NextCommerceCo/next-campaigns-ops for details."  # public-safety: allow private-repo
+        self.assertIn("private-repo", self.rule_ids(sample))
+
+    def test_blocklisted_customer_token_fires(self) -> None:
+        sample = "Evidence copied from bareearth launch."  # public-safety: allow customer-token
+        self.assertIn("customer-token", self.rule_ids(sample))
+
+    def test_new_blocklisted_customer_tokens_fire(self) -> None:
+        # The two halves of each token are kept apart in this source by the
+        # alphanumeric ``separator`` variable name (same idiom the other tests
+        # use), so the hardened scanner never reads a contiguous brand token
+        # here; the full tokens are only assembled at runtime and fed to the
+        # scanner. Covers empty/space/underscore/hyphen/zero-width separators
+        # plus the uppercase form, for both new blocklist entries.
+        zero_width = "​"
+        for separator in ("", " ", "_", "-", zero_width):
+            token_a = "uv" + separator + "brite"
+            token_b = "reliev" + separator + "core"
+            for candidate in (token_a, token_a.upper(), token_b, token_b.upper()):
+                sample = "copied from " + candidate + " launch."
+                with self.subTest(token=candidate):
+                    self.assertIn("customer-token", self.rule_ids(sample))
+
+    def test_sensitive_values_inside_fence_are_scanned(self) -> None:
+        sample = "\n".join(
+            [
+                "```text",
+                "Authorization: Bearer literalToken123456789",  # public-safety: allow credential
+                "Contact alice@merchant.test for access.",  # public-safety: allow email-pii
+                "Call +44 20 7946 0958 today.",  # public-safety: allow phone-pii
+                "```",
+            ]
+        )
+
+        self.assertTrue(
+            {"credential", "email-pii", "phone-pii"}.issubset(self.rule_ids(sample))
+        )
+
+    def test_suppressions_are_explicit_and_validated(self) -> None:
+        allow_all = "bareearth # " + "public-" + "safety: allow all"  # public-safety: allow customer-token
+        self.assertTrue(
+            {"customer-token", "unknown-suppression"}.issubset(self.rule_ids(allow_all))
+        )
+
+        named = "bareearth # public-safety: allow customer-token"  # public-safety: allow customer-token
+        self.assertEqual(set(), self.rule_ids(named))
+
+        unknown = "safe text # " + "public-" + "safety: allow made-up-rule"
+        self.assertEqual({"unknown-suppression"}, self.rule_ids(unknown))
+
+    def test_literal_auth_headers_fire_but_placeholders_do_not(self) -> None:
+        literals = [
+            "Authorization: Token literalTokenValue",  # public-safety: allow credential
+            "X-Api-Key: literalApiKeyValue",  # public-safety: allow credential
+        ]
+        for sample in literals:
+            with self.subTest(sample=sample):
+                self.assertIn("credential", self.rule_ids(sample))
+
+        placeholders = [
+            "Authorization: Token {placeholder}",
+            "X-Api-Key: $ENV",
+        ]
+        for sample in placeholders:
+            with self.subTest(sample=sample):
+                self.assertNotIn("credential", self.rule_ids(sample))
+
+    def test_jwt_and_high_entropy_token_shapes_fire(self) -> None:
+        samples = [
+            (
+                "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhYmMifQ.c2lnbmF0dXJl",  # public-safety: allow credential
+                "credential",
+            ),
+            (
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn==",  # public-safety: allow high-entropy
+                "high-entropy",
+            ),
+            (
+                "AbCdEfGhIjKlMnOpQrStUvWxYz_abcdefghijklmnop",  # public-safety: allow high-entropy
+                "high-entropy",
+            ),
+        ]
+        for sample, expected_rule in samples:
+            with self.subTest(sample=sample):
+                self.assertIn(expected_rule, self.rule_ids(sample))
+
+    def test_encoded_and_zero_width_private_variants_fire(self) -> None:
+        cases = [
+            (
+                "NextCommerceCo&#x2F;oscar&#x2D;prime",  # public-safety: allow private-repo customer-token
+                {"private-repo", "customer-token"},
+            ),
+            (
+                "NextCommerceCo%2Foscar%2Dprime",  # public-safety: allow private-repo customer-token
+                {"private-repo", "customer-token"},
+            ),
+            (
+                "NextCommerceCo/\u200boscar\u200b-\u200bprime",  # public-safety: allow private-repo customer-token
+                {"private-repo", "customer-token"},
+            ),
+            ("oscar&#32;prime", {"customer-token", "private-repo"}),  # public-safety: allow customer-token private-repo
+            ("oscar%20prime", {"customer-token", "private-repo"}),  # public-safety: allow customer-token private-repo
+            ("oscar\u200b \u200bprime", {"customer-token", "private-repo"}),  # public-safety: allow customer-token private-repo
+        ]
+        for sample, expected_rules in cases:
+            with self.subTest(sample=sample):
+                self.assertTrue(expected_rules.issubset(self.rule_ids(sample)))
+
+    def test_false_positive_guard(self) -> None:
+        sample = "\n".join(
+            [
+                "Authorization: Bearer {api_access_token}",
+                "Authorization: Token $NEXT_ADMIN_API_TOKEN",
+                "X-Api-Key: <api access token>",
+                "Provider A and Provider B are interchangeable examples.",
+                "Contact user@example.com or alerts@example.com.",
+                "https://github.com/NextCommerceCo/skills",
+                "https://github.com/NextCommerceCo/campaign-cart-starter-templates",
+                "https://github.com/NextCommerceCo/campaigns-os",
+            ]
+        )
+
+        self.assertEqual([], safety.scan_text(sample, "sample.md"))
+
+    def test_separator_variants_no_longer_evade_customer_tokens(self) -> None:
+        # Cat 1: any run of non-alphanumerics between token parts is caught, not
+        # only [ _-]. Tokens are built from parts so this source stays self-safe.
+        separators = [".", "/", "+", "—", "---", "**", "*", "__", "~~", " . "]
+        for separator in separators:
+            token = "bare" + separator + "earth"
+            with self.subTest(separator=separator):
+                self.assertIn("customer-token", self.rule_ids(token))
+
+    def test_html_comment_between_token_parts_is_caught(self) -> None:
+        comment = "<!-- injected -->"
+        token = "bare" + comment + "earth"
+        self.assertIn("customer-token", self.rule_ids(token))
+
+    def test_underscore_boundaries_no_longer_evade(self) -> None:
+        # Cat 1: \b was defeated by surrounding underscores; lookarounds are not.
+        separator = "-"
+        inner = "oscar" + separator + "prime"
+        self.assertIn("customer-token", self.rule_ids("_" + inner + "_"))
+        self.assertIn("customer-token", self.rule_ids("_dlx_"))  # public-safety: allow customer-token
+
+    def test_separator_hardening_keeps_ordinary_prose_clean(self) -> None:
+        # Cat 1 guard: leading/trailing boundaries keep real words from matching.
+        for phrase in ["threadbare earth", "ecommerce operations", "compare earthworm"]:
+            with self.subTest(phrase=phrase):
+                self.assertNotIn("customer-token", self.rule_ids(phrase))
+
+    def test_confusable_and_fullwidth_letters_fire(self) -> None:
+        # Cat 3: Greek/Cyrillic homoglyphs and fullwidth forms fold to ASCII.
+        cyrillic_a = chr(0x0430)
+        self.assertIn("customer-token", self.rule_ids("osc" + cyrillic_a + "r-prime"))
+        fullwidth = "".join(chr(ord(ch) - 0x20 + 0xFF00) for ch in "oscar")
+        self.assertIn("customer-token", self.rule_ids(fullwidth + "-prime"))
+
+    def test_expanded_invisible_characters_are_stripped(self) -> None:
+        # Cat 3: invisibles beyond the original set no longer split tokens
+        # (invisible times, CGJ, bidi override/isolate, VS supplement).
+        for codepoint in (0x2062, 0x034F, 0x202E, 0x2069, 0xE0100):
+            token = "bare" + chr(codepoint) + "earth"
+            with self.subTest(codepoint=hex(codepoint)):
+                self.assertIn("customer-token", self.rule_ids(token))
+
+    def test_extended_encoding_variants_fire(self) -> None:
+        # Cat 5: unquote_plus, deeper nesting, JS \uXXXX, and CSS \HH escapes.
+        for encoded in ["%252F", "%2B", "\\u002F", "\\2D "]:
+            token = "oscar" + encoded + "prime"
+            with self.subTest(encoded=encoded):
+                self.assertIn("customer-token", self.rule_ids(token))
+
+    def test_token_split_across_line_break_fires(self) -> None:
+        # Cat 2: a token broken by a newline is rejoined and caught.
+        self.assertIn("customer-token", self.rule_ids("bare\nearth"))
+        self.assertIn("customer-token", self.rule_ids("oscar-\nprime"))
+        self.assertIn("private-repo", self.rule_ids("copied from oscar-\nprime notes"))
+
+    def test_cross_line_scan_ignores_wrapped_allowed_urls(self) -> None:
+        # Cat 2 guard: rejoining lines must not fabricate a repo name from two
+        # allowlisted URLs wrapped across a break.
+        wrapped = (
+            "https://github.com/NextCommerceCo/skills\n"
+            "https://github.com/NextCommerceCo/campaigns-os"
+        )
+        self.assertNotIn("private-repo", self.rule_ids(wrapped))
+
+
+class RepositoryScanTests(unittest.TestCase):
+    def test_tracked_txt_file_is_scanned(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            initialize_git_repository(root)
+            (root / "notes.txt").write_text(
+                "Authorization: Bearer literalToken123456789\n",  # public-safety: allow credential
+                encoding="utf-8",
+            )
+            track(root, "notes.txt")
+
+            hits = safety.scan_repository(root)
+
+        self.assertIn(("notes.txt", "credential"), {(hit.path, hit.rule_id) for hit in hits})
+
+    def test_invalid_utf8_is_an_unsuppressible_unreadable_hit(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            initialize_git_repository(root)
+            content = b"# public-" + b"safety: allow unreadable\n\xff"
+            (root / "broken.txt").write_bytes(content)
+            track(root, "broken.txt")
+
+            hits = safety.scan_repository(root)
+
+        self.assertEqual(
+            [("broken.txt", "unreadable")],
+            [(hit.path, hit.rule_id) for hit in hits],
+        )
+
+    def test_symlink_target_string_is_scanned_without_following(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            initialize_git_repository(root)
+            target = "../oscar-prime/internal.md"  # public-safety: allow private-repo customer-token
+            (root / "leak-link").symlink_to(target)
+            track(root, "leak-link")
+
+            hits = safety.scan_repository(root)
+
+        self.assertIn(
+            ("leak-link", "private-repo"),
+            {(hit.path, hit.rule_id) for hit in hits},
+        )
+
+    def test_media_suffixed_symlink_target_is_still_scanned(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            initialize_git_repository(root)
+            target = "../oscar-prime/logo.png"  # public-safety: allow private-repo customer-token
+            (root / "logo.png").symlink_to(target)
+            track(root, "logo.png")
+
+            hits = safety.scan_repository(root)
+
+        self.assertIn(
+            ("logo.png", "private-repo"),
+            {(hit.path, hit.rule_id) for hit in hits},
+        )
+
+    def test_binary_media_extension_is_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            initialize_git_repository(root)
+            (root / "image.png").write_bytes(
+                b"Authorization: Bearer literalToken123456789"  # public-safety: allow credential
+            )
+            track(root, "image.png")
+
+            self.assertEqual([], safety.scan_repository(root))
+
+    def test_tracked_private_repo_path_is_scanned(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            initialize_git_repository(root)
+            (root / "docs").mkdir()
+            (root / "docs" / "oscar-prime-notes.md").write_text("clean\n",  # public-safety: allow private-repo customer-token
+                                                                   encoding="utf-8")
+            track(root, "docs/oscar-prime-notes.md")  # public-safety: allow private-repo customer-token
+
+            hits = safety.scan_repository(root)
+
+        self.assertIn(
+            ("docs/oscar-prime-notes.md", "private-repo"),  # public-safety: allow private-repo customer-token
+            {(hit.path, hit.rule_id) for hit in hits},
+        )
+
+    def test_tracked_customer_token_binary_path_is_scanned(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            initialize_git_repository(root)
+            (root / "assets").mkdir()
+            (root / "assets" / "bareearth.png").write_bytes(b"\x89PNG\r\n")  # public-safety: allow customer-token
+            track(root, "assets/bareearth.png")  # public-safety: allow customer-token
+
+            hits = safety.scan_repository(root)
+
+        self.assertIn(
+            ("assets/bareearth.png", "customer-token"),  # public-safety: allow customer-token
+            {(hit.path, hit.rule_id) for hit in hits},
+        )
+
+    def test_nul_injected_text_file_is_still_scanned(self) -> None:
+        # A single NUL in an otherwise-decodable UTF-8 file must not hide the
+        # whole file from scanning (Cat 4: previously the NUL sniff skipped it).
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            initialize_git_repository(root)
+            (root / "opaque.txt").write_bytes(
+                b"Authorization: Bearer literalToken123456789\0"  # public-safety: allow credential
+            )
+            track(root, "opaque.txt")
+
+            hits = safety.scan_repository(root)
+
+        self.assertIn(
+            ("opaque.txt", "credential"),
+            {(hit.path, hit.rule_id) for hit in hits},
+        )
+
+    def test_genuinely_binary_file_with_nul_is_skipped(self) -> None:
+        # Undecodable bytes plus a NUL are treated as binary and skipped, so the
+        # narrowed rule does not turn every real binary into an unreadable hit.
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            initialize_git_repository(root)
+            (root / "blob.bin").write_bytes(b"\x00\xff\xfe\x00binary\x00\xffpayload")
+            track(root, "blob.bin")
+
+            self.assertEqual([], safety.scan_repository(root))
+
+
+class CommandLineTests(unittest.TestCase):
+    def run_scanner(self, content: str, *extra_args: str) -> subprocess.CompletedProcess[str]:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            initialize_git_repository(root)
+            (root / "sample.md").write_text(content, encoding="utf-8")
+            track(root, "sample.md")
+            return subprocess.run(
+                [sys.executable, str(SCRIPT), "--root", str(root), *extra_args],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+    def test_exit_zero_for_clean_tree(self) -> None:
+        result = self.run_scanner("user@example.com\n")
+        self.assertEqual(0, result.returncode, result.stderr)
+
+    def test_exit_one_and_lists_hit_for_bad_tree(self) -> None:
+        result = self.run_scanner(
+            "Authorization: Bearer literalToken123456789\n",  # public-safety: allow credential
+            "--list",
+        )
+        self.assertEqual(1, result.returncode)
+        self.assertIn("sample.md:1: [credential]", result.stdout)
+
+    def test_exit_two_for_git_enumeration_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--root", temporary_directory],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+        self.assertEqual(2, result.returncode)
+        self.assertIn("unable to list tracked files", result.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

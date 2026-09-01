@@ -1,6 +1,6 @@
 ---
 name: next-bulk-fulfill
-version: 1.0.0
+version: 1.4.0
 description: |
   Bulk fulfillment tracking sync — update orders to Fulfilled status with tracking
   numbers from a CSV when the fulfillment provider's automation fails to sync back.
@@ -31,11 +31,9 @@ This skill works with any AI coding tool that can load a markdown file as contex
 
 | Tool | How to Use |
 |------|-----------|
-| **Claude Code** | Install to `~/.claude/skills/next-bulk-fulfill/` (see repo README). Invoke with `/next-bulk-fulfill`. |
-| **OpenAI Codex** | Pass as a system prompt: `codex --system-prompt next-bulk-fulfill/SKILL.md` |
-| **Cursor** | Add to `.cursor/rules/` or reference in your project's AI context files. |
-| **GitHub Copilot** | Add to `.github/copilot-instructions.md` or include via `@workspace` reference. |
-| **Other agents** | Load `SKILL.md` as context/system prompt. The instructions are tool-agnostic markdown. |
+| **Recommended** | Clone `NextCommerceCo/skills` and run `./skills.sh`; choose your local agent target and this skill. |
+| **No checkout** | Use `npx skills add NextCommerceCo/skills -g --skill next-bulk-fulfill` and add `-a <agent>` when you want a specific agent. |
+| **Fallback** | Load this `SKILL.md` as a system prompt, context file, rule, or chat upload if your tool does not support native skills. |
 
 ---
 
@@ -53,6 +51,19 @@ provides a CSV of order numbers + tracking numbers, and this skill handles the b
 Collect the three required inputs in order. Do NOT proceed to the next input until the
 current one is confirmed.
 
+## Admin API Conventions
+
+Before making any store request, use the public Admin API conventions from
+https://developers.nextcommerce.com/docs/admin-api:
+
+- Base URL: `https://{subdomain}.29next.store/api/admin/`
+- Auth header: `Authorization: Bearer $NEXT_ADMIN_API_TOKEN`
+- Version header: `X-29next-API-Version: 2024-04-01`
+
+Do not use `/api/v1/...` paths or `Authorization: Token ...`; those are not the
+documented NEXT Admin API convention and commonly return storefront HTML 404
+pages instead of JSON.
+
 ### Step 1: Store Subdomain
 
 Ask the user:
@@ -66,47 +77,79 @@ curl -s -o /dev/null -w "%{http_code}" https://{subdomain}.29next.store/
 
 If the store returns a non-200 status, warn the user and ask them to confirm the subdomain.
 
-Store the base URL: `https://{subdomain}.29next.store/api/admin`
+Store the base URL: `https://{subdomain}.29next.store/api/admin/`
 
-### Step 2: API Key
+### Step 2: Admin API Access Token
 
-Ask the user:
+The executor reads the token only from `NEXT_ADMIN_API_TOKEN`. Scopes:
+`fulfillment_orders:read` and `fulfillment_orders:write` (separate
+permissions). The token never enters conversation, CLI arguments, echoes,
+scripts, or results files.
 
-> Provide an API key for {subdomain}.29next.store.
->
-> The key needs these **two scopes** (and no more):
-> - `fulfillment_orders:read` — to query fulfillment orders by order number
-> - `fulfillment_orders:write` — to create fulfillments with tracking info
->
-> Create one at **{subdomain}.29next.store Dashboard > Settings > API Access**.
+If the store's variable (naming below) or `NEXT_ADMIN_API_TOKEN` is already in
+the environment, use it. Otherwise tokens live in `.env` in the current
+working directory (the user's project, not the skill checkout) — one line per
+store, named `{SUBDOMAIN}_NEXT_ADMIN_API_TOKEN` (caps, hyphens → underscores;
+`herz` → `HERZ_NEXT_ADMIN_API_TOKEN`). The user pastes the token in with a
+text editor, so it never touches the chat.
+
+1. If this directory is a git repository (a `.git` folder is present), make
+   sure `.gitignore` has a `.env` line — add it if missing.
+2. Create the file (or append the store's line), then lock it so only this
+   user can read it (`chmod 600 .env`):
+
+   ```
+   # Next Commerce Admin API tokens — one line per store.
+   HERZ_NEXT_ADMIN_API_TOKEN=
+   ```
+
+3. If the value is empty: have the user open `.env` in a text editor (offer to
+   open it — the file is hidden in file managers), paste the token after `=`,
+   save, and reply "saved".
+4. Load only that line — never `source` the file (it executes content and
+   exports unrelated secrets) — in the same command as the validation curl or
+   executor run, since shell state may not persist between tool commands:
+
+   ```bash
+   NEXT_ADMIN_API_TOKEN="$(grep -m1 '^HERZ_NEXT_ADMIN_API_TOKEN=' .env | cut -d'=' -f2-)"
+   [ -n "$NEXT_ADMIN_API_TOKEN" ] || { echo "no token for herz in .env" >&2; exit 1; }
+   export NEXT_ADMIN_API_TOKEN
+   ```
 
 Validate the key works:
 ```bash
 curl -s -w "\n%{http_code}" \
-  -H "Authorization: Bearer {api_key}" \
+  -H "Authorization: Bearer ${NEXT_ADMIN_API_TOKEN:?NEXT_ADMIN_API_TOKEN is required}" \
   -H "X-29next-API-Version: 2024-04-01" \
   "https://{subdomain}.29next.store/api/admin/fulfillment-orders/?limit=1"
 ```
 
 - `200` = key works, proceed
 - `401` / `403` = bad key or missing scopes, ask user to check
+- `404` with `<!DOCTYPE html>` or "Page not found" = wrong URL convention;
+  re-check `/api/admin/`, `Authorization: Bearer ...`, and the store domain
 
 ### Step 3: CSV File
 
 Ask the user:
 
-> Provide the path to the CSV file with order numbers and tracking numbers.
+> Provide the path to the CSV file with order numbers, tracking numbers, and
+> carriers.
 >
 > Expected columns (header names are flexible — I'll detect them):
 > - **Order number** (e.g., `ORDER NUMBER`, `order_number`, `Order #`)
 > - **Tracking number** (e.g., `TRACKING NUMBER`, `tracking_no`, `Tracking #`)
+> - **Carrier** (e.g., `carrier`, `Carrier`) — **strongly recommended.** Ask the
+>   fulfillment provider to include it in the export; their carrier data is
+>   authoritative. Without it, the only fallback is AI pattern matching, which
+>   is not reliable.
 >
-> Optional: Order name / customer name column (used for logging only).
+Do not include customer names, emails, addresses, or payment data in the executor
+input or results.
 
 Read the CSV and detect columns. Look for headers matching these patterns:
 - Order number: contains `order` AND (`number` or `#` or `num` or `id`)
 - Tracking number: contains `tracking` AND (`number` or `#` or `num` or `code`)
-- Customer name: contains `name` or `customer` (optional, for logging)
 
 If column detection fails, show the headers found and ask the user to specify which
 columns to use.
@@ -115,11 +158,28 @@ Report what was loaded:
 > Loaded **{N}** orders from `{filename}`. Detected columns:
 > - Order number: `{column_name}`
 > - Tracking number: `{column_name}`
-> - Customer name: `{column_name}` (or "not detected")
 
 ---
 
 ## Phase 2: Carrier Detection
+
+**Carrier source gate — run BEFORE any inference or research.** If the CSV has
+an explicit `carrier` column, skip inference entirely and validate those slugs.
+If it does not, stop and warn the user, then ask how to proceed:
+
+> Your file has order and tracking numbers but no carrier column. Carrier slugs
+> matter: they drive the customer-facing tracking link and Delivery Tracking.
+>
+> - A) **Recommended: start over with a corrected file.** Ask the fulfillment
+>   provider to re-export with a `carrier` column — their data is authoritative.
+>   We restart from the CSV step when you have it.
+> - B) Last resort: AI-attempted matches. I infer carriers from tracking-number
+>   patterns (researching unknown prefixes if needed). This is NOT reliable —
+>   a wrong match sends customers a broken tracking link — and every mapping
+>   requires your explicit confirmation before anything is sent.
+
+Lead with A. Only continue to detection below if the user explicitly accepts
+the reliability risk and picks B.
 
 Detect the shipping carrier from tracking number prefixes. Use this mapping:
 
@@ -133,10 +193,13 @@ Detect the shipping carrier from tracking number prefixes. Use this mapping:
 | Starts with `JD` or 10 digits starting with `0` | `dhl` | DHL |
 | None of the above | `other` | Other |
 
-**Valid carrier slugs** (from the API schema): `4px`, `amazon`, `asendia`, `australia_post`,
-`china_post`, `deutsche_de`, `dhl`, `dhl_ecommerce`, `fedex`, `firstmile`, `gofo_express`,
-`hermesworld_uk`, `myhermes`, `ontrac`, `other`, `royal_mail`, `speedx`, `swiss_post`,
-`ulala`, `uniuni`, `ups`, `usps`, `yunexpress`
+**Valid carrier slugs** live in a hardcoded known-good list in the bundled
+executor (`VALID_CARRIERS` in `scripts/bulk_fulfill.py`), taken from the
+`TrackingInfo.carrier` enum in the published 2024-04-01 Admin API spec, rendered
+at [fulfillmentsCreate](https://developers.nextcommerce.com/docs/admin-api/reference/fulfillment/fulfillmentsCreate).
+The executor validates explicit CSV carriers and `--carrier-map` values against
+this list; unknown slugs error as `INVALID_CARRIER` instead of being sent. When
+the platform adds carriers, update the list and release a new skill version.
 
 After detection, show a carrier summary:
 > **Carrier detection:**
@@ -144,17 +207,34 @@ After detection, show a carrier summary:
 > - yunexpress: 4 orders
 > - other: 1 order
 >
-> Orders with carrier `other` will still sync — the platform won't auto-link to a
-> carrier tracking page but the tracking number will be stored.
+> Orders with carrier `other` will still sync, but the carrier slug does real work:
+> the platform maps it to the carrier's tracking link template (the customer-facing
+> tracking link), and Delivery Tracking uses it to follow carrier events for
+> delivery statuses and notifications. `other` stores the tracking number and
+> loses both. Use it only when the carrier genuinely isn't supported.
 
-If multiple carriers are detected, confirm with the user before proceeding.
+**Warn before syncing `other` rows — a real carrier is strongly recommended.**
+If any rows resolve to carrier `other` (or a pattern is unmatched), warn the user
+explicitly before the live run: those orders will have no customer-facing tracking
+link and no Delivery Tracking carrier events — no delivery statuses, delivery
+notifications, or delivery reporting. Ask whether the fulfillment provider can
+supply the actual carrier for those shipments (an explicit `carrier` CSV column)
+before proceeding. Only sync `other` rows after the user accepts these downsides.
+
+Inference is a proposal, never authorization. Group every distinct inferred
+pattern (for example `prefix:1Z` or `digits:12-15`) and show its proposed carrier.
+Require confirmation for every distinct pattern, including `unmatched`, using an
+explicit `carrier` input column or `--carrier-map` JSON such as
+`'{"prefix:1Z":"ups","unmatched":"other"}'`. Unconfirmed rows are flagged and
+never sent.
 
 ---
 
-## Phase 3: Write and Run the Sync Script
+## Phase 3: Run the Bundled Executor
 
-Generate a Python script at `{working_dir}/{subdomain}_bulk_fulfill.py` that implements
-the two-step API flow.
+Use `next-bulk-fulfill/scripts/bulk_fulfill.py`. It is stdlib-only, dry-run by
+default, reads the token only from `NEXT_ADMIN_API_TOKEN`, continues after
+individual failures, rate-limits requests, and supports safe resume.
 
 ### The API Pattern
 
@@ -175,18 +255,21 @@ POST /api/admin/fulfillment-orders/{id}/fulfillments/
 }
 ```
 
-### Script Requirements
+### Executor Guarantees
 
 - **Rate limiting**: 4 requests/sec max. At 2 calls per order, sleep 0.6s between orders.
-- **Auth headers**: `Authorization: Bearer {api_key}` + `X-29next-API-Version: 2024-04-01`
-- **Dry-run mode**: `--dry-run` flag that runs Step 1 (GET) but skips Step 2 (POST)
+- **Carrier validation**: explicit CSV carriers and `--carrier-map` values are
+  validated against the executor's hardcoded known-good list (the spec's
+  `TrackingInfo.carrier` enum); rows with unknown slugs error as
+  `INVALID_CARRIER` instead of being sent.
+- **Auth headers**: token comes only from `NEXT_ADMIN_API_TOKEN`
+- **Dry-run mode**: default; runs lookup but skips POST
 - **Notify control**: `--no-notify` flag to suppress customer notifications
 - **Limit flag**: `--limit N` to process only the first N orders (for testing)
-- **Output**: Write results to `{subdomain}_bulk_fulfill_results.csv` with columns:
-  `order_number, customer_name, tracking_no, carrier, status, fo_id, note`
-- **Status values**: `OK`, `NOT_FOUND`, `MULTIPLE_FOUND`, `API_ERROR`, `DRY_RUN_OK`
+- **Output**: only `order_number, fulfillment_id, tracking_code, carrier, action, status`;
+  never API bodies, customer data, addresses, or payment data
 - **Use `python3 -u`** for unbuffered output (real-time progress)
-- **Only import stdlib + requests** (no pandas, no openpyxl)
+- **Only Python stdlib**
 
 ### Gotchas (encode these in the script)
 
@@ -201,7 +284,9 @@ POST /api/admin/fulfillment-orders/{id}/fulfillments/
 
 **3a. Run dry-run first:**
 ```bash
-python3 -u {subdomain}_bulk_fulfill.py --dry-run
+python3 -u next-bulk-fulfill/scripts/bulk_fulfill.py \
+  --store {subdomain} --input orders.csv --results bulk-fulfill-results.csv \
+  --carrier-map carrier-map.json
 ```
 
 Report results to the user:
@@ -225,8 +310,10 @@ Ask the user:
 
 Then run:
 ```bash
-python3 -u {subdomain}_bulk_fulfill.py        # Option A
-python3 -u {subdomain}_bulk_fulfill.py --no-notify  # Option B
+python3 -u next-bulk-fulfill/scripts/bulk_fulfill.py \
+  --store {subdomain} --input orders.csv --results bulk-fulfill-results.csv \
+  --resume bulk-fulfill-results.csv --carrier-map carrier-map.json --execute
+# Add --no-notify for option B.
 ```
 
 ---
@@ -249,15 +336,17 @@ Show the final summary:
 For any MULTIPLE_FOUND orders, provide the order numbers and FO IDs so the user can
 resolve them in the store admin:
 > **Orders needing manual review:**
-> - Order {number} ({customer_name}): FO IDs {id1}, {id2} — has multiple fulfillment
+> - Order {number}: FO IDs {id1}, {id2} — has multiple fulfillment
 >   orders, needs manual fulfillment in the admin dashboard
 
 For any API_ERROR orders, show the error details from the results CSV.
 
 ### Clean Up
 
-After confirming results are satisfactory, offer to clean up the generated script:
-> Script saved at `{script_path}`. Want me to keep it for future use or delete it?
+Keep the bundled executor. Delete transient carrier-map/input/results artifacts by
+default after the outcome is confirmed unless needed for resume or audit. Run
+`unset NEXT_ADMIN_API_TOKEN` when finished. Keep the `.env` file — it holds
+the per-store tokens for future runs.
 
 ---
 
