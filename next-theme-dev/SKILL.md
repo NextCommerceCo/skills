@@ -128,10 +128,11 @@ development:
 ```
 
 When `--apikey` is used, `ntk init` and `ntk checkout` save the key in
-`config.yml` as plaintext; that is the standard local-development shape and
-is safe when `config.yml` is gitignored. Use `NTK_APIKEY` in CI and other
-ephemeral environments because Theme Kit 1.2.0 does not save an
-environment-supplied key. The environment value takes precedence over both
+`config.yml` as plaintext; that is the standard local-development shape, but
+the key still lives unencrypted on disk — gitignoring `config.yml` only keeps
+it out of source control, not out of disk snapshots, editor backups, or sync
+clients. Use `NTK_APIKEY` in CI and other ephemeral environments because
+Theme Kit 1.2.0 does not save an environment-supplied key. The environment value takes precedence over both
 `--apikey` and the value in `config.yml`. Ensure `config.yml` is gitignored
 before running either command, and never commit or share it.
 
