@@ -1,6 +1,6 @@
 ---
 name: next-theme-dev
-version: 1.12.0
+version: 1.12.1
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
@@ -81,15 +81,36 @@ Create the API key in Storefront admin under **Settings > API Access**:
 2. Enable `themes:read` and `themes:write` in the Permissions tab.
 3. Save the app and copy the generated API key.
 
-For an existing store theme, load the API key into `NTK_APIKEY`, list themes,
-and then check out the intended theme. `ntk checkout` downloads the files and
-writes `config.yml` without saving an environment-supplied key:
+For an existing store theme, list themes and then check out the intended
+theme. Pick the key-handling route by context:
+
+**Local developer checkout (default).** Follow the standard flow from the
+Theme Kit README: pass `--apikey` once and let ntk save it into `config.yml`
+so later commands need no flags. This is the expected shape for a long-lived
+checkout on a developer machine, and it matches how existing checkouts in a
+multi-store workspace are normally configured:
+
+```bash
+ntk list --env=development --apikey="$THEME_API_KEY" --store="https://<store-subdomain>.29next.store"
+ntk checkout --env=development --apikey="$THEME_API_KEY" --theme_id=<id> --store="https://<store-subdomain>.29next.store"
+```
+
+**CI and ephemeral environments.** Load the key into `NTK_APIKEY` instead.
+`ntk checkout` then downloads the files and writes `config.yml` without
+saving an environment-supplied key, so no credential lands on disk:
 
 ```bash
 export NTK_APIKEY="$THEME_API_KEY"
 ntk list --env=development --store="https://<store-subdomain>.29next.store"
 ntk checkout --env=development --theme_id=<id> --store="https://<store-subdomain>.29next.store"
 ```
+
+For an agent-driven checkout on a developer's machine, ask the operator which
+route they want before running it. Saving the key (`--apikey`) matches the
+README and keeps the checkout self-contained like their other stores;
+`NTK_APIKEY` avoids persisting the credential but leaves a `config.yml` that
+needs the env var on every later command. Do not silently produce a checkout
+whose `config.yml` shape differs from the operator's existing checkouts.
 
 For a new theme, start from a complete theme codebase such as Spark, then run
 `ntk init`. `ntk init` registers the current codebase and writes `config.yml`;
@@ -107,11 +128,13 @@ development:
 ```
 
 When `--apikey` is used, `ntk init` and `ntk checkout` save the key in
-`config.yml` as plaintext. Prefer `NTK_APIKEY` for CI and agent runs because
-Theme Kit 1.2.0 does not save an environment-supplied key. The environment
-value takes precedence over both `--apikey` and the value in `config.yml`.
-Ensure `config.yml` is gitignored before running either command, and never
-commit or share it.
+`config.yml` as plaintext; that is the standard local-development shape, but
+the key still lives unencrypted on disk — gitignoring `config.yml` only keeps
+it out of source control, not out of disk snapshots, editor backups, or sync
+clients. Use `NTK_APIKEY` in CI and other ephemeral environments because
+Theme Kit 1.2.0 does not save an environment-supplied key. The environment value takes precedence over both
+`--apikey` and the value in `config.yml`. Ensure `config.yml` is gitignored
+before running either command, and never commit or share it.
 
 The file can contain several environments. Commands use `development` by
 default; use `-e` or `--env` to select another entry. Treat the environment,
@@ -366,6 +389,9 @@ marked `(Active)` by `ntk list`.
 `ntk init` and `ntk checkout` write `config.yml`. A key supplied through
 `--apikey` is saved there as plaintext; a key supplied through `NTK_APIKEY` is
 not. `NTK_APIKEY` takes precedence over both `--apikey` and the saved key.
+Choose the route by context as described in the preamble: `--apikey` for a
+local developer checkout (README-standard, self-contained config.yml),
+`NTK_APIKEY` for CI and ephemeral environments.
 Spark's `.gitignore` already ignores `config.yml`. If working in a non-Spark
 bare directory instead, add it to `.gitignore` before the first `ntk` command.
 Never commit or share `config.yml`.
