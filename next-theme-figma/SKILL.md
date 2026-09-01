@@ -1,6 +1,6 @@
 ---
 name: next-theme-figma
-version: 0.4.2
+version: 0.5.0
 description: |
   Prepare Figma storefront designs for NEXT Commerce theme
   implementation handoff. Use when auditing, inspecting, extracting assets
@@ -48,6 +48,8 @@ Load only the references needed for the current step:
 - `references/intro-commerce-surfaces.md` when `theme_family` is `intro-bootstrap` and the design touches PDPs, cart, subscriptions, typography settings, or other dynamic commerce behavior.
 - `references/developer-workflow.md` for section classification, visual verification, remediation loops, and handoff sequencing.
 - `references/handoff-manifest.md` when creating or validating the handoff package.
+- `references/geometry-and-copy-manifests.md` when extracting or validating the
+  `geometry.json` and `copy.json` members of the package.
 - `references/designer-checklist.md` when the Figma source is incomplete and the designer/merchant needs actionable fixes.
 
 ## Workflow
@@ -161,6 +163,35 @@ For every asset, record the source node ID, prefix/type, target filename, format
 
 For every place where Figma should not be implemented literally, add a platform divergence entry. Read the commerce-surface reference for the recorded `theme_family`; common divergences include PDP gallery/carousel behavior, product image aspect ratios, variant control names, price/availability bindings, add-to-cart form contracts, cart drawer hooks, subscriptions, reviews/apps, and cached header/account/cart state.
 
+### 5b. Extract The Geometry And Copy Manifests
+
+These two manifests are what make the downstream fidelity loop deterministic.
+Both are extracted from the Figma source; neither is ever transcribed by hand.
+
+`geometry.json` records, per route and viewport, the box of every section and
+of the elements inside it that the implementation will build as distinct nodes,
+plus the shared edges and sibling gaps that must hold. `copy.json` records the
+verbatim text of every Figma text layer, with an explicit allowed-deviation
+list for copy that legitimately differs.
+
+They exist because the two most expensive failures in these builds are geometry
+stated from memory and copy invented at the keyboard. Both are cheap to extract
+now and cost a full review round each to find later. Downstream,
+`next-theme-dev` asserts rendered DOM boxes against `geometry.json` **before**
+any pixel scoring, and lints built templates against `copy.json` in its builder
+and repair gates.
+
+Read `references/geometry-and-copy-manifests.md` for the schemas, the
+extraction rules, and the selector contract. Strict validation requires both
+manifests when the mode is `implementation-handoff`.
+
+Lint a build against the copy inventory with the bundled script:
+
+```bash
+python3 <skill-dir>/scripts/copy-lint.py \
+  --package /path/to/handoff --templates partials --templates templates
+```
+
 ### 5a. Optional Product Media Handoff
 
 When PDP Figma gallery images differ from the store's backend product media, offer the user an explicit follow-up path: extract the Figma product media as a backend-update manifest for `next-theme-dev`. This is a handoff step, not a theme implementation shortcut.
@@ -183,6 +214,11 @@ Repeat until the package is close enough for implementation or all gaps are docu
 
 1. Complete the screenshot-capability preflight above, then capture Figma refs
    for desktop/tablet/mobile where available.
+1a. Assert geometry before judging pixels. When a build exists, run the
+   `next-theme-dev` comparator against `geometry.json` and fix what it names
+   first. Percentage pixel mismatch is telemetry: a wrong indent costs a
+   fraction of a percent and looks plainly wrong, so a percentage cannot be
+   the acceptance instrument.
 2. Compare against real existing preview screenshots at matching widths when a
    theme already exists. Never substitute DOM geometry for an unavailable PNG.
 3. Record mismatches by route, section, viewport, and severity.
@@ -222,6 +258,8 @@ A complete handoff includes:
 
 - Route/page manifest.
 - Section manifest with classification and implementation targets.
+- Geometry manifest with per-element boxes, shared edges, and sibling gaps.
+- Copy manifest with the verbatim text inventory and allowed deviations.
 - Asset manifest with source node IDs and export decisions.
 - Platform divergence ledger.
 - Reference screenshot paths.

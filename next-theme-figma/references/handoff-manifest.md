@@ -34,8 +34,23 @@ The package should contain:
 - `assets.json`: asset source and export manifest.
 - `platform-divergence-ledger.json`: places where theme/platform behavior wins or needs guardrails.
 - `viewport-coverage.json`: desktop/tablet/mobile coverage by route/section.
+- `geometry.json`: per-element boxes, shared edges, and sibling gaps extracted from Figma metadata.
+- `copy.json`: the verbatim text inventory and its allowed deviations.
 - `validation-checklist.md`: human-readable completion checklist.
 - `notes.md`: concise operator notes and unresolved questions.
+
+## Geometry And Copy Manifests
+
+`geometry.json` (schema `next-theme-figma/geometry/v1`) and `copy.json`
+(schema `next-theme-figma/copy/v1`) are required in strict validation when
+`figma-handoff.json` has `mode: implementation-handoff`, and warn in other
+modes. Legacy v0 packages predate both and are exempt.
+
+`figma-handoff.json` names them in `manifests.geometry` and `manifests.copy`.
+Their `source` fields are fixed at `figma-metadata` and `figma-text-layers`:
+both manifests are extracted from the Figma source, never transcribed, and the
+validator rejects any other value. Read `geometry-and-copy-manifests.md` for
+the full schemas, the selector contract, and the extraction rules.
 
 ## Classification Values
 

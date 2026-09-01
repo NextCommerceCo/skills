@@ -10,6 +10,8 @@ const SCHEMA = {
   assets: 'next-theme-figma/assets/v0',
   divergence: 'next-theme-figma/platform-divergence/v1',
   coverage: 'next-theme-figma/viewport-coverage/v0',
+  geometry: 'next-theme-figma/geometry/v1',
+  copy: 'next-theme-figma/copy/v1',
 };
 
 const LEGACY_SCHEMA = {
@@ -44,6 +46,20 @@ const VIEWPORT_WIDTHS = {
   tablet: new Set([768]),
   mobile: new Set([375, 390]),
 };
+
+const VIEWPORT_NAMES = ['desktop', 'tablet', 'mobile'];
+const GEOMETRY_SOURCES = new Set(['figma-metadata']);
+const GEOMETRY_ROLES = new Set(['text', 'image', 'icon', 'container', 'control']);
+const GEOMETRY_EDGES = new Set(['left', 'right', 'top', 'bottom']);
+const GEOMETRY_AXES = new Set(['vertical', 'horizontal']);
+const GEOMETRY_ASSERTIONS = new Set(['position-x', 'position-y', 'width', 'height']);
+const GEOMETRY_ANCHORS = new Set(['left', 'center', 'right']);
+// Figma rounds sub-pixel frame geometry; a box may sit this far outside its
+// parent before the overflow is treated as a real extraction error.
+const GEOMETRY_BOUNDS_SLACK_PX = 1;
+
+const COPY_SOURCES = new Set(['figma-text-layers']);
+const COPY_ROLES = new Set(['heading', 'body', 'label', 'cta', 'legal', 'alt']);
 
 if (require.main === module) main();
 
@@ -274,6 +290,8 @@ function createPackage(opts) {
     'assets.json',
     divergenceFilename,
     'viewport-coverage.json',
+    'geometry.json',
+    'copy.json',
     'validation-checklist.md',
     'notes.md',
   ];
@@ -314,6 +332,8 @@ function createPackage(opts) {
       assets: 'assets.json',
       platform_divergence_ledger: 'platform-divergence-ledger.json',
       viewport_coverage: 'viewport-coverage.json',
+      geometry: 'geometry.json',
+      copy: 'copy.json',
     },
     unresolved_questions: [],
   };
@@ -396,6 +416,26 @@ function createPackage(opts) {
       mobile: { figma_ref: '', preview_ref: '', status: 'missing' },
       notes: '',
     })),
+  });
+
+  writeJson(path.join(out, 'geometry.json'), fixture?.geometry || {
+    schema_version: SCHEMA.geometry,
+    project,
+    source: 'figma-metadata',
+    extracted_at: generatedAt,
+    routes: routes.map((route, index) => ({
+      route_id: routeId(route, index),
+      viewports: {},
+    })),
+  });
+
+  writeJson(path.join(out, 'copy.json'), fixture?.copy || {
+    schema_version: SCHEMA.copy,
+    project,
+    source: 'figma-text-layers',
+    extracted_at: generatedAt,
+    strings: [],
+    allowed_deviations: [],
   });
 
   writeText(path.join(out, 'validation-checklist.md'), checklistTemplate(project));
@@ -698,12 +738,346 @@ function validatePackage(dir, strict = true) {
   }
   if (coverageEntries && !coverageEntries.length) issue(strict, errors, warnings, 'viewport-coverage.json: no route coverage recorded');
 
+  validateGeometry(dir, handoff, routeEntries, sectionEntries, legacyV0, strict, errors, warnings);
+  validateCopy(dir, handoff, sectionEntries, legacyV0, strict, errors, warnings);
+
   for (const warning of warnings) console.log(`Warning: ${warning}`);
   if (errors.length) {
     for (const error of errors) console.log(`Error: ${error}`);
     process.exit(1);
   }
   console.log(`[next-theme-figma] PASS (${strict ? 'strict' : 'non-strict'}) with ${warnings.length} warning(s)`);
+}
+
+// Geometry manifest: per-element boxes extracted from Figma metadata, the
+// deterministic input to next-theme-dev's scripts/assert-geometry.mjs. Position
+// and size deltas are asserted per element; percentage pixel mismatch is
+// telemetry, not an acceptance instrument.
+function validateGeometry(dir, handoff, routeEntries, sectionEntries, legacyV0, strict, errors, warnings) {
+  const filename = 'geometry.json';
+  const file = path.join(dir, filename);
+  const present = fs.existsSync(file);
+  const mode = handoff?.mode;
+  const declared = handoff?.manifests?.geometry;
+
+  if (!present) {
+    if (mode === 'implementation-handoff' && !legacyV0) {
+      errors.push(
+        `missing ${filename}: implementation-handoff packages must carry an extracted geometry manifest`,
+      );
+    } else {
+      warnings.push(
+        `${filename} not present; add one before promoting this package to implementation-handoff`,
+      );
+    }
+    if (declared) errors.push(`figma-handoff.json: manifests.geometry names a missing ${filename}`);
+    return;
+  }
+
+  if (declared !== filename) {
+    errors.push(`figma-handoff.json: manifests.geometry must be "${filename}"`);
+  }
+
+  const geometry = readJson(file, errors);
+  if (!geometry) return;
+  expectSchema(geometry, SCHEMA.geometry, filename, errors);
+
+  if (!GEOMETRY_SOURCES.has(geometry.source)) {
+    errors.push(
+      `${filename}: source must be one of ${Array.from(GEOMETRY_SOURCES).join(', ')}`
+      + ' (geometry is extracted from Figma metadata, never transcribed by hand)',
+    );
+  }
+
+  const geometryRoutes = expectArray(geometry, 'routes', filename, errors);
+  if (!geometryRoutes) return;
+  if (!geometryRoutes.length) issue(strict, errors, warnings, `${filename}: no routes recorded`);
+
+  const knownRoutes = new Set((routeEntries || []).map((route) => route.route_id).filter(Boolean));
+  const knownSections = new Set((sectionEntries || []).map((entry) => entry.section_id).filter(Boolean));
+  const seenRoutes = new Set();
+
+  for (const route of geometryRoutes) {
+    const routeLabel = `${filename}: ${route.route_id || 'route'}`;
+    if (!route.route_id) {
+      errors.push(`${filename}: route missing route_id`);
+      continue;
+    }
+    if (seenRoutes.has(route.route_id)) errors.push(`${routeLabel}: duplicate route_id`);
+    seenRoutes.add(route.route_id);
+    if (knownRoutes.size && !knownRoutes.has(route.route_id)) {
+      errors.push(`${routeLabel}: route_id is not in routes.json`);
+    }
+
+    const viewports = expectObject(route, 'viewports', routeLabel, errors);
+    if (!viewports) continue;
+    const viewportNames = Object.keys(viewports);
+    if (!viewportNames.length) issue(strict, errors, warnings, `${routeLabel}: no viewports recorded`);
+
+    for (const name of viewportNames) {
+      const frame = viewports[name];
+      const frameLabel = `${routeLabel}.${name}`;
+      if (!VIEWPORT_NAMES.includes(name)) {
+        errors.push(`${frameLabel}: unknown viewport (expected ${VIEWPORT_NAMES.join(', ')})`);
+        continue;
+      }
+      if (!frame || typeof frame !== 'object') {
+        errors.push(`${frameLabel}: must be an object`);
+        continue;
+      }
+      if (!frame.frame_node_id) issue(strict, errors, warnings, `${frameLabel}: missing frame_node_id`);
+
+      const frameWidth = geometryNumber(frame.frame_width, `${frameLabel}.frame_width`, errors);
+      const frameHeight = geometryNumber(frame.frame_height, `${frameLabel}.frame_height`, errors);
+      if (frameWidth !== null && !VIEWPORT_WIDTHS[name].has(frameWidth)) {
+        errors.push(
+          `${frameLabel}: frame_width ${frameWidth} must be one of `
+          + `${Array.from(VIEWPORT_WIDTHS[name]).join(', ')}`,
+        );
+      }
+
+      const sections = expectArray(frame, 'sections', frameLabel, errors);
+      if (!sections) continue;
+      if (!sections.length) issue(strict, errors, warnings, `${frameLabel}: no sections recorded`);
+
+      const seenSections = new Set();
+      for (const section of sections) {
+        const sectionLabel = `${frameLabel}.${section.section_id || 'section'}`;
+        if (!section.section_id) {
+          errors.push(`${frameLabel}: section missing section_id`);
+          continue;
+        }
+        if (seenSections.has(section.section_id)) errors.push(`${sectionLabel}: duplicate section_id`);
+        seenSections.add(section.section_id);
+        if (knownSections.size && !knownSections.has(section.section_id)) {
+          errors.push(`${sectionLabel}: section_id is not in sections.json`);
+        }
+        if (!section.node_id) issue(strict, errors, warnings, `${sectionLabel}: missing node_id`);
+        if (!section.selector) errors.push(`${sectionLabel}: missing selector`);
+
+        const box = geometryBox(section.box, sectionLabel, errors);
+        if (box && frameWidth !== null && frameHeight !== null) {
+          geometryWithin(box, { x: 0, y: 0, width: frameWidth, height: frameHeight },
+            sectionLabel, 'frame', errors, warnings);
+        }
+
+        const elements = expectArray(section, 'elements', sectionLabel, errors);
+        const elementIds = new Set();
+        const selectors = new Map();
+        if (elements) {
+          if (!elements.length) {
+            issue(strict, errors, warnings, `${sectionLabel}: no elements recorded`);
+          }
+          for (const element of elements) {
+            const elementLabel = `${sectionLabel}.${element.element_id || 'element'}`;
+            if (!element.element_id) {
+              errors.push(`${sectionLabel}: element missing element_id`);
+              continue;
+            }
+            if (elementIds.has(element.element_id)) errors.push(`${elementLabel}: duplicate element_id`);
+            elementIds.add(element.element_id);
+            if (!element.node_id) issue(strict, errors, warnings, `${elementLabel}: missing node_id`);
+            if (!element.selector) {
+              errors.push(`${elementLabel}: missing selector`);
+            } else if (selectors.has(element.selector)) {
+              errors.push(
+                `${elementLabel}: selector "${element.selector}" is already used by `
+                + `${selectors.get(element.selector)}`,
+              );
+            } else {
+              selectors.set(element.selector, element.element_id);
+            }
+            if (element.role !== undefined && !GEOMETRY_ROLES.has(element.role)) {
+              errors.push(`${elementLabel}: invalid role "${element.role}"`);
+            }
+            if (element.tolerance_px !== undefined) {
+              geometryNumber(element.tolerance_px, `${elementLabel}.tolerance_px`, errors);
+            }
+            if (element.assert !== undefined) {
+              if (!Array.isArray(element.assert) || !element.assert.length) {
+                errors.push(`${elementLabel}: assert must be a non-empty array`);
+              } else {
+                for (const name of element.assert) {
+                  if (!GEOMETRY_ASSERTIONS.has(name)) {
+                    errors.push(`${elementLabel}: invalid assert entry "${name}"`);
+                  }
+                }
+              }
+            }
+            if (element.align_anchor !== undefined && !GEOMETRY_ANCHORS.has(element.align_anchor)) {
+              errors.push(`${elementLabel}: invalid align_anchor "${element.align_anchor}"`);
+            }
+            // Element boxes are section-relative, so an element that does not
+            // touch its own section box means the extraction picked the wrong
+            // parent — the failure the manifest exists to make impossible.
+            const elementBox = geometryBox(element.box, elementLabel, errors);
+            if (elementBox && box) {
+              geometryWithin(
+                elementBox,
+                { x: 0, y: 0, width: box.width, height: box.height },
+                elementLabel,
+                'section',
+                errors,
+                warnings,
+              );
+            }
+          }
+        }
+
+        for (const group of section.alignment_groups || []) {
+          const groupLabel = `${sectionLabel}.${group.group_id || 'alignment_group'}`;
+          if (!group.group_id) errors.push(`${sectionLabel}: alignment group missing group_id`);
+          if (!GEOMETRY_EDGES.has(group.edge)) {
+            errors.push(`${groupLabel}: invalid edge "${group.edge}"`);
+          }
+          const ids = Array.isArray(group.element_ids) ? group.element_ids : [];
+          if (ids.length < 2) errors.push(`${groupLabel}: needs at least two element_ids`);
+          for (const id of ids) {
+            if (!elementIds.has(id)) errors.push(`${groupLabel}: unknown element_id "${id}"`);
+          }
+        }
+
+        for (const gap of section.gaps || []) {
+          const gapLabel = `${sectionLabel}.${gap.gap_id || 'gap'}`;
+          if (!gap.gap_id) errors.push(`${sectionLabel}: gap missing gap_id`);
+          if (!GEOMETRY_AXES.has(gap.axis)) errors.push(`${gapLabel}: invalid axis "${gap.axis}"`);
+          for (const key of ['from', 'to']) {
+            if (!elementIds.has(gap[key])) errors.push(`${gapLabel}: unknown ${key} element_id "${gap[key]}"`);
+          }
+          geometryNumber(gap.value, `${gapLabel}.value`, errors);
+        }
+      }
+    }
+  }
+}
+
+// Copy manifest: the verbatim text inventory extracted from Figma text layers
+// at handoff time. scripts/copy-lint.py diffs built templates against it, so
+// invented copy fails at the builder gate instead of in a review round.
+function validateCopy(dir, handoff, sectionEntries, legacyV0, strict, errors, warnings) {
+  const filename = 'copy.json';
+  const file = path.join(dir, filename);
+  const present = fs.existsSync(file);
+  const declared = handoff?.manifests?.copy;
+
+  if (!present) {
+    if (handoff?.mode === 'implementation-handoff' && !legacyV0) {
+      errors.push(
+        `missing ${filename}: implementation-handoff packages must carry a verbatim copy inventory`,
+      );
+    } else {
+      warnings.push(
+        `${filename} not present; add one before promoting this package to implementation-handoff`,
+      );
+    }
+    if (declared) errors.push(`figma-handoff.json: manifests.copy names a missing ${filename}`);
+    return;
+  }
+
+  if (declared !== filename) errors.push(`figma-handoff.json: manifests.copy must be "${filename}"`);
+
+  const copy = readJson(file, errors);
+  if (!copy) return;
+  expectSchema(copy, SCHEMA.copy, filename, errors);
+  if (!COPY_SOURCES.has(copy.source)) {
+    errors.push(
+      `${filename}: source must be one of ${Array.from(COPY_SOURCES).join(', ')}`
+      + ' (copy is extracted from Figma text layers, never retyped)',
+    );
+  }
+
+  const knownSections = new Set((sectionEntries || []).map((entry) => entry.section_id).filter(Boolean));
+  const strings = expectArray(copy, 'strings', filename, errors);
+  const copyIds = new Set();
+  if (strings) {
+    if (!strings.length) issue(strict, errors, warnings, `${filename}: no strings recorded`);
+    for (const entry of strings) {
+      const label = `${filename}: ${entry.copy_id || 'string'}`;
+      if (!entry.copy_id) {
+        errors.push(`${filename}: string missing copy_id`);
+        continue;
+      }
+      if (copyIds.has(entry.copy_id)) errors.push(`${label}: duplicate copy_id`);
+      copyIds.add(entry.copy_id);
+      if (typeof entry.text !== 'string' || !entry.text.trim()) {
+        errors.push(`${label}: text must be a non-empty string`);
+      }
+      if (!entry.node_id) issue(strict, errors, warnings, `${label}: missing node_id`);
+      if (entry.role !== undefined && !COPY_ROLES.has(entry.role)) {
+        errors.push(`${label}: invalid role "${entry.role}"`);
+      }
+      if (!entry.section_id) {
+        issue(strict, errors, warnings, `${label}: missing section_id`);
+      } else if (knownSections.size && !knownSections.has(entry.section_id)) {
+        errors.push(`${label}: section_id is not in sections.json`);
+      }
+    }
+  }
+
+  for (const deviation of copy.allowed_deviations || []) {
+    const label = `${filename}: allowed deviation ${deviation.deviation_id || '(unnamed)'}`;
+    if (!deviation.deviation_id) errors.push(`${filename}: allowed deviation missing deviation_id`);
+    const hasText = typeof deviation.text === 'string' && deviation.text.length > 0;
+    const hasPattern = typeof deviation.pattern === 'string' && deviation.pattern.length > 0;
+    if (hasText === hasPattern) {
+      errors.push(`${label}: needs exactly one of text or pattern`);
+    }
+    if (hasPattern) {
+      try {
+        new RegExp(deviation.pattern);
+      } catch {
+        errors.push(`${label}: pattern is not a valid regular expression`);
+      }
+    }
+    // A deviation without a recorded reason is indistinguishable from copy
+    // drift that someone silenced, which is what this manifest exists to catch.
+    if (!deviation.reason) errors.push(`${label}: missing reason`);
+    if (!deviation.approved_by) issue(strict, errors, warnings, `${label}: missing approved_by`);
+  }
+}
+
+function geometryNumber(value, label, errors) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    errors.push(`${label}: must be a finite number`);
+    return null;
+  }
+  return value;
+}
+
+function geometryBox(box, label, errors) {
+  if (!box || typeof box !== 'object') {
+    errors.push(`${label}: missing box`);
+    return null;
+  }
+  const parsed = {};
+  for (const key of ['x', 'y', 'width', 'height']) {
+    const value = geometryNumber(box[key], `${label}.box.${key}`, errors);
+    if (value === null) return null;
+    parsed[key] = value;
+  }
+  if (parsed.width < 0 || parsed.height < 0) {
+    errors.push(`${label}: box width and height must not be negative`);
+    return null;
+  }
+  return parsed;
+}
+
+function geometryWithin(box, parent, label, parentLabel, errors, warnings) {
+  const intersects = box.x < parent.width && box.y < parent.height
+    && box.x + box.width > 0 && box.y + box.height > 0;
+  if (!intersects) {
+    errors.push(`${label}: box lies entirely outside its ${parentLabel} box`);
+    return;
+  }
+  const overflow = Math.max(
+    -box.x,
+    -box.y,
+    box.x + box.width - parent.width,
+    box.y + box.height - parent.height,
+  );
+  if (overflow > GEOMETRY_BOUNDS_SLACK_PX) {
+    warnings.push(`${label}: box extends ${Math.round(overflow)}px beyond its ${parentLabel} box`);
+  }
 }
 
 function normalizeLegacyV0(handoff, divergence) {
