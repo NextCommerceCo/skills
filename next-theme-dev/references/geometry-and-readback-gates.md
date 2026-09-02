@@ -154,11 +154,20 @@ section empty. Take the baseline from a good push and keep it in the repo.
 `--offline-dir` replays captured responses, which is how the gate is tested
 without a store.
 
-### Push the theme's settings from the first push
+### Push the theme's settings from the first push of a fidelity run
 
-The preview theme receives the theme's own `configs/settings_data.json` from
-the **first** push of a run — merged over the live store's settings, unpublished
-target only, never the active theme. A preview rendered without it exercises the
+Scope: this rule applies only to a development run building out a **fresh,
+unpublished preview theme** whose repo carries its own prepared
+`configs/settings_data.json` as the source of truth for that theme (seed it
+deliberately — for example from the store's saved values — before the run
+starts). Everywhere else the skill's standing guidance is unchanged and wins:
+`settings_data.json` is merchant state, pushing it can overwrite Theme Editor
+changes, and it stays **excluded** from pushes unless the task explicitly
+changes saved Theme Editor values (see the Theme Settings section of
+`SKILL.md` and `references/active-theme-publish-and-qa.md`).
+
+Within that scope, push the file from the **first** push of the run rather
+than deferring it to the end. A preview rendered without it exercises only the
 `{% else %}` / `|default:` fallback branch of every settings-driven template,
 so the settings path itself is never tested. In a real run that hid a
 settings-path defect for two entire phases: a `split:"\n"` filter argument that
