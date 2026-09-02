@@ -154,6 +154,20 @@ section empty. Take the baseline from a good push and keep it in the repo.
 `--offline-dir` replays captured responses, which is how the gate is tested
 without a store.
 
+### Push the theme's settings from the first push
+
+The preview theme receives the theme's own `configs/settings_data.json` from
+the **first** push of a run — merged over the live store's settings, unpublished
+target only, never the active theme. A preview rendered without it exercises the
+`{% else %}` / `|default:` fallback branch of every settings-driven template,
+so the settings path itself is never tested. In a real run that hid a
+settings-path defect for two entire phases: a `split:"\n"` filter argument that
+Django never unescapes (template string literals only unescape `\"` and `\\`),
+which surfaced as a collapsed list only when the settings file was finally
+pushed after closure. A settings path that is never rendered is a path that was
+never tested — and the readback gate above can only check what the preview
+actually renders.
+
 ## 4. Frozen-surface tests
 
 When a run touches a theme that already has shipped surfaces, the risk is not
