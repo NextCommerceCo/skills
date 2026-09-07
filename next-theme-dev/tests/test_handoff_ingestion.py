@@ -22,6 +22,7 @@ PACKAGE_FILES = (
     "viewport-coverage.json",
     "geometry.json",
     "copy.json",
+    "tokens.json",
     "validation-checklist.md",
     "notes.md",
 )

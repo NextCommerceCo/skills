@@ -99,16 +99,35 @@ Record:
 
 ## Colors, Tokens, And Settings
 
-Prefer Figma variables or named styles for:
+Use this canonical variable namespace. Alias matching is exact and
+case-sensitive after trimming whitespace.
 
-- Brand colors.
-- Surface/background colors.
-- Text colors.
-- Border colors.
-- State colors.
-- Spacing scales.
+| Canonical name | Aliases | Type |
+|---|---|---|
+| `color/brand/primary` | `brand/primary` | color |
+| `color/brand/secondary` | `brand/secondary` | color |
+| `color/brand/accent` | `brand/accent` | color |
+| `color/brand/whitespace` | `surface/background`, `surface/bg` | color |
+| `color/text/primary` | `text/primary` | color |
+| `color/text/secondary` | `text/secondary` | color |
+| `color/text/inverse` | `text/inverse` | color |
+| `color/border/default` | `border/default` | color |
+| `color/state/success` | `state/success` | color |
+| `color/state/warning` | `state/warning` | color |
+| `color/state/error` | `state/error` | color |
+| `spacing/sectionpadding-small`, `-medium`, `-big` | — | dimension |
+| `spacing/contentgap-tiny`, `-small`, `-medium`, `-big` | — | dimension |
+| `radius/radius-small`, `-medium`, `-big` | `radius/small`, `radius/medium`, `radius/big` | radius |
+| `font/size-heading1`, `-heading2`, `-heading3` | — | font-size |
+| `font/size-p-small`, `-p`, `-p-big` | — | font-size |
+| `font/family-heading`, `font/family-body` | — | font-family |
+| `maxw/container`, `maxw/cta` | — | dimension |
 
-If the file only has hard-coded values, record the actual hex/spacing values and whether they should become theme settings, CSS custom properties, or one-off section styles.
+The `font/family-*` variables are planned on the design side and may be absent.
+Unknown variables are preserved rather than forced into this namespace. If a
+token is not a variable, record its literal value and let the operator decide
+whether `target.kind` is `theme-setting`, `css-custom-property`, `one-off`, or
+`unmapped`.
 
 ## Dynamic Commerce Surfaces
 

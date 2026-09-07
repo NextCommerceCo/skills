@@ -37,6 +37,7 @@ The package should contain:
 - `viewport-coverage.json`: desktop/tablet/mobile coverage by route/section.
 - `geometry.json`: per-element boxes, shared edges, and sibling gaps extracted from Figma metadata.
 - `copy.json`: the verbatim text inventory and its allowed deviations.
+- `tokens.json`: Figma variables, observed values, and implementation targets.
 - `validation-checklist.md`: human-readable completion checklist.
 - `notes.md`: concise operator notes and unresolved questions.
 
@@ -52,6 +53,10 @@ Their `source` fields are fixed at `figma-metadata` and `figma-text-layers`:
 both manifests are extracted from the Figma source, never transcribed, and the
 validator rejects any other value. Read `geometry-and-copy-manifests.md` for
 the full schemas, the selector contract, and the extraction rules.
+
+`tokens.json` records the variables alongside them. Its source is fixed at
+`figma-variables`; read `tokens-manifest.md` for the schema, canonical names,
+target guidance, and two-source extraction rules.
 
 ## Classification Values
 

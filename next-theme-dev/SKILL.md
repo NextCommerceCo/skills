@@ -1,6 +1,6 @@
 ---
 name: next-theme-dev
-version: 1.13.0
+version: 1.14.0
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
@@ -175,8 +175,8 @@ Figma source as a fallback.
 
 ### Prescribed Reading Order
 
-Read the package in this order. The documented package has all ten files; the
-strict validator requires the first nine, but does not require `notes.md`.
+Read the package in this order. The documented package has all eleven files;
+the strict validator requires the first ten, but does not require `notes.md`.
 `geometry.json` and `copy.json` are required in this mode specifically: they
 are the deterministic acceptance instruments for fidelity and copy, and a
 package without them cannot be gated, only eyeballed.
@@ -191,8 +191,9 @@ package without them cannot be gated, only eyeballed.
 | 6 | `viewport-coverage.json` | Responsive QA: the desktop/tablet/mobile reference set the Figma Fidelity Loop compares against. Availability is per route: check the route's `coverage` entry (`figma_ref`/`status`), not just the global `viewports` flags. |
 | 7 | `geometry.json` | The per-element boxes the build must reproduce, extracted from Figma metadata. Drives `scripts/assert-geometry.mjs`, which gates every fix round before pixel scoring. |
 | 8 | `copy.json` | The verbatim text inventory and its allowed deviations. Drives the copy lint in the builder and repair gates. |
-| 9 | `validation-checklist.md` | Completion review before handback. |
-| 10 | `notes.md` | Operator notes and unresolved questions. Read before building when present. If absent, note its absence in the handback and proceed; its absence alone is not a hard stop. |
+| 9 | `tokens.json` | The Figma variables inventory and its explicit implementation targets. Drives settings, custom properties, one-off CSS, and the unmapped-token handback. |
+| 10 | `validation-checklist.md` | Completion review before handback. |
+| 11 | `notes.md` | Operator notes and unresolved questions. Read before building when present. If absent, note its absence in the handback and proceed; its absence alone is not a hard stop. |
 
 The package is the design source of record in this mode. Consult the Figma file
 only through the package, such as when exporting an asset named by a manifest.
@@ -252,6 +253,40 @@ bundled `scripts/theme-figma.js` normalizes `spark-divergence-ledger.json` and
 `spark-wins` to the v1 contract and emits a deprecation warning. Treat that
 warning as a migration prompt, not a validation failure. The strict
 `validate-package` HARD STOP still applies to actual validation failures.
+
+### Design Tokens From tokens.json
+
+When `tokens.json` is present, route every token by `target.kind`. Never re-read
+the Figma file for a token value when the manifest is present.
+
+- `theme-setting` -> create a `configs/settings_schema.json` field whose `name`
+  is `setting_id`. Derive its `type` from the token type: `color` becomes
+  `color`, `font-family` becomes `text`, and every other type becomes `select`
+  when the id is an existing Spark select or `text` otherwise. Set `default`
+  to `setting_value` when present, otherwise `value`, and seed the same value
+  in `configs/settings_data.json`. In the `layouts/base.html` `:root` block,
+  use exactly
+  `{% if settings.<setting_id> %}--<css_var>: {{ settings.<setting_id> }};{% endif %}`.
+  `settings.*` must never appear as a filter argument; it causes a 500 response. For an
+  existing Spark id, do not add a second schema field and do not add a `:root`
+  line: seed the value only, because Spark's `layouts/base.html` already maps
+  every Style setting, including each select option, to its custom property.
+  A new setting id gets the schema field, the seed, and the `:root` line.
+- `css-custom-property` -> add a literal `--<css_var>: <value>;` line to the
+  same `:root` block. For `--primary-color` and `--accent-color`, the dashboard
+  Branding value wins; record the token value in the handback instead.
+- `one-off` -> add section-scoped CSS in the owning partial, never `:root`.
+- `unmapped` -> build nothing and list the token in the handback.
+
+**Handback:** List the applicable token ids on lines beginning exactly
+`Tokens mapped to settings:`, `Tokens as custom properties:`, and
+`Unmapped tokens:`. When a list is empty, write its `none` form:
+
+`Tokens mapped to settings: none`
+
+`Tokens as custom properties: none`
+
+`Unmapped tokens: none`
 
 ---
 
@@ -994,6 +1029,9 @@ The script cannot OCR an image or prove a badge is absent. It makes that limitat
 
 ### Step 3: Settings Schema Design
 
+In `implementation-handoff` mode, design-token inputs come from `tokens.json`
+per `Design Tokens From tokens.json` in the entry contract.
+
 Map design tokens to merchant-configurable settings in `configs/settings_schema.json`:
 
 Before hardcoding any copy into a template, run a settings-suitability pass.
@@ -1127,8 +1165,8 @@ active-theme change, use the complete evidence ladder in
 ```django
 <style>
 :root {
-    --primary-color: {{ settings.primary_color|default:"#1E293B" }};
-    --body-font: {{ settings.body_font|default:"system-ui, sans-serif" }};
+    {% if settings.primary_color %}--primary-color: {{ settings.primary_color }};{% endif %}
+    {% if settings.body_font %}--body-font: {{ settings.body_font }};{% endif %}
 }
 </style>
 ```

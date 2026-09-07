@@ -74,6 +74,11 @@ For Spark, the handoff now says which sections Spark already has and which
 ones need to be built new. The handback lists every new Spark section that was
 built.
 
+The handoff also carries design tokens as a manifest, so the skill can route
+each value to a Theme setting, shared CSS custom property, or section-specific
+style without guessing from the design again. Any tokens it cannot map are
+listed clearly in the handback.
+
 ## Safety
 
 - `ntk push` and `ntk watch` change the selected remote theme, whether it is an
