@@ -151,7 +151,7 @@ class SectionRosterRoutingTest(unittest.TestCase):
         with self.assertRaises(AssertionError):
             assert_section_roster_routing(self, fixture)
 
-    def test_rejects_missing_unmapped_handback_prefix(self):
+    def test_rejects_missing_unmapped_prefix(self):
         fixture = self.markdown.replace("Unmapped sections:", "Other sections:")
         self.assertNotEqual(fixture, self.markdown)
         with self.assertRaises(AssertionError):

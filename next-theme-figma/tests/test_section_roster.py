@@ -227,7 +227,7 @@ class SectionRosterTest(unittest.TestCase):
         self.assertEqual(result["spark_status"], "chrome")
         self.assertEqual(result["spark_template"], "partials/header.html")
 
-    def test_sticky_keeps_legacy_section_id_and_raw_lookup_family(self):
+    def test_sticky_keeps_legacy_id_and_raw_family(self):
         result = self.infer("sticky1-desktop")
         self.assertEqual(result["section_id"], "bottomcta-1")
         self.assertEqual(result["family"], "sticky")
