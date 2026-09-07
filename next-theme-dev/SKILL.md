@@ -1,6 +1,6 @@
 ---
 name: next-theme-dev
-version: 1.12.2
+version: 1.13.0
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
@@ -185,7 +185,7 @@ package without them cannot be gated, only eyeballed.
 |------:|--------------|---------------------|
 | 1 | `figma-handoff.json` | Task context: target store, repo, Figma source, theme family, and runtime contract. Read first. |
 | 2 | `routes.json` | Templates plan for Step 4: Template Assembly: which templates/pages exist and their section order. |
-| 3 | `sections.json` | Partials/section work: classification decides semantic rebuild vs. asset vs. live commerce component. Use for Step 4 partials and the Step 1 component inventory. |
+| 3 | `sections.json` | Partials/section work: classification decides semantic rebuild vs. asset vs. live commerce component; for Spark, `spark_section` and `roster_status` route the implementation. Use for Step 4 partials and the Step 1 component inventory. |
 | 4 | `assets.json` | Existing asset validation path: `scripts/validate-theme-assets.py --strict` in Step 2: Asset Preparation. |
 | 5 | `platform-divergence-ledger.json` | Intentional platform deviations: only entries with decision `platform-wins` or `figma-wins-with-guardrails` and status `approved`, `implemented`, or `accepted-gap` are pre-approved `intentional-platform-divergence` items. Do not re-litigate those resolved entries. Entries with decision `needs-approval` or `blocked`, or status `open` or `blocked`, are unresolved; surface them to the operator before implementing the affected surfaces. |
 | 6 | `viewport-coverage.json` | Responsive QA: the desktop/tablet/mobile reference set the Figma Fidelity Loop compares against. Availability is per route: check the route's `coverage` entry (`figma_ref`/`status`), not just the global `viewports` flags. |
@@ -200,6 +200,49 @@ Manifest guarantees are lost if implementation re-derives the design. A theme's
 `DESIGN.md` still governs house style conventions where the package is silent;
 when the two conflict directly, surface the conflict to the operator instead of
 picking a winner.
+
+### Spark Section Routing By `roster_status`
+
+When `target.theme_family` is `spark`, entries in `sections.json` carry
+`spark_section` and `roster_status` when the package author recorded them.
+These fields are resolved upstream by `next-theme-figma`'s `infer-section` from
+`references/spark-section-roster.json`, the single roster. Do not re-derive or
+duplicate that list here. Route each section by status:
+
+- `shipped` -> implement inside the existing Spark partial named by
+  `spark_section` (`partials/<spark_section>.html`) and its Theme Settings
+  group. Do not create a parallel partial.
+- `unshipped` -> build a new partial named exactly
+  `partials/<spark_section>.html`, following Spark's `docs/section-specs/`
+  authoring contract: add `docs/section-specs/<name>.md` and prefix settings
+  keys with the section slug. This keeps the section ready to upstream to
+  Spark instead of leaving it bespoke. Never invent a different name.
+- `chrome` -> use the header/footer path: `partials/header.html` or
+  `partials/footer.html` and its Theme Settings. Never create a section
+  partial for shared chrome.
+- `unmapped` -> use classification as today, name the partial after the design
+  section, and flag it in the handback as a candidate roster addition.
+
+If `roster_status` contradicts the checked-out theme--for example, a `shipped`
+partial is absent from the checkout--surface the contradiction to the operator.
+Do not silently rebuild the missing theme surface.
+
+If `roster_status` is missing or empty on a Spark package section, do not guess:
+run `infer-section` (from the installed `next-theme-figma` skill's
+`scripts/theme-figma.js`) on the section's `figma_names.desktop` (or the first
+non-empty viewport name). If it resolves, route by the returned `spark_status`
+and record `<section_id>: resolved <spark_status> from frame name` in the
+handback; if it returns `unmapped`, treat the section as `unmapped`. Never leave
+a Spark section without a route.
+
+**Handback:** List every `unshipped` target by `spark_section` on a line that
+begins exactly `Unshipped Spark sections built:`. When there are none, write
+`Unshipped Spark sections built: none`. List all `unmapped` sections on a line
+that begins exactly `Unmapped sections:`; when there are none, write
+`Unmapped sections: none`. List sections resolved from frame names because
+`roster_status` was absent on a line that begins exactly
+`Sections routed without roster_status:`. When there are none, write
+`Sections routed without roster_status: none`.
 
 The current v1 handoff records `target.theme_family` and
 `target.runtime_contract` in `figma-handoff.json`; confirm that identity before
@@ -435,7 +478,7 @@ Do this before copying patterns between reference themes:
 
 | Theme family | Markers | Use these patterns |
 |--------------|---------|--------------------|
-| **Spark** | `css/input.css`, committed `assets/main.css`, `scripts/sass-compat.py`, `assets/js/spark-cart.js`, `assets/js/components/spark-*`, `DESIGN.md` | Tailwind v4 standalone CLI, vanilla JS/Web Components, GraphQL-first side cart, fixed-order homepage section partials, app hooks |
+| **Spark** | `css/input.css`, committed `assets/main.css`, `scripts/sass-compat.py`, `assets/js/spark-cart.js`, `assets/js/components/spark-*`, `DESIGN.md` | Tailwind v4 standalone CLI, vanilla JS/Web Components, GraphQL-first side cart, roster-routed section partials (`roster_status`), fixed-order homepage section partials, app hooks |
 | **Intro Bootstrap** | `sass/main.scss`, Bootstrap classes, `assets/js/cart.js`, `assets/js/side_cart.js`, jQuery before `{% core_js %}` | Bootstrap 5, SCSS, platform side cart scripts, jQuery/core_js integration |
 | **Custom theme** | Mixed or merchant-specific structure | Preserve the local stack. Inspect README/CLAUDE/DESIGN docs before adding tools or renaming conventions |
 
@@ -775,7 +818,7 @@ adapter, follow `references/intro-preservation-contract.md` section
 When a Figma source is provided, treat the Figma file as a visual spec, not merely an asset bucket. Run this loop proactively so visual deltas are found, fixed, or documented before handoff.
 
 1. **Map the design.** Identify the Figma file key, desktop/tablet/mobile frames, page/frame names, and section order. Record which storefront route/template each frame maps to. In `implementation-handoff` mode, this mapping already exists: take the file key, frames, section order, and route mapping from `figma-handoff.json`, `routes.json`, and `sections.json` instead of re-deriving them from the Figma file.
-2. **Classify every section before building.** Decide what should be semantic HTML/CSS, what should use live platform data, what should be an exported image/vector asset, and what is intentionally a static composed frame. Text, buttons, controls, product selectors, prices, tables, FAQs, and nav/footer links should normally be rendered by the theme, not baked into a screenshot. In `implementation-handoff` mode, surfaces covered by unresolved `platform-divergence-ledger.json` entries, using the resolved and unresolved definitions in the Implementation-Handoff Entry Contract, must be surfaced to the operator before building them.
+2. **Classify every section before building.** Decide what should be semantic HTML/CSS, what should use live platform data, what should be an exported image/vector asset, and what is intentionally a static composed frame. Text, buttons, controls, product selectors, prices, tables, FAQs, and nav/footer links should normally be rendered by the theme, not baked into a screenshot. In `implementation-handoff` mode with a Spark target, `roster_status` in `sections.json` decides `shipped` / `unshipped` / `chrome` routing per the Implementation-Handoff Entry Contract. In `implementation-handoff` mode, surfaces covered by unresolved `platform-divergence-ledger.json` entries, using the resolved and unresolved definitions in the Implementation-Handoff Entry Contract, must be surfaced to the operator before building them.
 3. **Extract the smallest real assets.** Inspect children, fills, masks, vectors, and hidden variants. Export the underlying image fill/vector node or intended composed asset. Full-frame exports are diagnostic unless the design intentionally calls for a static bitmap composition.
 4. **Assemble semantically.** Build sections with real DTL/HTML, CSS, accessible controls, and platform contracts. Use extracted assets only for visual media, logos, product art, iconography, or intentional composites.
 4a. **Assert geometry before judging pixels.** In `implementation-handoff` mode, run `scripts/assert-geometry.mjs` against the package's `geometry.json` for the route and viewport, and run the copy lint against `copy.json`. Fix what they name before anything else. Mean per-section pixel mismatch is telemetry, never the acceptance instrument: a text block indented 40px too far moves well under 1% of a section's pixels and reads as plainly wrong, so a percentage plateaus at a "close enough" that is not. Every fix-round item cites the crop file **and** the manifest numbers for that element; the crop and the manifest win over anyone's recollection of the frame. Read `references/geometry-and-readback-gates.md` before the first run.

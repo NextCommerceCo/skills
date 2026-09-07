@@ -7,10 +7,10 @@
     {
       "id": "next-theme-figma",
       "name": "Theme Figma Handoff",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "path": "next-theme-figma/SKILL.md",
       "domain": "storefronts",
-      "description": "Prepare Figma storefront designs for NEXT Commerce theme implementation by validating source structure, identifying the theme family and runtime contract, classifying sections and assets, recording platform divergences, and generating a low-inference handoff for next-theme-dev.",
+      "description": "Prepare Figma storefront designs for NEXT Commerce theme implementation by validating source structure, identifying the theme family and runtime contract, classifying sections and assets, resolving Spark section roster targets, recording platform divergences, and generating a low-inference handoff for next-theme-dev.",
       "related_skills": [
         {
           "id": "next-theme-dev",
@@ -26,7 +26,8 @@
         "Figma asset extraction",
         "mobile tablet desktop Figma fidelity",
         "visual compare Figma theme",
-        "prepare handoff for next-theme-dev"
+        "prepare handoff for next-theme-dev",
+        "Spark section roster"
       ],
       "prerequisites": [
         "Figma file or selection links with view access",
@@ -46,7 +47,7 @@
     {
       "id": "next-theme-dev",
       "name": "Theme Development",
-      "version": "1.12.2",
+      "version": "1.13.0",
       "path": "next-theme-dev/SKILL.md",
       "domain": "storefronts",
       "description": "Build, modify, and debug Next Commerce storefront themes, including Spark, Intro Bootstrap, Theme Settings, ntk CLI, DTL templates, and storefront GraphQL.",

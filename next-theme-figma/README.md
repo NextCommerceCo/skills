@@ -9,6 +9,11 @@ This skill does **not** write theme code. It sits before implementation:
 run it first, then hand its output to [Theme Development](../next-theme-dev/),
 which does the actual building.
 
+The skill now knows Spark's section roster. A designer's family-named frame,
+such as a hero or FAQ, resolves to the Spark section it maps to and whether
+Spark already ships it. The finished handoff also flags how many sections must
+be built new.
+
 What you get — a complete handoff package containing:
 
 - A page-by-page map of the design, with every section classified: rebuild it

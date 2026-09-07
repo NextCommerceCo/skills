@@ -90,6 +90,8 @@
         },
         "classification": "live-commerce-component",
         "classification_rationale": "Live product state and cart behavior must remain functional.",
+        "spark_section": "",
+        "roster_status": "unmapped",
         "implementation_target": {
           "template": "templates/catalogue/product.html",
           "partials": [],

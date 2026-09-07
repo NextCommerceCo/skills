@@ -27,6 +27,7 @@ const CLASSIFICATIONS = new Set([
   'platform-app-hook',
   'screenshot-fallback',
 ]);
+const ROSTER_STATUSES = new Set(['shipped', 'unshipped', 'chrome', 'unmapped']);
 
 const ASSET_PREFIXES = new Set(['img', 'bg', 'img-group']);
 const ASSET_FORMATS = new Set(['png', 'jpg', 'jpeg', 'svg', 'webp']);
@@ -60,6 +61,8 @@ const GEOMETRY_BOUNDS_SLACK_PX = 1;
 
 const COPY_SOURCES = new Set(['figma-text-layers']);
 const COPY_ROLES = new Set(['heading', 'body', 'label', 'cta', 'legal', 'alt']);
+const ROSTER_FILE = path.join(__dirname, '..', 'references', 'spark-section-roster.json');
+const ROSTER_MARKDOWN_FILE = path.join(__dirname, '..', 'references', 'spark-section-roster.md');
 
 if (require.main === module) main();
 
@@ -82,6 +85,15 @@ function main() {
       const input = argv.join(' ').trim();
       if (!input) throw new Error('infer-section requires a Figma frame name');
       printJson(inferSection(input));
+      return;
+    }
+
+    if (command === 'render-roster') {
+      const positional = argv.find((arg, index) => !arg.startsWith('--') && !isOptionValue(argv, index));
+      if (positional !== undefined) {
+        throw new Error(`render-roster does not accept positional argument "${positional}"`);
+      }
+      renderRosterCommand(parseOptions(argv));
       return;
     }
 
@@ -112,6 +124,8 @@ function printHelp() {
 Usage:
   node scripts/theme-figma.js parse-url "<figma-url-or-node-id>"
   node scripts/theme-figma.js infer-section "hero1-desktop"
+  node scripts/theme-figma.js infer-section "section_hero-desktop"
+  node scripts/theme-figma.js render-roster [--write|--check] [--out FILE]
   node scripts/theme-figma.js new-package --out <dir> --project <slug> [options]
   node scripts/theme-figma.js validate-package <dir> [--non-strict]
 
@@ -174,7 +188,9 @@ function normalizeNodeId(value) {
 }
 
 function inferSection(frameName) {
+  const roster = loadSectionRoster();
   const raw = String(frameName || '').trim();
+  const whitespaceCleaned = raw.replace(/\s+/g, '-');
   const cleaned = raw
     .replace(/\s+/g, '-')
     .replace(/_+/g, '-')
@@ -183,7 +199,7 @@ function inferSection(frameName) {
     .replace(/^-|-$/g, '');
 
   const bpMatch = cleaned.match(/(?:^|-)(desktop|tablet|mobile)$/i);
-  const breakpoint = bpMatch ? bpMatch[1].toLowerCase() : '';
+  let breakpoint = bpMatch ? bpMatch[1].toLowerCase() : '';
   const base = breakpoint
     ? cleaned.replace(new RegExp(`-?${breakpoint}$`, 'i'), '')
     : cleaned;
@@ -191,6 +207,8 @@ function inferSection(frameName) {
   const lower = base.toLowerCase();
   let category = '';
   let number = '';
+  let naming = '';
+  let family = '';
 
   const compact = lower.match(/^([a-z][a-z-]*?)(\d+)$/);
   const separated = lower.match(/^([a-z][a-z-]*)-(\d+)$/);
@@ -201,10 +219,39 @@ function inferSection(frameName) {
     category = separated[1];
     number = separated[2];
   }
+  const sparkMatch = compact || separated
+    ? null
+    : whitespaceCleaned.match(/^section_([a-z][a-z0-9_]*)-(desktop|tablet|mobile)$/i);
 
+  const rawFamily = category;
+  if (category && number && breakpoint) naming = 'design-family';
   if (category === 'sticky') category = 'bottomcta';
 
-  const sectionName = category && number ? `${category}-${number}` : lower;
+  let sectionName = category && number ? `${category}-${number}` : lower;
+  let expectedPattern = '{category}{number}-{breakpoint}';
+  let rosterMatch = naming === 'design-family' ? findRosterByFamily(rawFamily, roster) : null;
+  let resolvedSparkSection = rosterMatch?.entry.spark_section || '';
+
+  if (sparkMatch) {
+    const sparkName = sparkMatch[1].toLowerCase().replace(/-/g, '_');
+    const requestedSparkSection = `section_${sparkName}`;
+    number = '';
+    breakpoint = sparkMatch[2].toLowerCase();
+    category = requestedSparkSection;
+    sectionName = number ? `${category}-${number}` : category;
+    naming = 'spark-section';
+    expectedPattern = 'section_{name}-{breakpoint}';
+    rosterMatch = findRosterBySparkSection(requestedSparkSection, roster);
+    family = rosterMatch?.entry.family || '';
+    resolvedSparkSection = rosterMatch ? requestedSparkSection : '';
+  } else {
+    family = rosterMatch?.entry.family || '';
+  }
+
+  const rosterEntry = rosterMatch?.entry;
+  const sparkTemplate = rosterEntry
+    ? (rosterMatch.alternate ? `partials/${resolvedSparkSection}.html` : rosterEntry.template)
+    : '';
   return {
     frame_name: raw,
     normalized_base: lower,
@@ -212,9 +259,156 @@ function inferSection(frameName) {
     category,
     number,
     breakpoint,
-    valid_contract_name: Boolean(category && number && breakpoint),
-    expected_pattern: '{category}{number}-{breakpoint}',
+    valid_contract_name: sparkMatch
+      ? Boolean(rosterEntry && breakpoint)
+      : Boolean(category && number && breakpoint),
+    expected_pattern: expectedPattern,
+    naming,
+    family,
+    spark_section: resolvedSparkSection,
+    spark_template: sparkTemplate,
+    spark_status: rosterEntry?.status || 'unmapped',
+    suggested_classification: rosterEntry?.suggested_classification || '',
+    spark_alternates: rosterEntry?.alternates || [],
+    roster_notes: rosterEntry?.notes || '',
   };
+}
+
+function loadSectionRoster() {
+  let roster;
+  try {
+    roster = JSON.parse(fs.readFileSync(ROSTER_FILE, 'utf8'));
+  } catch (error) {
+    const reason = error.code === 'ENOENT' ? 'file not found' : error.message;
+    throw new Error(`references/spark-section-roster.json: missing or invalid (${reason})`);
+  }
+
+  let reason = '';
+  if (!roster || typeof roster !== 'object' || Array.isArray(roster)) {
+    reason = 'root must be an object';
+  } else if (roster.schema_version !== 'next-theme-figma/spark-section-roster/v1') {
+    reason = 'schema_version must be "next-theme-figma/spark-section-roster/v1"';
+  } else if (JSON.stringify(roster.statuses) !== JSON.stringify(['shipped', 'unshipped', 'chrome'])) {
+    reason = 'statuses must equal ["shipped","unshipped","chrome"]';
+  } else if (!Array.isArray(roster.entries) || !roster.entries.length) {
+    reason = 'entries must be a non-empty array';
+  } else {
+    const stringFields = [
+      'family', 'spark_section', 'template', 'status', 'suggested_classification',
+    ];
+    const families = new Set();
+    for (let index = 0; index < roster.entries.length && !reason; index += 1) {
+      const entry = roster.entries[index];
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        reason = `entries[${index}] must be an object`;
+        break;
+      }
+      for (const field of stringFields) {
+        if (typeof entry[field] !== 'string') {
+          reason = `entries[${index}].${field} must be a string`;
+          break;
+        }
+      }
+      if (!reason && families.has(entry.family)) {
+        reason = `entries[${index}].family must be unique`;
+      }
+      families.add(entry.family);
+      if (!reason && (!Number.isInteger(entry.tier) || ![0, 1].includes(entry.tier))) {
+        reason = `entries[${index}].tier must be the integer 0 or 1`;
+      }
+      if (!reason && !roster.statuses.includes(entry.status)) {
+        reason = `entries[${index}].status must be listed in statuses`;
+      }
+      if (!reason && !Array.isArray(entry.alternates)) {
+        reason = `entries[${index}].alternates must be an array`;
+      } else if (!reason && entry.alternates.some((alternate) => typeof alternate !== 'string')) {
+        reason = `entries[${index}].alternates entries must be strings`;
+      }
+    }
+  }
+  if (reason) {
+    throw new Error(`references/spark-section-roster.json: missing or invalid (${reason})`);
+  }
+  return roster;
+}
+
+function findRosterByFamily(family, roster = loadSectionRoster()) {
+  const entry = roster.entries.find((candidate) => candidate.family === family);
+  return entry ? { entry, alternate: false } : null;
+}
+
+function findRosterBySparkSection(sparkSection, roster = loadSectionRoster()) {
+  const primary = roster.entries.find((entry) => entry.spark_section === sparkSection);
+  if (primary) return { entry: primary, alternate: false };
+  const alternate = roster.entries.find((entry) => entry.alternates.includes(sparkSection));
+  return alternate ? { entry: alternate, alternate: true } : null;
+}
+
+// Only --out takes a value; a token after --write or --check is positional.
+function isOptionValue(argv, index) {
+  return index > 0 && argv[index - 1] === '--out';
+}
+
+function renderRosterCommand(opts) {
+  const unknown = Object.keys(opts).find((key) => !['write', 'check', 'out'].includes(key));
+  if (unknown) throw new Error(`render-roster does not accept --${unknown}`);
+  if (opts.out === true || opts.out === '') {
+    throw new Error('render-roster --out requires a file path');
+  }
+  if (opts.write === true && opts.check === true) {
+    throw new Error('render-roster accepts only one of --write or --check');
+  }
+  const output = renderRoster(loadSectionRoster());
+  const out = opts.out ? path.resolve(String(opts.out)) : ROSTER_MARKDOWN_FILE;
+  if (opts.write === true) {
+    fs.writeFileSync(out, output);
+    console.log(`[next-theme-figma] roster written: ${out}`);
+    return;
+  }
+  if (opts.check === true) {
+    const current = fs.existsSync(out) ? fs.readFileSync(out, 'utf8') : '';
+    if (current !== output) {
+      throw new Error(`rendered roster differs from ${out}; run render-roster --write to regenerate it`);
+    }
+    console.log(`[next-theme-figma] roster is current: ${out}`);
+    return;
+  }
+  process.stdout.write(output);
+}
+
+function renderRoster(roster) {
+  const rows = roster.entries.map((entry) => [
+    entry.family,
+    entry.spark_section,
+    entry.status,
+    String(entry.tier),
+    entry.suggested_classification,
+    entry.alternates.join(', '),
+    entry.notes || '',
+  ]);
+  const lines = [
+    '# Spark Section Roster',
+    '',
+    'The JSON roster is canonical; this file is generated. Regenerate it with '
+      + '`node <skill-dir>/scripts/theme-figma.js render-roster --write`.',
+    '',
+    '| Design family | Spark section | Status | Tier | Usual classification | Alternates | Notes |',
+    '| --- | --- | --- | --- | --- | --- | --- |',
+    ...rows.map((row) => `| ${row.map(markdownCell).join(' | ')} |`),
+    '',
+    '## Resolution rules',
+    '',
+    '- Unlisted families resolve to `unmapped` (never a guess).',
+    '- When a Spark name is listed only as an alternate, `family` reports the first roster row in file order that lists it.',
+    '- The table is advisory for the choice of target: a package author may pick a different roster section (for example an alternate) or leave a section `unmapped`, but `roster_status` must always agree with the roster\'s status for the chosen `spark_section`; the validator rejects contradictions.',
+    '- Both frame naming forms are accepted: `{family}{number}-{breakpoint}` and Spark\'s own `section_<name>-{breakpoint}`.',
+    '',
+  ];
+  return lines.join('\n');
+}
+
+function markdownCell(value) {
+  return String(value).replace(/\|/g, '\\|');
 }
 
 function createPackage(opts) {
@@ -365,6 +559,8 @@ function createPackage(opts) {
         figma_nodes: emptyNodeMap(),
         classification: 'semantic-rebuild',
         classification_rationale: 'Replace this example with the real section decision.',
+        spark_section: '',
+        roster_status: '',
         implementation_target: {
           template: '',
           partials: [],
@@ -515,6 +711,14 @@ function normalizeAsset(asset) {
 function validatePackage(dir, strict = true) {
   const errors = [];
   const warnings = [];
+  let roster = null;
+  try {
+    roster = loadSectionRoster();
+  } catch {
+    errors.push('references/spark-section-roster.json: missing or invalid');
+  }
+  const rosterCounts = { shipped: 0, unshipped: 0, chrome: 0, unmapped: 0 };
+  let hasRosterStatus = false;
   const required = [
     'figma-handoff.json',
     'routes.json',
@@ -625,6 +829,63 @@ function validatePackage(dir, strict = true) {
       }
       if (!section.route_id) issue(strict, errors, warnings, `${id}: missing route_id`);
       if (!section.implementation_target?.template) issue(strict, errors, warnings, `${id}: missing implementation target template`);
+
+      const sparkSection = section.spark_section;
+      const rosterStatus = section.roster_status;
+      const sparkSectionIsSet = sparkSection !== undefined && sparkSection !== '';
+      const rosterStatusIsSet = rosterStatus !== undefined && rosterStatus !== '';
+      let rosterMatch = null;
+
+      if (rosterStatusIsSet) {
+        hasRosterStatus = true;
+        if (!ROSTER_STATUSES.has(rosterStatus)) {
+          errors.push(
+            `${id}: invalid roster_status "${rosterStatus}" `
+            + '(expected shipped, unshipped, chrome, unmapped)',
+          );
+        } else {
+          rosterCounts[rosterStatus] += 1;
+        }
+      }
+
+      if (sparkSectionIsSet && roster) {
+        rosterMatch = findRosterBySparkSection(sparkSection, roster);
+        if (!rosterMatch) {
+          errors.push(
+            `${id}: spark_section "${sparkSection}" is not in `
+            + 'references/spark-section-roster.json',
+          );
+        }
+      }
+
+      if (sparkSectionIsSet && rosterMatch && rosterStatusIsSet
+          && ROSTER_STATUSES.has(rosterStatus)
+          && rosterStatus !== rosterMatch.entry.status) {
+        errors.push(
+          `${id}: roster_status "${rosterStatus}" contradicts the roster `
+          + `(${sparkSection} is ${rosterMatch.entry.status})`,
+        );
+      }
+
+      if (rosterStatusIsSet && ROSTER_STATUSES.has(rosterStatus)
+          && !sparkSectionIsSet && rosterStatus !== 'unmapped') {
+        errors.push(`${id}: roster_status "${rosterStatus}" requires spark_section`);
+      }
+
+      if (!rosterStatusIsSet && handoff?.target?.theme_family === 'spark') {
+        warnings.push(
+          `${id}: missing roster_status; run infer-section on the frame name and record `
+          + 'spark_section/roster_status',
+        );
+      }
+
+      if (rosterStatus === 'unshipped' && rosterMatch
+          && rosterMatch.entry.status === 'unshipped') {
+        warnings.push(
+          `${id}: targets unshipped Spark section ${sparkSection}; next-theme-dev must build `
+          + `${rosterMatch.entry.template} per Spark's section spec contract`,
+        );
+      }
     }
   }
 
@@ -746,7 +1007,12 @@ function validatePackage(dir, strict = true) {
     for (const error of errors) console.log(`Error: ${error}`);
     process.exit(1);
   }
-  console.log(`[next-theme-figma] PASS (${strict ? 'strict' : 'non-strict'}) with ${warnings.length} warning(s)`);
+  let summary = `[next-theme-figma] PASS (${strict ? 'strict' : 'non-strict'}) with ${warnings.length} warning(s)`;
+  if (hasRosterStatus) {
+    summary += `; roster: ${rosterCounts.shipped} shipped, ${rosterCounts.unshipped} unshipped, `
+      + `${rosterCounts.chrome} chrome, ${rosterCounts.unmapped} unmapped`;
+  }
+  console.log(summary);
 }
 
 // Geometry manifest: per-element boxes extracted from Figma metadata, the
