@@ -1,6 +1,6 @@
 ---
 name: next-theme-figma
-version: 0.5.0
+version: 0.6.0
 description: |
   Prepare Figma storefront designs for NEXT Commerce theme
   implementation handoff. Use when auditing, inspecting, extracting assets
@@ -50,6 +50,8 @@ Load only the references needed for the current step:
 - `references/handoff-manifest.md` when creating or validating the handoff package.
 - `references/geometry-and-copy-manifests.md` when extracting or validating the
   `geometry.json` and `copy.json` members of the package.
+- `references/spark-section-roster.md` when resolving design families or Spark
+  section names into section-library targets.
 - `references/designer-checklist.md` when the Figma source is incomplete and the designer/merchant needs actionable fixes.
 
 ## Workflow
@@ -116,6 +118,7 @@ Useful local CLI:
 ```bash
 node <skill-dir>/scripts/theme-figma.js parse-url "<figma-url>"
 node <skill-dir>/scripts/theme-figma.js infer-section "hero1-desktop"
+node <skill-dir>/scripts/theme-figma.js render-roster --check
 ```
 
 ### 2. Validate The Figma Contract
@@ -156,6 +159,11 @@ Classify each section before implementation:
 - `screenshot-fallback`: only with explicit approval, and only when the output is a static prototype or a non-interactive visual fallback.
 
 Hard stop: do not produce a page made mostly from full-section screenshots for a production storefront unless the user explicitly accepts a static prototype. Text, links, controls, SEO, accessibility, product data, and responsive behavior should remain live.
+
+Run `infer-section` on every frame name and record its `spark_section` and
+`roster_status` on the section. When the roster resolves, default
+`implementation_target.template` from `spark_template`. Unlisted families are
+`unmapped` and are never guessed. See `references/spark-section-roster.md`.
 
 ### 5. Create Asset And Divergence Ledgers
 
@@ -251,6 +259,9 @@ node <skill-dir>/scripts/theme-figma.js validate-package /path/to/handoff/exampl
 ```
 
 Validation is strict by default: placeholder or incomplete routes, nodes, assets, and divergence entries fail. Use `--non-strict` only while drafting. `new-package` refuses to replace its package files unless `--force` is supplied explicitly.
+
+When sections carry roster statuses, the PASS line reports shipped, unshipped,
+chrome, and unmapped counts.
 
 Strict validation also fails when a `reference_screenshots` or `figma_ref`/`preview_ref` path does not exist inside the package (non-strict warns).
 

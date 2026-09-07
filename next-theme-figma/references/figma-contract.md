@@ -23,20 +23,32 @@ Prefer:
 - Sections ordered visually in the Figma layer tree or documented in the handoff.
 - Frame names that can be mapped to route and viewport without guessing.
 
-For reusable section exports, use the convention:
+For reusable section exports, both the design-family convention and Spark's own
+section convention are valid:
 
 ```text
 {category}{number}-{breakpoint}
 hero1-desktop
 hero1-tablet
 hero1-mobile
+section_<name>-{breakpoint}
+section_hero-desktop
 ```
+
+The Spark form is the literal `section_<name>-{breakpoint}`, matched
+case-insensitively; a name that also fits the numbered design-family pattern is
+treated as design-family. Hyphen or space variants are not Spark form.
 
 Normalize to section IDs such as `hero-1`, `benefits-2`, `faq-1`. Use:
 
 ```bash
 node <skill-dir>/scripts/theme-figma.js infer-section "hero1-desktop"
+node <skill-dir>/scripts/theme-figma.js infer-section "section_hero-desktop"
 ```
+
+See `references/spark-section-roster.md` for the advisory mapping from design
+families to Spark sections. When a Spark name is listed only as an alternate,
+`family` reports the first roster row in file order that lists it.
 
 ## Viewport Coverage
 

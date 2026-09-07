@@ -1,0 +1,234 @@
+{
+  "schema_version": "next-theme-figma/spark-section-roster/v1",
+  "spark_version": "1.3.0",
+  "source": "Spark templates/index.html (shipped includes) and docs/section-roster.md (tiers); The table is advisory for the choice of target: a package author may pick a different roster section (for example an alternate) or leave a section `unmapped`, but `roster_status` must always agree with the roster's status for the chosen `spark_section`; the validator rejects contradictions.",
+  "statuses": [
+    "shipped",
+    "unshipped",
+    "chrome"
+  ],
+  "entries": [
+    {
+      "family": "hero",
+      "spark_section": "section_hero",
+      "template": "partials/section_hero.html",
+      "status": "shipped",
+      "tier": 0,
+      "suggested_classification": "semantic-rebuild",
+      "alternates": []
+    },
+    {
+      "family": "promo",
+      "spark_section": "section_promo_banner",
+      "template": "partials/section_promo_banner.html",
+      "status": "shipped",
+      "tier": 0,
+      "suggested_classification": "semantic-rebuild",
+      "alternates": []
+    },
+    {
+      "family": "sticky",
+      "spark_section": "section_promo_banner",
+      "template": "partials/section_promo_banner.html",
+      "status": "shipped",
+      "tier": 0,
+      "suggested_classification": "semantic-rebuild",
+      "alternates": [],
+      "notes": "sticky bar"
+    },
+    {
+      "family": "features",
+      "spark_section": "section_value_props",
+      "template": "partials/section_value_props.html",
+      "status": "unshipped",
+      "tier": 1,
+      "suggested_classification": "semantic-rebuild",
+      "alternates": [
+        "section_benefit_grid"
+      ]
+    },
+    {
+      "family": "benefits",
+      "spark_section": "section_value_props",
+      "template": "partials/section_value_props.html",
+      "status": "unshipped",
+      "tier": 1,
+      "suggested_classification": "semantic-rebuild",
+      "alternates": [
+        "section_benefit_grid"
+      ]
+    },
+    {
+      "family": "icons",
+      "spark_section": "section_value_props",
+      "template": "partials/section_value_props.html",
+      "status": "unshipped",
+      "tier": 1,
+      "suggested_classification": "semantic-rebuild",
+      "alternates": [
+        "section_benefit_grid"
+      ]
+    },
+    {
+      "family": "howto",
+      "spark_section": "section_process_steps",
+      "template": "partials/section_process_steps.html",
+      "status": "unshipped",
+      "tier": 1,
+      "suggested_classification": "semantic-rebuild",
+      "alternates": []
+    },
+    {
+      "family": "compare",
+      "spark_section": "section_comparison_table",
+      "template": "partials/section_comparison_table.html",
+      "status": "unshipped",
+      "tier": 1,
+      "suggested_classification": "semantic-rebuild",
+      "alternates": []
+    },
+    {
+      "family": "faq",
+      "spark_section": "section_faq",
+      "template": "partials/section_faq.html",
+      "status": "unshipped",
+      "tier": 1,
+      "suggested_classification": "semantic-rebuild",
+      "alternates": []
+    },
+    {
+      "family": "reviews",
+      "spark_section": "section_testimonials",
+      "template": "partials/section_testimonials.html",
+      "status": "unshipped",
+      "tier": 1,
+      "suggested_classification": "semantic-rebuild",
+      "alternates": []
+    },
+    {
+      "family": "testimonials",
+      "spark_section": "section_testimonials",
+      "template": "partials/section_testimonials.html",
+      "status": "unshipped",
+      "tier": 1,
+      "suggested_classification": "semantic-rebuild",
+      "alternates": []
+    },
+    {
+      "family": "ugc",
+      "spark_section": "section_testimonials",
+      "template": "partials/section_testimonials.html",
+      "status": "unshipped",
+      "tier": 1,
+      "suggested_classification": "composed-asset",
+      "alternates": [],
+      "notes": "UGC grids usually export as a composed asset"
+    },
+    {
+      "family": "media",
+      "spark_section": "section_press_logos",
+      "template": "partials/section_press_logos.html",
+      "status": "unshipped",
+      "tier": 1,
+      "suggested_classification": "composed-asset",
+      "alternates": [],
+      "notes": "press/logo strips; semantic-rebuild when logos are live links"
+    },
+    {
+      "family": "guarantee",
+      "spark_section": "section_cta_band",
+      "template": "partials/section_cta_band.html",
+      "status": "unshipped",
+      "tier": 1,
+      "suggested_classification": "semantic-rebuild",
+      "alternates": [],
+      "notes": "Spark's roster has no guarantee banner; cta_band is the nearest roster entry"
+    },
+    {
+      "family": "bottomcta",
+      "spark_section": "section_cta_band",
+      "template": "partials/section_cta_band.html",
+      "status": "unshipped",
+      "tier": 1,
+      "suggested_classification": "semantic-rebuild",
+      "alternates": []
+    },
+    {
+      "family": "results",
+      "spark_section": "section_image_text",
+      "template": "partials/section_image_text.html",
+      "status": "unshipped",
+      "tier": 1,
+      "suggested_classification": "semantic-rebuild",
+      "alternates": []
+    },
+    {
+      "family": "beforeafter",
+      "spark_section": "section_image_text",
+      "template": "partials/section_image_text.html",
+      "status": "unshipped",
+      "tier": 1,
+      "suggested_classification": "composed-asset",
+      "alternates": [],
+      "notes": "before/after pairs usually export as one composed asset"
+    },
+    {
+      "family": "science",
+      "spark_section": "section_image_text",
+      "template": "partials/section_image_text.html",
+      "status": "unshipped",
+      "tier": 1,
+      "suggested_classification": "semantic-rebuild",
+      "alternates": []
+    },
+    {
+      "family": "ingredients",
+      "spark_section": "section_image_text",
+      "template": "partials/section_image_text.html",
+      "status": "unshipped",
+      "tier": 1,
+      "suggested_classification": "semantic-rebuild",
+      "alternates": []
+    },
+    {
+      "family": "problemsolution",
+      "spark_section": "section_image_text",
+      "template": "partials/section_image_text.html",
+      "status": "unshipped",
+      "tier": 1,
+      "suggested_classification": "semantic-rebuild",
+      "alternates": []
+    },
+    {
+      "family": "nav",
+      "spark_section": "header",
+      "template": "partials/header.html",
+      "status": "chrome",
+      "tier": 0,
+      "suggested_classification": "live-commerce-component",
+      "alternates": []
+    },
+    {
+      "family": "footer",
+      "spark_section": "footer",
+      "template": "partials/footer.html",
+      "status": "chrome",
+      "tier": 0,
+      "suggested_classification": "live-commerce-component",
+      "alternates": []
+    },
+    {
+      "family": "featured",
+      "spark_section": "section_featured_products",
+      "template": "partials/section_featured_products.html",
+      "status": "shipped",
+      "tier": 0,
+      "suggested_classification": "live-commerce-component",
+      "alternates": [
+        "section_featured_product",
+        "section_featured_categories",
+        "section_on_sale"
+      ]
+    }
+  ]
+}

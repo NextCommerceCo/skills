@@ -30,7 +30,8 @@ The package should contain:
 
 - `figma-handoff.json`: top-level metadata and target context.
 - `routes.json`: storefront route to Figma frame map.
-- `sections.json`: section order, classification, target files, and gaps.
+- `sections.json`: section order, classification, optional `spark_section` and
+  `roster_status`, target files, and gaps.
 - `assets.json`: asset source and export manifest.
 - `platform-divergence-ledger.json`: places where theme/platform behavior wins or needs guardrails.
 - `viewport-coverage.json`: desktop/tablet/mobile coverage by route/section.
@@ -64,6 +65,33 @@ Sections must use one of:
 - `screenshot-fallback`
 
 `screenshot-fallback` requires explicit approval in `sections.json`.
+
+## Roster Status Values
+
+Spark packages may record a section's roster resolution with the optional
+`spark_section` and `roster_status` fields in `sections.json`. Empty strings and
+absent fields both mean not set. Use exactly one of:
+
+- `shipped`: the resolved Spark section ships in the current section library.
+- `unshipped`: the section is defined by the Spark section spec but is not yet
+  shipped. Validation emits a warning, never an error, so the handoff remains
+  usable while `next-theme-dev` builds the named template to that contract.
+- `chrome`: the target is shared Spark chrome, such as the header or footer.
+- `unmapped`: the design family is not listed and must not be guessed.
+
+- An unknown `spark_section` (neither a roster primary nor alternate) is a hard
+  error in strict and non-strict modes.
+- A `roster_status` that contradicts the roster status for its named
+  `spark_section` is a hard error in both modes.
+- `shipped`, `unshipped`, and `chrome` without `spark_section` are hard errors;
+  `unmapped` may stand alone.
+- A missing `roster_status` warns only for `spark`-family packages and is silent
+  for other theme families.
+- `unshipped` warns and never errors when it agrees with the roster.
+- Roster summary counts appear only when at least one section carries a
+  `roster_status`.
+- When inference resolves a roster entry, default
+  `implementation_target.template` from infer-section's `spark_template`.
 
 ## Asset Prefix Values
 

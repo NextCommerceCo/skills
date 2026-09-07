@@ -70,6 +70,10 @@ Work inside the theme's folder and just describe what you want:
 The skill first identifies which theme family you're on and keeps every change
 consistent with how that theme is built.
 
+For Spark, the handoff now says which sections Spark already has and which
+ones need to be built new. The handback lists every new Spark section that was
+built.
+
 ## Safety
 
 - `ntk push` and `ntk watch` change the selected remote theme, whether it is an

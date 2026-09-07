@@ -9,7 +9,7 @@ Pre-built skills that give AI coding agents deep knowledge of the Next Commerce 
 <!-- BEGIN GENERATED SKILLS TABLE -->
 | Skill | Domain | What It Does |
 |-------|--------|--------------|
-| [**Theme Figma Handoff**](next-theme-figma/) | Storefronts | Prepare Figma storefront designs for NEXT Commerce theme implementation by validating source structure, identifying the theme family and runtime contract, classifying sections and assets, recording platform divergences, and generating a low-inference handoff for next-theme-dev. |
+| [**Theme Figma Handoff**](next-theme-figma/) | Storefronts | Prepare Figma storefront designs for NEXT Commerce theme implementation by validating source structure, identifying the theme family and runtime contract, classifying sections and assets, resolving Spark section roster targets, recording platform divergences, and generating a low-inference handoff for next-theme-dev. |
 | [**Theme Development**](next-theme-dev/) | Storefronts | Build, modify, and debug Next Commerce storefront themes, including Spark, Intro Bootstrap, Theme Settings, ntk CLI, DTL templates, and storefront GraphQL. |
 | [**Bulk Fulfillment Tracking Sync**](next-bulk-fulfill/) | Operations | Update orders to Fulfilled status with tracking numbers from a CSV when a fulfillment provider's automation fails to sync back. |
 | [**Bulk Fulfillment Order Move**](next-bulk-move/) | Operations | Move fulfillment orders between warehouse locations in bulk — driven either by a flat file of order numbers or by a Product ID / SKU list. Handles cancellation requests for processing FOs, location discovery, and dry-run validation. |
