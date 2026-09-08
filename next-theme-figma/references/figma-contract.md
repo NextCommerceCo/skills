@@ -102,31 +102,45 @@ Record:
 Use this canonical variable namespace. Alias matching is exact and
 case-sensitive after trimming whitespace.
 
-| Canonical name | Aliases | Type |
-|---|---|---|
-| `color/brand/primary` | `brand/primary` | color |
-| `color/brand/secondary` | `brand/secondary` | color |
-| `color/brand/accent` | `brand/accent` | color |
-| `color/brand/whitespace` | `surface/background`, `surface/bg` | color |
-| `color/text/primary` | `text/primary` | color |
-| `color/text/secondary` | `text/secondary` | color |
-| `color/text/inverse` | `text/inverse` | color |
-| `color/border/default` | `border/default` | color |
-| `color/state/success` | `state/success` | color |
-| `color/state/warning` | `state/warning` | color |
-| `color/state/error` | `state/error` | color |
-| `spacing/sectionpadding-small`, `-medium`, `-big` | — | dimension |
-| `spacing/contentgap-tiny`, `-small`, `-medium`, `-big` | — | dimension |
-| `radius/radius-small`, `-medium`, `-big` | `radius/small`, `radius/medium`, `radius/big` | radius |
-| `font/size-heading1`, `-heading2`, `-heading3` | — | font-size |
-| `font/size-p-small`, `-p`, `-p-big` | — | font-size |
-| `font/family-heading`, `font/family-body` | — | font-family |
-| `maxw/container`, `maxw/cta` | — | dimension |
+The **Bound** column records what the Debranded Sections library and a
+merchant storefront file built on it actually bind, confirmed against the live
+files on 2026-09-08 by the library's owner. `yes` rows exist in both files. `reserved` rows are names this contract holds open
+for the design side; nothing binds them today, so an export must not expect
+them, and a handoff that records one is transcribing intent rather than the
+file. The file is the truth over any handoff PDF or doc table.
 
-The `font/family-*` variables are planned on the design side and may be absent.
-Unknown variables are preserved rather than forced into this namespace. If a
-token is not a variable, record its literal value and let the operator decide
-whether `target.kind` is `theme-setting`, `css-custom-property`, `one-off`, or
+| Canonical name | Aliases | Type | Bound |
+|---|---|---|---|
+| `color/brand/primary` | `brand/primary` | color | yes |
+| `color/brand/secondary` | `brand/secondary` | color | yes |
+| `color/brand/accent` | `brand/accent` | color | reserved |
+| `color/brand/whitespace` | `surface/background`, `surface/bg` | color | yes |
+| `color/text/primary` | `text/primary` | color | yes |
+| `color/text/secondary` | `text/secondary` | color | reserved |
+| `color/text/inverse` | `text/inverse` | color | reserved |
+| `color/border/default` | `border/default` | color | yes |
+| `color/state/success` | `state/success` | color | reserved |
+| `color/state/warning` | `state/warning` | color | reserved |
+| `color/state/error` | `state/error` | color | reserved |
+| `spacing/sectionpadding-small`, `-medium`, `-big` | — | dimension | yes |
+| `spacing/contentgap-tiny`, `-small`, `-medium`, `-big` | — | dimension | yes |
+| `spacing/contentgap-8static` | — | dimension | yes |
+| `radius/radius-medium` | `radius/medium` | radius | yes |
+| `radius/radius-small`, `-big` | `radius/small`, `radius/big` | radius | reserved |
+| `font/size-heading2` | — | font-size | yes |
+| `font/size-heading1`, `-heading3` | — | font-size | reserved |
+| `font/size-p-small`, `-p-big` | — | font-size | yes |
+| `font/size-p` | — | font-size | reserved |
+| `font/family-heading`, `font/family-body` | — | font-family | reserved |
+| `maxw/cta` | — | dimension | yes |
+| `maxw/container` | — | dimension | reserved |
+
+There is no `surface/*` collection in the library; the alias exists only so an
+older handoff that used the PDF's names still classifies. The `font/family-*`
+variables are planned on the design side and may be absent. Unknown variables
+are preserved rather than forced into this namespace. If a token is not a
+variable, record its literal value and let the operator decide whether
+`target.kind` is `theme-setting`, `css-custom-property`, `one-off`, or
 `unmapped`.
 
 ## Dynamic Commerce Surfaces

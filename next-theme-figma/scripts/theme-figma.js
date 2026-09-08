@@ -85,6 +85,7 @@ const TOKEN_NAMESPACE = new Map([
   ['spacing/contentgap-small', []],
   ['spacing/contentgap-medium', []],
   ['spacing/contentgap-big', []],
+  ['spacing/contentgap-8static', []],
   ['radius/radius-small', ['radius/small']],
   ['radius/radius-medium', ['radius/medium']],
   ['radius/radius-big', ['radius/big']],

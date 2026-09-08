@@ -136,41 +136,46 @@ The validator uses this table only to classify each `figma_name` as canonical,
 alias, or unknown for the names segment of the PASS line. It never rewrites
 `figma_name`. Unknown names remain valid and count as `unknown`.
 
-| Canonical `figma_name` | Aliases | Type | Spark target |
-|---|---|---|---|
-| `color/brand/primary` | `brand/primary` | color | `css-custom-property` `--primary-color`; dashboard Branding wins |
-| `color/brand/secondary` | `brand/secondary` | color | `one-off` or `css-custom-property`; no setting |
-| `color/brand/accent` | `brand/accent` | color | `css-custom-property` `--accent-color`; dashboard Branding wins |
-| `color/brand/whitespace` | `surface/background`, `surface/bg` | color | `theme-setting` `body_bg_color` |
-| `color/text/primary` | `text/primary` | color | `theme-setting` `body_text_color` |
-| `color/text/secondary` | `text/secondary` | color | `css-custom-property`; no setting |
-| `color/text/inverse` | `text/inverse` | color | `css-custom-property`; no setting |
-| `color/border/default` | `border/default` | color | `theme-setting` `border_color` |
-| `color/state/success` | `state/success` | color | `css-custom-property` |
-| `color/state/warning` | `state/warning` | color | `css-custom-property` |
-| `color/state/error` | `state/error` | color | `css-custom-property` |
-| `spacing/sectionpadding-small` | — | dimension | `theme-setting` `section_padding`: `compact` |
-| `spacing/sectionpadding-medium` | — | dimension | `theme-setting` `section_padding`: `default` |
-| `spacing/sectionpadding-big` | — | dimension | `theme-setting` `section_padding`: `roomy` |
-| `spacing/contentgap-tiny` | — | dimension | `css-custom-property` |
-| `spacing/contentgap-small` | — | dimension | `theme-setting` `content_gap`: `tight` |
-| `spacing/contentgap-medium` | — | dimension | `theme-setting` `content_gap`: `default` |
-| `spacing/contentgap-big` | — | dimension | `theme-setting` `content_gap`: `loose` |
-| `radius/radius-small` | `radius/small` | radius | `theme-setting` `radius_control` or `radius_card` when valid; otherwise `css-custom-property` |
-| `radius/radius-medium` | `radius/medium` | radius | `theme-setting` `radius_control` or `radius_card` when valid; otherwise `css-custom-property` |
-| `radius/radius-big` | `radius/big` | radius | `theme-setting` `radius_control` or `radius_card` when valid; otherwise `css-custom-property` |
-| `font/size-heading1` | — | font-size | `theme-setting` `heading_scale`: `small`, `default`, or `large`; or `css-custom-property` |
-| `font/size-heading2` | — | font-size | `theme-setting` `heading_scale`: `small`, `default`, or `large`; or `css-custom-property` |
-| `font/size-heading3` | — | font-size | `theme-setting` `heading_scale`: `small`, `default`, or `large`; or `css-custom-property` |
-| `font/size-p-small` | — | font-size | `css-custom-property` |
-| `font/size-p` | — | font-size | `theme-setting` `body_size` when valid |
-| `font/size-p-big` | — | font-size | `css-custom-property` |
-| `font/family-heading` | — | font-family | `theme-setting` `font_header` |
-| `font/family-body` | — | font-family | `theme-setting` `font_body` |
-| `maxw/container` | — | dimension | `theme-setting` `container_max_width` when valid; otherwise `css-custom-property` |
-| `maxw/cta` | — | dimension | `css-custom-property` |
+| Canonical `figma_name` | Aliases | Type | Spark target | Bound |
+|---|---|---|---|---|
+| `color/brand/primary` | `brand/primary` | color | `css-custom-property` `--primary-color`; dashboard Branding wins | yes |
+| `color/brand/secondary` | `brand/secondary` | color | `one-off` or `css-custom-property`; no setting | yes |
+| `color/brand/accent` | `brand/accent` | color | `css-custom-property` `--accent-color`; dashboard Branding wins | reserved |
+| `color/brand/whitespace` | `surface/background`, `surface/bg` | color | `theme-setting` `body_bg_color` | yes |
+| `color/text/primary` | `text/primary` | color | `theme-setting` `body_text_color` | yes |
+| `color/text/secondary` | `text/secondary` | color | `css-custom-property`; no setting | reserved |
+| `color/text/inverse` | `text/inverse` | color | `css-custom-property`; no setting | reserved |
+| `color/border/default` | `border/default` | color | `theme-setting` `border_color` | yes |
+| `color/state/success` | `state/success` | color | `css-custom-property` | reserved |
+| `color/state/warning` | `state/warning` | color | `css-custom-property` | reserved |
+| `color/state/error` | `state/error` | color | `css-custom-property` | reserved |
+| `spacing/sectionpadding-small` | — | dimension | `theme-setting` `section_padding`: `compact` | yes |
+| `spacing/sectionpadding-medium` | — | dimension | `theme-setting` `section_padding`: `default` | yes |
+| `spacing/sectionpadding-big` | — | dimension | `theme-setting` `section_padding`: `roomy` | yes |
+| `spacing/contentgap-tiny` | — | dimension | `css-custom-property` | yes |
+| `spacing/contentgap-small` | — | dimension | `theme-setting` `content_gap`: `tight` | yes |
+| `spacing/contentgap-medium` | — | dimension | `theme-setting` `content_gap`: `default` | yes |
+| `spacing/contentgap-big` | — | dimension | `theme-setting` `content_gap`: `loose` | yes |
+| `spacing/contentgap-8static` | — | dimension | `css-custom-property` | yes |
+| `radius/radius-small` | `radius/small` | radius | `theme-setting` `radius_control` or `radius_card` when valid; otherwise `css-custom-property` | reserved |
+| `radius/radius-medium` | `radius/medium` | radius | `theme-setting` `radius_control` or `radius_card` when valid; otherwise `css-custom-property` | yes |
+| `radius/radius-big` | `radius/big` | radius | `theme-setting` `radius_control` or `radius_card` when valid; otherwise `css-custom-property` | reserved |
+| `font/size-heading1` | — | font-size | `theme-setting` `heading_scale`: `small`, `default`, or `large`; or `css-custom-property` | reserved |
+| `font/size-heading2` | — | font-size | `theme-setting` `heading_scale`: `small`, `default`, or `large`; or `css-custom-property` | yes |
+| `font/size-heading3` | — | font-size | `theme-setting` `heading_scale`: `small`, `default`, or `large`; or `css-custom-property` | reserved |
+| `font/size-p-small` | — | font-size | `css-custom-property` | yes |
+| `font/size-p` | — | font-size | `theme-setting` `body_size` when valid | reserved |
+| `font/size-p-big` | — | font-size | `css-custom-property` | yes |
+| `font/family-heading` | — | font-family | `theme-setting` `font_header` | reserved |
+| `font/family-body` | — | font-family | `theme-setting` `font_body` | reserved |
+| `maxw/container` | — | dimension | `theme-setting` `container_max_width` when valid; otherwise `css-custom-property` | reserved |
+| `maxw/cta` | — | dimension | `css-custom-property` | yes |
 
-The `font/family-*` variables are planned on the design side, so their absence
+**Bound** mirrors the same column in `figma-contract.md`: `yes` names are bound
+in the Debranded Sections library and a merchant file built on it (confirmed
+2026-09-08); `reserved` names are held open and bound nowhere today, so a
+tokens.json that carries one is transcribing intent, not the file. The
+`font/family-*` variables are planned on the design side, so their absence
 is valid. The Spark target column is guidance for implementation, not a
 validator-enforced mapping. Brand primary and accent stay on the dashboard Branding panel, as noted above.
 
