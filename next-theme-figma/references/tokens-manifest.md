@@ -189,7 +189,8 @@ Conflict comparison trims and lowercases values, expands three-digit hex
 colors from `#RGB` to `#RRGGBB`, and canonicalises functional colours so that
 CSS-equivalent spellings compare equal: `rgb(1, 2, 3)` and `rgb(1,2,3)`,
 `rgba(1 2 3 / 50%)` and `rgba(1,2,3,0.5)`, `hsl(120deg 50% 25%)` and
-`hsl(120,50%,25%)` are the same value, never a conflict.
+`hsl(120,50%,25%)` are the same value, never a conflict, and an explicit alpha
+of `1` is the same opaque colour as no alpha.
 
 ## Two-Source Extraction
 

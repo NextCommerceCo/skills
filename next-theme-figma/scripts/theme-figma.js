@@ -1649,9 +1649,11 @@ function normalizeFunctionalColor(value) {
   const canonical = parts.map((part, index) => {
     const unit = part.endsWith('%') ? '%' : '';
     const number = Number(part.replace(/%$/, '').replace(/deg$/, ''));
-    if (index === 3 && unit === '%') return String(number / 100);
+    if (index === 3) return String(unit === '%' ? number / 100 : number);
     return `${number}${unit}`;
   });
+  // An explicit alpha of 1 is the same opaque colour as no alpha at all.
+  if (canonical.length === 4 && canonical[3] === '1') canonical.pop();
   return `${name}(${canonical.join(',')})`;
 }
 
