@@ -25,7 +25,8 @@
       "platform_divergence_ledger": "platform-divergence-ledger.json",
       "viewport_coverage": "viewport-coverage.json",
       "geometry": "geometry.json",
-      "copy": "copy.json"
+      "copy": "copy.json",
+      "tokens": "tokens.json"
     },
     "unresolved_questions": []
   },
@@ -365,5 +366,46 @@
       }
     ],
     "allowed_deviations": []
+  },
+  "tokens": {
+    "schema_version": "next-theme-figma/tokens/v1",
+    "project": "example-store",
+    "source": "figma-variables",
+    "extracted_at": "2026-01-01T00:00:00.000Z",
+    "tokens": [
+      {
+        "token_id": "color.text.primary",
+        "figma_name": "color/text/primary",
+        "collection": "color",
+        "type": "color",
+        "value": "#0F172A",
+        "target": {
+          "kind": "css-custom-property",
+          "css_var": "--body-text-color"
+        }
+      },
+      {
+        "token_id": "color.border.default",
+        "figma_name": "color/border/default",
+        "collection": "color",
+        "type": "color",
+        "value": "#E2E8F0",
+        "target": {
+          "kind": "css-custom-property",
+          "css_var": "--border-color"
+        }
+      },
+      {
+        "token_id": "color.brand.whitespace",
+        "figma_name": "color/brand/whitespace",
+        "collection": "color",
+        "type": "color",
+        "value": "#FFFFFF",
+        "target": {
+          "kind": "css-custom-property",
+          "css_var": "--body-bg-color"
+        }
+      }
+    ]
   }
 }

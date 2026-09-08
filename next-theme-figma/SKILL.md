@@ -1,6 +1,6 @@
 ---
 name: next-theme-figma
-version: 0.6.0
+version: 0.7.0
 description: |
   Prepare Figma storefront designs for NEXT Commerce theme
   implementation handoff. Use when auditing, inspecting, extracting assets
@@ -50,6 +50,8 @@ Load only the references needed for the current step:
 - `references/handoff-manifest.md` when creating or validating the handoff package.
 - `references/geometry-and-copy-manifests.md` when extracting or validating the
   `geometry.json` and `copy.json` members of the package.
+- `references/tokens-manifest.md` when extracting or validating the
+  `tokens.json` Figma variables manifest.
 - `references/spark-section-roster.md` when resolving design families or Spark
   section names into section-library targets.
 - `references/designer-checklist.md` when the Figma source is incomplete and the designer/merchant needs actionable fixes.
@@ -171,16 +173,19 @@ For every asset, record the source node ID, prefix/type, target filename, format
 
 For every place where Figma should not be implemented literally, add a platform divergence entry. Read the commerce-surface reference for the recorded `theme_family`; common divergences include PDP gallery/carousel behavior, product image aspect ratios, variant control names, price/availability bindings, add-to-cart form contracts, cart drawer hooks, subscriptions, reviews/apps, and cached header/account/cart state.
 
-### 5b. Extract The Geometry And Copy Manifests
+### 5b. Extract The Geometry, Copy, And Tokens Manifests
 
-These two manifests are what make the downstream fidelity loop deterministic.
-Both are extracted from the Figma source; neither is ever transcribed by hand.
+These three manifests make the downstream fidelity loop deterministic. All are
+extracted from the Figma source; none is ever transcribed by hand.
 
 `geometry.json` records, per route and viewport, the box of every section and
 of the elements inside it that the implementation will build as distinct nodes,
 plus the shared edges and sibling gaps that must hold. `copy.json` records the
 verbatim text of every Figma text layer, with an explicit allowed-deviation
-list for copy that legitimately differs.
+list for copy that legitimately differs. `tokens.json` records Figma variables,
+values observed through both variable definitions and design context, and the
+operator's implementation target for each token. A disagreement between
+sources is preserved as `designer-input-needed`, never resolved silently.
 
 They exist because the two most expensive failures in these builds are geometry
 stated from memory and copy invented at the keyboard. Both are cheap to extract
@@ -191,7 +196,10 @@ and repair gates.
 
 Read `references/geometry-and-copy-manifests.md` for the schemas, the
 extraction rules, and the selector contract. Strict validation requires both
-manifests when the mode is `implementation-handoff`.
+manifests when the mode is `implementation-handoff`. Read
+`references/tokens-manifest.md` for the token schema, canonical namespace,
+Spark target guidance, value rules, and two-source extraction procedure;
+strict validation requires it in the same mode.
 
 Lint a build against the copy inventory with the bundled script:
 
@@ -271,6 +279,7 @@ A complete handoff includes:
 - Section manifest with classification and implementation targets.
 - Geometry manifest with per-element boxes, shared edges, and sibling gaps.
 - Copy manifest with the verbatim text inventory and allowed deviations.
+- Tokens manifest with Figma variable values and implementation targets.
 - Asset manifest with source node IDs and export decisions.
 - Platform divergence ledger.
 - Reference screenshot paths.

@@ -14,6 +14,11 @@ such as a hero or FAQ, resolves to the Spark section it maps to and whether
 Spark already ships it. The finished handoff also flags how many sections must
 be built new.
 
+The handoff also carries a token inventory extracted from Figma variables and
+checked against the values used in each design context. Every token names its
+theme setting, CSS custom property, one-off use, or unmapped status, while any
+source disagreement is returned for designer input instead of being guessed.
+
 What you get — a complete handoff package containing:
 
 - A page-by-page map of the design, with every section classified: rebuild it

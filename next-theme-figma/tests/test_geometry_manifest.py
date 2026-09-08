@@ -38,6 +38,8 @@ class GeometryManifestTest(unittest.TestCase):
             "geometry.json": fixture["geometry"],
             "copy.json": fixture["copy"],
         }
+        if "tokens" in fixture:
+            files["tokens.json"] = fixture["tokens"]
         for filename, body in files.items():
             (package / filename).write_text(json.dumps(body), encoding="utf-8")
         (package / "validation-checklist.md").write_text(

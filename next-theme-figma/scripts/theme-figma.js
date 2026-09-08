@@ -12,6 +12,7 @@ const SCHEMA = {
   coverage: 'next-theme-figma/viewport-coverage/v0',
   geometry: 'next-theme-figma/geometry/v1',
   copy: 'next-theme-figma/copy/v1',
+  tokens: 'next-theme-figma/tokens/v1',
 };
 
 const LEGACY_SCHEMA = {
@@ -61,6 +62,58 @@ const GEOMETRY_BOUNDS_SLACK_PX = 1;
 
 const COPY_SOURCES = new Set(['figma-text-layers']);
 const COPY_ROLES = new Set(['heading', 'body', 'label', 'cta', 'legal', 'alt']);
+const TOKEN_SOURCES = new Set(['figma-variables']);
+const TOKEN_TYPES = new Set(['color', 'dimension', 'font-size', 'radius', 'font-family']);
+const TOKEN_TARGET_KINDS = new Set(['theme-setting', 'css-custom-property', 'one-off', 'unmapped']);
+const TOKEN_OBSERVATION_SOURCES = new Set(['variable_defs', 'design_context']);
+const TOKEN_NAMESPACE = new Map([
+  ['color/brand/primary', ['brand/primary']],
+  ['color/brand/secondary', ['brand/secondary']],
+  ['color/brand/accent', ['brand/accent']],
+  ['color/brand/whitespace', ['surface/background', 'surface/bg']],
+  ['color/text/primary', ['text/primary']],
+  ['color/text/secondary', ['text/secondary']],
+  ['color/text/inverse', ['text/inverse']],
+  ['color/border/default', ['border/default']],
+  ['color/state/success', ['state/success']],
+  ['color/state/warning', ['state/warning']],
+  ['color/state/error', ['state/error']],
+  ['spacing/sectionpadding-small', []],
+  ['spacing/sectionpadding-medium', []],
+  ['spacing/sectionpadding-big', []],
+  ['spacing/contentgap-tiny', []],
+  ['spacing/contentgap-small', []],
+  ['spacing/contentgap-medium', []],
+  ['spacing/contentgap-big', []],
+  ['radius/radius-small', ['radius/small']],
+  ['radius/radius-medium', ['radius/medium']],
+  ['radius/radius-big', ['radius/big']],
+  ['font/size-heading1', []],
+  ['font/size-heading2', []],
+  ['font/size-heading3', []],
+  ['font/size-p-small', []],
+  ['font/size-p', []],
+  ['font/size-p-big', []],
+  ['font/family-heading', []],
+  ['font/family-body', []],
+  ['maxw/container', []],
+  ['maxw/cta', []],
+]);
+const TOKEN_ALIASES = new Map(
+  Array.from(TOKEN_NAMESPACE.entries()).flatMap(([canonical, aliases]) => (
+    aliases.map((alias) => [alias, canonical])
+  )),
+);
+// Mirror of Spark's configs/settings_schema.json Style select settings.
+const SPARK_STYLE_SELECT_OPTIONS = new Map([
+  ['radius_control', ['0', '4px', '8px', '12px', '16px']],
+  ['radius_card', ['0', '4px', '8px', '12px', '16px']],
+  ['section_padding', ['compact', 'default', 'roomy']],
+  ['content_gap', ['tight', 'default', 'loose']],
+  ['container_max_width', ['1120px', '1280px', '1440px']],
+  ['heading_scale', ['small', 'default', 'large']],
+  ['body_size', ['15px', '16px', '17px', '18px']],
+]);
 const ROSTER_FILE = path.join(__dirname, '..', 'references', 'spark-section-roster.json');
 const ROSTER_MARKDOWN_FILE = path.join(__dirname, '..', 'references', 'spark-section-roster.md');
 
@@ -486,6 +539,7 @@ function createPackage(opts) {
     'viewport-coverage.json',
     'geometry.json',
     'copy.json',
+    'tokens.json',
     'validation-checklist.md',
     'notes.md',
   ];
@@ -500,6 +554,10 @@ function createPackage(opts) {
       ...(fixture.handoff.target || {}),
       theme_family: themeFamily,
       runtime_contract: runtimeContract,
+    },
+    manifests: {
+      ...(fixture.handoff.manifests || {}),
+      tokens: 'tokens.json',
     },
   } : {
     schema_version: SCHEMA.handoff,
@@ -528,6 +586,7 @@ function createPackage(opts) {
       viewport_coverage: 'viewport-coverage.json',
       geometry: 'geometry.json',
       copy: 'copy.json',
+      tokens: 'tokens.json',
     },
     unresolved_questions: [],
   };
@@ -632,6 +691,15 @@ function createPackage(opts) {
     extracted_at: generatedAt,
     strings: [],
     allowed_deviations: [],
+  });
+
+  writeJson(path.join(out, 'tokens.json'), fixture?.tokens || {
+    schema_version: SCHEMA.tokens,
+    project,
+    source: 'figma-variables',
+    extracted_at: generatedAt,
+    sources: {},
+    tokens: [],
   });
 
   writeText(path.join(out, 'validation-checklist.md'), checklistTemplate(project));
@@ -1001,6 +1069,7 @@ function validatePackage(dir, strict = true) {
 
   validateGeometry(dir, handoff, routeEntries, sectionEntries, legacyV0, strict, errors, warnings);
   validateCopy(dir, handoff, sectionEntries, legacyV0, strict, errors, warnings);
+  const tokenCounts = validateTokens(dir, handoff, legacyV0, strict, errors, warnings);
 
   for (const warning of warnings) console.log(`Warning: ${warning}`);
   if (errors.length) {
@@ -1011,6 +1080,12 @@ function validatePackage(dir, strict = true) {
   if (hasRosterStatus) {
     summary += `; roster: ${rosterCounts.shipped} shipped, ${rosterCounts.unshipped} unshipped, `
       + `${rosterCounts.chrome} chrome, ${rosterCounts.unmapped} unmapped`;
+  }
+  if (tokenCounts) {
+    summary += `; tokens: ${tokenCounts.total} total, ${tokenCounts['theme-setting']} theme-setting, `
+      + `${tokenCounts['css-custom-property']} css-custom-property, ${tokenCounts['one-off']} one-off, `
+      + `${tokenCounts.unmapped} unmapped; names: ${tokenCounts.canonical} canonical, `
+      + `${tokenCounts.alias} alias, ${tokenCounts.unknown} unknown`;
   }
   console.log(summary);
 }
@@ -1300,6 +1375,335 @@ function validateCopy(dir, handoff, sectionEntries, legacyV0, strict, errors, wa
     if (!deviation.reason) errors.push(`${label}: missing reason`);
     if (!deviation.approved_by) issue(strict, errors, warnings, `${label}: missing approved_by`);
   }
+}
+
+// Token manifest: the Figma variable inventory and its explicit implementation
+// routing. Values are validated, but never reconciled when extraction sources
+// disagree; that decision stays with the designer.
+function validateTokens(dir, handoff, legacyV0, strict, errors, warnings) {
+  const filename = 'tokens.json';
+  const file = path.join(dir, filename);
+  const present = fs.existsSync(file);
+  const declared = handoff?.manifests?.tokens;
+
+  if (!present) {
+    if (handoff?.mode === 'implementation-handoff' && !legacyV0) {
+      errors.push(
+        `missing ${filename}: implementation-handoff packages must carry a Figma variables manifest`,
+      );
+    } else {
+      warnings.push(
+        `${filename} not present; add one before promoting this package to implementation-handoff`,
+      );
+    }
+    if (declared) errors.push(`figma-handoff.json: manifests.tokens names a missing ${filename}`);
+    return null;
+  }
+
+  if (declared !== filename) errors.push(`figma-handoff.json: manifests.tokens must be "${filename}"`);
+
+  const readErrorCount = errors.length;
+  const manifest = readJson(file, errors);
+  if (errors.length > readErrorCount) return null;
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    errors.push(`${filename}: manifest must be an object`);
+    return null;
+  }
+  expectSchema(manifest, SCHEMA.tokens, filename, errors);
+  if (!TOKEN_SOURCES.has(manifest.source)) {
+    errors.push(
+      `${filename}: source must be one of ${Array.from(TOKEN_SOURCES).join(', ')}`
+      + ' (tokens are extracted from Figma variables, never transcribed by hand)',
+    );
+  }
+  if (manifest.sources !== undefined
+      && (!manifest.sources || typeof manifest.sources !== 'object' || Array.isArray(manifest.sources))) {
+    errors.push(`${filename}: sources must be an object`);
+  }
+
+  const entries = expectArray(manifest, 'tokens', filename, errors);
+  const counts = {
+    total: entries?.length || 0,
+    'theme-setting': 0,
+    'css-custom-property': 0,
+    'one-off': 0,
+    unmapped: 0,
+    canonical: 0,
+    alias: 0,
+    unknown: 0,
+  };
+  if (!entries) return counts;
+  if (!entries.length) issue(strict, errors, warnings, `${filename}: no tokens recorded`);
+
+  const tokenIds = new Set();
+  const figmaNames = new Map();
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      errors.push(`${filename}: token entry must be an object`);
+      continue;
+    }
+    const label = `${filename}: ${entry.token_id || 'token'}`;
+    const hasTokenId = typeof entry.token_id === 'string' && entry.token_id.trim().length > 0;
+    if (!hasTokenId) {
+      errors.push(`${filename}: token missing token_id`);
+    } else if (tokenIds.has(entry.token_id)) {
+      errors.push(`${label}: duplicate token_id`);
+    }
+    if (hasTokenId) tokenIds.add(entry.token_id);
+
+    const figmaName = typeof entry.figma_name === 'string' ? entry.figma_name.trim() : '';
+    if (!figmaName) errors.push(`${label}: figma_name must be a non-empty string`);
+    if (!TOKEN_TYPES.has(entry.type)) errors.push(`${label}: invalid type "${entry.type}"`);
+    validateTokenValue(entry.value, entry.type, `${label}: value`, errors);
+
+    if (entry.collection !== undefined && typeof entry.collection !== 'string') {
+      errors.push(`${label}: collection must be a string`);
+    }
+    if (entry.modes !== undefined) {
+      if (!entry.modes || typeof entry.modes !== 'object' || Array.isArray(entry.modes)) {
+        errors.push(`${label}: modes must be an object`);
+      } else {
+        for (const [mode, value] of Object.entries(entry.modes)) {
+          validateTokenValue(value, entry.type, `${label}: modes.${mode}`, errors);
+        }
+      }
+    }
+
+    const observed = entry.observed;
+    if (observed !== undefined && !Array.isArray(observed)) {
+      errors.push(`${label}: observed must be an array`);
+    } else if (Array.isArray(observed)) {
+      for (const observation of observed) {
+        if (!observation || typeof observation !== 'object' || Array.isArray(observation)) {
+          errors.push(`${label}: observed entry must be an object`);
+          continue;
+        }
+        if (!TOKEN_OBSERVATION_SOURCES.has(observation.source)) {
+          errors.push(`${label}: invalid observed source "${observation.source}"`);
+        }
+        validateTokenValue(
+          observation.value,
+          entry.type,
+          `${label}: observed ${observation.source || 'observation'} value`,
+          errors,
+        );
+        if (observation.node_id !== undefined && typeof observation.node_id !== 'string') {
+          errors.push(`${label}: observed node_id must be a string`);
+        }
+      }
+      validateObservedConflicts(entry, errors);
+    }
+
+    const target = entry.target;
+    if (!target || typeof target !== 'object' || Array.isArray(target)) {
+      errors.push(`${label}: target must be an object`);
+    } else {
+      if (target.setting_value !== undefined && typeof target.setting_value !== 'string') {
+        errors.push(`${label}: setting_value must be a string`);
+      }
+      if (target.setting_value !== undefined && target.kind !== 'theme-setting') {
+        errors.push(`${label}: setting_value is only meaningful for theme-setting targets`);
+      }
+      if (!TOKEN_TARGET_KINDS.has(target.kind)) {
+        errors.push(`${label}: invalid target.kind "${target.kind}"`);
+      } else {
+        counts[target.kind] += 1;
+      }
+      if (target.kind === 'theme-setting') {
+        if (typeof target.setting_id !== 'string'
+            || !/^[a-z][a-z0-9_]*$/.test(target.setting_id)) {
+          errors.push(`${label}: theme-setting target requires setting_id`);
+        }
+        if (target.css_var !== undefined
+            && (typeof target.css_var !== 'string' || !/^--[a-z0-9-]+$/.test(target.css_var))) {
+          errors.push(`${label}: theme-setting target css_var is invalid`);
+        }
+        const options = SPARK_STYLE_SELECT_OPTIONS.get(target.setting_id);
+        if (handoff?.target?.theme_family === 'spark' && options) {
+          const effective = target.setting_value !== undefined ? target.setting_value : entry.value;
+          if (!options.includes(effective)) {
+            errors.push(
+              `${label}: "${effective}" is not an option of Spark setting ${target.setting_id} `
+              + `(${options.join(', ')}); set target.setting_value to the nearest option or map to `
+              + 'css-custom-property',
+            );
+          }
+        }
+      }
+      if (target.kind === 'css-custom-property'
+          && (typeof target.css_var !== 'string' || !/^--[a-z0-9-]+$/.test(target.css_var))) {
+        errors.push(`${label}: css-custom-property target requires css_var`);
+      }
+    }
+
+    if (entry.figma_node_ids !== undefined
+        && (!Array.isArray(entry.figma_node_ids)
+          || entry.figma_node_ids.some((nodeId) => typeof nodeId !== 'string'))) {
+      errors.push(`${label}: figma_node_ids must be an array of strings`);
+    }
+    if (entry.notes !== undefined && typeof entry.notes !== 'string') {
+      errors.push(`${label}: notes must be a string`);
+    }
+
+    if (figmaName) {
+      const previous = figmaNames.get(figmaName);
+      if (previous) {
+        if (normalizeTokenValue(previous.value) !== normalizeTokenValue(entry.value)) {
+          tokenConflict(
+            figmaName,
+            previous.value,
+            previous.token_id || 'token',
+            entry.value,
+            entry.token_id || 'token',
+            errors,
+          );
+        } else {
+          errors.push(`${label}: duplicate figma_name "${figmaName}"`);
+        }
+      } else {
+        figmaNames.set(figmaName, entry);
+      }
+      counts[classifyTokenName(figmaName)] += 1;
+    }
+  }
+  return counts;
+}
+
+function validateTokenValue(value, type, label, errors) {
+  if (!TOKEN_TYPES.has(type) || !tokenValueParses(value, type)) {
+    errors.push(`${label} "${value}" does not parse as ${type}`);
+  }
+}
+
+function tokenValueParses(value, type) {
+  if (typeof value !== 'string') return false;
+  const trimmed = value.trim();
+  if (type === 'font-family') return trimmed.length > 0;
+  if (type === 'color') {
+    return /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(trimmed)
+      || functionalColorParses(trimmed);
+  }
+  if (type === 'dimension' || type === 'radius' || type === 'font-size') {
+    const match = trimmed.match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+))(px|rem|em|%|vw|vh)?$/);
+    if (!match || !Number.isFinite(Number(match[1]))) return false;
+    return Boolean(match[2]) || Number(match[1]) === 0;
+  }
+  return false;
+}
+
+function functionalColorParses(value) {
+  const match = value.match(/^(rgb|rgba|hsl|hsla)\((.*)\)$/i);
+  if (!match) return false;
+
+  const number = '[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)';
+  const component = `${number}%?`;
+  const hue = `${number}(?:deg)?`;
+  const first = /^hsl/i.test(match[1]) ? hue : component;
+  const body = match[2].trim();
+  if (!body) return false;
+
+  const commaParts = body.split(',').map((part) => part.trim());
+  if (commaParts.length > 1) {
+    if (commaParts.some((part) => !part || /\s/.test(part))) return false;
+    if (commaParts.length !== 3 && commaParts.length !== 4) return false;
+    const patterns = [first, component, component, component];
+    return commaParts.every((part, index) => new RegExp(`^${patterns[index]}$`).test(part));
+  }
+
+  const slashParts = body.split('/').map((part) => part.trim());
+  if (slashParts.length > 2 || slashParts.some((part) => !part)) return false;
+  const mainParts = slashParts[0].split(/\s+/);
+  const parts = slashParts.length === 2 ? [...mainParts, slashParts[1]] : mainParts;
+  if (parts.length !== 3 && parts.length !== 4) return false;
+  const patterns = [first, component, component, component];
+  return parts.every((part, index) => new RegExp(`^${patterns[index]}$`).test(part));
+}
+
+function normalizeTokenValue(value) {
+  const normalized = String(value).trim().toLowerCase();
+  const shortHex = normalized.match(/^#([0-9a-f])([0-9a-f])([0-9a-f])$/);
+  if (shortHex) {
+    return `#${shortHex[1]}${shortHex[1]}${shortHex[2]}${shortHex[2]}${shortHex[3]}${shortHex[3]}`;
+  }
+  const functional = normalizeFunctionalColor(normalized);
+  return functional === null ? normalized : functional;
+}
+
+// Canonical form for a functional colour so that CSS-equivalent spellings
+// (comma vs. space separation, rgba vs. rgb, a percentage alpha) compare
+// equal and never raise a false designer-input-needed conflict. Returns null
+// for anything that is not a valid functional colour.
+function normalizeFunctionalColor(value) {
+  if (!functionalColorParses(value)) return null;
+  const match = value.match(/^(rgb|rgba|hsl|hsla)\((.*)\)$/i);
+  const name = match[1].toLowerCase().replace(/a$/, '');
+  const body = match[2].trim();
+  let parts;
+  if (body.includes(',')) {
+    parts = body.split(',').map((part) => part.trim());
+  } else {
+    const slashParts = body.split('/').map((part) => part.trim());
+    parts = slashParts[0].split(/\s+/);
+    if (slashParts.length === 2) parts.push(slashParts[1]);
+  }
+  const canonical = parts.map((part, index) => {
+    const unit = part.endsWith('%') ? '%' : '';
+    const number = Number(part.replace(/%$/, '').replace(/deg$/, ''));
+    if (index === 3) return String(unit === '%' ? number / 100 : number);
+    return `${number}${unit}`;
+  });
+  // An explicit alpha of 1 is the same opaque colour as no alpha at all.
+  if (canonical.length === 4 && canonical[3] === '1') canonical.pop();
+  return `${name}(${canonical.join(',')})`;
+}
+
+function validateObservedConflicts(entry, errors) {
+  const observed = entry.observed.filter(
+    (item) => item && typeof item === 'object' && !Array.isArray(item),
+  );
+  for (let index = 0; index < observed.length; index += 1) {
+    for (let other = index + 1; other < observed.length; other += 1) {
+      if (normalizeTokenValue(observed[index].value) !== normalizeTokenValue(observed[other].value)) {
+        tokenConflict(
+          entry.figma_name,
+          observed[index].value,
+          observed[index].source,
+          observed[other].value,
+          observed[other].source,
+          errors,
+        );
+        return;
+      }
+    }
+  }
+  const mismatch = observed.find(
+    (item) => normalizeTokenValue(item.value) !== normalizeTokenValue(entry.value),
+  );
+  if (mismatch) {
+    tokenConflict(
+      entry.figma_name,
+      entry.value,
+      'value',
+      mismatch.value,
+      mismatch.source,
+      errors,
+    );
+  }
+}
+
+function tokenConflict(figmaName, valueOne, whereOne, valueTwo, whereTwo, errors) {
+  errors.push(
+    `tokens.json: designer-input-needed: ${figmaName} carries two values `
+    + `(${valueOne} from ${whereOne}, ${valueTwo} from ${whereTwo}); the designer must pick one, `
+    + 'the manifest never averages or drops a value',
+  );
+}
+
+function classifyTokenName(figmaName) {
+  const name = figmaName.trim();
+  if (TOKEN_NAMESPACE.has(name)) return 'canonical';
+  if (TOKEN_ALIASES.has(name)) return 'alias';
+  return 'unknown';
 }
 
 function geometryNumber(value, label, errors) {

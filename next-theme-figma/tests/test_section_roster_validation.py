@@ -34,6 +34,8 @@ class SectionRosterValidationTest(unittest.TestCase):
             "geometry.json": fixture["geometry"],
             "copy.json": fixture["copy"],
         }
+        if "tokens" in fixture:
+            files["tokens.json"] = fixture["tokens"]
         for filename, body in files.items():
             (package / filename).write_text(json.dumps(body), encoding="utf-8")
         (package / "validation-checklist.md").write_text(
@@ -122,10 +124,9 @@ class SectionRosterValidationTest(unittest.TestCase):
             with self.subTest(args=args):
                 result = self.run_case(lambda fixture: None, *args)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertTrue(
-                    result.stdout.rstrip().endswith(
-                        "roster: 0 shipped, 0 unshipped, 0 chrome, 1 unmapped"
-                    ),
+                # The roster segment precedes the tokens segment on the PASS line.
+                self.assertIn(
+                    "roster: 0 shipped, 0 unshipped, 0 chrome, 1 unmapped;",
                     result.stdout,
                 )
 

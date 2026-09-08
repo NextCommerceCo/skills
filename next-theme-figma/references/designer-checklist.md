@@ -38,7 +38,9 @@ Share this when the Figma source needs designer or merchant cleanup before a low
 ## Typography And Color
 
 - Fonts are web-available or flagged for image rendering.
-- Colors use variables/styles or final hex values.
+- Colours are Figma variables using the canonical names in
+  `figma-contract.md`; spacing steps, radii, and type sizes are variables too;
+  no detached hex values on production sections.
 - Spacing and type scale are consistent across breakpoints.
 
 ## Commerce Behavior

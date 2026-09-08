@@ -25,7 +25,8 @@
       "platform_divergence_ledger": "platform-divergence-ledger.json",
       "viewport_coverage": "viewport-coverage.json",
       "geometry": "geometry.json",
-      "copy": "copy.json"
+      "copy": "copy.json",
+      "tokens": "tokens.json"
     },
     "unresolved_questions": []
   },
@@ -369,5 +370,128 @@
       }
     ],
     "allowed_deviations": []
+  },
+  "tokens": {
+    "schema_version": "next-theme-figma/tokens/v1",
+    "project": "example-store",
+    "source": "figma-variables",
+    "extracted_at": "2026-01-01T00:00:00.000Z",
+    "sources": {
+      "variable_defs": {
+        "node_ids": [
+          "20:1"
+        ]
+      },
+      "design_context": {
+        "node_ids": [
+          "20:1",
+          "20:2"
+        ]
+      }
+    },
+    "tokens": [
+      {
+        "token_id": "color.text.primary",
+        "figma_name": "color/text/primary",
+        "collection": "color",
+        "type": "color",
+        "value": "#0F172A",
+        "modes": {
+          "default": "#0F172A"
+        },
+        "observed": [
+          {
+            "source": "variable_defs",
+            "value": "#0F172A"
+          },
+          {
+            "source": "design_context",
+            "value": "#0f172a",
+            "node_id": "20:1"
+          }
+        ],
+        "target": {
+          "kind": "theme-setting",
+          "setting_id": "body_text_color",
+          "css_var": "--body-text-color"
+        },
+        "figma_node_ids": [
+          "20:1"
+        ],
+        "notes": ""
+      },
+      {
+        "token_id": "color.border.default",
+        "figma_name": "color/border/default",
+        "collection": "color",
+        "type": "color",
+        "value": "#E2E8F0",
+        "target": {
+          "kind": "theme-setting",
+          "setting_id": "border_color",
+          "css_var": "--border-color"
+        }
+      },
+      {
+        "token_id": "color.brand.whitespace",
+        "figma_name": "color/brand/whitespace",
+        "collection": "color",
+        "type": "color",
+        "value": "#FFFFFF",
+        "target": {
+          "kind": "theme-setting",
+          "setting_id": "body_bg_color",
+          "css_var": "--body-bg-color"
+        }
+      },
+      {
+        "token_id": "color.brand.primary",
+        "figma_name": "color/brand/primary",
+        "collection": "color",
+        "type": "color",
+        "value": "#2563EB",
+        "target": {
+          "kind": "css-custom-property",
+          "css_var": "--primary-color"
+        },
+        "notes": "The dashboard Branding value wins."
+      },
+      {
+        "token_id": "spacing.sectionpadding.big",
+        "figma_name": "spacing/sectionpadding-big",
+        "collection": "spacing",
+        "type": "dimension",
+        "value": "80px",
+        "target": {
+          "kind": "theme-setting",
+          "setting_id": "section_padding",
+          "setting_value": "roomy",
+          "css_var": "--section-padding-y"
+        }
+      },
+      {
+        "token_id": "radius.radius.medium",
+        "figma_name": "radius/radius-medium",
+        "collection": "radius",
+        "type": "radius",
+        "value": "8px",
+        "target": {
+          "kind": "theme-setting",
+          "setting_id": "radius_control",
+          "css_var": "--control-radius"
+        }
+      },
+      {
+        "token_id": "color.decor.ribbon",
+        "figma_name": "color/decor/ribbon",
+        "collection": "color",
+        "type": "color",
+        "value": "#DB2777",
+        "target": {
+          "kind": "unmapped"
+        },
+        "notes": "No implementation target selected."
+      }
+    ]
   }
 }

@@ -41,7 +41,7 @@ class AssetContractTest(unittest.TestCase):
             divergence_filename: fixture["divergence"],
             "viewport-coverage.json": fixture["coverage"],
         }
-        for optional in ("geometry", "copy"):
+        for optional in ("geometry", "copy", "tokens"):
             if optional in fixture:
                 files["{}.json".format(optional)] = fixture[optional]
         for filename, body in files.items():
