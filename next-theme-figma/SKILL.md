@@ -65,8 +65,9 @@ Run this before interpreting incomplete Figma results:
 1. If metadata for a large frame is unexpectedly empty or contains the frame
    without its expected children, treat it as truncation/tool failure, not as
    an empty design. Record the node ID, dimensions, and failed operation.
-   The same holds for page listings: `get_metadata` with no node ID can omit
-   pages of a file (the Debranded Sections library lists two of its four).
+   The same holds for page listings: the Figma MCP `get_metadata` call with
+   `nodeId` omitted (its documented page-list mode) can omit pages of a file;
+   the Debranded Sections library came back as two of its four pages.
    Never conclude a page is missing from a bare listing; resolve each expected
    page by its node URL before recording a gap.
 2. Treat Figma tool calls as a budgeted resource: session rate limits and

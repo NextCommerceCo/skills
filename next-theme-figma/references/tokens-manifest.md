@@ -177,7 +177,8 @@ in the Debranded Sections library and a merchant file built on it (confirmed
 tokens.json that carries one is transcribing intent, not the file. The
 `font/family-*` variables are planned on the design side, so their absence
 is valid. The Spark target column is guidance for implementation, not a
-validator-enforced mapping. Brand primary and accent stay on the dashboard Branding panel, as noted above.
+validator-enforced mapping. Brand primary and accent stay on the dashboard Branding panel, as the Spark
+settings section above says.
 
 ## Value Parsing
 
