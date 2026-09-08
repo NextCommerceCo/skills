@@ -41,7 +41,7 @@ cd skills
 Then restart your agent session so the new instructions are loaded, and ask
 for the work in plain language. For example:
 
-> Run the daily ops risk scan for the example store and give me the CSV.
+> Run the daily ops risk scan for my store and give me the CSV.
 
 Two alternatives:
 
