@@ -1,6 +1,6 @@
 ---
 name: next-theme-figma
-version: 0.7.0
+version: 0.7.1
 description: |
   Prepare Figma storefront designs for NEXT Commerce theme
   implementation handoff. Use when auditing, inspecting, extracting assets
@@ -65,6 +65,11 @@ Run this before interpreting incomplete Figma results:
 1. If metadata for a large frame is unexpectedly empty or contains the frame
    without its expected children, treat it as truncation/tool failure, not as
    an empty design. Record the node ID, dimensions, and failed operation.
+   The same holds for page listings: the Figma MCP `get_metadata` call with
+   `nodeId` omitted (its documented page-list mode) can omit pages of a file;
+   the Debranded Sections library came back as two of its four pages.
+   Never conclude a page is missing from a bare listing; resolve each expected
+   page by its node URL before recording a gap.
 2. Treat Figma tool calls as a budgeted resource: session rate limits and
    per-request asset caps are real. Reuse saved node data and renders instead
    of spending calls on the same source repeatedly.

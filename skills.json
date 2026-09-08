@@ -7,7 +7,7 @@
     {
       "id": "next-theme-figma",
       "name": "Theme Figma Handoff",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "path": "next-theme-figma/SKILL.md",
       "domain": "storefronts",
       "description": "Turn a Figma storefront design into a validated, low-inference handoff package for next-theme-dev: sections, assets, geometry, copy, and design tokens.",
