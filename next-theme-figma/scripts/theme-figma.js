@@ -1501,6 +1501,9 @@ function validateTokens(dir, handoff, legacyV0, strict, errors, warnings) {
       if (target.setting_value !== undefined && typeof target.setting_value !== 'string') {
         errors.push(`${label}: setting_value must be a string`);
       }
+      if (target.setting_value !== undefined && target.kind !== 'theme-setting') {
+        errors.push(`${label}: setting_value is only meaningful for theme-setting targets`);
+      }
       if (!TOKEN_TARGET_KINDS.has(target.kind)) {
         errors.push(`${label}: invalid target.kind "${target.kind}"`);
       } else {
@@ -1619,9 +1622,37 @@ function functionalColorParses(value) {
 function normalizeTokenValue(value) {
   const normalized = String(value).trim().toLowerCase();
   const shortHex = normalized.match(/^#([0-9a-f])([0-9a-f])([0-9a-f])$/);
-  return shortHex
-    ? `#${shortHex[1]}${shortHex[1]}${shortHex[2]}${shortHex[2]}${shortHex[3]}${shortHex[3]}`
-    : normalized;
+  if (shortHex) {
+    return `#${shortHex[1]}${shortHex[1]}${shortHex[2]}${shortHex[2]}${shortHex[3]}${shortHex[3]}`;
+  }
+  const functional = normalizeFunctionalColor(normalized);
+  return functional === null ? normalized : functional;
+}
+
+// Canonical form for a functional colour so that CSS-equivalent spellings
+// (comma vs. space separation, rgba vs. rgb, a percentage alpha) compare
+// equal and never raise a false designer-input-needed conflict. Returns null
+// for anything that is not a valid functional colour.
+function normalizeFunctionalColor(value) {
+  if (!functionalColorParses(value)) return null;
+  const match = value.match(/^(rgb|rgba|hsl|hsla)\((.*)\)$/i);
+  const name = match[1].toLowerCase().replace(/a$/, '');
+  const body = match[2].trim();
+  let parts;
+  if (body.includes(',')) {
+    parts = body.split(',').map((part) => part.trim());
+  } else {
+    const slashParts = body.split('/').map((part) => part.trim());
+    parts = slashParts[0].split(/\s+/);
+    if (slashParts.length === 2) parts.push(slashParts[1]);
+  }
+  const canonical = parts.map((part, index) => {
+    const unit = part.endsWith('%') ? '%' : '';
+    const number = Number(part.replace(/%$/, '').replace(/deg$/, ''));
+    if (index === 3 && unit === '%') return String(number / 100);
+    return `${number}${unit}`;
+  });
+  return `${name}(${canonical.join(',')})`;
 }
 
 function validateObservedConflicts(entry, errors) {

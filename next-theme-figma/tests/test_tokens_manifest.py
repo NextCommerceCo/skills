@@ -457,6 +457,56 @@ class TokensManifestTest(unittest.TestCase):
         passed = self.run_case(unmapped)
         self.assertEqual(passed.returncode, 0, passed.stdout + passed.stderr)
 
+        for kind in ("unmapped", "one-off", "css-custom-property"):
+            with self.subTest(kind=kind):
+                def misrouted(fixture, kind=kind):
+                    target = {"kind": kind, "setting_value": "roomy"}
+                    if kind == "css-custom-property":
+                        target["css_var"] = "--ribbon"
+                    fixture["tokens"]["tokens"][6]["target"] = target
+
+                failed = self.run_case(misrouted)
+                self.assertEqual(failed.returncode, 1)
+                self.assertIn(
+                    "setting_value is only meaningful for theme-setting targets",
+                    failed.stdout,
+                )
+
+    def test_functional_equivalent(self):
+        same = (
+            ("rgb(1, 2, 3)", "rgb(1,2,3)"),
+            ("rgba(1 2 3 / 50%)", "rgba(1,2,3,0.5)"),
+            ("RGB(1, 2, 3)", "rgb(1.0,2,3)"),
+            ("hsl(120deg 50% 25%)", "hsl(120,50%,25%)"),
+        )
+        for first, second in same:
+            with self.subTest(pair=(first, second)):
+                def mutate(fixture, first=first, second=second):
+                    token = fixture["tokens"]["tokens"][0]
+                    token["value"] = first
+                    token["modes"]["default"] = first
+                    token["observed"] = [
+                        {"source": "variable_defs", "value": first},
+                        {"source": "design_context", "value": second},
+                    ]
+
+                result = self.run_case(mutate)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertNotIn("designer-input-needed", result.stdout)
+
+        def differ(fixture):
+            token = fixture["tokens"]["tokens"][0]
+            token["value"] = "rgb(1,2,3)"
+            token["modes"]["default"] = "rgb(1,2,3)"
+            token["observed"] = [
+                {"source": "variable_defs", "value": "rgb(1, 2, 3)"},
+                {"source": "design_context", "value": "rgb(1, 2, 4)"},
+            ]
+
+        result = self.run_case(differ)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("designer-input-needed", result.stdout)
+
     def test_bad_type(self):
         def mutate(fixture):
             fixture["tokens"]["tokens"][0]["type"] = "number"

@@ -81,8 +81,11 @@ Schema `next-theme-figma/tokens/v1`:
     `/^[a-z][a-z0-9_]*$/`; otherwise validation reports
     `<label>: theme-setting target requires setting_id`. Its optional `css_var`
     must match `/^--[a-z0-9-]+$/`.
-  - `setting_value` is optional and must be a string. Use it when the setting
-    receives a named or nearest option instead of the literal token value.
+  - `setting_value` is optional, must be a string, and is only accepted on a
+    `theme-setting` target; on any other kind validation reports
+    `<label>: setting_value is only meaningful for theme-setting targets`. Use
+    it when the setting receives a named or nearest option instead of the
+    literal token value.
   - `css-custom-property` requires a `css_var` matching
     `/^--[a-z0-9-]+$/`;
     otherwise validation reports
@@ -182,8 +185,11 @@ validator-enforced mapping. Brand primary and accent stay on the dashboard Brand
   number is invalid.
 - `font-family` accepts any non-empty string.
 
-Conflict comparison trims and lowercases values and expands three-digit hex
-colors from `#RGB` to `#RRGGBB`.
+Conflict comparison trims and lowercases values, expands three-digit hex
+colors from `#RGB` to `#RRGGBB`, and canonicalises functional colours so that
+CSS-equivalent spellings compare equal: `rgb(1, 2, 3)` and `rgb(1,2,3)`,
+`rgba(1 2 3 / 50%)` and `rgba(1,2,3,0.5)`, `hsl(120deg 50% 25%)` and
+`hsl(120,50%,25%)` are the same value, never a conflict.
 
 ## Two-Source Extraction
 

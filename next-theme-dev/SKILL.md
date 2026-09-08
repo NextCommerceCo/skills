@@ -264,14 +264,14 @@ the Figma file for a token value when the manifest is present.
   `color`, `font-family` becomes `text`, and every other type becomes `select`
   when the id is an existing Spark select or `text` otherwise. Set `default`
   to `setting_value` when present, otherwise `value`, and seed the same value
-  in `configs/settings_data.json`. In the `layouts/base.html` `:root` block,
-  use exactly
+  in `configs/settings_data.json`. For a NEW setting id, add a `layouts/base.html`
+  `:root` line using exactly
   `{% if settings.<setting_id> %}--<css_var>: {{ settings.<setting_id> }};{% endif %}`.
-  `settings.*` must never appear as a filter argument; it causes a 500 response. For an
-  existing Spark id, do not add a second schema field and do not add a `:root`
-  line: seed the value only, because Spark's `layouts/base.html` already maps
-  every Style setting, including each select option, to its custom property.
-  A new setting id gets the schema field, the seed, and the `:root` line.
+  For an existing Spark id, seed the value only: do not add a second schema
+  field and do not add a `:root` line, because Spark's `layouts/base.html`
+  already maps every Style setting, including each select option, to its
+  custom property. In either case
+  `settings.*` must never appear as a filter argument; it causes a 500 response.
 - `css-custom-property` -> add a literal `--<css_var>: <value>;` line to the
   same `:root` block. For `--primary-color` and `--accent-color`, the dashboard
   Branding value wins; record the token value in the handback instead.
