@@ -10,7 +10,7 @@
       "version": "0.7.0",
       "path": "next-theme-figma/SKILL.md",
       "domain": "storefronts",
-      "description": "Prepare Figma storefront designs for NEXT Commerce theme implementation by validating source structure, identifying the theme family and runtime contract, classifying sections and assets, resolving Spark section roster targets, recording platform divergences, and generating a low-inference handoff for next-theme-dev.",
+      "description": "Turn a Figma storefront design into a validated, low-inference handoff package for next-theme-dev: sections, assets, geometry, copy, and design tokens.",
       "related_skills": [
         {
           "id": "next-theme-dev",
@@ -50,7 +50,7 @@
       "version": "1.14.0",
       "path": "next-theme-dev/SKILL.md",
       "domain": "storefronts",
-      "description": "Build, modify, and debug Next Commerce storefront themes, including Spark, Intro Bootstrap, Theme Settings, ntk CLI, DTL templates, and storefront GraphQL.",
+      "description": "Build, modify, and debug Next Commerce storefront themes: Spark, Intro Bootstrap, Theme Settings, ntk CLI, DTL templates, and storefront GraphQL.",
       "related_skills": [
         {
           "id": "next-theme-figma",
@@ -88,7 +88,7 @@
       "version": "1.4.0",
       "path": "next-bulk-fulfill/SKILL.md",
       "domain": "operations",
-      "description": "Update orders to Fulfilled status with tracking numbers from a CSV when a fulfillment provider's automation fails to sync back.",
+      "description": "Mark orders Fulfilled with tracking numbers from a CSV when a fulfillment provider's sync-back fails.",
       "triggers": [
         "bulk fulfill",
         "sync tracking numbers",
@@ -117,7 +117,7 @@
       "version": "1.3.0",
       "path": "next-bulk-move/SKILL.md",
       "domain": "operations",
-      "description": "Move fulfillment orders between warehouse locations in bulk \u2014 driven either by a flat file of order numbers or by a Product ID / SKU list. Handles cancellation requests for processing FOs, location discovery, and dry-run validation.",
+      "description": "Move fulfillment orders between warehouse locations in bulk, from a file of order numbers or a product/SKU list.",
       "triggers": [
         "bulk move orders",
         "move fulfillment orders",
@@ -148,7 +148,7 @@
       "version": "1.3.0",
       "path": "next-bulk-subscription/SKILL.md",
       "domain": "operations",
-      "description": "Apply official subscription actions (pause, cancel) or PATCH updates (renewal date, interval, gateway, address) to a list of subscription IDs from a CSV/XLSX via the Admin API. Handles baseline selection, dry-run, rate limiting, and verification.",
+      "description": "Pause, cancel, or update subscriptions in bulk from a CSV/XLSX of subscription IDs, with dry-run and verification.",
       "triggers": [
         "bulk subscription update",
         "bulk pause subscriptions",
@@ -179,7 +179,7 @@
       "version": "0.2.0",
       "path": "next-ops-scan/SKILL.md",
       "domain": "operations",
-      "description": "Run a read-only daily operations risk scan for one Next Commerce store, finding Incomplete orders, Rejected orders, and Delivery Tracking failures or stale shipments with manual next steps.",
+      "description": "Read-only daily risk scan for one store: Incomplete and Rejected orders, delivery-tracking failures, and stale shipments.",
       "triggers": [
         "daily ops scan",
         "risk scan",
@@ -210,7 +210,7 @@
       "version": "1.1.3",
       "path": "next-campaigns-setup/SKILL.md",
       "domain": "campaigns",
-      "description": "End-to-end setup for a new CPK campaign \u2014 scaffolds the project, copies a starter template, seeds campaigns.json, downloads CLAUDE.md, then wires up config.js and campaigns.json with API key, store details, and analytics in one pass.",
+      "description": "Scaffold and configure a new campaign-page-kit campaign end to end: project, starter template, config, and analytics.",
       "canonical_context": {
         "role": "Public catalog entry for CPK setup only; Campaigns OS runtime flows should follow the campaigns-os package handoff",
         "campaigns_os_source": "https://github.com/NextCommerceCo/campaigns-os",
