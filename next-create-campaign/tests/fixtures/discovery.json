@@ -1,0 +1,389 @@
+{
+ "store_slug": "teststore",
+ "store_origin": "https://teststore.29next.store",
+ "discovered_at": "2026-09-02T00:00:00Z",
+ "store": {
+  "name": "Test Store",
+  "available_currencies": [
+   "USD"
+  ],
+  "available_languages": [
+   "en"
+  ]
+ },
+ "gateway_groups": [
+  {
+   "id": 1,
+   "name": "Default",
+   "currencies": [
+    "USD"
+   ],
+   "payment_methods": [
+    "bankcard"
+   ],
+   "express_payment_methods": []
+  }
+ ],
+ "shipping_methods": [
+  {
+   "code": "standard",
+   "name": "Standard",
+   "prices": [
+    {
+     "currency": "USD",
+     "price_per_order": "6.00"
+    }
+   ],
+   "countries": [
+    "US"
+   ]
+  }
+ ],
+ "products": [
+  {
+   "id": 6,
+   "title": "Memorial Ornament",
+   "structure": "parent",
+   "enable_subscription": false,
+   "variants": [
+    {
+     "id": 7,
+     "title": "Memorial Ornament - 3 in",
+     "sku": "EX-ORN-3IN",
+     "purchase_availability": "available",
+     "prices": [
+      {
+       "currency": "USD",
+       "price": "24.95",
+       "retail": "24.95",
+       "subscription": null,
+       "subscription_suggested_downsell": null
+      }
+     ]
+    },
+    {
+     "id": 8,
+     "title": "Memorial Ornament - 4 in",
+     "sku": "EX-ORN-4IN",
+     "purchase_availability": "available",
+     "prices": [
+      {
+       "currency": "USD",
+       "price": "29.95",
+       "retail": "29.95",
+       "subscription": null,
+       "subscription_suggested_downsell": null
+      }
+     ]
+    },
+    {
+     "id": 9,
+     "title": "Memorial Ornament - 5 in",
+     "sku": "EX-ORN-5IN",
+     "purchase_availability": "available",
+     "prices": [
+      {
+       "currency": "USD",
+       "price": "34.95",
+       "retail": "34.95",
+       "subscription": null,
+       "subscription_suggested_downsell": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": 10,
+   "title": "3D Photo Crystal",
+   "structure": "parent",
+   "enable_subscription": false,
+   "variants": [
+    {
+     "id": 11,
+     "title": "3D Photo Crystal - Small",
+     "sku": "EX-CRY-SM",
+     "purchase_availability": "available",
+     "prices": [
+      {
+       "currency": "USD",
+       "price": "69.95",
+       "retail": "69.95",
+       "subscription": null,
+       "subscription_suggested_downsell": null
+      }
+     ]
+    },
+    {
+     "id": 12,
+     "title": "3D Photo Crystal - Medium",
+     "sku": "EX-CRY-MD",
+     "purchase_availability": "available",
+     "prices": [
+      {
+       "currency": "USD",
+       "price": "99.95",
+       "retail": "99.95",
+       "subscription": null,
+       "subscription_suggested_downsell": null
+      }
+     ]
+    },
+    {
+     "id": 13,
+     "title": "3D Photo Crystal - Large",
+     "sku": "EX-CRY-LG",
+     "purchase_availability": "available",
+     "prices": [
+      {
+       "currency": "USD",
+       "price": "139.95",
+       "retail": "139.95",
+       "subscription": null,
+       "subscription_suggested_downsell": null
+      }
+     ]
+    },
+    {
+     "id": 14,
+     "title": "3D Photo Crystal - Extra Large",
+     "sku": "EX-CRY-XL",
+     "purchase_availability": "available",
+     "prices": [
+      {
+       "currency": "USD",
+       "price": "189.95",
+       "retail": "189.95",
+       "subscription": null,
+       "subscription_suggested_downsell": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": 15,
+   "title": "Music Photo Magnet",
+   "structure": "parent",
+   "enable_subscription": false,
+   "variants": [
+    {
+     "id": 16,
+     "title": "Music Photo Magnet - 4 in",
+     "sku": "EX-MAG-4IN",
+     "purchase_availability": "available",
+     "prices": [
+      {
+       "currency": "USD",
+       "price": "39.95",
+       "retail": "39.95",
+       "subscription": null,
+       "subscription_suggested_downsell": null
+      }
+     ]
+    },
+    {
+     "id": 17,
+     "title": "Music Photo Magnet - 6 in",
+     "sku": "EX-MAG-6IN",
+     "purchase_availability": "available",
+     "prices": [
+      {
+       "currency": "USD",
+       "price": "49.95",
+       "retail": "49.95",
+       "subscription": null,
+       "subscription_suggested_downsell": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": 18,
+   "title": "Family Ornament",
+   "structure": "parent",
+   "enable_subscription": false,
+   "variants": [
+    {
+     "id": 19,
+     "title": "Family Ornament - 3 in",
+     "sku": "EX-FAM-3IN",
+     "purchase_availability": "available",
+     "prices": [
+      {
+       "currency": "USD",
+       "price": "27.95",
+       "retail": "27.95",
+       "subscription": null,
+       "subscription_suggested_downsell": null
+      }
+     ]
+    },
+    {
+     "id": 20,
+     "title": "Family Ornament - 4 in",
+     "sku": "EX-FAM-4IN",
+     "purchase_availability": "available",
+     "prices": [
+      {
+       "currency": "USD",
+       "price": "32.95",
+       "retail": "32.95",
+       "subscription": null,
+       "subscription_suggested_downsell": null
+      }
+     ]
+    },
+    {
+     "id": 21,
+     "title": "Family Ornament - 5 in",
+     "sku": "EX-FAM-5IN",
+     "purchase_availability": "available",
+     "prices": [
+      {
+       "currency": "USD",
+       "price": "37.95",
+       "retail": "37.95",
+       "subscription": null,
+       "subscription_suggested_downsell": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": 22,
+   "title": "Photo Bracelet",
+   "structure": "parent",
+   "enable_subscription": false,
+   "variants": [
+    {
+     "id": 23,
+     "title": "Photo Bracelet - 6.5 in",
+     "sku": "EX-JWL-65",
+     "purchase_availability": "available",
+     "prices": [
+      {
+       "currency": "USD",
+       "price": "49.95",
+       "retail": "49.95",
+       "subscription": null,
+       "subscription_suggested_downsell": null
+      }
+     ]
+    },
+    {
+     "id": 24,
+     "title": "Photo Bracelet - 7 in",
+     "sku": "EX-JWL-70",
+     "purchase_availability": "available",
+     "prices": [
+      {
+       "currency": "USD",
+       "price": "49.95",
+       "retail": "49.95",
+       "subscription": null,
+       "subscription_suggested_downsell": null
+      }
+     ]
+    },
+    {
+     "id": 25,
+     "title": "Photo Bracelet - 7.5 in",
+     "sku": "EX-JWL-75",
+     "purchase_availability": "available",
+     "prices": [
+      {
+       "currency": "USD",
+       "price": "49.95",
+       "retail": "49.95",
+       "subscription": null,
+       "subscription_suggested_downsell": null
+      }
+     ]
+    },
+    {
+     "id": 26,
+     "title": "Photo Bracelet - 8 in",
+     "sku": "EX-JWL-80",
+     "purchase_availability": "available",
+     "prices": [
+      {
+       "currency": "USD",
+       "price": "49.95",
+       "retail": "49.95",
+       "subscription": null,
+       "subscription_suggested_downsell": null
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": 27,
+   "title": "Custom Stained Glass Suncatcher",
+   "structure": "parent",
+   "enable_subscription": false,
+   "variants": [
+    {
+     "id": 28,
+     "title": "Custom Stained Glass Suncatcher - 8 in",
+     "sku": "EX-GLS-8IN",
+     "purchase_availability": "available",
+     "prices": [
+      {
+       "currency": "USD",
+       "price": "34.95",
+       "retail": "34.95",
+       "subscription": null,
+       "subscription_suggested_downsell": null
+      }
+     ]
+    },
+    {
+     "id": 29,
+     "title": "Custom Stained Glass Suncatcher - 10 in",
+     "sku": "EX-GLS-10IN",
+     "purchase_availability": "available",
+     "prices": [
+      {
+       "currency": "USD",
+       "price": "44.95",
+       "retail": "44.95",
+       "subscription": null,
+       "subscription_suggested_downsell": null
+      }
+     ]
+    },
+    {
+     "id": 30,
+     "title": "Custom Stained Glass Suncatcher - 12 in",
+     "sku": "EX-GLS-12IN",
+     "purchase_availability": "available",
+     "prices": [
+      {
+       "currency": "USD",
+       "price": "54.95",
+       "retail": "54.95",
+       "subscription": null,
+       "subscription_suggested_downsell": null
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "campaigns": [
+  {
+   "id": 501,
+   "name": "Example Pilot Campaign",
+   "currency": "USD",
+   "language": "en",
+   "created_at": "2026-08-25T01:32:25-04:00"
+  }
+ ],
+ "offers_supported": true,
+ "metadata_checked": true,
+ "metadata_missing": []
+}

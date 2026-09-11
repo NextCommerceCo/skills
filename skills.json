@@ -218,6 +218,10 @@
       },
       "related_skills": [
         {
+          "id": "next-create-campaign",
+          "relationship": "Upstream Admin API provisioning that creates the campaign, its api_key and package ids before scaffolding"
+        },
+        {
           "id": "next-campaigns-os",
           "source": "https://github.com/NextCommerceCo/campaigns-os",
           "relationship": "Canonical public Campaigns OS lifecycle skill"
@@ -253,6 +257,41 @@
         "requires_approval": true,
         "network": "outbound-template-fetch",
         "notes": "Writes a Campaign Cart API key and store details into local plaintext config (config.js/campaigns.json); review before running."
+      }
+    },
+    {
+      "id": "next-create-campaign",
+      "name": "Campaign Provisioning",
+      "version": "0.3.0",
+      "path": "next-create-campaign/SKILL.md",
+      "domain": "campaigns",
+      "description": "Create a launch-ready Campaigns App campaign over the Admin API: packages, shipping, and tier and voucher offers, behind a plan-hash approval gate.",
+      "related_skills": [
+        {
+          "id": "next-campaigns-setup",
+          "relationship": "Downstream campaign-page-kit scaffolding that consumes the campaign api_key and package ids this skill creates"
+        }
+      ],
+      "triggers": [
+        "create a campaign",
+        "set up the campaign in the Campaigns App",
+        "provision a campaign over the API",
+        "recommend a campaign structure",
+        "build the offers for a product",
+        "campaign packages and offers"
+      ],
+      "prerequisites": [
+        "Python 3.9 or newer (standard library only) and a bash shell; on Windows run scripts/campaign_admin.py with Python directly",
+        "A Next Commerce store with the Campaigns App installed and an API key (campaigns:read, campaigns:write, catalogue:read, gateways:read, metadata:read, metadata:write scopes)",
+        "Admin API token in a local .env ({SUBDOMAIN}_NEXT_ADMIN_API_TOKEN) or the environment"
+      ],
+      "safety": {
+        "mutates_remote": true,
+        "writes_local": true,
+        "requires_approval": true,
+        "network": "next-admin-api",
+        "token_env": "NEXT_ADMIN_API_TOKEN",
+        "notes": "Creates a campaign, its packages, shipping methods and offers only under apply --yes --plan-sha256 <hash of the reviewed plan>; creates missing metadata definitions only under metadata --apply; teardown deletes only what the run manifest owns, after identity read-back. Never edits a campaign or metadata definition that already exists. verify calls the Campaign Cart API calculate endpoint with the campaign key and creates nothing. The run manifest holds the campaign api_key (mode 600, and the run directory must be gitignored inside a repository)."
       }
     }
   ]

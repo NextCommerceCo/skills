@@ -1,0 +1,225 @@
+{
+  "store_slug": "mystore",
+  "store_origin": "https://mystore.29next.store",
+  "generated_at": "2026-09-03T10:46:03Z",
+  "ctc": "low",
+  "campaign": {
+    "name": "Photo Bracelet",
+    "currency": "USD",
+    "language": "en",
+    "payment_gateway_group_id": 1,
+    "additional_currencies": [],
+    "available_payment_methods": [
+      "bankcard"
+    ],
+    "available_express_payment_methods": [],
+    "available_shipping_countries": [
+      "US"
+    ],
+    "statement_descriptor": null
+  },
+  "packages": [
+    {
+      "key": "hero-23",
+      "role": "hero",
+      "name": "Photo Bracelet",
+      "variant_title": "Photo Bracelet - 6.5 in",
+      "product_id": 22,
+      "product_variant_ids": [
+        23
+      ],
+      "price": "49.95",
+      "image": {
+        "src": "https://cdn.example.com/bracelet/hero-silver.png",
+        "file_name": "hero-silver"
+      }
+    },
+    {
+      "key": "hero-24",
+      "role": "hero",
+      "name": "Photo Bracelet",
+      "variant_title": "Photo Bracelet - 7 in",
+      "product_id": 22,
+      "product_variant_ids": [
+        24
+      ],
+      "price": "49.95"
+    },
+    {
+      "key": "hero-25",
+      "role": "hero",
+      "name": "Photo Bracelet",
+      "variant_title": "Photo Bracelet - 7.5 in",
+      "product_id": 22,
+      "product_variant_ids": [
+        25
+      ],
+      "price": "49.95"
+    },
+    {
+      "key": "hero-26",
+      "role": "hero",
+      "name": "Photo Bracelet",
+      "variant_title": "Photo Bracelet - 8 in",
+      "product_id": 22,
+      "product_variant_ids": [
+        26
+      ],
+      "price": "49.95"
+    }
+  ],
+  "shipping_methods": [
+    {
+      "shipping_method": "standard",
+      "price": "6.95"
+    }
+  ],
+  "offers": [
+    {
+      "key": "tier-1",
+      "name": "Photo Bracelet - Buy 1 - 50%",
+      "offer_type": "offer",
+      "code": null,
+      "condition": {
+        "type": "count",
+        "value": 1,
+        "package_keys": [
+          "hero-23",
+          "hero-24",
+          "hero-25",
+          "hero-26"
+        ]
+      },
+      "benefit": {
+        "type": "package_percentage",
+        "value": "50.00",
+        "price_rounding": null
+      }
+    },
+    {
+      "key": "tier-2",
+      "name": "Photo Bracelet - Buy 2 - 55%",
+      "offer_type": "offer",
+      "code": null,
+      "condition": {
+        "type": "count",
+        "value": 2,
+        "package_keys": [
+          "hero-23",
+          "hero-24",
+          "hero-25",
+          "hero-26"
+        ]
+      },
+      "benefit": {
+        "type": "package_percentage",
+        "value": "55.00",
+        "price_rounding": null
+      }
+    },
+    {
+      "key": "tier-3",
+      "name": "Photo Bracelet - Buy 3 - 60%",
+      "offer_type": "offer",
+      "code": null,
+      "condition": {
+        "type": "count",
+        "value": 3,
+        "package_keys": [
+          "hero-23",
+          "hero-24",
+          "hero-25",
+          "hero-26"
+        ]
+      },
+      "benefit": {
+        "type": "package_percentage",
+        "value": "60.00",
+        "price_rounding": null
+      }
+    },
+    {
+      "key": "exit-pop",
+      "name": "Photo Bracelet - Exit - 10%",
+      "offer_type": "voucher",
+      "code": "BRACELET10",
+      "condition": {
+        "type": "any",
+        "value": null,
+        "package_keys": [
+          "hero-23",
+          "hero-24",
+          "hero-25",
+          "hero-26"
+        ]
+      },
+      "benefit": {
+        "type": "package_percentage",
+        "value": "10.00",
+        "price_rounding": null
+      }
+    }
+  ],
+  "landed_prices": [
+    {
+      "tier": "Buy 1",
+      "kind": "tier",
+      "qty": 1,
+      "offer_key": "tier-1",
+      "package_keys": [
+        "hero-23",
+        "hero-24",
+        "hero-25",
+        "hero-26"
+      ],
+      "anchor": "49.95",
+      "pct": 50,
+      "unit_after": "24.97",
+      "order_total": "24.97"
+    },
+    {
+      "tier": "Buy 2",
+      "kind": "tier",
+      "qty": 2,
+      "offer_key": "tier-2",
+      "package_keys": [
+        "hero-23",
+        "hero-24",
+        "hero-25",
+        "hero-26"
+      ],
+      "anchor": "49.95",
+      "pct": 55,
+      "unit_after": "22.48",
+      "order_total": "44.96"
+    },
+    {
+      "tier": "Buy 3",
+      "kind": "tier",
+      "qty": 3,
+      "offer_key": "tier-3",
+      "package_keys": [
+        "hero-23",
+        "hero-24",
+        "hero-25",
+        "hero-26"
+      ],
+      "anchor": "49.95",
+      "pct": 60,
+      "unit_after": "19.98",
+      "order_total": "59.94"
+    }
+  ],
+  "rationale": [
+    "Low CTC: one package per variant at the anchor price; Buy 1/2/3 automatic tier offers (offer doctrine: Cost-to-consumer). Tiers are offers, never quantity packages (offer doctrine: Naming and scoping).",
+    "Exit-pop voucher for an additional 10% applies on top of the tier price (offer doctrine: Rounding and stacking).",
+    "hero-23 carries an image override: the catalogue photo for that variant is the packshot, not the on-model hero the funnel uses. The other three keep the catalogue image package create attaches for them."
+  ],
+  "blockers": [],
+  "waivers": [],
+  "handoff": [
+    "Allowed Domains (Development/Production) are set in the dashboard: Campaign > Settings.",
+    "PayPal account (if any) is linked in the dashboard; the API takes paypal_account_id only.",
+    "Build the funnel with the campaign api_key from the run manifest and the package ids below."
+  ]
+}

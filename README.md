@@ -20,6 +20,7 @@ Cursor, GitHub Copilot, and any other agent that reads markdown.
 | [**Bulk Subscription Actions**](next-bulk-subscription/) | Operations | Pause, cancel, or update subscriptions in bulk from a CSV/XLSX of subscription IDs, with dry-run and verification. |
 | [**Daily Ops Risk Scan**](next-ops-scan/) | Operations | Read-only daily risk scan for one store: Incomplete and Rejected orders, delivery-tracking failures, and stale shipments. |
 | [**New Campaign Setup**](next-campaigns-setup/) | Campaigns | Scaffold and configure a new campaign-page-kit campaign end to end: project, starter template, config, and analytics. |
+| [**Campaign Provisioning**](next-create-campaign/) | Campaigns | Create a launch-ready Campaigns App campaign over the Admin API: packages, shipping, and tier and voucher offers, behind a plan-hash approval gate. |
 <!-- END GENERATED SKILLS TABLE -->
 
 Each skill directory holds a `README.md` for the person running it (what it
@@ -93,6 +94,33 @@ First installs are staged and moved into place. Updates use `rsync --delete`,
 so a forced update removes files that are not in the source package; install
 `rsync` on minimal environments that lack it. Pull with `git pull --ff-only`
 before running `status` or `install` from a checkout.
+
+## Updating
+
+An installed skill is a copy. It does not change when this repository does,
+and nothing notifies you when a new version ships, so check before starting
+work that depends on a skill.
+
+- **See what you have.** A skill's version is the `version:` line in its
+  installed `SKILL.md`. From a checkout, `./skills.sh status` compares each
+  installed copy with the source and marks older copies `stale`. A skill that
+  ships a launcher prints it too, for example
+  `bash ~/.claude/skills/next-create-campaign/next-create-campaign.sh --version`.
+- **Check for a newer one.** From a checkout, run `git pull --ff-only` and then
+  `./skills.sh status`. Without a checkout, compare your version with that
+  skill's `version` in
+  [`skills.json` on `main`](https://github.com/NextCommerceCo/skills/blob/main/skills.json).
+- **Update.** From a checkout, `./skills.sh install <target> <skill>` replaces
+  a `stale` copy; the Installer Reference above covers `modified` rows and
+  `--force`. With the `skills` CLI, run `npx skills update`. Restart the agent
+  session afterwards.
+- **Read what changed.** Each version bump ships in a pull request titled
+  `<skill> X.Y.Z: summary`, and its description is the release note, breaking
+  changes included. Search the
+  [merged pull requests](https://github.com/NextCommerceCo/skills/pulls?q=is%3Apr+is%3Amerged)
+  for the skill's name.
+
+The repository has no git tags, GitHub Releases or changelog files yet.
 
 ## Machine-Readable Index
 
