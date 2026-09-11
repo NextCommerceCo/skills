@@ -1,6 +1,6 @@
 ---
 name: next-theme-dev
-version: 1.14.0
+version: 1.14.1
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
@@ -34,6 +34,23 @@ This skill works with any AI coding tool that can load a markdown file as contex
 | **Version check** | From a source checkout, run `./skills.sh status all next-theme-dev`. `stale` means the installed copy is older, `modified` means equal versions differ, `local-newer` protects a newer installed copy, and `unknown-version` flags a version outside `X.Y.Z`. Review with `dry-run` before refreshing. |
 
 ---
+
+## Recommended Build Loop
+
+For theme builds, follow **build → independent review → repair → verification**.
+The main session owns the plan, integration, and final acceptance. Choose subagent
+assignments and available models appropriate to the work, explicitly preferring
+cheaper capable models for bounded implementation, inspection, and repair.
+
+Have a fresh reviewer inspect the result against the source material and actual
+theme preview and runtime evidence, without the builder's rationale. Keep one
+writer at a time. Resolve concrete findings and rerun the relevant geometry, copy,
+readback, and behavior checks before declaring completion. After two unsuccessful
+repair rounds, reassess the approach or surface the blocker. Scale review depth to
+the task and preserve the existing checks and approval boundaries.
+
+If delegation is unavailable or disallowed, perform a distinct self-review in the
+current session and disclose that no independent agent reviewed the result.
 
 ## Preamble — Environment Check
 
