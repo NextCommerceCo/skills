@@ -52,8 +52,9 @@ in your catalogue.
 
 > [!IMPORTANT]
 > The first campaign on a store needs eleven metadata definitions, created
-> once. Without them, orders lose track of which campaign they came from. Your
-> assistant checks for them and asks you before creating any, and your API key
+> once. Orders still go through without them, but you can't filter, export or
+> report on which campaign each order came from. Your assistant checks for them
+> and asks you before creating any, and your API key
 > needs its metadata permissions for that step. Later campaigns on the same
 > store reuse them.
 

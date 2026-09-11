@@ -282,10 +282,15 @@ gateway groups, the shipping methods and the existing campaign names.
 
 ### Metadata definitions
 
-A store needs 11 campaign metadata definitions before its campaigns run; without
-them, orders lose campaign attribution silently. They are set once per store and
-shared by every campaign on it. The list is in `references/offer-doctrine.md`,
-section "Metadata definitions". The discovery records:
+A store running the Campaigns App should carry 11 campaign metadata definitions,
+set once per store and shared by every campaign on it. They are not a checkout
+requirement: Campaign Cart sends the attribution values with the order either
+way. What the definitions add is visibility. Without them the values are not
+first-class in the dashboard, so nobody can filter, export or report on them,
+and nobody can see which campaign created an order. This skill treats missing
+definitions as a blocker anyway, so a campaign never launches with that
+reporting gap. The list is in `references/offer-doctrine.md`, section "Metadata
+definitions". The discovery records:
 
 | Field | Meaning |
 |---|---|
@@ -300,9 +305,10 @@ state into the plan's blockers.
 - **Missing definitions.** Ask the operator with `AskUserQuestion`:
 
   > Discovery found {N} of the 11 campaign metadata definitions missing on
-  > {subdomain}: {keys}. Without them, orders lose campaign attribution. They
-  > are created once per store and shared by every campaign. Create the missing
-  > ones now?
+  > {subdomain}: {keys}. Orders still go through without them, but their
+  > campaign and attribution values cannot be filtered, exported or reported on
+  > in the dashboard. They are created once per store and shared by every
+  > campaign. Create the missing ones now?
   >
   > - A) Yes, create the missing definitions
   > - B) No, stop here (the plan stays blocked until they exist)

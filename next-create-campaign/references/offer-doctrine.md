@@ -249,11 +249,18 @@ The API does not cover these, and they stay dashboard work:
 
 ## Metadata definitions
 
-A store running the Campaigns App needs 11 metadata definitions before its
-campaigns run. Two are `order` fields, `nc_campaign_id` and `nc_campaign_name`,
-stamped onto each order by the flow from the Campaigns API to the Admin API. The
-other nine are `attribution` fields attached by the Campaign Cart SDK. Without the
-definitions, orders lose campaign attribution silently.
+A store running the Campaigns App should carry 11 metadata definitions. Two are
+`order` fields, `nc_campaign_id` and `nc_campaign_name`, stamped onto each order
+by the flow from the Campaigns API to the Admin API. The other nine are
+`attribution` fields attached by the Campaign Cart SDK.
+
+The definitions are not a checkout requirement. Campaign Cart sends the
+attribution values with the order payload whether or not they exist. The
+definitions make those values first-class in the dashboard, where they can be
+filtered, exported and reported on; without the two `order` definitions nobody
+can see which campaign created an order. A missing definition is a reporting
+gap, not a checkout blocker. `recommend` still blocks a plan until all 11 exist,
+which is this tool's own readiness rule, not a platform one.
 
 Definitions are set once per store, not per campaign; every campaign on the store
 shares them. The `discover` subcommand audits them, and `metadata --apply` creates
