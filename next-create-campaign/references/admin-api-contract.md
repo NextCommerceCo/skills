@@ -186,9 +186,10 @@ Files live in a run directory:
 - `--out` overrides the directory for any of them.
 
 One directory holds one campaign run. `recommend` refuses a directory that already
-holds a `run-manifest.json`, and a resume refuses a destination holding a
-different run. When the directory is inside a git repository it must be
-gitignored; the engine checks and refuses to write otherwise.
+holds a `run-manifest.json`. A resume refuses a destination holding a different
+run, and refuses a run that teardown has touched. When the directory is inside a
+git repository it must be gitignored; the engine checks and refuses to write
+otherwise.
 
 - `discovery.json`: the store snapshot plus `offers_supported`,
   `metadata_checked`, `metadata_missing`, `metadata_conflicts` and

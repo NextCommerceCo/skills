@@ -1682,5 +1682,94 @@ class MetadataProvisioning(unittest.TestCase):
         self.assertEqual(ca.recommend(fresh, ns())["blockers"], [])
 
 
+
+class PullRequestReviewFixes(unittest.TestCase):
+    """Regressions for the findings raised on the public pull request."""
+
+    def setUp(self):
+        self.disc = load_fixture("discovery.json")
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def applied(self):
+        plan = ca.recommend(self.disc, ns(name="Review fixes", exit_code="RF10"))
+        pp = self.root / "campaign-plan.json"
+        ca.atomic_write_json(pp, plan)
+        sha = ca.sha256_file(pp)
+        t = DynamicTransport(self.disc, fresh_state())
+        man = ca.apply(make_client(t), plan, sha, self.root / ca.MANIFEST_NAME, None)
+        return plan, sha, t, man
+
+    def test_resume_refuses_torn_down_run(self):
+        plan, sha, t, man = self.applied()
+        ca.teardown(make_client(t), man, plan, sha, lambda: True)
+        self.assertEqual(man.data["campaign"]["status"], "deleted")
+        t.calls.clear()
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.apply(make_client(t), plan, sha, man.path, man.path)
+        self.assertIn("torn down", str(cm.exception))
+        self.assertEqual(t.calls, [])
+
+    def test_resume_refuses_partial_teardown(self):
+        plan, sha, t, man = self.applied()
+        for section in ("packages", "shipping_methods", "offers"):
+            man.mark(section, man.data[section][0]["key"], status="deleting")
+            t.calls.clear()
+            with self.assertRaises(ca.CampaignAdminError, msg=section):
+                ca.apply(make_client(t), plan, sha, man.path, man.path)
+            self.assertEqual(t.calls, [], section)
+            man.mark(section, man.data[section][0]["key"], status="created")
+        self.assertEqual(ca.torn_down_entries(man), [])
+
+    def test_default_name_collision_blocks(self):
+        d = json.loads(json.dumps(self.disc))
+        d["campaigns"].append({"id": 7, "name": "Photo Bracelet", "currency": "USD", "language": "en",
+                               "created_at": "2026-08-01T00:00:00Z"})
+        blockers = ca.recommend(d, ns())["blockers"]
+        self.assertTrue(any("'Photo Bracelet' already exists" in b for b in blockers))
+        self.assertFalse(any("already exists" in b for b in ca.recommend(d, ns(name="Other"))["blockers"]))
+
+    def test_malformed_fields_are_errors(self):
+        good = ca.recommend(self.disc, ns(exit_code="BRACELET10"))
+        cases = [
+            lambda p: p["campaign"].__setitem__("statement_descriptor", 123),
+            lambda p: p["packages"][0].__setitem__("name", 5),
+            lambda p: p["packages"][0].__setitem__("product_variant_ids", 7),
+            lambda p: p["offers"][0].__setitem__("name", ["x"]),
+            lambda p: p["offers"][-1].__setitem__("code", 10),
+            lambda p: p["packages"].append("not an object"),
+            lambda p: p.__setitem__("offers", [{"key": "o", "condition": [], "benefit": {}}]),
+        ]
+        for i, mutate in enumerate(cases):
+            p = json.loads(json.dumps(good))
+            mutate(p)
+            errs = ca.validate_plan(p)
+            self.assertTrue(errs and all(isinstance(e, str) for e in errs), f"case {i}: {errs}")
+        self.assertEqual(ca.validate_plan([]), ["plan must be a JSON object"])
+
+    def test_dotenv_unterminated_quote(self):
+        dotenv = self.root / ".env"
+        secret = "abc" + "123secret"
+        dotenv.write_text(f'TESTSTORE_NEXT_ADMIN_API_TOKEN="{secret}\n')
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.load_token("teststore", env={}, dotenv=dotenv)
+        self.assertIn("unterminated quote", str(cm.exception))
+        self.assertNotIn(secret, str(cm.exception))
+
+    def test_audit_duplicate_key_conflict(self):
+        # The wrong object comes first, so a last-one-wins listing would hide it.
+        defs = [{"key": "device", "object": "order", "name": "Device"}] + metadata_defs()
+        t = FakeTransport({("GET", ca.METADATA_PATH): (200, defs)})
+        audit = ca.metadata_audit(make_client(t))
+        self.assertEqual(audit["missing"], [])
+        self.assertEqual(audit["conflicts"], [{"key": "device", "defined_on": "order", "needs": "attribution"}])
+
+    def test_default_write_mode_is_private(self):
+        p = self.root / "plan.json"
+        ca.atomic_write_json(p, {"a": 1})
+        self.assertEqual(oct(p.stat().st_mode & 0o777), "0o600")
+
+
 if __name__ == "__main__":
     unittest.main()

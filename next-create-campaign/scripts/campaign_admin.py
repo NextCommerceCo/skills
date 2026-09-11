@@ -172,7 +172,10 @@ def _dotenv_value(path: Path, name: str):
         if not line.startswith(name + "="):
             continue
         value = line[len(name) + 1:].strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        if value[:1] in ("'", '"'):
+            if len(value) < 2 or value[-1] != value[0]:
+                # Name the line, never the value: it is a credential.
+                raise CampaignAdminError(f"the {name} line in {path} has an unterminated quote; fix it in a text editor")
             value = value[1:-1]
         return value
     return None
@@ -396,7 +399,7 @@ def sha256_file(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def atomic_write_json(path: Path, data, mode: int = 0o644) -> None:
+def atomic_write_json(path: Path, data, mode: int = 0o600) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=path.name + ".", dir=str(path.parent))
@@ -603,16 +606,21 @@ def metadata_audit(client: Client) -> dict:
     Keyed by `key` alone because a metadata key is unique per store, not per object:
     a key defined under another object is a conflict, never "missing" (a POST for it
     would only answer 400). Raises HttpStatusError when the list cannot be read."""
-    present = {}
+    present, objects = {}, {}
     for d in client.paginate(METADATA_PATH):
         if isinstance(d, dict) and d.get("key"):
             present[d["key"]] = d.get("object")
+            objects.setdefault(d["key"], set()).add(d.get("object"))
     missing, conflicts = [], []
     for f in METADATA_FIELDS:
         if f.key not in present:
             missing.append(f)
-        elif present[f.key] and present[f.key] != f.object:
-            conflicts.append({"key": f.key, "defined_on": present[f.key], "needs": f.object})
+            continue
+        # Every object the key appears under is checked, so a listing that repeats
+        # a key under a second object is still reported rather than overwritten.
+        wrong = sorted(o for o in objects[f.key] if isinstance(o, str) and o and o != f.object)
+        if wrong:
+            conflicts.append({"key": f.key, "defined_on": ", ".join(wrong), "needs": f.object})
     return {"present": present, "missing": missing, "conflicts": conflicts}
 
 
@@ -1034,8 +1042,10 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
             blockers.append(f"Metadata key {c['key']} is defined on {c['defined_on']} but campaigns need it on "
                             f"{c['needs']}; correct it in Settings > Metadata, then re-run discover. "
                             "This tool never edits an existing definition.")
-    if a.name and any(c.get("name") == a.name for c in discovery.get("campaigns", [])):
-        blockers.append(f"A campaign named {a.name!r} already exists on the store; choose another name.")
+    plan_name = a.name or hero_title
+    if any(c.get("name") == plan_name for c in discovery.get("campaigns", [])):
+        blockers.append(f"A campaign named {plan_name!r} already exists on the store; choose another name "
+                        "with --name.")
 
     handoff += [
         "Allowed Domains (Development/Production) are set in the dashboard: Campaign > Settings.",
@@ -1138,6 +1148,19 @@ def _image_errors(key, img) -> list:
 
 
 def validate_plan(plan: dict) -> list:
+    """Every problem with a plan as a list of messages. A hand-edited plan with the
+    wrong shape somewhere is reported, never allowed to escape as a traceback, and
+    an empty list is the only answer that lets a caller proceed."""
+    try:
+        return _validate_plan(plan)
+    except (TypeError, AttributeError, KeyError, ValueError, InvalidOperation) as e:
+        return [f"plan is malformed ({type(e).__name__}: {e}); regenerate it with recommend "
+                "or correct the field by hand"]
+
+
+def _validate_plan(plan: dict) -> list:
+    if not isinstance(plan, dict):
+        return ["plan must be a JSON object"]
     errs = []
     try:
         check_origin_binding(plan, "plan")
@@ -1149,8 +1172,9 @@ def validate_plan(plan: dict) -> list:
             errs.append(f"campaign.{f} is required")
     if len(str(c.get("name", ""))) > 200:
         errs.append("campaign.name exceeds 200 characters")
-    if c.get("statement_descriptor") and len(c["statement_descriptor"]) > 255:
-        errs.append("campaign.statement_descriptor exceeds 255 characters")
+    sd = c.get("statement_descriptor")
+    if sd and (not isinstance(sd, str) or len(sd) > 255):
+        errs.append("campaign.statement_descriptor must be a string of at most 255 characters")
     if type(c.get("payment_gateway_group_id")) is not int:
         errs.append("campaign.payment_gateway_group_id must be an integer")
 
@@ -1161,12 +1185,13 @@ def validate_plan(plan: dict) -> list:
             errs.append(f"package key missing or duplicate: {k!r}")
         keys.add(k)
         vids = p.get("product_variant_ids") or []
-        if len(vids) != 1 or type(vids[0]) is not int:
+        if not isinstance(vids, list) or len(vids) != 1 or type(vids[0]) is not int:
             errs.append(f"package {k}: product_variant_ids must be exactly one integer (got {vids!r}); "
                         "the API creates one package per variant id and only the first is journalled")
-        if not p.get("name") or len(p["name"]) > 200:
-            errs.append(f"package {k}: name missing or >200 chars")
-        if re.match(r"^\d+\s*x\s", p.get("name", ""), re.I):
+        pname = p.get("name")
+        if not isinstance(pname, str) or not pname or len(pname) > 200:
+            errs.append(f"package {k}: name must be a non-empty string of at most 200 characters")
+        elif re.match(r"^\d+\s*x\s", pname, re.I):
             errs.append(f"package {k}: quantity-style name {p['name']!r} is deprecated; tiers are offers")
         if type(p.get("product_id")) is not int:
             errs.append(f"package {k}: product_id must be an integer")
@@ -1197,21 +1222,23 @@ def validate_plan(plan: dict) -> list:
             errs.append(f"offer key missing or duplicate: {k!r}")
         offer_keys.add(k)
         n = o.get("name", "")
-        if not n or len(n) > 128:
-            errs.append(f"offer {k}: name missing or >128 chars")
-        if n in names:
+        if not isinstance(n, str) or not n or len(n) > 128:
+            errs.append(f"offer {k}: name must be a non-empty string of at most 128 characters")
+        elif n in names:
             errs.append(f"offer {k}: duplicate offer name {n!r}")
-        names.add(n)
+        else:
+            names.add(n)
         ot = o.get("offer_type", "offer")
         if ot not in OFFER_TYPES:
             errs.append(f"offer {k}: offer_type {ot!r} invalid")
         if ot == "voucher":
             code = o.get("code") or ""
-            if not CODE_RE.match(code):
+            if not isinstance(code, str) or not CODE_RE.match(code):
                 errs.append(f"offer {k}: voucher needs an uppercase alphanumeric code (<=64), got {code!r}")
-            if code in codes:
+            elif code in codes:
                 errs.append(f"offer {k}: duplicate voucher code {code!r}")
-            codes.add(code)
+            else:
+                codes.add(code)
         cond = o.get("condition", {})
         if cond.get("type") not in CONDITION_TYPES:
             errs.append(f"offer {k}: condition.type {cond.get('type')!r} invalid")
@@ -1497,6 +1524,21 @@ def reconcile(client: Client, man: Manifest, plan: dict) -> None:
                 raise CampaignAdminError(f"pending offer {e['key']} matches {len(hit)} remote offers")
 
 
+TORN_DOWN_STATUSES = ("deleting", "deleted")
+
+
+def torn_down_entries(man: Manifest) -> list:
+    """Manifest entries teardown has started or finished deleting, as labels."""
+    torn = []
+    if man.data["campaign"].get("status") in TORN_DOWN_STATUSES:
+        torn.append(f"campaign {man.data['campaign'].get('status')}")
+    for section in ("packages", "shipping_methods", "offers"):
+        for e in man.data.get(section, []):
+            if e.get("status") in TORN_DOWN_STATUSES:
+                torn.append(f"{section} {e.get('key')} {e['status']}")
+    return torn
+
+
 def apply(client: Client, plan: dict, plan_sha: str, manifest_path: Path, resume_path: Path | None) -> Manifest:
     errs = validate_plan(plan)
     if errs:
@@ -1521,6 +1563,15 @@ def apply(client: Client, plan: dict, plan_sha: str, manifest_path: Path, resume
             raise CampaignAdminError("manifest store_slug does not match the plan")
         if man.data["plan_sha256"] != plan_sha:
             raise CampaignAdminError("manifest plan_sha256 does not match this plan file; resume needs the same plan")
+        torn = torn_down_entries(man)
+        if torn:
+            # Resume only finishes a build. Re-creating something teardown deleted, or
+            # something whose DELETE never confirmed, would duplicate it or undo the
+            # teardown, so a run teardown has touched is refused before any request.
+            raise CampaignAdminError(
+                f"this run was torn down, fully or in part ({', '.join(torn)}); resume cannot rebuild it. "
+                "Re-run teardown to finish a partial one, then start a fresh run in a new directory "
+                "(recommend --out <dir>).")
         if man.data["campaign"].get("status") == "created":
             live = client.get_ok(f"/api/admin/campaigns/{man.data['campaign']['id']}/")
             if live.get("name") != man.data["campaign"].get("name"):

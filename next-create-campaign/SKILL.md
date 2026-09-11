@@ -476,8 +476,9 @@ bash <skill-dir>/next-create-campaign.sh apply \
   --resume ./next-create-campaign-runs/<subdomain>/run-manifest.json
 ```
 
-A resume refuses a changed plan, and refuses a destination that holds a
-different run.
+A resume refuses a changed plan, a destination that holds a different run,
+and a run that teardown has touched. After a teardown, finish it if it was
+interrupted, then start a fresh run in a new directory.
 
 To remove what the run created instead, ask the operator first with
 `AskUserQuestion`:
@@ -546,6 +547,7 @@ need.
 | `a campaign named ... already exists` | name collision | rename in the plan (re-run `recommend` with `--name`), or resume that run's manifest |
 | `already holds a run` | `recommend` into a directory that has a `run-manifest.json` | pass `--out <new dir>` |
 | `already holds a different run` | `--resume` or `--out` points at another run's manifest | resume with that run's own plan and manifest, or choose a new `--out` |
+| `this run was torn down` | `--resume` on a manifest that teardown started or finished | re-run `teardown` if it was interrupted, then start a fresh run with `recommend --out <new dir>` |
 | `not gitignored` | the run directory is inside a git repository that does not ignore it | add `next-create-campaign-runs/` to `.gitignore`, or pass `--out` outside the repository |
 | `cannot confirm ... is safe to write` | a `.git` directory was found but git could not be asked | install git, or pass `--out` outside the repository |
 | offers POST returns 404/405 | store's Offers API not live | campaign, packages and shipping are created; build offers in the dashboard |
