@@ -49,8 +49,8 @@ readback, and behavior checks before declaring completion. After two unsuccessfu
 repair rounds, reassess the approach or surface the blocker. Scale review depth to
 the task and preserve the existing checks and approval boundaries.
 
-If delegation is unavailable or disallowed, perform a separate review pass and
-state that it did not receive independent review.
+If delegation is unavailable or disallowed, perform a distinct self-review in the
+current session and disclose that no independent agent reviewed the result.
 
 ## Preamble — Environment Check
 

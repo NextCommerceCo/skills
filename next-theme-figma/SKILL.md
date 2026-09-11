@@ -53,8 +53,8 @@ validators before handoff. After two unsuccessful repair rounds, reassess the
 approach or surface the blocker. Scale review depth to the task and preserve the
 existing checks, accepted-gap rules, and boundary with `next-theme-dev` implementation.
 
-If delegation is unavailable or disallowed, perform a separate review pass and
-state that it did not receive independent review.
+If delegation is unavailable or disallowed, perform a distinct self-review in the
+current session and disclose that no independent agent reviewed the package.
 
 ## Load References
 
