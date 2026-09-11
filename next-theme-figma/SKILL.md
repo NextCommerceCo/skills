@@ -1,6 +1,6 @@
 ---
 name: next-theme-figma
-version: 0.7.1
+version: 0.7.2
 description: |
   Prepare Figma storefront designs for NEXT Commerce theme
   implementation handoff. Use when auditing, inspecting, extracting assets
@@ -37,6 +37,24 @@ This skill works with any AI coding tool that can load a markdown file as contex
 Use this skill upstream of `next-theme-dev`. Treat Figma as structured source, not inspiration: inspect the file, classify sections and assets, record theme/platform divergences, capture references, and produce a handoff package that a theme implementation agent can consume without guessing.
 
 If the user asks to implement a theme directly from Figma, first run this workflow until the design-source package is clear enough. Then load `next-theme-dev` for DTL/theme edits, ntk push/pull, CSS builds, and storefront QA.
+
+## Recommended Handoff Loop
+
+For handoff preparation, follow **prepare → independent review → repair → validate
+handoff**. The main session owns the source interpretation, integration, and final
+acceptance. Choose subagent assignments and available models appropriate to the
+work, explicitly preferring cheaper capable models for bounded inspection and repair.
+
+Have a fresh reviewer inspect the package against the source references, screenshots,
+and manifests, without the preparer's rationale. Check that a downstream theme
+builder can use the package without guessing; identify missing inputs explicitly.
+Keep one writer at a time. Resolve concrete findings and rerun the relevant package
+validators before handoff. After two unsuccessful repair rounds, reassess the
+approach or surface the blocker. Scale review depth to the task and preserve the
+existing checks, accepted-gap rules, and boundary with `next-theme-dev` implementation.
+
+If delegation is unavailable or disallowed, perform a separate review pass and
+state that it did not receive independent review.
 
 ## Load References
 
