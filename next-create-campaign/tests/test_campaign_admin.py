@@ -21,6 +21,7 @@ import urllib.error
 import urllib.parse
 import builtins
 import io
+from decimal import Decimal
 from pathlib import Path
 from unittest import mock
 
@@ -86,7 +87,8 @@ def ns(**kw):
     base = dict(hero=22, ctc="low", anchor_price="49.95", shipping=["standard:6.95"], name=None,
                 gateway_group=None, payment_methods=None, express_methods=None, currency=None,
                 language=None, countries=None, tiers=None, exit=None, exit_code=None, bump=None,
-                upsell=None, free_shipping=False, rounding=None, statement_descriptor=None)
+                upsell=None, free_shipping=False, free_shipping_min_qty=None, rounding=None,
+                statement_descriptor=None)
     base.update(kw)
     return argparse.Namespace(**base)
 
@@ -1769,6 +1771,463 @@ class PullRequestReviewFixes(unittest.TestCase):
         p = self.root / "plan.json"
         ca.atomic_write_json(p, {"a": 1})
         self.assertEqual(oct(p.stat().st_mode & 0o777), "0o600")
+
+
+SHIP = Decimal("6.95")  # the fixture plan's shipping price (ns() default)
+HERO = ["hero-23", "hero-24", "hero-25", "hero-26"]  # hero 22's variants in the fixture
+
+
+class FreeShippingPerCase(unittest.TestCase):
+    """A live campaign, 2026-09-11. A free-shipping offer hand-edited to
+    count >= 2 made verify add the shipping price to every case, failing Buy 2,
+    Buy 3 and their exit-voucher rows by exactly -9.99 while the engine was right.
+    The same run posted the upsell probe with a checkout shipping id and without
+    the Cart API's upsell mode."""
+
+    def setUp(self):
+        self.disc = load_fixture("discovery.json")
+
+    @staticmethod
+    def _engine(plan, ids, free_from=None, free_keys=None):
+        """A fake carts/calculate that prices from the plan the way the live engine
+        does: the best automatic package offer whose condition the cart meets (none
+        in upsell mode), then any entered voucher, then shipping. Shipping has its
+        own knobs so a test can make the live rule disagree with the plan."""
+        key_of = {v: k for k, v in ids.items()}
+        price = {p["key"]: Decimal(p["price"]) for p in plan["packages"]}
+        autos = [o for o in plan["offers"]
+                 if o.get("offer_type") == "offer" and o["benefit"]["type"] == "package_percentage"]
+        codes = {o["code"]: o for o in plan["offers"] if o.get("offer_type") == "voucher"}
+        ship_scope = set(free_keys or [p["key"] for p in plan["packages"] if p["role"] == "hero"])
+        ship_price = Decimal(plan["shipping_methods"][0]["price"])
+
+        def units(line_keys, scope):
+            return sum(q for k, q in line_keys if k in scope)
+
+        def calc(path, body):
+            upsell = path.endswith("?upsell=true")
+            line_keys = [(key_of[l["package_id"]], l["quantity"]) for l in body["lines"]]
+            total = Decimal(0)
+            for k, q in line_keys:
+                unit = price[k]
+                met = [] if upsell else [
+                    o for o in autos if k in o["condition"]["package_keys"]
+                    and units(line_keys, o["condition"]["package_keys"])
+                    >= (o["condition"]["value"] if o["condition"]["type"] == "count" else 1)]
+                if met:
+                    best = max(met, key=lambda o: Decimal(o["benefit"]["value"]))
+                    unit = ca.landed_unit(unit, Decimal(best["benefit"]["value"]), best["benefit"].get("price_rounding"))
+                for code in body.get("vouchers", []):
+                    v = codes[code]
+                    if k in v["condition"]["package_keys"]:
+                        unit = ca.landed_unit(unit, Decimal(v["benefit"]["value"]), v["benefit"].get("price_rounding"))
+                total += unit * q
+            if "shipping_method" in body and (free_from is None or units(line_keys, ship_scope) < free_from):
+                total += ship_price
+            return 200, {"total": str(total), "lines": []}
+        return calc
+
+    def _run(self, plan, after_apply=None, during_probes=None, **engine):
+        """apply the plan to a fake store, then verify it against _engine.
+        after_apply(state, man, campaign_id, transport) can change the store or the
+        journal in between, the way a dashboard edit or an interrupted run would;
+        during_probes(state, campaign_id) runs on every calculate call."""
+        with tempfile.TemporaryDirectory() as d:
+            pp = Path(d) / "plan.json"; ca.atomic_write_json(pp, plan); sha = ca.sha256_file(pp)
+            state = fresh_state()
+            t = DynamicTransport(self.disc, state)
+            man = ca.apply(make_client(t), plan, sha, Path(d) / "run-manifest.json", None)
+            cid = man.data["campaign"]["id"]
+            if after_apply:
+                after_apply(state, man, cid, t)
+            ids = {e["key"]: e["id"] for e in man.data["packages"]}
+            engine_calc = self._engine(plan, ids, **engine)
+
+            def calc(path, body):
+                if during_probes:
+                    during_probes(state, cid)
+                return engine_calc(path, body)
+            tt = FakeTransport({("POST", "/api/v1/carts/calculate/"): calc})
+            cart = ca.Client(ca.CART_API_ORIGIN, "k", auth_scheme="raw", send_version_header=False,
+                             transport=tt, clock=FakeClock(), sleep=lambda s: None)
+            return ca.verify(make_client(t), cart, man, plan, sha), tt
+
+    @staticmethod
+    def _gate(plan):
+        """print_plan's output lines, captured."""
+        out, old = [], ca.print
+        ca.print = lambda *a, **k: out.append(" ".join(str(x) for x in a))
+        try:
+            ca.print_plan(plan, None)
+        finally:
+            ca.print = old
+        return out
+
+    @staticmethod
+    def _row(lines, tier):
+        return next(l for l in lines if l.strip().startswith(tier + " ") and " total " in l)
+
+    @staticmethod
+    def _fs(plan, key="free-shipping"):
+        return next(o for o in plan["offers"] if o["key"] == key)
+
+    @staticmethod
+    def _cases(report):
+        return {c["case"]: c for c in report["calculate_cases"]}
+
+    @staticmethod
+    def _checks(report):
+        return {c["check"]: c for c in report["admin_checks"]}
+
+    def test_recommend_min_qty_emits_count_offer(self):
+        plan = ca.recommend(self.disc, ns(free_shipping_min_qty=2))
+        self.assertEqual(ca.validate_plan(plan), [])
+        fs = self._fs(plan)
+        self.assertEqual(fs["name"], "Photo Bracelet - Free Shipping - Buy 2+")
+        self.assertEqual((fs["offer_type"], fs["code"]), ("offer", None))
+        self.assertEqual(fs["condition"], {"type": "count", "value": 2, "package_keys": HERO})
+        self.assertEqual(fs["benefit"], {"type": "shipping_percentage", "value": "100.00", "price_rounding": None})
+        self.assertTrue(any("ships free: Buy 2, Buy 3; pays shipping: Buy 1" in r for r in plan["rationale"]))
+        # the CLI flag reaches recommend
+        with tempfile.TemporaryDirectory() as d:
+            disc = Path(d) / "discovery.json"; ca.atomic_write_json(disc, self.disc)
+            rc = ca.main(["recommend", "--discovery", str(disc), "--hero", "22", "--ctc", "low",
+                          "--anchor-price", "49.95", "--shipping", "standard:6.95",
+                          "--free-shipping-min-qty", "2", "--out", d])
+            self.assertEqual(rc, 0)
+            written = json.loads((Path(d) / "campaign-plan.json").read_text())
+            self.assertEqual(self._fs(written)["condition"]["value"], 2)
+
+    def test_recommend_min_qty_rejects_bad_values(self):
+        for bad in (0, 1, True):
+            with self.assertRaises(ca.CampaignAdminError, msg=repr(bad)):
+                ca.recommend(self.disc, ns(free_shipping_min_qty=bad))
+        # the two modes are alternatives; both at once must not quietly pick one
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.recommend(self.disc, ns(free_shipping=True, free_shipping_min_qty=2))
+        self.assertIn("not both", str(cm.exception))
+        # past the top tier, and on a single-unit high-CTC plan, verify could never reach it
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.recommend(self.disc, ns(free_shipping_min_qty=4))
+        self.assertIn("cannot be verified", str(cm.exception))
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.recommend(self.disc, ns(hero=10, ctc="high", anchor_price="189.95", free_shipping_min_qty=2))
+        self.assertIn("cannot be verified", str(cm.exception))
+
+    def test_any_condition_unchanged(self):
+        plan = ca.recommend(self.disc, ns(free_shipping=True))
+        fs = self._fs(plan)
+        self.assertEqual(fs["name"], "Photo Bracelet - Free Shipping")
+        self.assertEqual(fs["condition"], {"type": "any", "value": None, "package_keys": HERO})
+        ids = {p["key"]: 100 + i for i, p in enumerate(plan["packages"])}
+        self.assertEqual({c[4] for c in ca._cart_cases_from_plan(plan, ids)}, {"free"})
+        report, _ = self._run(plan, free_from=1)
+        self.assertEqual(report["result"], "PASS", json.dumps(report, indent=1))
+        self.assertEqual(self._checks(report)["offer free-shipping free-shipping coverage"]["result"], "PASS")
+        self.assertTrue(all(c["expected_shipping"] == "0.00" for c in report["calculate_cases"]))
+        self.assertTrue(all(self._row(self._gate(plan), t).endswith("shipping free")
+                            for t in ("Buy 1", "Buy 2", "Buy 3")))
+
+    def test_count_two_buy_1_pays_buy_2_and_3_free(self):
+        plan = ca.recommend(self.disc, ns(free_shipping_min_qty=2))
+        ids = {p["key"]: 100 + i for i, p in enumerate(plan["packages"])}
+        ship = {c[0]: c[4] for c in ca._cart_cases_from_plan(plan, ids)}
+        self.assertEqual({k for k, v in ship.items() if v == "paid"},
+                         {"Buy 1 single variant", "Buy 1 + exit voucher"})
+        self.assertEqual({k for k, v in ship.items() if v == "free"},
+                         {f"Buy {q} {s}" for q in (2, 3) for s in ("single variant", "mixed variants", "+ exit voucher")})
+        report, _ = self._run(plan, free_from=2)
+        self.assertEqual(report["result"], "PASS", json.dumps(report, indent=1))
+        for name, c in self._cases(report).items():
+            self.assertEqual(c["expected_shipping"], "6.95" if name.startswith("Buy 1") else "0.00", name)
+        cov = self._checks(report)["offer free-shipping free-shipping coverage"]
+        self.assertEqual((cov["result"], cov["detail"]), ("PASS", "cases at 1 and 2 in-scope units"))
+        gate = self._gate(plan)
+        self.assertTrue(self._row(gate, "Buy 1").endswith("shipping 6.95"))
+        self.assertTrue(self._row(gate, "Buy 2").endswith("shipping free"))
+
+    def test_hand_edited_count_condition_shape(self):
+        # recommend's any-condition offer, then only the condition edited; landed_prices untouched
+        plan = ca.recommend(self.disc, ns(free_shipping=True))
+        self._fs(plan)["condition"] = {"type": "count", "value": 2, "package_keys": list(HERO)}
+        self.assertEqual(ca.validate_plan(plan), [])
+        report, _ = self._run(plan, free_from=2)
+        self.assertEqual(report["result"], "PASS", json.dumps(report, indent=1))
+        # A live engine that charges shipping on every cart fails exactly the 2+ rows,
+        # each by the shipping price: the expectation really is per case.
+        report, _ = self._run(plan, free_from=None)
+        failed = {n: c for n, c in self._cases(report).items() if c["result"] == "FAIL"}
+        self.assertEqual(set(failed), {f"Buy {q} {s}" for q in (2, 3)
+                                       for s in ("single variant", "mixed variants", "+ exit voucher")})
+        self.assertTrue(all(c["delta"] == "6.95" for c in failed.values()))
+
+    def test_coverage_needs_exactly_n_minus_1_and_n(self):
+        def shaped(value, drop=()):
+            plan = ca.recommend(self.disc, ns(free_shipping=True))
+            self._fs(plan)["condition"] = {"type": "count", "value": value, "package_keys": list(HERO)}
+            plan["landed_prices"] = [l for l in plan["landed_prices"] if l["tier"] not in drop]
+            return plan
+
+        # (a) a threshold no landed row reaches: every total matches, coverage fails
+        report, _ = self._run(shaped(4), free_from=4)
+        self.assertTrue(all(c["result"] == "PASS" for c in report["calculate_cases"]))
+        cov = self._checks(report)["offer free-shipping free-shipping coverage"]
+        self.assertEqual(cov["result"], "FAIL")
+        self.assertIn("no calculate case with exactly 4 in-scope units", cov["detail"])
+        self.assertIn("cases cover 1, 2, 3", cov["detail"])
+        self.assertEqual(report["result"], "FAIL")
+        # (b) nothing just below the threshold
+        report, _ = self._run(shaped(2, drop=("Buy 1",)), free_from=2)
+        cov = self._checks(report)["offer free-shipping free-shipping coverage"]
+        self.assertEqual(cov["result"], "FAIL")
+        self.assertIn("exactly 1 in-scope unit;", cov["detail"])
+        # (c) Buy 1 and Buy 3 straddle a count-3 offer but would also pass a live
+        # offer that starts at 2; only an exact N-1 case pins it
+        report, _ = self._run(shaped(3, drop=("Buy 2",)), free_from=3)
+        self.assertTrue(all(c["result"] == "PASS" for c in report["calculate_cases"]))
+        cov = self._checks(report)["offer free-shipping free-shipping coverage"]
+        self.assertEqual(cov["result"], "FAIL")
+        self.assertIn("exactly 2 in-scope units", cov["detail"])
+        # (d) the same gap on the other side: Buy 3 ships free under count-2, but so
+        # would it under a live count-3, so a case above N is not a case at N
+        report, _ = self._run(shaped(2, drop=("Buy 2",)), free_from=2)
+        self.assertTrue(all(c["result"] == "PASS" for c in report["calculate_cases"]))
+        cov = self._checks(report)["offer free-shipping free-shipping coverage"]
+        self.assertEqual(cov["result"], "FAIL")
+        self.assertIn("no calculate case with exactly 2 in-scope units", cov["detail"])
+
+    @staticmethod
+    def _dashboard_offer(state, cid):
+        """An offer that exists on the live campaign but not in the plan."""
+        state["seq"] += 1
+        state["offers"].setdefault(cid, {})[state["seq"]] = {
+            "id": state["seq"], "name": "Free Shipping (dashboard)", "offer_type": "offer",
+            "condition": {"type": "count", "all_packages": True, "packages": []},
+            "benefit": {"type": "shipping_percentage", "value": "100.00"}}
+
+    def test_unplanned_live_offer_fails_verify(self):
+        # kilo-local Codex finding: the masking analysis only knows planned offers.
+        # A dashboard offer freeing Buy 2+ makes every total match even with the
+        # planned offer's threshold wrong, so the live offer set itself is checked.
+        plan = ca.recommend(self.disc, ns(free_shipping_min_qty=2))
+
+        def dashboard_offer(state, man, cid, t=None):
+            self._dashboard_offer(state, cid)
+
+        report, _ = self._run(plan, after_apply=dashboard_offer, free_from=2)
+        self.assertTrue(all(c["result"] == "PASS" for c in report["calculate_cases"]))
+        row = self._checks(report)["campaign offers match the plan"]
+        self.assertEqual(row["result"], "FAIL")
+        self.assertIn("Free Shipping (dashboard)", row["detail"])
+        self.assertEqual(report["result"], "FAIL")
+        # and the clean run says what it checked
+        report, _ = self._run(plan, free_from=2)
+        row = self._checks(report)["campaign offers match the plan"]
+        self.assertEqual((row["result"], row["detail"]), ("PASS", "5 live, all created by this run"))
+
+    def test_planned_offer_missing_from_the_journal_is_a_row(self):
+        # apply journals offers one at a time, so a run that stopped partway leaves
+        # later planned offers with no entry; that must fail a row, not vanish
+        plan = ca.recommend(self.disc, ns(free_shipping_min_qty=2))
+
+        def lose_entry(state, man, cid, t=None):
+            man.data["offers"] = [e for e in man.data["offers"] if e["key"] != "free-shipping"]
+
+        report, _ = self._run(plan, after_apply=lose_entry, free_from=2)
+        self.assertEqual(self._checks(report)["offer free-shipping journalled"]["result"], "FAIL")
+        self.assertEqual(report["result"], "FAIL")
+
+    def test_offer_added_while_probes_run_is_caught(self):
+        # the live set is read after the calculate probes, not before
+        plan = ca.recommend(self.disc, ns(free_shipping_min_qty=2))
+        added = []
+
+        def mid_run(state, cid):
+            if not added:
+                self._dashboard_offer(state, cid)
+                added.append(True)
+
+        report, _ = self._run(plan, during_probes=mid_run, free_from=2)
+        self.assertEqual(self._checks(report)["campaign offers match the plan"]["result"], "FAIL")
+
+    def test_created_journal_entry_without_id_does_not_hide_unidentified_live_offers(self):
+        # Kilobot: a created journal entry with no id put None in `ours`, so a
+        # live offer whose id is also None would look planned.
+        plan = ca.recommend(self.disc, ns(free_shipping_min_qty=2))
+
+        def mess(state, man, cid, t):
+            man.data["offers"][0].pop("id", None)
+            state["offers"].setdefault(cid, {})["ghost"] = {
+                "id": None, "name": "Ghost", "offer_type": "offer",
+                "condition": {"type": "any", "all_packages": True, "packages": []},
+                "benefit": {"type": "shipping_percentage", "value": "100.00"}}
+
+        report, _ = self._run(plan, after_apply=mess, free_from=2)
+        row = self._checks(report)["campaign offers match the plan"]
+        self.assertEqual(row["result"], "FAIL")
+        self.assertIn("Ghost", row["detail"])
+
+    def test_plan_with_no_offers_still_checks_the_live_set(self):
+        plan = ca.recommend(self.disc, ns(hero=10, ctc="high", anchor_price="189.95", exit="0"))
+        self.assertEqual(plan["offers"], [])
+        report, _ = self._run(plan, after_apply=lambda state, man, cid, t: self._dashboard_offer(state, cid))
+        self.assertEqual(self._checks(report)["campaign offers match the plan"]["result"], "FAIL")
+        report, _ = self._run(plan)
+        self.assertEqual(self._checks(report)["campaign offers match the plan"]["result"], "PASS")
+        # a store without the offers endpoint and a plan with none: nothing to
+        # compare, and verify must not start failing those stores
+        def no_offers_endpoint(state, man, cid, t):
+            t.fail_on[("GET", f"/api/admin/campaigns/{cid}/offers/")] = 404
+        report, _ = self._run(plan, after_apply=no_offers_endpoint)
+        self.assertNotIn("campaign offers match the plan", self._checks(report))
+        self.assertEqual(report["result"], "PASS", json.dumps(report, indent=1))
+
+    def test_shipping_too_cheap_to_tell_proves_nothing(self):
+        # a free-shipping threshold on a 0.00 shipping method, or one within
+        # calculate's per-unit rounding tolerance, prices the same either way
+        for price in ("0.00", "0.02"):
+            plan = ca.recommend(self.disc, ns(shipping=[f"standard:{price}"], free_shipping_min_qty=2))
+            report, _ = self._run(plan, free_from=2)
+            self.assertTrue(all(c["result"] == "PASS" for c in report["calculate_cases"]), price)
+            cov = self._checks(report)["offer free-shipping free-shipping coverage"]
+            self.assertEqual(cov["result"], "FAIL", price)
+            self.assertIn("rounding tolerance", cov["detail"], price)
+        # 0.02 clears a 1-unit cart's tolerance but not a 2-unit one, so the N-1
+        # side counts and the N side does not
+        self.assertIn("no calculate case with exactly 2 in-scope units", cov["detail"])
+
+    def test_partial_shipping_offer_is_flagged_at_the_gate(self):
+        plan = ca.recommend(self.disc, ns(free_shipping=True))
+        self._fs(plan)["benefit"]["value"] = "50.00"
+        self.assertEqual(ca.validate_plan(plan), [])
+        self.assertTrue(self._row(self._gate(plan), "Buy 1").endswith("shipping partly discounted (not modelled; prove by hand)"))
+
+    def test_voucher_missing_offer_type_is_not_a_partial_shipping_offer(self):
+        # Kilobot: defaulting offer_type to "offer" would treat a voucher that
+        # omitted the field as an automatic shipping discount at the gate.
+        plan = ca.recommend(self.disc, ns())
+        plan["offers"].append({
+            "key": "ship-voucher", "name": "Half off shipping", "code": "SHIP50",
+            "condition": {"type": "any", "value": None, "package_keys": list(HERO)},
+            "benefit": {"type": "shipping_percentage", "value": "50.00"},
+        })
+        self.assertTrue(self._row(self._gate(plan), "Buy 1").endswith("shipping 6.95"))
+
+    def test_upsell_case_carries_no_shipping_and_uses_upsell_mode(self):
+        plan = ca.recommend(self.disc, ns(hero=10, ctc="high", anchor_price="189.95", upsell=["16:39.95:50"]))
+        report, tt = self._run(plan)
+        self.assertEqual(report["result"], "PASS", json.dumps(report, indent=1))
+        up = self._cases(report)["Upsell Music Photo Magnet voucher"]
+        self.assertEqual(up["expected_total"], str(ca.landed_unit(Decimal("39.95"), Decimal(50), None)))
+        self.assertIsNone(up["expected_shipping"])
+        self.assertEqual(up["shipping"], "none")
+        for _, path, body, _ in tt.calls:
+            upsell = body.get("vouchers") == ["MUSICPHOTOMAGNET50"]
+            self.assertEqual(path.endswith("?upsell=true"), upsell, path)
+            self.assertEqual("shipping_method" in body, not upsell, body)
+
+    def test_upsell_mode_shields_upsell_from_checkout_offers(self):
+        # A hand-authored "one more" upsell on a hero package sits inside the tier
+        # offers' scope. Only upsell mode keeps Buy 1's 50% off it; without the
+        # query the engine would charge 12.48 (tier, then voucher) instead of 24.97.
+        plan = ca.recommend(self.disc, ns())
+        plan["offers"].append({"key": "upsell-more", "name": "Photo Bracelet - 50%",
+                               "offer_type": "voucher", "code": "BRACELETMORE50",
+                               "condition": {"type": "any", "value": None, "package_keys": ["hero-23"]},
+                               "benefit": {"type": "package_percentage", "value": "50.00", "price_rounding": None}})
+        unit = ca.money(ca.landed_unit(Decimal("49.95"), Decimal(50), None))
+        plan["landed_prices"].append({"tier": "Upsell one more", "kind": "upsell", "qty": 1,
+                                      "offer_key": "upsell-more", "package_keys": ["hero-23"],
+                                      "anchor": "49.95", "pct": 50, "unit_after": unit, "order_total": unit})
+        self.assertEqual(ca.validate_plan(plan), [])
+        report, tt = self._run(plan)
+        self.assertEqual(report["result"], "PASS", json.dumps(report, indent=1))
+        self.assertEqual(self._cases(report)["Upsell one more voucher"]["got_total"], "24.97")
+        self.assertTrue(any(p.endswith("?upsell=true") and b.get("vouchers") == ["BRACELETMORE50"]
+                            for _, p, b, _ in tt.calls))
+
+    def test_subset_scope_non_first_key(self):
+        plan = ca.recommend(self.disc, ns(free_shipping_min_qty=2))
+        self._fs(plan)["condition"]["package_keys"] = ["hero-24"]  # the rows start at hero-23
+        ids = {p["key"]: 100 + i for i, p in enumerate(plan["packages"])}
+        ship = {c[0]: c[4] for c in ca._cart_cases_from_plan(plan, ids)}
+        self.assertEqual(ship["Buy 1 single variant hero-24"], "paid")
+        self.assertEqual(ship["Buy 2 single variant hero-24"], "free")
+        self.assertEqual(ship["Buy 3 single variant hero-24"], "free")
+        self.assertEqual(ship["Buy 2 single variant"], "paid")    # hero-23 is out of scope
+        self.assertEqual(ship["Buy 2 mixed variants"], "paid")    # one hero-24 unit
+        report, _ = self._run(plan, free_from=2, free_keys=["hero-24"])
+        self.assertEqual(report["result"], "PASS", json.dumps(report, indent=1))
+        self.assertEqual(self._checks(report)["offer free-shipping free-shipping coverage"]["result"], "PASS")
+        gate = self._gate(plan)
+        self.assertTrue(self._row(gate, "Buy 1").endswith("shipping 6.95"))
+        self.assertTrue(self._row(gate, "Buy 2").endswith("shipping depends on variant mix"))
+
+    def test_unsupported_offers_keep_the_free_shipping_intent(self):
+        d = json.loads(json.dumps(self.disc)); d["offers_supported"] = False
+        plan = ca.recommend(d, ns(free_shipping_min_qty=2))
+        self.assertEqual(plan["offers"], [])
+        self.assertEqual(ca.validate_plan(plan), [])
+        self.assertTrue(any("Buy 2+" in h and "probes at 1 and 2 units" in h for h in plan["handoff"]))
+        self.assertTrue(any("verify will expect paid shipping" in r for r in plan["rationale"]))
+        plan = ca.recommend(d, ns(free_shipping=True))
+        self.assertTrue(any("every order" in h and "probes at 1 unit" in h for h in plan["handoff"]))
+        # the range check still runs, since the operator is about to build this by hand
+        with self.assertRaises(ca.CampaignAdminError):
+            ca.recommend(d, ns(free_shipping_min_qty=5))
+
+    def test_overlapping_offers_are_reported_not_assumed(self):
+        # (a) a count-3 offer beside count-2 over the same packages: the Buy 2 cart
+        # is freed by count-2 either way, so nothing can tell 3 from 4
+        plan = ca.recommend(self.disc, ns(free_shipping_min_qty=2))
+        extra = json.loads(json.dumps(self._fs(plan)))
+        extra.update(key="free-shipping-3", name="Photo Bracelet - Free Shipping - Buy 3+")
+        extra["condition"]["value"] = 3
+        plan["offers"].append(extra)
+        self.assertEqual(ca.validate_plan(plan), [])
+        report, _ = self._run(plan, free_from=2)
+        self.assertTrue(all(c["result"] == "PASS" for c in report["calculate_cases"]))
+        checks = self._checks(report)
+        self.assertEqual(checks["offer free-shipping free-shipping coverage"]["result"], "PASS")
+        masked = checks["offer free-shipping-3 free-shipping coverage"]
+        self.assertEqual(masked["result"], "FAIL")
+        self.assertIn("masked by offer free-shipping", masked["detail"])
+        self.assertEqual(report["result"], "FAIL")
+        # (b) two subset offers that between them free every single-variant Buy 2
+        # cart, but not every mix: the gate must not promise free shipping
+        plan = ca.recommend(self.disc, ns(free_shipping_min_qty=2))
+        self._fs(plan)["condition"]["package_keys"] = ["hero-23", "hero-24"]
+        other = json.loads(json.dumps(self._fs(plan)))
+        other.update(key="free-shipping-b", name="Photo Bracelet - Free Shipping - Buy 2+ B")
+        other["condition"]["package_keys"] = ["hero-25", "hero-26"]
+        plan["offers"].append(other)
+        self.assertTrue(ca._ships_free(plan, [("hero-23", 2)]))
+        self.assertFalse(ca._ships_free(plan, [("hero-23", 1), ("hero-25", 1)]))
+        self.assertTrue(self._row(self._gate(plan), "Buy 2").endswith("shipping depends on variant mix"))
+        # (c) masking at N, found by the kilo-local Codex pass: every cart at the
+        # target's threshold is also freed by another offer, so a live target that
+        # started at 3 would price the same. The N-1 side alone must not pass it.
+        offers = [("target", 2, frozenset({"a", "b"})), ("mask-a", 1, frozenset({"a"})),
+                  ("mask-b", 2, frozenset({"b"}))]
+        cases = [("Buy 1 a", [], [], 0, "free", [("a", 1)]), ("Buy 1 b", [], [], 0, "paid", [("b", 1)]),
+                 ("Buy 2 a", [], [], 0, "free", [("a", 2)]), ("Buy 2 b", [], [], 0, "free", [("b", 2)]),
+                 ("Buy 2 mixed", [], [], 0, "free", [("a", 1), ("b", 1)])]
+        ok, detail = ca._free_shipping_coverage(cases, offers, "target", 2, frozenset({"a", "b"}), SHIP)
+        self.assertFalse(ok)
+        self.assertIn("masked by offer mask-a at 2 in-scope units", detail)
+        # one unmasked cart at N is enough: lift mask-b to 3 and "Buy 2 b" is the target's alone
+        offers[2] = ("mask-b", 3, frozenset({"b"}))
+        self.assertTrue(ca._free_shipping_coverage(cases, offers, "target", 2, frozenset({"a", "b"}), SHIP)[0])
+        # (d) masking at N-1 only: the one-unit cart is freed by mask-a, so a live
+        # target at 1 would price the same even though N itself is clean
+        below_masked = [c for c in cases if c[0] != "Buy 1 b"]
+        ok, detail = ca._free_shipping_coverage(below_masked, offers, "target", 2, frozenset({"a", "b"}), SHIP)
+        self.assertFalse(ok)
+        self.assertIn("masked by offer mask-a at 1 in-scope unit;", detail)
+        # no shipping method on the campaign: nothing a cart can show
+        ok, detail = ca._free_shipping_coverage(cases, offers, "target", 2, frozenset({"a", "b"}), None)
+        self.assertFalse(ok)
+        self.assertIn("no shipping method", detail)
 
 
 if __name__ == "__main__":

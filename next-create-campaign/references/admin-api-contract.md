@@ -59,7 +59,7 @@ token that has been pasted into a chat or a ticket once the work is done.
 | DELETE | `/api/admin/campaigns/{id}/shipping-methods/{id}/` | delete |
 | GET/POST | `/api/admin/campaigns/{id}/offers/` | list / create |
 | GET/DELETE | `/api/admin/campaigns/{id}/offers/{offerId}/` | retrieve / delete |
-| POST | `campaigns.apps.29next.com/api/v1/carts/calculate/` | pricing truth (verify) |
+| POST | `campaigns.apps.29next.com/api/v1/carts/calculate/` | pricing truth (verify); `?upsell=true` for upsell carts |
 
 ## Field notes and live gotchas
 
@@ -135,6 +135,46 @@ token that has been pasted into a chat or a ticket once the work is done.
   `"0.97"`, `"0.99"`.
 - Offer scope read-back: the offers list omits `condition.packages`; only the
   per-offer retrieve carries the scope. `verify` retrieves each offer by id.
+- Free shipping is an automatic `offer` with `benefit.type`
+  `shipping_percentage` at `100.00`, scoped to the hero packages. It is operator
+  input, not doctrine, so `recommend` only emits it on request:
+  - `--free-shipping` gives `condition.type: any`, named `{Product} - Free
+    Shipping`: every checkout order with a hero unit ships free.
+  - `--free-shipping-min-qty N` gives `count` with `value: N`, named `{Product} -
+    Free Shipping - Buy {N}+`, and adds a rationale line listing which tiers ship
+    free. It replaces `--free-shipping`; passing both is an error. N must be at
+    least 2 and no higher than the top tier, so the landed rows include a Buy N
+    and a Buy N-1. On a store without the Offers API the rule goes into the
+    handoff instead, with the calculate probes that prove it.
+  - `verify` decides shipping per cart from the plan's offers. A cart meets an
+    offer when its in-scope units reach the threshold (`any` counts as 1); a cart
+    that meets none expects the first shipping method's price. Each offer gets a
+    `free-shipping coverage` row that needs a checkout cart at exactly N in-scope
+    units and, for N above 1, one at exactly N-1 that pays. A gap, or a second
+    free-shipping offer that would free those carts anyway, fails the row,
+    because calculate could not tell that threshold from its neighbour. A cart
+    only counts when the shipping price is above its rounding tolerance (0.01 a
+    unit), so free shipping on a 0.00 method can never pass. When an offer is
+    scoped to a variant other than a row's first, verify adds a single-variant
+    cart for it.
+  - Partial shipping offers (`shipping_percentage` below 100) are not modelled.
+    The plan gate labels the rows they touch `shipping partly discounted`, and
+    verify expects full shipping there, so prove those by hand.
+  - The masking analysis only knows the plan's offers, so verify also lists the
+    campaign's live offers (`campaign offers match the plan`), after the pricing
+    probes, and fails on any this run did not create. It does not read the live
+    `condition.value` back: the Admin API's offer retrieve body is undocumented
+    for it. If a live threshold still looks wrong after that check, prove it with
+    a hand `carts/calculate` at N and N-1 units rather than assuming the plan's
+    number is what the campaign stored.
+  - A hand-edited condition is handled the same way. The case that forced this
+    was a live campaign whose count-2 offer the engine priced correctly but
+    verify failed on every 2+ row by the shipping price.
+- Upsell carts in verify call `carts/calculate/?upsell=true` with no
+  `shipping_method`. The Campaign Cart API documents the query as the switch that
+  skips site-wide automatic offers, which do not apply post-purchase, and a
+  post-purchase upsell adds lines to a placed order without a shipping choice of
+  its own. The expected total is the voucher price alone.
 - Timestamps: the create response and the retrieve echo the same instant in
   different timezone offsets (for example `+02:00` and `-07:00`). Identity checks
   compare instants, not strings (`same_instant()`).
@@ -202,6 +242,8 @@ otherwise.
   Mode 600 where the OS supports it, written atomically. The only file holding a
   live secret.
 - `verify-report.json`: the admin read-back checks and the `calculate` cases.
+  Each case records `shipping` (`paid`, `free` or `none`), `expected_shipping`
+  and the request `path`.
 
 ### campaign-plan.json
 

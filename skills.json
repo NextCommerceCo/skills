@@ -262,7 +262,7 @@
     {
       "id": "next-create-campaign",
       "name": "Campaign Provisioning",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "path": "next-create-campaign/SKILL.md",
       "domain": "campaigns",
       "description": "Create a launch-ready Campaigns App campaign over the Admin API: packages, shipping, and tier and voucher offers, behind a plan-hash approval gate.",
