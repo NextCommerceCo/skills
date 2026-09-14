@@ -2,7 +2,7 @@
 
 CI runs no shell linter, so this file is the launcher's only gate: syntax,
 version, help, the interpreter check, verbatim argument forwarding, symlinked
-installs, and real offline runs through the engine.
+installs, real offline runs through the engine, and check-update always exiting 0.
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -115,6 +116,89 @@ class Launcher(unittest.TestCase):
                 env=clean_env(NEXT_CAMPAIGNS_CREATE_PYTHON=str(stub)))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn(f"ARG={ENGINE}", record.read_text())
+
+    def fixture_catalog(self, version="9.9.9"):
+        path = self.root / "catalog.json"
+        path.write_text(json.dumps({"skills": [{"id": "next-campaigns-create", "version": version}]}))
+        return path.as_uri()
+
+    def update_env(self, **extra):
+        return clean_env(XDG_CACHE_HOME=str(self.root / "cache"), HOME=str(self.root / "home"), **extra)
+
+    def test_check_update_runs_updater_not_engine(self):
+        stub, record = self.make_stub()
+        r = run("check-update", "--no-cache", cwd=self.root,
+                env=self.update_env(NEXT_CAMPAIGNS_CREATE_PYTHON=str(stub)))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        want = re.search(r"^version:\s*(\S+)", (SKILL_DIR / "SKILL.md").read_text(), re.M).group(1)
+        self.assertEqual(r.stdout.splitlines()[0], f"next-campaigns-create {want}")
+        lines = record.read_text().splitlines()
+        self.assertEqual(lines[0], "TOKEN=<unset>")
+        self.assertEqual([line[len("ARG="):] for line in lines[1:]],
+                         [str(SKILL_DIR / "scripts" / "update_check.py"), "--no-cache"])
+
+    def test_check_update_real_run_update_available(self):
+        r = run("check-update", cwd=self.root,
+                env=self.update_env(NEXT_SKILLS_CATALOG_URL=self.fixture_catalog()))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = r.stdout.splitlines()
+        self.assertTrue(out[0].startswith("next-campaigns-create "))
+        self.assertIn("Update available:", out[1])
+        self.assertIn("9.9.9 in file://", out[1])
+        self.assertIn("You can keep going", r.stdout)
+        self.assertFalse((self.root / "cache").exists())  # the override never touches the cache
+
+    def test_check_update_disabled(self):
+        r = run("check-update", cwd=self.root, env=self.update_env(NEXT_SKILLS_NO_UPDATE_CHECK="1"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Update check disabled", r.stdout)
+
+    def test_check_update_exits_zero_without_python(self):
+        r = run("check-update", cwd=self.root,
+                env=self.update_env(NEXT_CAMPAIGNS_CREATE_PYTHON=str(self.root / "no-such-python")))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(r.stdout.startswith("next-campaigns-create "))
+        self.assertIn("Could not check for updates", r.stdout)
+
+    def test_check_update_exits_zero_when_checker_fails(self):
+        stub = self.root / "broken-python"
+        stub.write_text(
+            "#!/usr/bin/env bash\n"
+            f'if [ "${{1:-}}" = "-c" ]; then exec "{sys.executable}" "$@"; fi\n'
+            "echo 'Traceback: import failed' >&2\nexit 3\n"
+        )
+        stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
+        r = run("check-update", cwd=self.root, env=self.update_env(NEXT_CAMPAIGNS_CREATE_PYTHON=str(stub)))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Could not check for updates", r.stdout)
+        r = run("check-update", "--json", cwd=self.root, env=self.update_env(NEXT_CAMPAIGNS_CREATE_PYTHON=str(stub)))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        data = json.loads(r.stdout)
+        self.assertEqual(data["status"], "could-not-check")
+        self.assertIn("skills.json", data["catalog"])
+
+    def test_check_update_hung_interpreter_is_cut_off(self):
+        stub = self.root / "hung-python"
+        stub.write_text(
+            "#!/usr/bin/env bash\n"
+            f'if [ "${{1:-}}" = "-c" ]; then exec "{sys.executable}" "$@"; fi\n'
+            "sleep 30\n"
+        )
+        stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
+        started = time.monotonic()
+        r = run("check-update", cwd=self.root,
+                env=self.update_env(NEXT_CAMPAIGNS_CREATE_PYTHON=str(stub), NEXT_SKILLS_CHECK_TIMEOUT="1"))
+        self.assertLess(time.monotonic() - started, 10)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Could not check for updates", r.stdout)
+
+    def test_check_update_exits_zero_when_checker_missing(self):
+        copy = self.root / "copy"
+        shutil.copytree(SKILL_DIR, copy, ignore=shutil.ignore_patterns("tests", "__pycache__"))
+        (copy / "scripts" / "update_check.py").unlink()
+        r = run("check-update", cwd=self.root, env=self.update_env(), wrapper=copy / "next-campaigns-create.sh")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Could not check for updates", r.stdout)
 
     def test_missing_token_reported_by_engine(self):
         r = run("discover", "--store", "my-store", cwd=self.root)

@@ -131,14 +131,23 @@ command that refreshes it. Your assistant can run either one for you.
 
 This skill used to be called next-create-campaign. If you installed it under
 that name, install next-campaigns-create and then remove the old copy, because
-the installer will not update it. Your assistant can do both for you.
+the installer will not update it. A copy under the old name can't find itself
+in the catalog any more, so its update check will say it couldn't check. Your
+assistant can do the reinstall for you.
 
 Release notes, including any change to how the skill works, are in the pull
 request that shipped each version. You can browse the
-[merged pull requests from version 0.5.0 on](https://github.com/NextCommerceCo/skills/pulls?q=is%3Apr+is%3Amerged+next-campaigns-create)
+[merged pull requests from version 0.6.0 on](https://github.com/NextCommerceCo/skills/pulls?q=is%3Apr+is%3Amerged+next-campaigns-create)
 and the
 [merged pull requests for earlier versions](https://github.com/NextCommerceCo/skills/pulls?q=is%3Apr+is%3Amerged+next-create-campaign),
 which carry the old name.
 
-Nothing notifies you when a new version comes out, so check before you start a
-new campaign.
+From version 0.5.0, the skill tells your assistant to check for a newer
+version before it starts work. If one exists, your assistant shows you which version you have, which is
+newest, and the command that updates your copy. You can keep working on the
+version you have. The skill never updates itself: you run the update, and it
+replaces the skill's folder, so copy out anything you changed in it first.
+
+The check makes one small request to GitHub at most once a day. If you are
+offline it says it couldn't check and carries on. Copies older than 0.5.0 don't
+have the check, so update those once by hand.
