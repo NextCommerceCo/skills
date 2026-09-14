@@ -133,12 +133,12 @@ Release notes, including any change to how the skill works, are in the pull
 request that shipped each version. You can browse the
 [merged pull requests for this skill](https://github.com/NextCommerceCo/skills/pulls?q=is%3Apr+is%3Amerged+next-create-campaign).
 
-From version 0.4.0, the skill tells your assistant to check for a newer
+From version 0.5.0, the skill tells your assistant to check for a newer
 version before it starts work. If one exists, your assistant shows you which version you have, which is
 newest, and the command that updates your copy. You can keep working on the
 version you have. The skill never updates itself: you run the update, and it
 replaces the skill's folder, so copy out anything you changed in it first.
 
 The check makes one small request to GitHub at most once a day. If you are
-offline it says it couldn't check and carries on. Copies older than 0.4.0 don't
+offline it says it couldn't check and carries on. Copies older than 0.5.0 don't
 have the check, so update those once by hand.

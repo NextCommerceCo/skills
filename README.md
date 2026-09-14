@@ -98,7 +98,7 @@ before running `status` or `install` from a checkout.
 ## Updating
 
 An installed skill is a copy. It does not change when this repository does.
-`next-create-campaign` (0.4.0 and later) tells its agent to run the launcher's
+`next-create-campaign` (0.5.0 and later) tells its agent to run the launcher's
 `check-update` command first, which reports a newer version and the update
 command for your copy. Running the launcher's other commands directly skips the
 check. The other skills do not notify you yet, so check before

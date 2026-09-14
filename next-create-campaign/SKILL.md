@@ -1,6 +1,6 @@
 ---
 name: next-create-campaign
-version: 0.4.0
+version: 0.5.0
 description: |
   Provision a launch-ready Campaigns App campaign over the NEXT Admin API:
   read the store's catalogue, gateway groups and shipping methods, recommend a
@@ -695,7 +695,7 @@ holding a live secret.
   carried each version bump, titled `next-create-campaign X.Y.Z: ...` (the first
   one is `Add next-create-campaign public skill`). They are listed at
   https://github.com/NextCommerceCo/skills/pulls?q=is%3Apr+is%3Amerged+next-create-campaign.
-- There are no tags or releases. Copies older than 0.4.0 do not have
+- There are no tags or releases. Copies older than 0.5.0 do not have
   `check-update`; they need one manual update before it starts working.
 
 ---
