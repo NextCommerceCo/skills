@@ -123,6 +123,16 @@ starting work that depends on one.
   [merged pull requests](https://github.com/NextCommerceCo/skills/pulls?q=is%3Apr+is%3Amerged)
   for the skill's name.
 
+- **Renamed skills.** `next-create-campaign` became `next-campaigns-create` at
+  0.6.0. A copy under the old name is not updated by the installer or the
+  `skills` CLI, and its `check-update` reports that it could not check, because
+  the catalog no longer lists that name. Move it in one step: install the new
+  name, then delete the old folder. From a checkout,
+  `./skills.sh install <target> next-campaigns-create && rm -r <target-dir>/next-create-campaign`,
+  or without one,
+  `npx skills add NextCommerceCo/skills -g --skill next-campaigns-create && npx skills remove -g next-create-campaign`.
+  Release notes before the rename are under the old name.
+
 The repository has no git tags, GitHub Releases or changelog files yet.
 
 ## Machine-Readable Index
