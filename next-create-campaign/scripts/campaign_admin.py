@@ -2211,11 +2211,15 @@ def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: st
         if not live_s:
             check(f"shipping {e['key']}", False, "missing remotely")
             continue
+        check(f"shipping {e['key']} code", live_s.get("shipping_method") == s["shipping_method"],
+              f"{live_s.get('shipping_method')} vs {s['shipping_method']}")
         price = _price_in(live_s, c["currency"])
         check(f"shipping {e['key']} price", _num(price) == D(s["price"]), f"{price} vs {s['price']}")
-        ship_by_key.setdefault(e["key"], (e["id"], D(s["price"])))
-    # A row without its own shipping_key carries the first method, as before 0.4.0.
-    default_key = next(iter(ship_by_key), None)
+        if live_s.get("shipping_method") == s["shipping_method"]:
+            ship_by_key.setdefault(e["key"], (e["id"], D(s["price"])))
+    # A row without its own shipping_key carries the plan's first method, as before
+    # 0.4.0. If that one was not created, those rows fail rather than borrow a rung.
+    default_key = ship_key(plan["shipping_methods"][0]) if plan.get("shipping_methods") else None
 
     def case_ship_key(case):
         return None if case.ship == "none" else (case.shipping_key or default_key)

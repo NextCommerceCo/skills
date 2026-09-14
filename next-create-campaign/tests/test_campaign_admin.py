@@ -2561,6 +2561,32 @@ class TieredShippingLadder(unittest.TestCase):
             ca.print = old
         self.assertTrue(any("Buy 4 single variant" in l and "shipping method ship-4 not created" in l for l in out), out)
 
+    def test_verify_checks_the_code_and_defaults_to_the_plans_first_method(self):
+        plan = ladder_plan(self.disc)
+        for row in plan["landed_prices"]:
+            row.pop("shipping_key", None)
+
+        def recode_ship_2(state, man, cid, t):
+            sid = man.entry("shipping_methods", "ship-2")["id"]
+            state["shipping-methods"][cid][sid]["shipping_method"] = "express"
+        report, _ = self._run(plan, after_apply=recode_ship_2)
+        checks = self._checks(report)
+        self.assertEqual(checks["shipping ship-2 code"]["result"], "FAIL")
+        self.assertEqual(checks["shipping ship-1 code"]["result"], "PASS")
+        # rows without a key use ship-1, the plan's first method
+        self.assertTrue(all(c["shipping_key"] == "ship-1" and c["expected_shipping"] == "9.99"
+                            for c in report["calculate_cases"]))
+
+        # the plan's first method was never created: keyless rows fail, they do not borrow ship-2
+        def drop_ship_1(state, man, cid, t):
+            man.data["shipping_methods"] = [e for e in man.data["shipping_methods"] if e["key"] != "ship-1"]
+            man.save()
+        report, tt = self._run(plan, after_apply=drop_ship_1)
+        self.assertEqual(report["result"], "FAIL")
+        self.assertTrue(all(c["result"] == "FAIL" and "'ship-1' was not created" in c["error"]
+                            for c in report["calculate_cases"]))
+        self.assertEqual(tt.calls, [])
+
     def test_ladder_with_free_shipping_threshold(self):
         plan = ladder_plan(self.disc, free_shipping_min_qty=2)
         self.assertEqual(ca.validate_plan(plan), [])

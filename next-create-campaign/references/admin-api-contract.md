@@ -223,6 +223,12 @@ window. The residual risk is a second operator creating a campaign with the same
 name on the same store inside that window. A lost create response is recoverable,
 because `GET /campaigns/{id}/` returns `api_key` again.
 
+Shipping methods carry the same kind of residual one level down. A lost shipping
+create is claimed by code and price among the entries this run has not
+journalled. If a second operator adds a method with that code and price to this
+new campaign between the lost response and the resume, the resume claims it, and
+teardown later deletes it, as this run's.
+
 ## Recommendation rules
 
 | Rule | Source |

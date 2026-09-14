@@ -553,6 +553,10 @@ or FAIL, with the failing checks. Then hand off:
 - Campaign id, and the manifest path where the full api_key lives (gitignored,
   never echoed). Point the operator at the file; do not read the key into chat.
 - Package ids for `data-next-package-id` in the funnel markup.
+- Shipping method ids, one per shipping key, from the manifest's
+  `shipping_methods` entries. When one store code carries several prices the
+  code alone does not pick a price: the funnel has to send the id of the rung
+  each bundle should charge.
 - Offer codes for the funnel's voucher wiring.
 - Manual dashboard steps the API does not cover: Allowed Domains
   (Development/Production), PayPal account linking, Map Builder.
