@@ -262,7 +262,7 @@
     {
       "id": "next-create-campaign",
       "name": "Campaign Provisioning",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "path": "next-create-campaign/SKILL.md",
       "domain": "campaigns",
       "description": "Create a launch-ready Campaigns App campaign over the Admin API: packages, shipping, and tier and voucher offers, behind a plan-hash approval gate.",
@@ -289,9 +289,9 @@
         "mutates_remote": true,
         "writes_local": true,
         "requires_approval": true,
-        "network": "next-admin-api",
+        "network": "next-admin-api; github-raw read-only (check-update)",
         "token_env": "NEXT_ADMIN_API_TOKEN",
-        "notes": "Creates a campaign, its packages, shipping methods and offers only under apply --yes --plan-sha256 <hash of the reviewed plan>; creates missing metadata definitions only under metadata --apply; teardown deletes only what the run manifest owns, after identity read-back. Never edits a campaign or metadata definition that already exists. verify calls the Campaign Cart API calculate endpoint with the campaign key and creates nothing. The run manifest holds the campaign api_key (mode 600, and the run directory must be gitignored inside a repository)."
+        "notes": "check-update reads the public skills.json from GitHub at most once a day with no credentials, caches it under ~/.cache/next-skills, never installs anything and always exits 0 (NEXT_SKILLS_NO_UPDATE_CHECK=1 skips it). Creates a campaign, its packages, shipping methods and offers only under apply --yes --plan-sha256 <hash of the reviewed plan>; creates missing metadata definitions only under metadata --apply; teardown deletes only what the run manifest owns, after identity read-back. Never edits a campaign or metadata definition that already exists. verify calls the Campaign Cart API calculate endpoint with the campaign key and creates nothing. The run manifest holds the campaign api_key (mode 600, and the run directory must be gitignored inside a repository)."
       }
     }
   ]
