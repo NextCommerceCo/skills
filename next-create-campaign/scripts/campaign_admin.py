@@ -981,6 +981,26 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
                        "anchor": money(anchor), "pct": 0,
                        "unit_after": money(anchor), "order_total": money(anchor)})
 
+    # A free-shipping threshold is only worth emitting if verify can pin it: it
+    # needs a landed row at exactly N units and one at N - 1 (see
+    # _free_shipping_coverage). Tier rows run Buy 1..len(tiers) with no gaps, so
+    # N in [2, top] guarantees both.
+    min_qty = a.free_shipping_min_qty
+    if min_qty is not None:
+        if a.free_shipping:
+            raise CampaignAdminError("pass --free-shipping (every order) or --free-shipping-min-qty N (Buy N+), "
+                                     "not both")
+        if type(min_qty) is not int or min_qty < 2:
+            raise CampaignAdminError("--free-shipping-min-qty must be a whole number >= 2; "
+                                     "use --free-shipping alone for free shipping on every order")
+        top = max(l["qty"] for l in landed)
+        if min_qty > top:
+            covered = f"Buy 1..{top}" if top > 1 else "Buy 1"
+            raise CampaignAdminError(
+                f"--free-shipping-min-qty {min_qty} cannot be verified: landed rows only cover {covered}; "
+                "add tiers, lower it, or hand-author the plan and prove it with your own calculate probes")
+    free_ship = bool(a.free_shipping) or min_qty is not None
+
     for spec in a.bump or []:
         pkg, _, _ = add_extra(spec, "bump")
         rationale.append(f"Checkout bump {pkg['name']} at {pkg['price']} (operator-specified).")
@@ -1017,13 +1037,37 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
         })
         rationale.append(f"Exit-pop voucher for an additional {exit_pct}% applies on top of the tier price "
                          "(offer doctrine: Rounding and stacking).")
-    if a.free_shipping and offers_supported is not False:
-        offers.append({
-            "key": "free-shipping", "name": f"{hero_title} - Free Shipping",
-            "offer_type": "offer", "code": None,
-            "condition": {"type": "any", "value": None, "package_keys": list(hero_keys)},
-            "benefit": {"type": "shipping_percentage", "value": "100.00", "price_rounding": None},
-        })
+    if free_ship:
+        rule = "every order" if min_qty is None else f"Buy {min_qty}+"
+        if offers_supported is not False:
+            if min_qty is None:
+                name = f"{hero_title} - Free Shipping"
+                cond = {"type": "any", "value": None, "package_keys": list(hero_keys)}
+                rationale.append("Free shipping on every checkout order (automatic offer on the hero packages).")
+            else:
+                name = f"{hero_title} - Free Shipping - Buy {min_qty}+"
+                cond = {"type": "count", "value": min_qty, "package_keys": list(hero_keys)}
+                checkout = [l for l in landed if l["kind"] in ("tier", "single")]
+                free = ", ".join(l["tier"] for l in checkout if l["qty"] >= min_qty) or "none"
+                paid = ", ".join(l["tier"] for l in checkout if l["qty"] < min_qty) or "none"
+                rationale.append(f"Free shipping on Buy {min_qty}+ (count condition on the hero packages): "
+                                 f"ships free: {free}; pays shipping: {paid}. Upsells carry no shipping.")
+            offers.append({
+                "key": "free-shipping", "name": name,
+                "offer_type": "offer", "code": None,
+                "condition": cond,
+                "benefit": {"type": "shipping_percentage", "value": "100.00", "price_rounding": None},
+            })
+        else:
+            # verify refuses a plan whose hash changed after apply, so a dashboard
+            # offer can never be folded back into this plan; it is proven by hand.
+            probe = "1 unit" if min_qty is None else f"{min_qty - 1} and {min_qty} units"
+            handoff.append(f"Free shipping requested ({rule}): create the automatic 100% shipping offer on the "
+                           "hero packages in the dashboard (Offers & Discounts), then prove it with "
+                           f"carts/calculate probes at {probe}.")
+            rationale.append(f"Free shipping ({rule}) is not in this plan because the Offers API is unavailable; "
+                             "verify will expect paid shipping on every checkout case, so the dashboard offer "
+                             "is proven by hand probes, not by verify.")
 
     if not discovery.get("metadata_checked", True):
         err = discovery.get("metadata_error") or {}
@@ -1231,6 +1275,10 @@ def _validate_plan(plan: dict) -> list:
         ot = o.get("offer_type", "offer")
         if ot not in OFFER_TYPES:
             errs.append(f"offer {k}: offer_type {ot!r} invalid")
+        if "offer_type" not in o and o.get("code"):
+            # apply would send this as an automatic offer and drop the code, so a
+            # voucher that forgot the field would silently fire on every cart
+            errs.append(f"offer {k}: has a code but no offer_type; set offer_type to 'voucher' or remove the code")
         if ot == "voucher":
             code = o.get("code") or ""
             if not isinstance(code, str) or not CODE_RE.match(code):
@@ -1242,7 +1290,7 @@ def _validate_plan(plan: dict) -> list:
         cond = o.get("condition", {})
         if cond.get("type") not in CONDITION_TYPES:
             errs.append(f"offer {k}: condition.type {cond.get('type')!r} invalid")
-        if cond.get("type") == "count" and not (isinstance(cond.get("value"), int) and cond["value"] >= 1):
+        if cond.get("type") == "count" and not (type(cond.get("value")) is int and cond["value"] >= 1):
             errs.append(f"offer {k}: count condition needs an integer value >= 1")
         if cond.get("all_packages"):
             errs.append(f"offer {k}: all_packages is never allowed (offer doctrine: Naming and scoping)")
@@ -1380,7 +1428,8 @@ def print_plan(plan: dict, plan_path: Path | None) -> None:
         print(f"  {o['key']:<14} {o.get('offer_type','offer'):<7} {o['name']}  {crit} on {cond['package_keys']}  {o['benefit']['type']} {o['benefit']['value']}%{code}")
     print("Landed prices (confirm these):")
     for l in plan["landed_prices"]:
-        print(f"  {l['tier']:<28} qty {l['qty']}  anchor {l['anchor']}  -{l['pct']}%  unit {l['unit_after']}  total {l['order_total']}")
+        print(f"  {l['tier']:<28} qty {l['qty']}  anchor {l['anchor']}  -{l['pct']}%  unit {l['unit_after']}  "
+              f"total {l['order_total']}  {_landed_shipping(plan, l)}")
     for r in plan.get("rationale", []):
         print(f"  why: {r}")
     if plan.get("blockers"):
@@ -1808,45 +1857,174 @@ def _num(x) -> Decimal | None:
         return None
 
 
-def _plan_has_free_shipping(plan: dict) -> bool:
-    return any(o.get("offer_type", "offer") == "offer"
-               and o["benefit"]["type"] == "shipping_percentage"
-               and D(o["benefit"]["value"]) == Decimal(100)
-               and o["condition"]["type"] == "any"
-               for o in plan.get("offers", []))
+def _free_shipping_offers(plan: dict) -> list:
+    """Automatic 100% shipping offers as (key, threshold, scope_keys); `any` is a
+    threshold of 1. Vouchers are skipped: no cart case enters a shipping code.
+    Reads defensively because print_plan calls it on plans not yet validated."""
+    out = []
+    for o in plan.get("offers") or []:
+        ben, cond = o.get("benefit") or {}, o.get("condition") or {}
+        if (o.get("offer_type", "offer") != "offer" or ben.get("type") != "shipping_percentage"
+                or _num(ben.get("value")) != Decimal(100)):
+            continue
+        if cond.get("type") == "any":
+            n = 1
+        elif cond.get("type") == "count" and type(cond.get("value")) is int and cond["value"] >= 1:
+            n = cond["value"]
+        else:
+            continue
+        out.append((o.get("key"), n, frozenset(cond.get("package_keys") or [])))
+    return out
+
+
+def _in_scope(line_keys: list, scope) -> int:
+    return sum(q for k, q in line_keys if k in scope)
+
+
+def _ships_free(plan: dict, line_keys: list) -> bool:
+    """Whether a free-shipping offer's condition is met by these (package_key,
+    quantity) pairs: `any` needs one in-scope unit, `count` needs `value`."""
+    return any(_in_scope(line_keys, scope) >= n for _, n, scope in _free_shipping_offers(plan))
+
+
+def _partial_shipping_offers(plan: dict) -> list:
+    """Automatic shipping_percentage offers below 100%, as frozenset scopes.
+    Vouchers are skipped: no cart case enters a shipping code. A missing
+    offer_type means 'offer', as it does in validate_plan and offer_body, so the
+    gate describes what apply sends; validate_plan rejects the ambiguous case of
+    a code with no offer_type. Reads defensively because print_plan calls it on
+    plans not yet validated."""
+    out = []
+    for o in plan.get("offers") or []:
+        if o.get("offer_type", "offer") != "offer":
+            continue
+        ben, cond = o.get("benefit") or {}, o.get("condition") or {}
+        if ben.get("type") != "shipping_percentage" or _num(ben.get("value")) == Decimal(100):
+            continue
+        out.append(frozenset(cond.get("package_keys") or []))
+    return out
+
+
+def _landed_shipping(plan: dict, l: dict) -> str:
+    """The plan gate's shipping column for one landed row. It has to hold for
+    every variant mix the row allows, not for one sampled cart, and it is
+    computed from the offers rather than stored on the row, so a hand-edited
+    offer shows here too. Mixed-scope cases the two cheap rules cannot settle
+    are reported as depending on the mix."""
+    if l.get("kind") == "upsell":
+        return "no shipping (post-purchase)"
+    keys, qty = list(l.get("package_keys") or []), l.get("qty") or 0
+    if any(n <= qty and all(k in scope for k in keys) for _, n, scope in _free_shipping_offers(plan)):
+        return "shipping free"
+    # Partial shipping discounts are not modelled here or in verify; say so
+    # rather than print the full price for a row one of them may touch.
+    keys_set = set(keys)
+    if any(scope & keys_set for scope in _partial_shipping_offers(plan)):
+        return "shipping partly discounted (not modelled; prove by hand)"
+    # Every single-variant cart paying means every mix pays: no offer both
+    # covers one of these keys and has a threshold within qty.
+    if not any(_ships_free(plan, [(k, qty)]) for k in keys):
+        ships = plan.get("shipping_methods") or [{}]
+        return f"shipping {ships[0].get('price', '?')}"
+    return "shipping depends on variant mix"
 
 
 def _cart_cases_from_plan(plan: dict, ids: dict) -> list:
-    """Build (name, lines, vouchers, expected_subtotal) cases for carts/calculate
-    straight from the structured landed_prices rows. Each row names its
-    package_keys and offer_key, so nothing is parsed back out of display labels.
-    Rows whose packages were not created are skipped (the admin read-back has
-    already recorded that failure)."""
+    """Build carts/calculate cases straight from the structured landed_prices rows.
+
+    Each case is (name, lines, vouchers, expected_subtotal, ship, line_keys).
+    `ship` is "paid" or "free" for a checkout cart, decided by whether that cart
+    meets a free-shipping offer's condition, and "none" for an upsell voucher:
+    a post-purchase upsell adds lines to a placed order and carries no shipping
+    method. `line_keys` is the (package_key, quantity) list the cart was built
+    from. Each row names its package_keys and offer_key, so nothing is parsed
+    back out of display labels. Rows whose packages were not created are
+    skipped (the admin read-back has already recorded that failure)."""
     offers = {o["key"]: o for o in plan.get("offers", [])}
     exit_offer = offers.get("exit-pop")
+    free_scopes = [scope for _, _, scope in _free_shipping_offers(plan)]
     cases = []
+
+    def add(name, line_keys, vouchers, total, ship=None):
+        if ship is None:
+            ship = "free" if _ships_free(plan, line_keys) else "paid"
+        lines = [{"package_id": ids[k], "quantity": q} for k, q in line_keys]
+        cases.append((name, lines, vouchers, total, ship, line_keys))
+
     for l in plan.get("landed_prices", []):
-        pkg_ids = [ids[k] for k in l["package_keys"] if ids.get(k)]
-        if not pkg_ids:
+        keys = [k for k in l["package_keys"] if ids.get(k)]
+        if not keys:
             continue
         qty, total = l["qty"], D(l["order_total"])
         if l["kind"] in ("tier", "single"):
-            cases.append((f"{l['tier']} single variant", [{"package_id": pkg_ids[0], "quantity": qty}], [], total))
-            if qty > 1 and len(pkg_ids) > 1:
-                lines = [{"package_id": pkg_ids[i % len(pkg_ids)], "quantity": 1} for i in range(qty)]
-                cases.append((f"{l['tier']} mixed variants", lines, [], total))
+            # A free-shipping offer scoped to a variant other than the row's first
+            # would never meet a cart it can fire on, so each such scope gets a
+            # single-variant cart of its own. Every key in a row prices alike.
+            leads = [keys[0]]
+            for scope in free_scopes:
+                k = next((x for x in keys if x in scope), None)
+                if k is not None and keys[0] not in scope and k not in leads:
+                    leads.append(k)
+            for i, k in enumerate(leads):
+                add(f"{l['tier']} single variant" + (f" {k}" if i else ""), [(k, qty)], [], total)
+            if qty > 1 and len(keys) > 1:
+                add(f"{l['tier']} mixed variants", [(keys[i % len(keys)], 1) for i in range(qty)], [], total)
             if exit_offer:
                 unit = landed_unit(D(l["unit_after"]), D(exit_offer["benefit"]["value"]),
                                    exit_offer["benefit"].get("price_rounding"))
-                cases.append((f"{l['tier']} + exit voucher", [{"package_id": pkg_ids[0], "quantity": qty}],
-                              [exit_offer["code"]], unit * qty))
+                add(f"{l['tier']} + exit voucher", [(keys[0], qty)], [exit_offer["code"]], unit * qty)
         elif l["kind"] == "upsell":
-            # Upsell vouchers apply post-purchase (?upsell=true skips site offers).
             up = offers.get(l.get("offer_key")) if l.get("offer_key") else None
             if up and up.get("offer_type") == "voucher":
-                cases.append((f"{l['tier']} voucher", [{"package_id": pkg_ids[0], "quantity": 1}],
-                              [up["code"]], D(l["unit_after"])))
+                add(f"{l['tier']} voucher", [(keys[0], 1)], [up["code"]], D(l["unit_after"]), ship="none")
     return cases
+
+
+def _free_shipping_coverage(cases: list, offers: list, key, n: int, scope, ship_price) -> tuple:
+    """(ok, detail) for one free-shipping offer. calculate pins its threshold only
+    with a checkout cart at exactly n in-scope units that no other free-shipping
+    offer would free on its own, and, for n > 1, one at exactly n - 1 that pays.
+    Wider gaps would pass a live offer that starts earlier or later, and a cart
+    another offer frees anyway says nothing about this one. A cart also only
+    counts when the shipping price clears its rounding tolerance (0.01 a unit);
+    below that, a free cart and a paid one price the same. ship_price is None
+    when the campaign has no shipping method, which proves nothing either."""
+    def units(x):
+        return f"{x} in-scope unit" + ("" if x == 1 else "s")
+
+    def freed_by_other(lk):
+        return next((k for k, m, s in offers if k != key and _in_scope(lk, s) >= m), None)
+
+    if ship_price is None:
+        return False, "no shipping method on the campaign, so calculate cannot tell free shipping from paid"
+    checkout_candidates = [(ship, _in_scope(lk, scope), lk) for _, _, _, _, ship, lk in cases if ship != "none"]
+    checkout = [c for c in checkout_candidates if ship_price > Decimal("0.01") * sum(q for _, q in c[2])]
+    if checkout_candidates and not checkout:
+        return False, (f"shipping price {money(ship_price)} is within calculate's rounding tolerance, "
+                       "so a free cart and a paid one price the same")
+    seen = ", ".join(str(u) for u in sorted({u for _, u, _ in checkout if u})) or "none"
+    problems = []
+    at = [lk for _, u, lk in checkout if u == n]
+    if not at:
+        problems.append(f"no calculate case with exactly {units(n)}")
+    elif all(freed_by_other(lk) for lk in at):
+        problems.append(f"threshold masked by offer {freed_by_other(at[0])} at {units(n)}; "
+                        "calculate cannot prove it")
+    if n > 1:
+        below = [(ship, lk) for ship, u, lk in checkout if u == n - 1]
+        if not below:
+            problems.append(f"no calculate case with exactly {units(n - 1)}")
+        elif all(ship == "free" for ship, _ in below):
+            # a cart below this offer's threshold can only be free through another
+            # offer (keys are unique in a validated plan), so this names one
+            problems.append(f"threshold masked by offer {freed_by_other(below[0][1])} at "
+                            f"{units(n - 1)}; calculate cannot prove it")
+    if problems:
+        dropped = len(checkout_candidates) - len(checkout)
+        note = (f" ({dropped} cart(s) left out: shipping {money(ship_price)} is within their rounding tolerance)"
+                if dropped else "")
+        return False, "; ".join(problems) + f"; cases cover {seen} in-scope units{note}"
+    return True, f"cases at {n - 1} and {units(n)}" if n > 1 else f"a case at {units(1)}"
 
 
 def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: str) -> dict:
@@ -1928,6 +2106,13 @@ def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: st
         if shipping_id is None:
             shipping_id, shipping_price = e["id"], D(s["price"])
 
+    # apply journals an offer only as it creates it, so a run that stopped partway
+    # leaves later planned offers with no entry and no row below.
+    journalled_offers = {e.get("key") for e in man.data["offers"]}
+    for o in plan.get("offers", []):
+        if o["key"] not in journalled_offers:
+            check(f"offer {o['key']} journalled", False, "no manifest entry for this planned offer")
+
     if plan.get("offers"):
         # The offers LIST omits condition.packages; only the per-offer RETRIEVE
         # carries the scope, so read each offer back by id.
@@ -1953,20 +2138,32 @@ def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: st
                 check(f"offer {e['key']} code", live_o.get("code") == o["code"], str(live_o.get("code")))
 
     # Pricing truth: carts/calculate with the campaign key.
-    free_shipping = _plan_has_free_shipping(plan)
-    if not any(p["role"] == "hero" and ids.get(p["key"]) for p in plan["packages"]):
+    hero_present = any(p["role"] == "hero" and ids.get(p["key"]) for p in plan["packages"])
+    if not hero_present:
         check("hero packages present", False, "no created hero package ids in the manifest")
     cart_cases = _cart_cases_from_plan(plan, ids)
+    if hero_present:
+        free_offers = _free_shipping_offers(plan)
+        ship_price = shipping_price if shipping_id is not None else None
+        for key, n, scope in free_offers:
+            ok, detail = _free_shipping_coverage(cart_cases, free_offers, key, n, scope, ship_price)
+            check(f"offer {key} free-shipping coverage", ok, detail)
 
-    for name, lines, vouchers, expected in cart_cases:
+    for name, lines, vouchers, expected, ship, _ in cart_cases:
         body = {"lines": lines}
         if vouchers:
             body["vouchers"] = vouchers
-        if shipping_id is not None:
+        path = "/api/v1/carts/calculate/"
+        if ship == "none":
+            # The Cart API's upsell mode skips site-wide automatic offers, as a real
+            # upsell page does; an upsell has no shipping method of its own.
+            path += "?upsell=true"
+        elif shipping_id is not None:
             body["shipping_method"] = shipping_id
-        status, resp = cart.request("POST", "/api/v1/carts/calculate/", body)
+        status, resp = cart.request("POST", path, body)
         got_total = _num((resp or {}).get("total")) if isinstance(resp, dict) else None
-        ship_component = Decimal(0) if free_shipping else (shipping_price if shipping_id is not None else Decimal(0))
+        shipped = "shipping_method" in body
+        ship_component = shipping_price if (ship == "paid" and shipped) else Decimal(0)
         want_total = expected + ship_component
         units = sum(l["quantity"] for l in lines)
         tol = Decimal("0.01") * units  # documented per-unit rounding bound (offer doctrine: Rounding and stacking)
@@ -1976,8 +2173,36 @@ def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: st
                       "expected_total": money(want_total), "got_total": None if got_total is None else money(got_total),
                       "delta": None if delta is None else money(delta),
                       "tolerance": money(tol), "units": units,
-                      "request": body, "response_keys": sorted(resp.keys()) if isinstance(resp, dict) else None,
+                      "shipping": ship, "expected_shipping": money(ship_component) if shipped else None,
+                      "path": path, "request": body,
+                      "response_keys": sorted(resp.keys()) if isinstance(resp, dict) else None,
                       "error": None if ok else _short(resp)})
+
+    # An offer added in the dashboard can free or discount a cart the way a
+    # planned offer should, so calculate would pass a wrong or missing threshold.
+    # The live set has to be exactly what this run created, read after the probes
+    # so an offer added while they ran is caught too.
+    try:
+        live_offers = client.paginate(f"/api/admin/campaigns/{cid}/offers/")
+    except CampaignAdminError as exc:
+        # Skip the check only when both hold: the store has no offers endpoint
+        # (404/405) and the plan has no offers, so there is nothing to compare.
+        # Any other failure to list leaves the live set unknown, which is not a pass.
+        endpoint_absent = getattr(exc, "status", None) in (404, 405)
+        nothing_planned = not plan.get("offers")
+        if not (endpoint_absent and nothing_planned):
+            check("campaign offers match the plan", False, f"could not list live offers: {exc}")
+    else:
+        ours = {e.get("id") for e in man.data["offers"]
+                if e.get("status") == "created" and e.get("id") is not None}
+        extra = [f"{x.get('id')} {x.get('name')!r}" for x in live_offers if x.get("id") not in ours]
+        # an offer deleted after its read-back and probes would otherwise pass
+        live_ids = {x.get("id") for x in live_offers}
+        gone = sorted(str(i) for i in ours - live_ids)
+        problems = ([f"unplanned live offer(s): {', '.join(extra)}"] if extra else []) + \
+                   ([f"created offer(s) no longer live: {', '.join(gone)}"] if gone else [])
+        check("campaign offers match the plan", not problems,
+              "; ".join(problems) if problems else f"{len(live_offers)} live, all created by this run")
 
     result = "PASS" if all(x["result"] == "PASS" for x in checks + cases) else "FAIL"
     return {"manifest_run_id": man.data["run_id"], "plan_sha256": plan_sha, "verified_at": utcnow(),
@@ -1989,7 +2214,16 @@ def print_verify(report: dict) -> None:
         print(f"  {x['result']}  {x['check']}  {x['detail']}")
     for x in report["calculate_cases"]:
         extra = "" if x["result"] == "PASS" else f"  ({x['error']})"
-        print(f"  {x['result']}  calculate {x['case']}: expected {x['expected_total']} got {x['got_total']}{extra}")
+        if x.get("shipping") == "none":
+            ship = "no shipping, upsell"
+        elif x.get("expected_shipping") is None:
+            ship = "no shipping method"
+        elif x.get("shipping") == "free":
+            ship = "free shipping"
+        else:
+            ship = f"shipping {x['expected_shipping']}"
+        print(f"  {x['result']}  calculate {x['case']}: expected {x['expected_total']} ({ship}) "
+              f"got {x['got_total']}{extra}")
     print(f"VERIFY: {report['result']}")
 
 
@@ -2028,7 +2262,9 @@ def main(argv=None) -> int:
     r.add_argument("--exit-code")
     r.add_argument("--bump", action="append", help="<variant_id>:<price>, repeatable")
     r.add_argument("--upsell", action="append", help="<variant_id>:<price>:<pct>, repeatable")
-    r.add_argument("--free-shipping", action="store_true")
+    r.add_argument("--free-shipping", action="store_true", help="free shipping on every checkout order")
+    r.add_argument("--free-shipping-min-qty", type=int, metavar="N",
+                   help="free shipping only from N hero units, e.g. 2 for Buy 2+ (instead of --free-shipping)")
     r.add_argument("--rounding", help="price_rounding for tier/voucher offers; one of "
                    + ", ".join(PRICE_ROUNDINGS[1:]))
     r.add_argument("--statement-descriptor")

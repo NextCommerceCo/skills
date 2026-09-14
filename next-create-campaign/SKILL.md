@@ -1,6 +1,6 @@
 ---
 name: next-create-campaign
-version: 0.3.0
+version: 0.3.1
 description: |
   Provision a launch-ready Campaigns App campaign over the NEXT Admin API:
   read the store's catalogue, gateway groups and shipping methods, recommend a
@@ -176,7 +176,7 @@ The full command surface, as a synopsis (run each line as
 next-create-campaign.sh --version
 next-create-campaign.sh discover  --store <subdomain> [--out <dir>]
 next-create-campaign.sh metadata  --store <subdomain> [--apply]
-next-create-campaign.sh recommend --discovery <dir>/discovery.json --hero <product_id> --ctc low|high --anchor-price <decimal> --shipping <code>:<price> [--shipping ...] [--name <campaign name>] [--gateway-group <id>] [--payment-methods a,b] [--express-methods a,b] [--currency USD] [--language en] [--countries US,CA] [--tiers 50,55,60] [--exit 10] [--exit-code CODE] [--bump <variant_id>:<price>] [--upsell <variant_id>:<price>:<pct>] [--free-shipping] [--rounding 0.95] [--statement-descriptor <text>] [--out <dir>]
+next-create-campaign.sh recommend --discovery <dir>/discovery.json --hero <product_id> --ctc low|high --anchor-price <decimal> --shipping <code>:<price> [--shipping ...] [--name <campaign name>] [--gateway-group <id>] [--payment-methods a,b] [--express-methods a,b] [--currency USD] [--language en] [--countries US,CA] [--tiers 50,55,60] [--exit 10] [--exit-code CODE] [--bump <variant_id>:<price>] [--upsell <variant_id>:<price>:<pct>] [--free-shipping | --free-shipping-min-qty <n>] [--rounding 0.95] [--statement-descriptor <text>] [--out <dir>]
 next-create-campaign.sh plan      --plan <dir>/campaign-plan.json [--check-store]
 next-create-campaign.sh apply     --plan <dir>/campaign-plan.json --yes --plan-sha256 <plan-sha256> [--resume <dir>/run-manifest.json] [--out <dir>]
 next-create-campaign.sh verify    --manifest <dir>/run-manifest.json --plan <dir>/campaign-plan.json [--out <dir>]
@@ -356,6 +356,12 @@ them:
   code the campaign enables.
 - **Shipping**: at least one `<code>:<price>`, using a shipping method code
   from the discovery.
+- **Free shipping**: none, every order (`--free-shipping`), or from a minimum
+  number of hero units (`--free-shipping-min-qty N`, for example 2 for Buy 2+).
+  This is an operator decision, and the two flags are alternatives; passing both
+  is an error. N has to be a quantity the landed rows reach, along with the one
+  below it, so on the default Buy 1/2/3 tiers it is 2 or 3. `recommend` refuses
+  anything else, and a high-CTC plan (Buy 1 only) cannot take a threshold.
 - **Bumps and upsells**: each as an explicit variant id, package price and, for
   upsells, voucher percentage. Nothing is inferred from catalogue prices.
 - **Standing checkout bump**: ask whether the store requires a bump on every
@@ -368,7 +374,7 @@ The remaining flags have defaults; override them only when the operator asks.
 The tier percentages (`--tiers`) default to 50,55,60 off the anchor and the exit
 voucher (`--exit`) to 10 percent, both from `references/offer-doctrine.md`. The
 others are `--exit-code`, price rounding (`--rounding`: `0.00`, `0.95`, `0.97`
-or `0.99`), `--free-shipping`, `--payment-methods`, `--express-methods` and
+or `0.99`), `--payment-methods`, `--express-methods` and
 `--statement-descriptor`.
 
 ---
@@ -383,7 +389,7 @@ bash <skill-dir>/next-create-campaign.sh recommend \
   --hero <product_id> --ctc <low|high> --anchor-price <decimal> \
   --shipping <code>:<price> [--name "<campaign name>"] [--countries US,CA] \
   [--bump <variant_id>:<price> ...] [--upsell <variant_id>:<price>:<pct> ...] \
-  [--exit 10] [--rounding 0.95] [--free-shipping]
+  [--exit 10] [--rounding 0.95] [--free-shipping | --free-shipping-min-qty <n>]
 ```
 
 `recommend` writes `campaign-plan.json` next to the discovery file. It refuses a
@@ -400,7 +406,16 @@ bash <skill-dir>/next-create-campaign.sh plan \
 
 `--check-store` also asks the store whether a campaign with the same name
 already exists. `plan` prints the ordered request list, the landed prices table,
-the rationale, any blockers, and the plan's SHA-256.
+the rationale, any blockers, and the plan's SHA-256. Each landed row ends with
+one of five shipping labels:
+
+| Label | Meaning |
+|---|---|
+| `shipping free` | a free-shipping offer covers every variant mix of the row |
+| `shipping <price>` | no free-shipping offer can apply, so the first shipping method is charged |
+| `shipping depends on variant mix` | some mixes of the row meet a free-shipping offer and some do not |
+| `shipping partly discounted (not modelled; prove by hand)` | a shipping offer below 100% touches the row; verify expects full shipping there |
+| `no shipping (post-purchase)` | an upsell row, which carries no shipping method |
 
 If there are blockers, stop and clear them (see Failure modes), then re-run
 `recommend` and `plan`. The engine will not apply a plan with blockers.
@@ -514,8 +529,17 @@ bash <skill-dir>/next-create-campaign.sh verify \
 ```
 
 `verify` reads every resource back and calls `carts/calculate` for each tier, a
-mixed-variant cart, the exit voucher and shipping, comparing totals to the cent.
-It writes `verify-report.json` next to the plan and exits 1 on FAIL. Report PASS
+mixed-variant cart, the exit voucher and each upsell voucher, comparing totals to
+the cent. Shipping is decided per cart. A checkout cart carries the first
+shipping method and expects it charged, unless that cart meets a free-shipping
+offer's condition (`any`: one in-scope unit; `count`: N in-scope units). An
+upsell cart calls calculate with `?upsell=true` and no shipping method, the way
+a real upsell page does, and expects the voucher price alone. Each free-shipping
+offer also gets a coverage row: it needs a cart at exactly its threshold that no
+other offer would free, and one just below it that pays, because nothing else
+proves where the threshold sits. Verify also lists the campaign's live offers
+and fails if any were not created by this run, since a dashboard offer can price
+a cart the way a planned one should and hide a wrong threshold. It writes `verify-report.json` next to the plan and exits 1 on FAIL. Report PASS
 or FAIL, with the failing checks. Then hand off:
 
 - Campaign id, and the manifest path where the full api_key lives (gitignored,
@@ -554,6 +578,10 @@ need.
 | image PUT returns 404/405 | store's build predates package images | everything is created; packages keep the catalogue image, set overrides in the dashboard |
 | image PUT rejected (`image_status: failed`) | bad `src`, unreachable URL, wrong type, over 10 MB or 25 MP | terminal: `--resume` cannot help, the hash pins the `src`; fix in the dashboard, or teardown and recreate |
 | `verify` fails `package ... image` | the catalogue image fetch failed silently at create | add an `image.src` override and recreate, or set it in the dashboard and accept the row |
+| checkout `calculate` rows off by exactly the shipping price | the live free-shipping offer's condition or scope does not match the plan; or, on a store without the Offers API, the free-shipping offer was built in the dashboard as the handoff said, and the plan (which verify checks) has none | check the offer in the dashboard; the plan's condition is what verify expects. On a store without the Offers API this row is expected: prove the dashboard offer with your own `calculate` probes at the threshold and one below it |
+| `campaign offers match the plan` fails | an offer was added to the campaign outside this run, usually in the dashboard | remove it, or treat the pricing as unproven: verify cannot isolate the plan's offers while it exists |
+| `offer ... journalled` fails | apply stopped partway through the offers, so later ones were never created | `apply ... --resume <manifest>` |
+| `offer ... free-shipping coverage` fails | no landed row sits at the threshold or just below it, another free-shipping offer would free those carts anyway, or the shipping price is too small for calculate to tell free from paid | add the missing landed row, drop the overlapping offer, or prove the threshold with your own calculate probes |
 | apply stopped mid-run | any non-2xx | `apply ... --resume <manifest>` after fixing, or `teardown` |
 | `identity mismatch` on teardown | the manifest does not match what is live | do not force; investigate which campaign the manifest points at |
 
