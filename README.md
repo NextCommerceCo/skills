@@ -97,9 +97,11 @@ before running `status` or `install` from a checkout.
 
 ## Updating
 
-An installed skill is a copy. It does not change when this repository does,
-and nothing notifies you when a new version ships, so check before starting
-work that depends on a skill.
+An installed skill is a copy. It does not change when this repository does.
+`next-create-campaign` (0.4.0 and later) checks for a newer version when it
+starts and prints the update command for your copy; see its launcher's
+`check-update`. The other skills do not notify you yet, so check before
+starting work that depends on one.
 
 - **See what you have.** A skill's version is the `version:` line in its
   installed `SKILL.md`. From a checkout, `./skills.sh status` compares each

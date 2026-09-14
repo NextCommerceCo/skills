@@ -1,6 +1,6 @@
 ---
 name: next-create-campaign
-version: 0.3.1
+version: 0.4.0
 description: |
   Provision a launch-ready Campaigns App campaign over the NEXT Admin API:
   read the store's catalogue, gateway groups and shipping methods, recommend a
@@ -136,6 +136,7 @@ confirmation that covers it:
 | 10 | `POST /api/admin/metadata/` (only the missing campaign metadata definitions) | `metadata --apply` after an `AskUserQuestion` |
 | 11 | local JSON under the run directory (discovery, plan, manifest, verify report) | no gate |
 | 12 | `POST /api/v1/carts/calculate/` on the Cart API in `verify` | none: creates nothing, reads pricing back |
+| 13 | `GET` of the public `skills.json` on GitHub, cached in `${XDG_CACHE_HOME:-~/.cache}/next-skills/catalog.json`, in `check-update` | none: read-only, no credentials, skipped with `NEXT_SKILLS_NO_UPDATE_CHECK=1` |
 
 The engine refuses the writes in rows 1 to 5 unless `apply` receives `--yes` and
 a `--plan-sha256` equal to the hash of the plan file it is about to send. The
@@ -162,18 +163,43 @@ project directory, not from the skill directory: that is where `.env` and the
 run directory live.
 
 ```bash
-bash <skill-dir>/next-create-campaign.sh --version
+bash <skill-dir>/next-create-campaign.sh check-update
 ```
 
-This prints the installed version. If the launcher exits 2 with a Python
-message, install Python 3.9 or newer, or set `NEXT_CREATE_CAMPAIGN_PYTHON` to
-one, then retry.
+The first line is the installed version. The rest says whether a newer version
+is published and, if so, the update command for the way this copy was
+installed. Show those lines to the operator as printed, then carry on with
+Phase 1. The check never blocks:
+
+- It always exits 0. "Could not check" (offline, GitHub unreachable) is not an
+  error. Continue.
+- An update is never required to run the skill. When one is available and
+  this run will reach `apply`, recommend updating first, because the newer
+  version may fix something `apply` or `verify` relies on. The operator decides.
+- Do not run the update command yourself unless the operator asks. Updating
+  replaces the skill folder, local edits included.
+- If a later step fails, use Failure modes as usual. Do not blame the old
+  version unless the release notes for a newer one name the request or
+  endpoint that failed.
+
+It makes one read-only request to GitHub at most once a day (write inventory
+row 13). `NEXT_SKILLS_NO_UPDATE_CHECK=1` turns it off. Without bash, run
+`python3 <skill-dir>/scripts/update_check.py`. If this file was loaded as plain
+context and there is no skill directory, compare the `version:` line above
+with the `next-create-campaign` entry in
+https://raw.githubusercontent.com/NextCommerceCo/skills/main/skills.json
+instead.
+
+`--version` still prints just the version line. If the launcher exits 2 with a
+Python message on any other subcommand, install Python 3.9 or newer, or set
+`NEXT_CREATE_CAMPAIGN_PYTHON` to one, then retry.
 
 The full command surface, as a synopsis (run each line as
 `bash <skill-dir>/next-create-campaign.sh ...`):
 
 ```
 next-create-campaign.sh --version
+next-create-campaign.sh check-update [--no-cache] [--json]
 next-create-campaign.sh discover  --store <subdomain> [--out <dir>]
 next-create-campaign.sh metadata  --store <subdomain> [--apply]
 next-create-campaign.sh recommend --discovery <dir>/discovery.json --hero <product_id> --ctc low|high --anchor-price <decimal> --shipping <code>:<price> [--shipping ...] [--name <campaign name>] [--gateway-group <id>] [--payment-methods a,b] [--express-methods a,b] [--currency USD] [--language en] [--countries US,CA] [--tiers 50,55,60] [--exit 10] [--exit-code CODE] [--bump <variant_id>:<price>] [--upsell <variant_id>:<price>:<pct>] [--free-shipping | --free-shipping-min-qty <n>] [--rounding 0.95] [--statement-descriptor <text>] [--out <dir>]
@@ -189,7 +215,7 @@ Exit codes, for every subcommand:
 
 | Code | Meaning |
 |---|---|
-| 0 | success |
+| 0 | success; `check-update` always exits 0 |
 | 1 | refused or failed: invalid input, credential missing, a store error, or a verify FAIL |
 | 2 | the argument parser rejected the command, the apply gate printed `NOT APPLIED`, or a launcher precondition failed |
 
@@ -562,6 +588,7 @@ need.
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| `Could not check for updates` | offline, GitHub unreachable, or Python missing; failures are cached for an hour | nothing to fix: continue. Compare versions by hand with the catalog link it prints if it matters for this run |
 | `credential missing` | no token found for this store in the environment, `.env` or `NEXT_ADMIN_API_TOKEN` | add the `{SUBDOMAIN}_NEXT_ADMIN_API_TOKEN` line to `.env` (Phase 1); never paste it in chat |
 | `still holds a placeholder` | the token value is a placeholder such as `<paste-token-here>` | have the user paste the real token over it in a text editor |
 | 401 or 403 from the store | key rejected, or missing one of the six permissions | re-create the key with all six under Dashboard > Settings > API Access; retrying does not help |
@@ -634,6 +661,9 @@ holding a live secret.
 
 - The installed version is the `version:` line in this file's frontmatter, also
   printed by `bash <skill-dir>/next-create-campaign.sh --version`.
+- `bash <skill-dir>/next-create-campaign.sh check-update` compares it with the
+  published version and prints the update command for this copy (Phase 0 runs
+  it). Add `--no-cache` to skip the one-day cache.
 - From a checkout of `NextCommerceCo/skills`,
   `git pull --ff-only && ./skills.sh status` reports `stale` when a newer
   version exists, and
@@ -647,8 +677,8 @@ holding a live secret.
   carried each version bump, titled `next-create-campaign X.Y.Z: ...` (the first
   one is `Add next-create-campaign public skill`). They are listed at
   https://github.com/NextCommerceCo/skills/pulls?q=is%3Apr+is%3Amerged+next-create-campaign.
-- There are no tags, releases or notifications today, so check before starting a
-  campaign.
+- There are no tags or releases. Copies older than 0.4.0 do not have
+  `check-update`; they need one manual update before it starts working.
 
 ---
 
