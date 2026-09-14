@@ -1,6 +1,6 @@
 ---
 name: next-create-campaign
-version: 0.3.1
+version: 0.4.0
 description: |
   Provision a launch-ready Campaigns App campaign over the NEXT Admin API:
   read the store's catalogue, gateway groups and shipping methods, recommend a
@@ -176,7 +176,7 @@ The full command surface, as a synopsis (run each line as
 next-create-campaign.sh --version
 next-create-campaign.sh discover  --store <subdomain> [--out <dir>]
 next-create-campaign.sh metadata  --store <subdomain> [--apply]
-next-create-campaign.sh recommend --discovery <dir>/discovery.json --hero <product_id> --ctc low|high --anchor-price <decimal> --shipping <code>:<price> [--shipping ...] [--name <campaign name>] [--gateway-group <id>] [--payment-methods a,b] [--express-methods a,b] [--currency USD] [--language en] [--countries US,CA] [--tiers 50,55,60] [--exit 10] [--exit-code CODE] [--bump <variant_id>:<price>] [--upsell <variant_id>:<price>:<pct>] [--free-shipping | --free-shipping-min-qty <n>] [--rounding 0.95] [--statement-descriptor <text>] [--out <dir>]
+next-create-campaign.sh recommend --discovery <dir>/discovery.json --hero <product_id> --ctc low|high --anchor-price <decimal> --shipping <code>:<price>[:<key>] [--shipping ...] [--name <campaign name>] [--gateway-group <id>] [--payment-methods a,b] [--express-methods a,b] [--currency USD] [--language en] [--countries US,CA] [--tiers 50,55,60] [--exit 10] [--exit-code CODE] [--bump <variant_id>:<price>] [--upsell <variant_id>:<price>:<pct>] [--free-shipping | --free-shipping-min-qty <n>] [--rounding 0.95] [--statement-descriptor <text>] [--out <dir>]
 next-create-campaign.sh plan      --plan <dir>/campaign-plan.json [--check-store]
 next-create-campaign.sh apply     --plan <dir>/campaign-plan.json --yes --plan-sha256 <plan-sha256> [--resume <dir>/run-manifest.json] [--out <dir>]
 next-create-campaign.sh verify    --manifest <dir>/run-manifest.json --plan <dir>/campaign-plan.json [--out <dir>]
@@ -355,7 +355,13 @@ them:
   group (`--gateway-group`) must list that currency and every payment method
   code the campaign enables.
 - **Shipping**: at least one `<code>:<price>`, using a shipping method code
-  from the discovery.
+  from the discovery. One code can carry several prices when each entry gets a
+  key, `<code>:<price>:<key>`. A store with only a `default` method can charge
+  per bundle this way: `--shipping default:9.99:ship-1 --shipping
+  default:12.99:ship-2` and so on. To price each landed row with its own rung,
+  add `"shipping_key": "ship-2"` (for example) to that row in
+  `campaign-plan.json` before running `plan`. A row without one uses the first
+  shipping method.
 - **Free shipping**: none, every order (`--free-shipping`), or from a minimum
   number of hero units (`--free-shipping-min-qty N`, for example 2 for Buy 2+).
   This is an operator decision, and the two flags are alternatives; passing both
@@ -387,7 +393,7 @@ This phase is the gate.
 bash <skill-dir>/next-create-campaign.sh recommend \
   --discovery ./next-create-campaign-runs/<subdomain>/discovery.json \
   --hero <product_id> --ctc <low|high> --anchor-price <decimal> \
-  --shipping <code>:<price> [--name "<campaign name>"] [--countries US,CA] \
+  --shipping <code>:<price>[:<key>] [--name "<campaign name>"] [--countries US,CA] \
   [--bump <variant_id>:<price> ...] [--upsell <variant_id>:<price>:<pct> ...] \
   [--exit 10] [--rounding 0.95] [--free-shipping | --free-shipping-min-qty <n>]
 ```
@@ -412,7 +418,7 @@ one of five shipping labels:
 | Label | Meaning |
 |---|---|
 | `shipping free` | a free-shipping offer covers every variant mix of the row |
-| `shipping <price>` | no free-shipping offer can apply, so the first shipping method is charged |
+| `shipping <price>` | no free-shipping offer can apply, so the row's `shipping_key` method is charged, or the first shipping method when the row names none |
 | `shipping depends on variant mix` | some mixes of the row meet a free-shipping offer and some do not |
 | `shipping partly discounted (not modelled; prove by hand)` | a shipping offer below 100% touches the row; verify expects full shipping there |
 | `no shipping (post-purchase)` | an upsell row, which carries no shipping method |
@@ -530,9 +536,11 @@ bash <skill-dir>/next-create-campaign.sh verify \
 
 `verify` reads every resource back and calls `carts/calculate` for each tier, a
 mixed-variant cart, the exit voucher and each upsell voucher, comparing totals to
-the cent. Shipping is decided per cart. A checkout cart carries the first
-shipping method and expects it charged, unless that cart meets a free-shipping
-offer's condition (`any`: one in-scope unit; `count`: N in-scope units). An
+the cent. Shipping is decided per cart. A checkout cart carries the shipping
+method its landed row names in `shipping_key`, or the first shipping method when
+the row names none, and expects that price charged, unless the cart meets a
+free-shipping offer's condition (`any`: one in-scope unit; `count`: N in-scope
+units). A row whose method was never created fails without a calculate call. An
 upsell cart calls calculate with `?upsell=true` and no shipping method, the way
 a real upsell page does, and expects the voucher price alone. Each free-shipping
 offer also gets a coverage row: it needs a cart at exactly its threshold that no
@@ -545,6 +553,10 @@ or FAIL, with the failing checks. Then hand off:
 - Campaign id, and the manifest path where the full api_key lives (gitignored,
   never echoed). Point the operator at the file; do not read the key into chat.
 - Package ids for `data-next-package-id` in the funnel markup.
+- Shipping method ids, one per shipping key, from the manifest's
+  `shipping_methods` entries. When one store code carries several prices the
+  code alone does not pick a price: the funnel has to send the id of the rung
+  each bundle should charge.
 - Offer codes for the funnel's voucher wiring.
 - Manual dashboard steps the API does not cover: Allowed Domains
   (Development/Production), PayPal account linking, Map Builder.
@@ -583,6 +595,8 @@ need.
 | `offer ... journalled` fails | apply stopped partway through the offers, so later ones were never created | `apply ... --resume <manifest>` |
 | `offer ... free-shipping coverage` fails | no landed row sits at the threshold or just below it, another free-shipping offer would free those carts anyway, or the shipping price is too small for calculate to tell free from paid | add the missing landed row, drop the overlapping offer, or prove the threshold with your own calculate probes |
 | apply stopped mid-run | any non-2xx | `apply ... --resume <manifest>` after fixing, or `teardown` |
+| `pending shipping method ... matches N remote entries` on resume | a shipping create lost its response, and the entries left on that code do not settle which one it made: none at the planned price (edited, or no readable price in the campaign currency), or two or more at it | check the campaign's shipping methods in the dashboard, delete the stray entry or restore its price, then resume |
+| verify case `shipping method ... not created` | apply stopped before that shipping method, so the rows priced with it cannot be proven | `apply ... --resume <manifest>`, then verify again |
 | `identity mismatch` on teardown | the manifest does not match what is live | do not force; investigate which campaign the manifest points at |
 
 ---

@@ -479,7 +479,10 @@ class PlanValidation(unittest.TestCase):
         def dangling(p): p["offers"][0]["condition"]["package_keys"] = ["nope"]
         def multi_variant(p): p["packages"][0]["product_variant_ids"] = [23, 24]
         def dup_offer_key(p): p["offers"][1]["key"] = p["offers"][0]["key"]
-        for m in (all_packages, voucher_no_code, count_no_value, bad_decimal, dup_names, qty_pkg, bad_origin, dangling, multi_variant, dup_offer_key):
+        def dup_ship_key(p): p["shipping_methods"].append({"shipping_method": "standard", "price": "8.95"})
+        def same_code_same_price(p): p["shipping_methods"].append({"shipping_method": "standard", "price": "6.95", "key": "again"})
+        for m in (all_packages, voucher_no_code, count_no_value, bad_decimal, dup_names, qty_pkg, bad_origin, dangling, multi_variant, dup_offer_key,
+                  dup_ship_key, same_code_same_price):
             self.assertTrue(self._errs(m), m.__name__)
 
     def test_request_rendering_order(self):
@@ -1788,11 +1791,13 @@ class FreeShippingPerCase(unittest.TestCase):
         self.disc = load_fixture("discovery.json")
 
     @staticmethod
-    def _engine(plan, ids, free_from=None, free_keys=None):
+    def _engine(plan, ids, free_from=None, free_keys=None, ship_prices=None):
         """A fake carts/calculate that prices from the plan the way the live engine
         does: the best automatic package offer whose condition the cart meets (none
         in upsell mode), then any entered voucher, then shipping. Shipping has its
-        own knobs so a test can make the live rule disagree with the plan."""
+        own knobs so a test can make the live rule disagree with the plan.
+        ship_prices maps a created shipping method id to its price; without it
+        every shipping method costs the plan's first price."""
         key_of = {v: k for k, v in ids.items()}
         price = {p["key"]: Decimal(p["price"]) for p in plan["packages"]}
         autos = [o for o in plan["offers"]
@@ -1823,21 +1828,26 @@ class FreeShippingPerCase(unittest.TestCase):
                         unit = ca.landed_unit(unit, Decimal(v["benefit"]["value"]), v["benefit"].get("price_rounding"))
                 total += unit * q
             if "shipping_method" in body and (free_from is None or units(line_keys, ship_scope) < free_from):
-                total += ship_price
+                total += ship_prices[body["shipping_method"]] if ship_prices else ship_price
             return 200, {"total": str(total), "lines": []}
         return calc
 
-    def _run(self, plan, after_apply=None, during_probes=None, **engine):
+    def _run(self, plan, after_apply=None, during_probes=None, ship_override=None, **engine):
         """apply the plan to a fake store, then verify it against _engine.
         after_apply(state, man, campaign_id, transport) can change the store or the
         journal in between, the way a dashboard edit or an interrupted run would;
-        during_probes(state, campaign_id) runs on every calculate call."""
+        during_probes(state, campaign_id) runs on every calculate call. The engine
+        prices each created shipping method by id at its planned price, except the
+        shipping keys in ship_override, which it charges at the given price."""
         with tempfile.TemporaryDirectory() as d:
             pp = Path(d) / "plan.json"; ca.atomic_write_json(pp, plan); sha = ca.sha256_file(pp)
             state = fresh_state()
             t = DynamicTransport(self.disc, state)
             man = ca.apply(make_client(t), plan, sha, Path(d) / "run-manifest.json", None)
             cid = man.data["campaign"]["id"]
+            planned = {ca.ship_key(s): Decimal(s["price"]) for s in plan["shipping_methods"]}
+            planned.update({k: Decimal(v) for k, v in (ship_override or {}).items()})
+            engine.setdefault("ship_prices", {e["id"]: planned[e["key"]] for e in man.data["shipping_methods"]})
             if after_apply:
                 after_apply(state, man, cid, t)
             ids = {e["key"]: e["id"] for e in man.data["packages"]}
@@ -2263,22 +2273,379 @@ class FreeShippingPerCase(unittest.TestCase):
         cases = [("Buy 1 a", [], [], 0, "free", [("a", 1)]), ("Buy 1 b", [], [], 0, "paid", [("b", 1)]),
                  ("Buy 2 a", [], [], 0, "free", [("a", 2)]), ("Buy 2 b", [], [], 0, "free", [("b", 2)]),
                  ("Buy 2 mixed", [], [], 0, "free", [("a", 1), ("b", 1)])]
-        ok, detail = ca._free_shipping_coverage(cases, offers, "target", 2, frozenset({"a", "b"}), SHIP)
+        ok, detail = ca._free_shipping_coverage(cases, offers, "target", 2, frozenset({"a", "b"}), lambda c: SHIP)
         self.assertFalse(ok)
         self.assertIn("masked by offer mask-a at 2 in-scope units", detail)
         # one unmasked cart at N is enough: lift mask-b to 3 and "Buy 2 b" is the target's alone
         offers[2] = ("mask-b", 3, frozenset({"b"}))
-        self.assertTrue(ca._free_shipping_coverage(cases, offers, "target", 2, frozenset({"a", "b"}), SHIP)[0])
+        self.assertTrue(ca._free_shipping_coverage(cases, offers, "target", 2, frozenset({"a", "b"}), lambda c: SHIP)[0])
         # (d) masking at N-1 only: the one-unit cart is freed by mask-a, so a live
         # target at 1 would price the same even though N itself is clean
         below_masked = [c for c in cases if c[0] != "Buy 1 b"]
-        ok, detail = ca._free_shipping_coverage(below_masked, offers, "target", 2, frozenset({"a", "b"}), SHIP)
+        ok, detail = ca._free_shipping_coverage(below_masked, offers, "target", 2, frozenset({"a", "b"}), lambda c: SHIP)
         self.assertFalse(ok)
         self.assertIn("masked by offer mask-a at 1 in-scope unit;", detail)
         # no shipping method on the campaign: nothing a cart can show
-        ok, detail = ca._free_shipping_coverage(cases, offers, "target", 2, frozenset({"a", "b"}), None)
+        ok, detail = ca._free_shipping_coverage(cases, offers, "target", 2, frozenset({"a", "b"}), lambda c: None)
         self.assertFalse(ok)
         self.assertIn("no shipping method", detail)
+
+
+LADDER = ["standard:9.99:ship-1", "standard:12.99:ship-2", "standard:14.99:ship-3", "standard:16.99:ship-4"]
+RUNG = {"Buy 1": "9.99", "Buy 2": "12.99", "Buy 3": "14.99", "Buy 4": "16.99"}
+
+
+def ladder_plan(disc, **kw):
+    """Four tiers on one store code, each tier row priced with its own rung."""
+    plan = ca.recommend(disc, ns(tiers="50,55,60,65", shipping=LADDER, **kw))
+    for i, row in enumerate(r for r in plan["landed_prices"] if r["kind"] == "tier"):
+        row["shipping_key"] = f"ship-{i + 1}"
+    return plan
+
+
+class TieredShippingLadder(unittest.TestCase):
+    """Several campaign shipping methods on the same store code at different
+    prices, identified by a plan-level key, each landed row priced with its own."""
+
+    _engine = staticmethod(FreeShippingPerCase._engine)
+    _run = FreeShippingPerCase._run
+    _gate = staticmethod(FreeShippingPerCase._gate)
+    _row = staticmethod(FreeShippingPerCase._row)
+    _cases = staticmethod(FreeShippingPerCase._cases)
+    _checks = staticmethod(FreeShippingPerCase._checks)
+
+    def setUp(self):
+        self.disc = load_fixture("discovery.json")
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def _copy(self, plan):
+        return json.loads(json.dumps(plan))
+
+    def _applied(self, plan, transport=None):
+        pp = Path(self.tmp.name) / "plan.json"
+        ca.atomic_write_json(pp, plan)
+        sha = ca.sha256_file(pp)
+        state = fresh_state()
+        t = transport(state) if transport else DynamicTransport(self.disc, state)
+        return state, t, sha, Path(self.tmp.name) / "run-manifest.json"
+
+    @staticmethod
+    def _ship_posts(t):
+        return [c for c in t.calls if c[0] == "POST" and c[1].endswith("/shipping-methods/")]
+
+    # --- plan validation ----------------------------------------------------
+
+    def test_same_code_different_prices_validates(self):
+        plan = ladder_plan(self.disc)
+        self.assertEqual(ca.validate_plan(plan), [])
+        ships = [r[2] for r in ca.render_requests(plan) if r[1].endswith("/shipping-methods/")]
+        self.assertEqual(ships, [{"shipping_method": "standard", "price": p} for p in ("9.99", "12.99", "14.99", "16.99")])
+
+    def test_same_code_same_price_rejects(self):
+        plan = ladder_plan(self.disc)
+        plan["shipping_methods"][1]["price"] = "9.99"
+        errs = ca.validate_plan(plan)
+        self.assertTrue(any("duplicates code 'standard' at 9.99" in e for e in errs), errs)
+
+    def test_duplicate_keys_reject(self):
+        plan = ladder_plan(self.disc)
+        plan["shipping_methods"][1]["key"] = "ship-1"
+        self.assertTrue(any("duplicate shipping key 'ship-1'" in e for e in ca.validate_plan(plan)))
+        # two code-only entries on one code: the key defaults to the code and collides
+        plan = ladder_plan(self.disc)
+        for s in plan["shipping_methods"]:
+            s.pop("key")
+        for row in plan["landed_prices"]:
+            row.pop("shipping_key", None)
+        errs = ca.validate_plan(plan)
+        self.assertTrue(any("give each entry on code 'standard' its own key" in e for e in errs), errs)
+        # a key equal to another entry's defaulted code collides as well
+        plan = ladder_plan(self.disc)
+        plan["shipping_methods"][0].pop("key")
+        plan["shipping_methods"][1]["key"] = "standard"
+        plan["landed_prices"][0].pop("shipping_key")
+        self.assertTrue(any("duplicate shipping key 'standard'" in e for e in ca.validate_plan(plan)))
+        plan = ladder_plan(self.disc)
+        plan["shipping_methods"][0]["key"] = ""
+        self.assertTrue(any("key must be a non-empty string" in e for e in ca.validate_plan(plan)))
+        # two explicit keys that collide name both entries
+        plan = ladder_plan(self.disc)
+        plan["shipping_methods"][2]["key"] = "ship-2"
+        errs = [e for e in ca.validate_plan(plan) if "duplicate shipping key 'ship-2'" in e]
+        self.assertTrue(errs and "at 12.99" in errs[0] and "at 14.99" in errs[0], errs)
+
+    def test_row_ship_key_resolves(self):
+        plan = ladder_plan(self.disc)
+        plan["landed_prices"][0]["shipping_key"] = "ship-9"
+        self.assertTrue(any("shipping_key 'ship-9' does not resolve" in e for e in ca.validate_plan(plan)))
+        high = ca.recommend(self.disc, ns(hero=10, ctc="high", anchor_price="189.95", upsell=["16:39.95:50"]))
+        up = next(r for r in high["landed_prices"] if r["kind"] == "upsell")
+        up["shipping_key"] = "standard"
+        self.assertTrue(any("upsell rows carry no shipping method" in e for e in ca.validate_plan(high)))
+
+    def test_recommend_shipping_key_segment(self):
+        plan = ca.recommend(self.disc, ns(shipping=["standard:9.99:ship-1"]))
+        self.assertEqual(plan["shipping_methods"], [{"shipping_method": "standard", "price": "9.99", "key": "ship-1"}])
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.recommend(self.disc, ns(shipping=["standard:9.99", "standard:12.99"]))
+        self.assertIn("give each entry its own key", str(cm.exception))
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.recommend(self.disc, ns(shipping=["standard:9.99:ship-1", "standard:12.99:ship-1"]))
+        self.assertIn("shipping key 'ship-1' given twice", str(cm.exception))
+        for bad in ("standard:9.99:", "standard:9.99:a:b", "standard"):
+            with self.assertRaises(ca.CampaignAdminError, msg=bad):
+                ca.recommend(self.disc, ns(shipping=[bad]))
+        self.assertNotIn("key", ca.recommend(self.disc, ns())["shipping_methods"][0])
+
+    # --- apply, resume, teardown --------------------------------------------
+
+    def test_manifest_keys_by_shipping_key(self):
+        plan = ladder_plan(self.disc)
+        state, t, sha, mp = self._applied(plan)
+        man = ca.apply(make_client(t), plan, sha, mp, None)
+        self.assertEqual([e["key"] for e in man.data["shipping_methods"]], ["ship-1", "ship-2", "ship-3", "ship-4"])
+        self.assertEqual([e["status"] for e in man.data["shipping_methods"]], ["created"] * 4)
+        remote = list(state["shipping-methods"][man.data["campaign"]["id"]].values())
+        self.assertEqual([(r["shipping_method"], r["price"]) for r in remote],
+                         [("standard", "9.99"), ("standard", "12.99"), ("standard", "14.99"), ("standard", "16.99")])
+        self.assertEqual(len({e["id"] for e in man.data["shipping_methods"]}), 4)
+        self.assertTrue(all(c[2]["shipping_method"] == "standard" for c in self._ship_posts(t)))
+
+    def _interrupt_second_shipping_post(self, plan, lands):
+        """apply with the second shipping POST answering 500; `lands` decides
+        whether the row was written before the answer was lost."""
+        state, t, sha, mp = self._applied(plan)
+        real, hits = t.child_create, {"n": 0}
+
+        def flaky(kind):
+            h = real(kind)
+
+            def w(path, body):
+                if kind == "shipping-methods":
+                    hits["n"] += 1
+                    if hits["n"] == 2:
+                        if lands:
+                            h(path, body)
+                        return 500, {"detail": "boom"}
+                return h(path, body)
+            return w
+        t.child_create = flaky
+        with self.assertRaises(ca.CampaignAdminError):
+            ca.apply(make_client(t), plan, sha, mp, None)
+        t.child_create = real
+        man = json.loads(mp.read_text())
+        self.assertEqual([e["status"] for e in man["shipping_methods"]], ["created", "pending"])
+        return state, t, sha, mp, man
+
+    def test_resume_reconciles_by_code_and_price(self):
+        plan = ladder_plan(self.disc)
+        state, t, sha, mp, before = self._interrupt_second_shipping_post(plan, lands=True)
+        cid = before["campaign"]["id"]
+        lost_id = next(r["id"] for r in state["shipping-methods"][cid].values() if r["price"] == "12.99")
+        t.calls.clear()
+        man = ca.apply(make_client(t), plan, sha, mp, mp)
+        e2 = man.entry("shipping_methods", "ship-2")
+        self.assertEqual((e2["status"], e2["id"], e2.get("reconciled")), ("created", lost_id, True))
+        self.assertIsNone(e2.get("intent"))
+        self.assertEqual(man.entry("shipping_methods", "ship-1")["id"], before["shipping_methods"][0]["id"])
+        self.assertEqual([c[2]["price"] for c in self._ship_posts(t)], ["14.99", "16.99"])
+        self.assertEqual(len(state["shipping-methods"][cid]), 4)
+
+    def test_resume_after_a_shipping_post_that_never_landed(self):
+        plan = ladder_plan(self.disc)
+        state, t, sha, mp, before = self._interrupt_second_shipping_post(plan, lands=False)
+        cid = before["campaign"]["id"]
+        t.calls.clear()
+        man = ca.apply(make_client(t), plan, sha, mp, mp)
+        # the one live row on that code is ship-1's and must never be claimed for ship-2
+        self.assertEqual(man.entry("shipping_methods", "ship-1")["id"], before["shipping_methods"][0]["id"])
+        self.assertEqual([c[2]["price"] for c in self._ship_posts(t)], ["12.99", "14.99", "16.99"])
+        ids = [e["id"] for e in man.data["shipping_methods"]]
+        self.assertEqual(len(set(ids)), 4)
+        self.assertEqual(sorted(state["shipping-methods"][cid]), sorted(ids))
+
+    def _assert_resume_stops(self, plan, t, sha, mp, state, cid, needle):
+        rows = len(state["shipping-methods"][cid])
+        t.calls.clear()
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.apply(make_client(t), plan, sha, mp, mp)
+        self.assertIn(needle, str(cm.exception))
+        self.assertEqual(self._ship_posts(t), [])
+        self.assertEqual(len(state["shipping-methods"][cid]), rows)
+        man = json.loads(mp.read_text())
+        self.assertEqual(next(e for e in man["shipping_methods"] if e["key"] == "ship-2")["status"], "pending")
+
+    def test_resume_stops_when_the_lost_rows_price_was_edited(self):
+        plan = ladder_plan(self.disc)
+        state, t, sha, mp, before = self._interrupt_second_shipping_post(plan, lands=True)
+        cid = before["campaign"]["id"]
+        lost = next(r for r in state["shipping-methods"][cid].values() if r["price"] == "12.99")
+        lost["prices"] = [{"currency": "USD", "price": "14.99"}]
+        self._assert_resume_stops(plan, t, sha, mp, state, cid, "matches 0 remote entries")
+
+    def test_resume_stops_on_ambiguous_shipping_match(self):
+        plan = ladder_plan(self.disc)
+        state, t, sha, mp, before = self._interrupt_second_shipping_post(plan, lands=True)
+        cid = before["campaign"]["id"]
+        state["shipping-methods"][cid][999] = {"id": 999, "shipping_method": "standard", "price": "12.99",
+                                              "prices": [{"currency": "USD", "price": "12.99"}]}
+        self._assert_resume_stops(plan, t, sha, mp, state, cid, "matches 2 remote entries")
+
+    def test_resume_stops_when_a_same_code_row_has_no_readable_price(self):
+        plan = ladder_plan(self.disc)
+        for unreadable in ([], [{"currency": "EUR", "price": "12.99"}], [{"currency": "USD", "price": "NaN"}]):
+            with self.subTest(prices=unreadable):
+                self.tmp.cleanup()
+                self.tmp = tempfile.TemporaryDirectory()
+                state, t, sha, mp, before = self._interrupt_second_shipping_post(plan, lands=True)
+                cid = before["campaign"]["id"]
+                lost = next(r for r in state["shipping-methods"][cid].values() if r["price"] == "12.99")
+                lost["prices"] = unreadable
+                self._assert_resume_stops(plan, t, sha, mp, state, cid, "unreadable")
+
+    def test_teardown_deletes_every_shipping_entry(self):
+        plan = ladder_plan(self.disc)
+        state, t, sha, mp = self._applied(plan)
+        man = ca.apply(make_client(t), plan, sha, mp, None)
+        cid = man.data["campaign"]["id"]
+        # a price changed remotely on one entry: identity fails before any DELETE
+        sid = man.entry("shipping_methods", "ship-3")["id"]
+        state["shipping-methods"][cid][sid]["prices"] = [{"currency": "USD", "price": "15.99"}]
+        with self.assertRaises(ca.CampaignAdminError):
+            ca.teardown(make_client(t), man, plan, sha, lambda: True)
+        self.assertFalse([c for c in t.calls if c[0] == "DELETE"])
+        state["shipping-methods"][cid][sid]["prices"] = [{"currency": "USD", "price": "NaN"}]
+        with self.assertRaises(ca.CampaignAdminError):
+            ca.teardown(make_client(t), man, plan, sha, lambda: True)
+        self.assertFalse([c for c in t.calls if c[0] == "DELETE"])
+        state["shipping-methods"][cid][sid]["prices"] = [{"currency": "USD", "price": "14.99"}]
+        ca.teardown(make_client(t), man, plan, sha, lambda: True)
+        ship_deletes = [c[1] for c in t.calls if c[0] == "DELETE" and "/shipping-methods/" in c[1]]
+        self.assertEqual(len(ship_deletes), 4)
+        self.assertEqual(state["shipping-methods"][cid], {})
+        self.assertEqual([e["status"] for e in man.data["shipping_methods"]], ["deleted"] * 4)
+
+    # --- verify and the plan gate -------------------------------------------
+
+    def test_verify_prices_each_row_with_its_shipping_key(self):
+        plan = ladder_plan(self.disc)
+        report, tt = self._run(plan)
+        self.assertEqual(report["result"], "PASS", json.dumps(report, indent=1))
+        cases = report["calculate_cases"]
+        self.assertTrue(any(c["case"] == "Buy 4 mixed variants" for c in cases))
+        self.assertTrue(any(c["case"] == "Buy 3 + exit voucher" for c in cases))
+        for c in cases:
+            tier = c["case"][:5]
+            self.assertEqual(c["expected_shipping"], RUNG[tier], c["case"])
+            self.assertEqual(c["shipping_key"], f"ship-{tier[-1]}", c["case"])
+        # the four rungs really went out as four different method ids
+        self.assertEqual(len({b["shipping_method"] for _, _, b, _ in tt.calls}), 4)
+        # a live rung that charges the wrong price fails exactly that tier's rows
+        report, _ = self._run(plan, ship_override={"ship-2": "9.99"})
+        failed = sorted(c["case"] for c in report["calculate_cases"] if c["result"] == "FAIL")
+        self.assertTrue(failed)
+        self.assertTrue(all(name.startswith("Buy 2 ") for name in failed), failed)
+        self.assertEqual(len(failed), sum(1 for c in cases if c["case"].startswith("Buy 2 ")))
+
+    def test_uncreated_rung_fails(self):
+        plan = ladder_plan(self.disc)
+
+        def drop_ship_4(state, man, cid, t):
+            man.data["shipping_methods"] = [e for e in man.data["shipping_methods"] if e["key"] != "ship-4"]
+            man.save()
+        report, tt = self._run(plan, after_apply=drop_ship_4)
+        self.assertEqual(report["result"], "FAIL")
+        self.assertEqual(self._checks(report)["shipping ship-4 journalled"]["result"], "FAIL")
+        buy4 = [c for c in report["calculate_cases"] if c["case"].startswith("Buy 4 ")]
+        self.assertTrue(buy4)
+        self.assertTrue(all(c["result"] == "FAIL" and c["status"] is None and "was not created" in c["error"] for c in buy4))
+        others = [c for c in report["calculate_cases"] if not c["case"].startswith("Buy 4 ")]
+        self.assertTrue(all(c["result"] == "PASS" for c in others))
+        self.assertEqual(len(tt.calls), len(others))
+        out, old = [], ca.print
+        ca.print = lambda *a, **k: out.append(" ".join(str(x) for x in a))
+        try:
+            ca.print_verify(report)
+        finally:
+            ca.print = old
+        self.assertTrue(any("Buy 4 single variant" in l and "shipping method ship-4 not created" in l for l in out), out)
+
+    def test_verify_checks_the_code_and_defaults_to_the_plans_first_method(self):
+        plan = ladder_plan(self.disc)
+        for row in plan["landed_prices"]:
+            row.pop("shipping_key", None)
+
+        def recode_ship_2(state, man, cid, t):
+            sid = man.entry("shipping_methods", "ship-2")["id"]
+            state["shipping-methods"][cid][sid]["shipping_method"] = "express"
+        report, _ = self._run(plan, after_apply=recode_ship_2)
+        checks = self._checks(report)
+        self.assertEqual(checks["shipping ship-2 code"]["result"], "FAIL")
+
+        def nan_ship_3(state, man, cid, t):
+            sid = man.entry("shipping_methods", "ship-3")["id"]
+            state["shipping-methods"][cid][sid]["prices"] = [{"currency": "USD", "price": "NaN"}]
+        nan_checks = self._checks(self._run(plan, after_apply=nan_ship_3)[0])
+        self.assertEqual(nan_checks["shipping ship-3 price"]["result"], "FAIL")
+        self.assertEqual(nan_checks["shipping ship-3 price"]["detail"], "unreadable vs 14.99")
+        self.assertEqual(checks["shipping ship-1 code"]["result"], "PASS")
+        # rows without a key use ship-1, the plan's first method
+        self.assertTrue(all(c["shipping_key"] == "ship-1" and c["expected_shipping"] == "9.99"
+                            for c in report["calculate_cases"]))
+
+        # the plan's first method was never created: keyless rows fail, they do not borrow ship-2
+        def drop_ship_1(state, man, cid, t):
+            man.data["shipping_methods"] = [e for e in man.data["shipping_methods"] if e["key"] != "ship-1"]
+            man.save()
+        report, tt = self._run(plan, after_apply=drop_ship_1)
+        self.assertEqual(report["result"], "FAIL")
+        self.assertTrue(all(c["result"] == "FAIL" and "'ship-1' was not created" in c["error"]
+                            for c in report["calculate_cases"]))
+        self.assertEqual(tt.calls, [])
+
+    def test_ladder_with_free_shipping_threshold(self):
+        plan = ladder_plan(self.disc, free_shipping_min_qty=2)
+        self.assertEqual(ca.validate_plan(plan), [])
+        report, _ = self._run(plan, free_from=2)
+        self.assertEqual(report["result"], "PASS", json.dumps(report, indent=1))
+        for c in report["calculate_cases"]:
+            want = "9.99" if c["case"].startswith("Buy 1 ") else "0.00"
+            self.assertEqual(c["expected_shipping"], want, c["case"])
+        self.assertEqual(self._checks(report)["offer free-shipping free-shipping coverage"]["result"], "PASS")
+
+    def test_gate_labels_show_the_rows_shipping_price(self):
+        lines = self._gate(ladder_plan(self.disc))
+        for tier, price in RUNG.items():
+            self.assertTrue(self._row(lines, tier).endswith(f"shipping {price}"), tier)
+        self.assertIn("  standard  9.99  key ship-1", lines)
+        self.assertIn("  standard  16.99  key ship-4", lines)
+        # the gate runs before validation: an unresolved key says so instead of borrowing a price
+        plan = ladder_plan(self.disc)
+        plan["landed_prices"][1]["shipping_key"] = "ship-9"
+        self.assertTrue(self._row(self._gate(plan), "Buy 2").endswith("shipping ? (key 'ship-9' unresolved)"))
+
+    def test_code_only_plan_unchanged(self):
+        plan = ca.recommend(self.disc, ns())
+        self.assertEqual(plan["shipping_methods"], [{"shipping_method": "standard", "price": "6.95"}])
+        self.assertEqual(ca.validate_plan(plan), [])
+        lines = self._gate(plan)
+        self.assertIn("  standard  6.95", lines)
+        self.assertFalse(any(" key " in l for l in lines))
+        self.assertTrue(self._row(lines, "Buy 3").endswith("shipping 6.95"))
+        report, tt = self._run(plan)
+        self.assertEqual(report["result"], "PASS", json.dumps(report, indent=1))
+        state, t, sha, mp = self._applied(plan)
+        man = ca.apply(make_client(t), plan, sha, mp, None)
+        self.assertEqual([e["key"] for e in man.data["shipping_methods"]], ["standard"])
+        for c in report["calculate_cases"]:
+            self.assertEqual((c["shipping_key"], c["expected_shipping"]), ("standard", "6.95"), c["case"])
+        self.assertTrue(all("shipping_method" in b for _, _, b, _ in tt.calls))
+        # an upsell carries no key, as before
+        high = ca.recommend(self.disc, ns(hero=10, ctc="high", anchor_price="189.95", upsell=["16:39.95:50"]))
+        report, _ = self._run(high)
+        up = next(c for c in report["calculate_cases"] if c["shipping"] == "none")
+        self.assertEqual((up["shipping_key"], up["expected_shipping"]), (None, None))
 
 
 if __name__ == "__main__":
