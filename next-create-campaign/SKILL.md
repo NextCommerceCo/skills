@@ -405,9 +405,17 @@ bash <skill-dir>/next-create-campaign.sh plan \
 ```
 
 `--check-store` also asks the store whether a campaign with the same name
-already exists. `plan` prints the ordered request list, the landed prices table
-(each row says whether it ships free, pays shipping, or depends on the variant
-mix), the rationale, any blockers, and the plan's SHA-256.
+already exists. `plan` prints the ordered request list, the landed prices table,
+the rationale, any blockers, and the plan's SHA-256. Each landed row ends with
+one of five shipping labels:
+
+| Label | Meaning |
+|---|---|
+| `shipping free` | a free-shipping offer covers every variant mix of the row |
+| `shipping <price>` | no free-shipping offer can apply, so the first shipping method is charged |
+| `shipping depends on variant mix` | some mixes of the row meet a free-shipping offer and some do not |
+| `shipping partly discounted (not modelled; prove by hand)` | a shipping offer below 100% touches the row; verify expects full shipping there |
+| `no shipping (post-purchase)` | an upsell row, which carries no shipping method |
 
 If there are blockers, stop and clear them (see Failure modes), then re-run
 `recommend` and `plan`. The engine will not apply a plan with blockers.

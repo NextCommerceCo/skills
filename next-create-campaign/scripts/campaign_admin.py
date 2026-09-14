@@ -2015,7 +2015,9 @@ def _free_shipping_coverage(cases: list, offers: list, key, n: int, scope, ship_
         if not below:
             problems.append(f"no calculate case with exactly {units(n - 1)}")
         elif all(ship == "free" for ship, _ in below):
-            problems.append(f"threshold masked by offer {freed_by_other(below[0][1]) or '?'} at "
+            # a cart below this offer's threshold can only be free through another
+            # offer (keys are unique in a validated plan), so this names one
+            problems.append(f"threshold masked by offer {freed_by_other(below[0][1])} at "
                             f"{units(n - 1)}; calculate cannot prove it")
     if problems:
         dropped = len(checkout_candidates) - len(checkout)
@@ -2179,13 +2181,16 @@ def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: st
     # An offer added in the dashboard can free or discount a cart the way a
     # planned offer should, so calculate would pass a wrong or missing threshold.
     # The live set has to be exactly what this run created, read after the probes
-    # so an offer added while they ran is caught too. A store with no offers
-    # endpoint (404/405) and a plan with no offers has nothing to compare; any
-    # other failure to list leaves the live set unknown, which is not a pass.
+    # so an offer added while they ran is caught too.
     try:
         live_offers = client.paginate(f"/api/admin/campaigns/{cid}/offers/")
     except CampaignAdminError as exc:
-        if plan.get("offers") or getattr(exc, "status", None) not in (404, 405):
+        # Skip the check only when both hold: the store has no offers endpoint
+        # (404/405) and the plan has no offers, so there is nothing to compare.
+        # Any other failure to list leaves the live set unknown, which is not a pass.
+        endpoint_absent = getattr(exc, "status", None) in (404, 405)
+        nothing_planned = not plan.get("offers")
+        if not (endpoint_absent and nothing_planned):
             check("campaign offers match the plan", False, f"could not list live offers: {exc}")
     else:
         ours = {e.get("id") for e in man.data["offers"]
