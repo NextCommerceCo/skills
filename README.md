@@ -20,7 +20,7 @@ Cursor, GitHub Copilot, and any other agent that reads markdown.
 | [**Bulk Subscription Actions**](next-bulk-subscription/) | Operations | Pause, cancel, or update subscriptions in bulk from a CSV/XLSX of subscription IDs, with dry-run and verification. |
 | [**Daily Ops Risk Scan**](next-ops-scan/) | Operations | Read-only daily risk scan for one store: Incomplete and Rejected orders, delivery-tracking failures, and stale shipments. |
 | [**New Campaign Setup**](next-campaigns-setup/) | Campaigns | Scaffold and configure a new campaign-page-kit campaign end to end: project, starter template, config, and analytics. |
-| [**Campaign Provisioning**](next-create-campaign/) | Campaigns | Create a launch-ready Campaigns App campaign over the Admin API: packages, shipping, and tier and voucher offers, behind a plan-hash approval gate. |
+| [**Campaign Provisioning**](next-campaigns-create/) | Campaigns | Create a launch-ready Campaigns App campaign over the Admin API: packages, shipping, and tier and voucher offers, behind a plan-hash approval gate. |
 <!-- END GENERATED SKILLS TABLE -->
 
 Each skill directory holds a `README.md` for the person running it (what it
@@ -98,7 +98,7 @@ before running `status` or `install` from a checkout.
 ## Updating
 
 An installed skill is a copy. It does not change when this repository does.
-`next-create-campaign` (0.5.0 and later) tells its agent to run the launcher's
+`next-campaigns-create` (named `next-create-campaign` at 0.5.0) tells its agent to run the launcher's
 `check-update` command first, which reports a newer version and the update
 command for your copy. Running the launcher's other commands directly skips the
 check. The other skills do not notify you yet, so check before
@@ -108,7 +108,7 @@ starting work that depends on one.
   installed `SKILL.md`. From a checkout, `./skills.sh status` compares each
   installed copy with the source and marks older copies `stale`. A skill that
   ships a launcher prints it too, for example
-  `bash ~/.claude/skills/next-create-campaign/next-create-campaign.sh --version`.
+  `bash ~/.claude/skills/next-campaigns-create/next-campaigns-create.sh --version`.
 - **Check for a newer one.** From a checkout, run `git pull --ff-only` and then
   `./skills.sh status`. Without a checkout, compare your version with that
   skill's `version` in
@@ -122,6 +122,16 @@ starting work that depends on one.
   changes included. Search the
   [merged pull requests](https://github.com/NextCommerceCo/skills/pulls?q=is%3Apr+is%3Amerged)
   for the skill's name.
+
+- **Renamed skills.** `next-create-campaign` became `next-campaigns-create` at
+  0.6.0. A copy under the old name is not updated by the installer or the
+  `skills` CLI, and its `check-update` reports that it could not check, because
+  the catalog no longer lists that name. Move it in one step: install the new
+  name, then delete the old folder. From a checkout,
+  `./skills.sh install <target> next-campaigns-create && rm -r <target-dir>/next-create-campaign`,
+  or without one,
+  `npx skills add NextCommerceCo/skills -g --skill next-campaigns-create && npx skills remove -g next-create-campaign`.
+  Release notes before the rename are under the old name.
 
 The repository has no git tags, GitHub Releases or changelog files yet.
 

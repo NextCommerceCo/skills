@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Tell the operator whether this installed skill is behind the published version.
 
-Normally run through `next-create-campaign.sh check-update`, which prints the
+Normally run through `next-campaigns-create.sh check-update`, which prints the
 installed version line first and guarantees exit 0 even if this script cannot
 start. Run directly (`python3 scripts/update_check.py`) where there is no bash.
 

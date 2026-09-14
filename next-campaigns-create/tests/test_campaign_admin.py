@@ -445,7 +445,7 @@ class Recommendation(unittest.TestCase):
         d["offers_supported"] = False
         plan = ca.recommend(d, ns())
         self.assertTrue(plan["blockers"] and "nc_campaign_id" in plan["blockers"][0])
-        for part in ("next-create-campaign.sh metadata --store teststore --apply", "metadata:write", "re-run discover"):
+        for part in ("next-campaigns-create.sh metadata --store teststore --apply", "metadata:write", "re-run discover"):
             self.assertIn(part, plan["blockers"][0])
         self.assertEqual(plan["offers"], [])
         self.assertTrue(any("dashboard" in h for h in plan["handoff"]))

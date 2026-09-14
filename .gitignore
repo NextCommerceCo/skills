@@ -1,3 +1,5 @@
 .env
 __pycache__/
+# Run directories from next-create-campaign, before its rename to next-campaigns-create 0.6.0
 next-create-campaign-runs/
+next-campaigns-create-runs/

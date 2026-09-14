@@ -218,7 +218,7 @@
       },
       "related_skills": [
         {
-          "id": "next-create-campaign",
+          "id": "next-campaigns-create",
           "relationship": "Upstream Admin API provisioning that creates the campaign, its api_key and package ids before scaffolding"
         },
         {
@@ -260,10 +260,10 @@
       }
     },
     {
-      "id": "next-create-campaign",
+      "id": "next-campaigns-create",
       "name": "Campaign Provisioning",
-      "version": "0.5.0",
-      "path": "next-create-campaign/SKILL.md",
+      "version": "0.6.0",
+      "path": "next-campaigns-create/SKILL.md",
       "domain": "campaigns",
       "description": "Create a launch-ready Campaigns App campaign over the Admin API: packages, shipping, and tier and voucher offers, behind a plan-hash approval gate.",
       "related_skills": [

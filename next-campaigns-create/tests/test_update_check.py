@@ -48,7 +48,7 @@ class Base(unittest.TestCase):
         self.home.mkdir()
         self.env = {"HOME": str(self.home), "XDG_CACHE_HOME": str(self.root / "cache")}
 
-    def make_skill(self, parent: Path, version="0.3.1", name="next-create-campaign") -> Path:
+    def make_skill(self, parent: Path, version="0.3.1", name="next-campaigns-create") -> Path:
         skill = parent / name
         skill.mkdir(parents=True)
         lines = ["---", f"name: {name}"] + ([f"version: {version}"] if version is not None else []) + ["---", "", "# body"]
@@ -56,7 +56,7 @@ class Base(unittest.TestCase):
         return skill
 
     def run_check(self, skill, transport=None, **kw):
-        transport = transport or FakeTransport(catalog(next_create_campaign="0.4.0"))
+        transport = transport or FakeTransport(catalog(next_campaigns_create="0.4.0"))
         return uc.check(skill, self.env, now=kw.pop("now", NOW), transport=transport, **kw), transport
 
 
@@ -91,7 +91,7 @@ class Comparison(Base):
 
     def test_unrelated_skill_bump_does_not_warn(self):
         skill = self.make_skill(self.root / "anywhere", version="0.4.0")
-        transport = FakeTransport(catalog(next_create_campaign="0.4.0", next_theme_dev="9.0.0"))
+        transport = FakeTransport(catalog(next_campaigns_create="0.4.0", next_theme_dev="9.0.0"))
         result, _ = self.run_check(skill, transport)
         self.assertEqual(result["status"], "up-to-date")
 
@@ -127,7 +127,7 @@ class Failures(Base):
         self.assert_could_not_check(FakeTransport(catalog(next_theme_dev="1.0.0")))
 
     def test_hostile_version_ignored(self):
-        body = json.dumps({"skills": [{"id": "next-create-campaign", "version": "9.9.9; rm -rf ~", "extra": "x"}]}).encode()
+        body = json.dumps({"skills": [{"id": "next-campaigns-create", "version": "9.9.9; rm -rf ~", "extra": "x"}]}).encode()
         self.assert_could_not_check(FakeTransport(body))
 
     def test_hung_transport_cut_at_deadline(self):
@@ -163,7 +163,7 @@ class Cache(Base):
 
     def test_failure_does_not_overwrite_concurrent_success(self):
         skill = self.make_skill(self.root / "anywhere")
-        good = FakeTransport(catalog(next_create_campaign="0.4.0"))
+        good = FakeTransport(catalog(next_campaigns_create="0.4.0"))
 
         def fail_after_other_launch_succeeds(url, timeout):
             uc.check(skill, self.env, transport=good, no_cache=True)  # a concurrent launch wins the race
@@ -175,7 +175,7 @@ class Cache(Base):
 
     def test_no_cache_never_reports_cached_result(self):
         skill = self.make_skill(self.root / "anywhere")
-        good = FakeTransport(catalog(next_create_campaign="0.4.0"))
+        good = FakeTransport(catalog(next_campaigns_create="0.4.0"))
 
         def fail_after_other_launch_succeeds(url, timeout):
             uc.check(skill, self.env, transport=good, no_cache=True)
@@ -196,7 +196,7 @@ class Cache(Base):
     def test_installed_version_never_cached(self):
         skill = self.make_skill(self.root / "anywhere")
         self.run_check(skill)
-        (skill / "SKILL.md").write_text("---\nname: next-create-campaign\nversion: 0.4.0\n---\n")
+        (skill / "SKILL.md").write_text("---\nname: next-campaigns-create\nversion: 0.4.0\n---\n")
         result, transport = self.run_check(skill, now=NOW + 60)
         self.assertEqual(transport.calls, [])
         self.assertEqual(result["status"], "up-to-date")
@@ -278,7 +278,7 @@ class Cache(Base):
 class InstallMethod(Base):
     def lock(self, path: Path, **entry):
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"version": 3, "skills": {"next-create-campaign": {"source": "NextCommerceCo/skills", **entry}}}))
+        path.write_text(json.dumps({"version": 3, "skills": {"next-campaigns-create": {"source": "NextCommerceCo/skills", **entry}}}))
 
     def update_text(self, skill) -> str:
         result, _ = self.run_check(skill, no_cache=True)
@@ -304,7 +304,7 @@ class InstallMethod(Base):
         skill = self.make_skill(self.home / ".agents" / "skills")
         self.lock(self.home / ".agents" / ".skill-lock.json")
         text = self.update_text(skill)
-        self.assertIn("npx skills update -g next-create-campaign", text)
+        self.assertIn("npx skills update -g next-campaigns-create", text)
         self.assertIn("copy your changes out first", text)
 
     def test_npx_pinned_ref(self):
@@ -312,7 +312,7 @@ class InstallMethod(Base):
         self.lock(self.home / ".agents" / ".skill-lock.json", ref="v0")
         text = self.update_text(skill)
         self.assertIn("pinned to v0", text)
-        self.assertIn("npx skills add NextCommerceCo/skills -g --skill next-create-campaign", text)
+        self.assertIn("npx skills add NextCommerceCo/skills -g --skill next-campaigns-create", text)
         self.assertNotIn("npx skills update -g", text)
 
     def test_npx_lock_under_xdg_state_home(self):
@@ -332,20 +332,20 @@ class InstallMethod(Base):
     def test_agents_copy_without_lock_is_installer_target(self):
         skill = self.make_skill(self.home / ".agents" / "skills")
         text = self.update_text(skill)
-        self.assertIn("./skills.sh install agents next-create-campaign", text)
+        self.assertIn("./skills.sh install agents next-campaigns-create", text)
         self.assertNotIn("npx", text)
 
     def test_lock_from_other_source_ignored(self):
         skill = self.make_skill(self.home / ".agents" / "skills")
         lock = self.home / ".agents" / ".skill-lock.json"
         lock.parent.mkdir(parents=True, exist_ok=True)
-        lock.write_text(json.dumps({"skills": {"next-create-campaign": {"source": "someone/else"}}}))
+        lock.write_text(json.dumps({"skills": {"next-campaigns-create": {"source": "someone/else"}}}))
         self.assertNotIn("npx", self.update_text(skill))
 
     def test_claude_and_codex_targets(self):
         for target in ("claude", "codex"):
             skill = self.make_skill(self.home / f".{target}" / "skills")
-            self.assertIn(f"./skills.sh install {target} next-create-campaign", self.update_text(skill))
+            self.assertIn(f"./skills.sh install {target} next-campaigns-create", self.update_text(skill))
 
     def test_checkout_on_main_bound_to_checkout_path(self):
         skill = self.make_checkout(self.root / "src dir")
@@ -373,7 +373,7 @@ class InstallMethod(Base):
         skill = self.make_skill(self.root / "custom target")
         text = self.update_text(skill)
         self.assertIn("could not be identified", text)
-        self.assertIn(f"./skills.sh install --target '{skill.parent}' next-create-campaign", text)
+        self.assertIn(f"./skills.sh install --target '{skill.parent}' next-campaigns-create", text)
         self.assertNotIn("npx", text)
 
 
@@ -394,7 +394,7 @@ class NoSecrets(Base):
                 return super().__getitem__(key)
 
         env = TokenEnv(self.env, NEXT_ADMIN_API_TOKEN="secret-value")
-        result = uc.check(skill, env, now=NOW, transport=FakeTransport(catalog(next_create_campaign="0.4.0")))
+        result = uc.check(skill, env, now=NOW, transport=FakeTransport(catalog(next_campaigns_create="0.4.0")))
         self.assertEqual(result["status"], "update-available")
         self.assertNotIn("secret-value", json.dumps(result))
 
@@ -416,7 +416,7 @@ class NoSecrets(Base):
         out = io.StringIO()
         with redirect_stdout(out):
             uc.main(["--skill-dir", str(skill), "--json"], env=self.env,
-                    transport=FakeTransport(catalog(next_create_campaign="0.4.0")))
+                    transport=FakeTransport(catalog(next_campaigns_create="0.4.0")))
         data = json.loads(out.getvalue())
         self.assertEqual({"skill", "installed", "latest", "status", "lines"} - set(data), set())
         self.assertEqual(data["status"], "update-available")

@@ -67,7 +67,7 @@ ask whoever set up your AI assistant, or ask the assistant itself.
 
 Ask your AI assistant something like:
 
-> Run next-create-campaign for mystore: create a campaign for the Photo
+> Run next-campaigns-create for mystore: create a campaign for the Photo
 > Bracelet at 49.95, low cost-to-consumer, standard shipping 6.95.
 
 It then walks you through, step by step:
@@ -129,9 +129,18 @@ version exists, and the installer's install command brings it up to date. If
 you installed without a copy, the skills command-line tool has an update
 command that refreshes it. Your assistant can run either one for you.
 
+This skill used to be called next-create-campaign. If you installed it under
+that name, install next-campaigns-create and then remove the old copy, because
+the installer will not update it. A copy under the old name can't find itself
+in the catalog any more, so its update check will say it couldn't check. Your
+assistant can do the reinstall for you.
+
 Release notes, including any change to how the skill works, are in the pull
 request that shipped each version. You can browse the
-[merged pull requests for this skill](https://github.com/NextCommerceCo/skills/pulls?q=is%3Apr+is%3Amerged+next-create-campaign).
+[merged pull requests from version 0.6.0 on](https://github.com/NextCommerceCo/skills/pulls?q=is%3Apr+is%3Amerged+next-campaigns-create)
+and the
+[merged pull requests for earlier versions](https://github.com/NextCommerceCo/skills/pulls?q=is%3Apr+is%3Amerged+next-create-campaign),
+which carry the old name.
 
 From version 0.5.0, the skill tells your assistant to check for a newer
 version before it starts work. If one exists, your assistant shows you which version you have, which is
