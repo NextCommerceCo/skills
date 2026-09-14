@@ -64,6 +64,7 @@ Update check:
 Environment:
   NEXT_CREATE_CAMPAIGN_PYTHON   Python 3.9+ interpreter to use (default: python3)
   NEXT_SKILLS_NO_UPDATE_CHECK   set to 1 to skip the check-update request
+  NEXT_SKILLS_CHECK_TIMEOUT     seconds before check-update gives up (default: 10)
 
 Exit codes:
   0 success. 1 refused or failed. 2 usage error, the apply gate, or no usable Python.
@@ -131,11 +132,27 @@ case "${1:-}" in
       [ -f "$SKILL_DIR/SKILL.md" ] && version="$(skill_version 2>/dev/null || true)"
       echo "next-create-campaign ${version:-unknown}"
     fi
-    if python_ok && [ -f "$UPDATER" ] && "$PY" "$UPDATER" "$@"; then
-      exit 0
+    limit="${NEXT_SKILLS_CHECK_TIMEOUT:-10}"
+    case "$limit" in ''|*[!0-9]*) limit=10 ;; esac
+    if python_ok && [ -f "$UPDATER" ]; then
+      # A watchdog bounds the whole check, including a hung interpreter start or a
+      # shim that forks. set -m gives the child its own process group, so the
+      # watchdog stops every process that could hold the output pipe open.
+      set -m
+      "$PY" "$UPDATER" "$@" &
+      child=$!
+      ( sleep "$limit" && kill -TERM -- "-$child" ) >/dev/null 2>&1 &
+      watchdog=$!
+      set +m
+      rc=0
+      wait "$child" || rc=$?
+      kill -TERM -- "-$watchdog" >/dev/null 2>&1 || true
+      if [ "$rc" -eq 0 ]; then
+        exit 0
+      fi
     fi
     if [ "$json" = true ]; then
-      echo '{"status": "could-not-check", "lines": ["Could not check for updates."]}'
+      printf '{"status": "could-not-check", "lines": ["Could not check for updates.", "  Latest is listed at %s"], "catalog": "%s"}\n' "$CATALOG_PAGE" "$CATALOG_PAGE"
     else
       echo "Could not check for updates."
       echo "  Latest is listed at $CATALOG_PAGE"

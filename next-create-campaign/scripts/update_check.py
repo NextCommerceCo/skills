@@ -20,8 +20,8 @@ directory, read .env or any token, send credentials, or exit non-zero.
 
 Environment:
   NEXT_SKILLS_NO_UPDATE_CHECK=1  skip the check entirely
-  NEXT_SKILLS_CATALOG_URL        test-only catalog override; bypasses the cache and
-                                 labels the notice with the override URL
+  NEXT_SKILLS_CATALOG_URL        test-only catalog override, https:// or file:// only;
+                                 bypasses the cache and labels the notice with the URL
 
 Stdlib only. Python 3.9+.
 """
@@ -57,6 +57,7 @@ FRONTMATTER_FIELD_RE = re.compile(r"^(name|version):\s*(.*?)\s*$")
 
 DISABLE_ENV = "NEXT_SKILLS_NO_UPDATE_CHECK"
 OVERRIDE_ENV = "NEXT_SKILLS_CATALOG_URL"
+OVERRIDE_SCHEMES = ("https://", "file://")
 
 
 # ---------------------------------------------------------------- versions
@@ -200,15 +201,16 @@ def latest_versions(env, now: float, transport, no_cache: bool, deadline: float)
         if cached is not None:
             return (cached["versions"] if cached["ok"] else None), label
     try:
-        if not override and not url.startswith("https://"):
-            raise ValueError("catalog URL must be https")
+        allowed = OVERRIDE_SCHEMES if override else ("https://",)
+        if not url.startswith(allowed):
+            raise ValueError("catalog URL scheme not allowed")
         versions = parse_catalog(fetch_with_deadline(transport, url, deadline))
     except Exception:
-        # Another launch may have refreshed the cache while this fetch failed;
-        # never replace a fresh success with a failure.
         concurrent = load_cache(path, time.time())
         if concurrent is not None and concurrent["ok"]:
-            return concurrent["versions"], label
+            # Another launch refreshed the cache while this fetch failed. Keep its
+            # success on disk; report it only when the caller accepts cached data.
+            return (None if no_cache else concurrent["versions"]), label
         save_cache(path, now, False, {})
         return None, label
     save_cache(path, now, True, versions)
@@ -263,11 +265,10 @@ def detect_install(skill_dir: Path, skill_id: str, env) -> dict:
     home = _home(env)
 
     # 1. npx skills global store with a lock entry for this skill from this repo.
+    # The store is always ~/.agents/skills; only the lock file follows XDG_STATE_HOME.
     state = env.get("XDG_STATE_HOME")
     lock_path = (Path(state) / "skills" / ".skill-lock.json") if state else (home / ".agents" / ".skill-lock.json" if home else None)
-    stores = [p for p in (home / ".agents" / "skills" if home else None,
-                          lock_path.parent / "skills" if lock_path else None) if p is not None]
-    if lock_path is not None and any(_same(parent, store) for store in stores):
+    if lock_path is not None and home is not None and _same(parent, home / ".agents" / "skills"):
         try:
             lock = json.loads(lock_path.read_text(encoding="utf-8"))
             entry = lock.get("skills", {}).get(skill_id) if isinstance(lock, dict) else None
@@ -393,7 +394,8 @@ def main(argv=None, env=None, transport=urllib_transport) -> int:
     as_json = "--json" in (sys.argv[1:] if argv is None else argv)
     try:
         parser = argparse.ArgumentParser(description="Check whether this skill has a newer published version.")
-        parser.add_argument("--no-cache", action="store_true", help="fetch the catalog even if the cache is fresh")
+        parser.add_argument("--no-cache", action="store_true",
+                            help="always fetch; report only what this run fetched, never a cached result")
         parser.add_argument("--json", action="store_true", help="print the result as JSON")
         parser.add_argument("--skill-dir", type=Path, default=Path(__file__).resolve().parents[1],
                             help=argparse.SUPPRESS)

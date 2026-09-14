@@ -14,6 +14,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -172,7 +173,24 @@ class Launcher(unittest.TestCase):
         self.assertIn("Could not check for updates", r.stdout)
         r = run("check-update", "--json", cwd=self.root, env=self.update_env(NEXT_CREATE_CAMPAIGN_PYTHON=str(stub)))
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(json.loads(r.stdout)["status"], "could-not-check")
+        data = json.loads(r.stdout)
+        self.assertEqual(data["status"], "could-not-check")
+        self.assertIn("skills.json", data["catalog"])
+
+    def test_check_update_hung_interpreter_is_cut_off(self):
+        stub = self.root / "hung-python"
+        stub.write_text(
+            "#!/usr/bin/env bash\n"
+            f'if [ "${{1:-}}" = "-c" ]; then exec "{sys.executable}" "$@"; fi\n'
+            "sleep 30\n"
+        )
+        stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
+        started = time.monotonic()
+        r = run("check-update", cwd=self.root,
+                env=self.update_env(NEXT_CREATE_CAMPAIGN_PYTHON=str(stub), NEXT_SKILLS_CHECK_TIMEOUT="1"))
+        self.assertLess(time.monotonic() - started, 10)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Could not check for updates", r.stdout)
 
     def test_check_update_exits_zero_when_checker_missing(self):
         copy = self.root / "copy"

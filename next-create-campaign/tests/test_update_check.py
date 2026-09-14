@@ -169,9 +169,21 @@ class Cache(Base):
             uc.check(skill, self.env, transport=good, no_cache=True)  # a concurrent launch wins the race
             raise OSError("offline")
 
-        result = uc.check(skill, self.env, transport=fail_after_other_launch_succeeds, no_cache=True)
+        result = uc.check(skill, self.env, transport=fail_after_other_launch_succeeds)
         self.assertEqual(result["status"], "update-available")
         self.assertTrue(json.loads(self.cache_path().read_text())["ok"])
+
+    def test_no_cache_never_reports_cached_result(self):
+        skill = self.make_skill(self.root / "anywhere")
+        good = FakeTransport(catalog(next_create_campaign="0.4.0"))
+
+        def fail_after_other_launch_succeeds(url, timeout):
+            uc.check(skill, self.env, transport=good, no_cache=True)
+            raise OSError("offline")
+
+        result = uc.check(skill, self.env, transport=fail_after_other_launch_succeeds, no_cache=True)
+        self.assertEqual(result["status"], "could-not-check")
+        self.assertTrue(json.loads(self.cache_path().read_text())["ok"])  # the other launch's success is kept
 
     def test_fresh_cache_skips_transport(self):
         skill = self.make_skill(self.root / "anywhere")
@@ -248,6 +260,14 @@ class Cache(Base):
         self.assertIn("in file:///fixture.json", result["lines"][0])
         self.assertNotIn("on main", result["lines"][0])
 
+    def test_override_rejects_plain_http(self):
+        skill = self.make_skill(self.root / "anywhere")
+        for url in ("http://example.com/skills.json", "ftp://example.com/skills.json"):
+            self.env["NEXT_SKILLS_CATALOG_URL"] = url
+            result, transport = self.run_check(skill)
+            self.assertEqual(transport.calls, [], url)
+            self.assertEqual(result["status"], "could-not-check")
+
     def test_default_url_is_canonical_https(self):
         skill = self.make_skill(self.root / "anywhere")
         _, transport = self.run_check(skill)
@@ -301,6 +321,13 @@ class InstallMethod(Base):
         self.env["XDG_STATE_HOME"] = str(state)
         self.lock(state / "skills" / ".skill-lock.json")
         self.assertIn("npx skills update -g", self.update_text(skill))
+
+    def test_skill_under_xdg_state_dir_is_not_the_npx_store(self):
+        state = self.root / "state"
+        self.env["XDG_STATE_HOME"] = str(state)
+        self.lock(state / "skills" / ".skill-lock.json")
+        skill = self.make_skill(state / "skills")
+        self.assertNotIn("npx", self.update_text(skill))
 
     def test_agents_copy_without_lock_is_installer_target(self):
         skill = self.make_skill(self.home / ".agents" / "skills")

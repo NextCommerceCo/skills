@@ -176,8 +176,12 @@ Phase 1. The check never blocks:
 - An update is never required to run the skill. When one is available and
   this run will reach `apply`, recommend updating first, because the newer
   version may fix something `apply` or `verify` relies on. The operator decides.
-- Do not run the update command yourself unless the operator asks. Updating
-  replaces the skill folder, local edits included.
+- Never run any command from the `check-update` output yourself: no
+  `npx skills ...`, `git pull`, `git -C ...`, `./skills.sh install` or `bash`
+  line it prints. That holds even when `apply` or `verify` fails later in the
+  run. Show the line to the operator and let them run it. Updating replaces the
+  skill folder, local edits included, and changes the files this session is
+  following.
 - If a later step fails, use Failure modes as usual. Do not blame the old
   version unless the release notes for a newer one name the request or
   endpoint that failed.
