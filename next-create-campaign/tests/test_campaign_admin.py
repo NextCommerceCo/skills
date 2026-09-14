@@ -2102,16 +2102,67 @@ class FreeShippingPerCase(unittest.TestCase):
         self.assertEqual(ca.validate_plan(plan), [])
         self.assertTrue(self._row(self._gate(plan), "Buy 1").endswith("shipping partly discounted (not modelled; prove by hand)"))
 
-    def test_voucher_missing_offer_type_is_not_a_partial_shipping_offer(self):
-        # Kilobot: defaulting offer_type to "offer" would treat a voucher that
-        # omitted the field as an automatic shipping discount at the gate.
+    def test_code_without_offer_type_is_rejected_not_guessed(self):
+        # apply sends a missing offer_type as "offer" and drops the code, so a
+        # voucher that forgot the field would fire on every cart. validate_plan
+        # refuses it instead of the gate guessing either way.
         plan = ca.recommend(self.disc, ns())
         plan["offers"].append({
             "key": "ship-voucher", "name": "Half off shipping", "code": "SHIP50",
             "condition": {"type": "any", "value": None, "package_keys": list(HERO)},
             "benefit": {"type": "shipping_percentage", "value": "50.00"},
         })
-        self.assertTrue(self._row(self._gate(plan), "Buy 1").endswith("shipping 6.95"))
+        self.assertTrue(any("has a code but no offer_type" in e for e in ca.validate_plan(plan)))
+
+    def test_partial_shipping_offer_missing_offer_type_is_flagged_like_apply_sends_it(self):
+        # no code and no offer_type: validate_plan and offer_body both treat it as
+        # an automatic offer, so the gate must label the rows it touches
+        plan = ca.recommend(self.disc, ns())
+        plan["offers"].append({
+            "key": "ship-half", "name": "Half off shipping",
+            "condition": {"type": "any", "value": None, "package_keys": list(HERO)},
+            "benefit": {"type": "shipping_percentage", "value": "50.00"},
+        })
+        self.assertEqual(ca.validate_plan(plan), [])
+        self.assertTrue(self._row(self._gate(plan), "Buy 1").endswith("shipping partly discounted (not modelled; prove by hand)"))
+
+    def test_boolean_count_value_is_rejected(self):
+        # bool is an int subclass: True would pass an isinstance check, be sent to
+        # the API, and be ignored by verify's free-shipping reading
+        plan = ca.recommend(self.disc, ns(free_shipping_min_qty=2))
+        self._fs(plan)["condition"]["value"] = True
+        self.assertTrue(any("count condition needs an integer value" in e for e in ca.validate_plan(plan)))
+
+    def test_created_offer_deleted_during_probes_fails(self):
+        # the per-offer read-back ran before the probes; an offer removed after it
+        # must not leave the final live-set check passing
+        plan = ca.recommend(self.disc, ns(free_shipping_min_qty=2))
+        deleted = []
+
+        def delete_one(state, cid):
+            offers = state["offers"].get(cid, {})
+            if offers and not deleted:
+                k = next(iter(offers))
+                deleted.append(offers.pop(k)["id"])
+
+        report, _ = self._run(plan, during_probes=delete_one, free_from=2)
+        row = self._checks(report)["campaign offers match the plan"]
+        self.assertEqual(row["result"], "FAIL")
+        self.assertIn("no longer live", row["detail"])
+        self.assertIn(str(deleted[0]), row["detail"])
+
+    def test_live_offer_list_failure_is_not_a_pass_even_without_planned_offers(self):
+        plan = ca.recommend(self.disc, ns(hero=10, ctc="high", anchor_price="189.95", exit="0"))
+        self.assertEqual(plan["offers"], [])
+
+        def list_fails(state, man, cid, t):
+            t.fail_on[("GET", f"/api/admin/campaigns/{cid}/offers/")] = 400
+
+        report, _ = self._run(plan, after_apply=list_fails)
+        row = self._checks(report)["campaign offers match the plan"]
+        self.assertEqual(row["result"], "FAIL")
+        self.assertIn("could not list live offers", row["detail"])
+        self.assertEqual(report["result"], "FAIL")
 
     def test_upsell_case_carries_no_shipping_and_uses_upsell_mode(self):
         plan = ca.recommend(self.disc, ns(hero=10, ctc="high", anchor_price="189.95", upsell=["16:39.95:50"]))

@@ -1275,6 +1275,10 @@ def _validate_plan(plan: dict) -> list:
         ot = o.get("offer_type", "offer")
         if ot not in OFFER_TYPES:
             errs.append(f"offer {k}: offer_type {ot!r} invalid")
+        if "offer_type" not in o and o.get("code"):
+            # apply would send this as an automatic offer and drop the code, so a
+            # voucher that forgot the field would silently fire on every cart
+            errs.append(f"offer {k}: has a code but no offer_type; set offer_type to 'voucher' or remove the code")
         if ot == "voucher":
             code = o.get("code") or ""
             if not isinstance(code, str) or not CODE_RE.match(code):
@@ -1286,7 +1290,7 @@ def _validate_plan(plan: dict) -> list:
         cond = o.get("condition", {})
         if cond.get("type") not in CONDITION_TYPES:
             errs.append(f"offer {k}: condition.type {cond.get('type')!r} invalid")
-        if cond.get("type") == "count" and not (isinstance(cond.get("value"), int) and cond["value"] >= 1):
+        if cond.get("type") == "count" and not (type(cond.get("value")) is int and cond["value"] >= 1):
             errs.append(f"offer {k}: count condition needs an integer value >= 1")
         if cond.get("all_packages"):
             errs.append(f"offer {k}: all_packages is never allowed (offer doctrine: Naming and scoping)")
@@ -1885,13 +1889,14 @@ def _ships_free(plan: dict, line_keys: list) -> bool:
 
 def _partial_shipping_offers(plan: dict) -> list:
     """Automatic shipping_percentage offers below 100%, as frozenset scopes.
-    Vouchers are skipped: no cart case enters a shipping code. Requires
-    offer_type == 'offer' with no default, so a voucher missing the field is
-    not treated as an offer. Reads defensively because print_plan calls it
-    on plans not yet validated."""
+    Vouchers are skipped: no cart case enters a shipping code. A missing
+    offer_type means 'offer', as it does in validate_plan and offer_body, so the
+    gate describes what apply sends; validate_plan rejects the ambiguous case of
+    a code with no offer_type. Reads defensively because print_plan calls it on
+    plans not yet validated."""
     out = []
     for o in plan.get("offers") or []:
-        if o.get("offer_type") != "offer":
+        if o.get("offer_type", "offer") != "offer":
             continue
         ben, cond = o.get("benefit") or {}, o.get("condition") or {}
         if ben.get("type") != "shipping_percentage" or _num(ben.get("value")) == Decimal(100):
@@ -2175,19 +2180,24 @@ def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: st
     # planned offer should, so calculate would pass a wrong or missing threshold.
     # The live set has to be exactly what this run created, read after the probes
     # so an offer added while they ran is caught too. A store with no offers
-    # endpoint and a plan with no offers has nothing to compare.
+    # endpoint (404/405) and a plan with no offers has nothing to compare; any
+    # other failure to list leaves the live set unknown, which is not a pass.
     try:
         live_offers = client.paginate(f"/api/admin/campaigns/{cid}/offers/")
     except CampaignAdminError as exc:
-        if plan.get("offers"):
+        if plan.get("offers") or getattr(exc, "status", None) not in (404, 405):
             check("campaign offers match the plan", False, f"could not list live offers: {exc}")
     else:
         ours = {e.get("id") for e in man.data["offers"]
                 if e.get("status") == "created" and e.get("id") is not None}
         extra = [f"{x.get('id')} {x.get('name')!r}" for x in live_offers if x.get("id") not in ours]
-        check("campaign offers match the plan", not extra,
-              f"unplanned live offer(s): {', '.join(extra)}" if extra
-              else f"{len(live_offers)} live, all created by this run")
+        # an offer deleted after its read-back and probes would otherwise pass
+        live_ids = {x.get("id") for x in live_offers}
+        gone = sorted(str(i) for i in ours - live_ids)
+        problems = ([f"unplanned live offer(s): {', '.join(extra)}"] if extra else []) + \
+                   ([f"created offer(s) no longer live: {', '.join(gone)}"] if gone else [])
+        check("campaign offers match the plan", not problems,
+              "; ".join(problems) if problems else f"{len(live_offers)} live, all created by this run")
 
     result = "PASS" if all(x["result"] == "PASS" for x in checks + cases) else "FAIL"
     return {"manifest_run_id": man.data["run_id"], "plan_sha256": plan_sha, "verified_at": utcnow(),
