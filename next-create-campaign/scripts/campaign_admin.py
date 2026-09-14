@@ -1276,9 +1276,12 @@ def _validate_plan(plan: dict) -> list:
             continue
         k = ship_key(s)
         if k in ship_keys:
-            hint = ""
-            if "key" not in s and "key" not in ship_keys[k]:
+            first = ship_keys[k]
+            if "key" not in s and "key" not in first:
                 hint = f" (give each entry on code {code!r} its own key)"
+            else:
+                hint = (f" (entries on code {first.get('shipping_method')!r} at {first.get('price')} and "
+                        f"code {code!r} at {s.get('price')}; shipping keys must be unique)")
             errs.append(f"duplicate shipping key {k!r}{hint}")
         else:
             ship_keys[k] = s
@@ -1616,7 +1619,7 @@ def reconcile(client: Client, man: Manifest, plan: dict) -> None:
         read = [(x.get("id"), _finite(_num(_price_in(x, currency)))) for x in cands]
         priced = [i for i, p in read if p is not None and p == D(s["price"])]
         if len(priced) == 1 and all(p is not None for _, p in read):
-            man.mark("shipping_methods", e["key"], status="created", id=priced[0], reconciled=True)
+            man.mark("shipping_methods", e["key"], status="created", id=priced[0], reconciled=True, intent=None)
         else:
             seen = ", ".join(f"{i} at {'unreadable' if p is None else money(p)}" for i, p in read)
             raise CampaignAdminError(
@@ -1869,7 +1872,9 @@ def teardown(client: Client, man: Manifest, plan: dict, plan_sha: str, confirm) 
         if not s or x.get("shipping_method") != s.get("shipping_method"):
             return False
         live_price = _price_in(x, currency)
-        return live_price is None or _num(live_price) == _num(s.get("price"))
+        # A price that is present but unreadable (NaN, Infinity, garbage) is not a
+        # match: teardown fails closed on it, as resume does.
+        return live_price is None or _finite(_num(live_price)) == _num(s.get("price"))
 
     # Phase 1: read everything back and verify identity BEFORE any DELETE.
     todo = []  # (section, key, path)
@@ -2010,7 +2015,14 @@ def _landed_shipping(plan: dict, l: dict) -> str:
     if not any(_ships_free(plan, [(k, qty)]) for k in keys):
         ships = plan.get("shipping_methods") or [{}]
         sk = l.get("shipping_key")
-        chosen = next((s for s in ships if sk is not None and ship_key(s) == sk), ships[0])
+        if sk is None:
+            chosen = ships[0]
+        else:
+            # print_plan runs on plans that may not have passed validation yet, so an
+            # unresolved key must say so rather than show another method's price.
+            chosen = next((s for s in ships if ship_key(s) == sk), None)
+            if chosen is None:
+                return f"shipping ? (key {sk!r} unresolved)"
         return f"shipping {chosen.get('price', '?')}"
     return "shipping depends on variant mix"
 
@@ -2214,15 +2226,18 @@ def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: st
         check(f"shipping {e['key']} code", live_s.get("shipping_method") == s["shipping_method"],
               f"{live_s.get('shipping_method')} vs {s['shipping_method']}")
         price = _price_in(live_s, c["currency"])
-        check(f"shipping {e['key']} price", _num(price) == D(s["price"]), f"{price} vs {s['price']}")
+        live_price = _finite(_num(price))
+        check(f"shipping {e['key']} price", live_price == D(s["price"]),
+              f"{'unreadable' if live_price is None else price} vs {s['price']}")
         if live_s.get("shipping_method") == s["shipping_method"]:
             ship_by_key.setdefault(e["key"], (e["id"], D(s["price"])))
-    # A row without its own shipping_key carries the plan's first method, as before
-    # 0.4.0. If that one was not created, those rows fail rather than borrow a rung.
-    default_key = ship_key(plan["shipping_methods"][0]) if plan.get("shipping_methods") else None
+    # A row without its own shipping_key carries the PLAN's first shipping method,
+    # not the first journalled one. If that method was not created, those rows fail
+    # rather than borrow another rung's price.
+    plan_default_key = ship_key(plan["shipping_methods"][0]) if plan.get("shipping_methods") else None
 
     def case_ship_key(case):
-        return None if case.ship == "none" else (case.shipping_key or default_key)
+        return None if case.ship == "none" else (case.shipping_key or plan_default_key)
 
     def case_ship_price(case):
         sk = case_ship_key(case)

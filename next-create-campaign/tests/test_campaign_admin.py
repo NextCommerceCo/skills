@@ -2369,6 +2369,11 @@ class TieredShippingLadder(unittest.TestCase):
         plan = ladder_plan(self.disc)
         plan["shipping_methods"][0]["key"] = ""
         self.assertTrue(any("key must be a non-empty string" in e for e in ca.validate_plan(plan)))
+        # two explicit keys that collide name both entries
+        plan = ladder_plan(self.disc)
+        plan["shipping_methods"][2]["key"] = "ship-2"
+        errs = [e for e in ca.validate_plan(plan) if "duplicate shipping key 'ship-2'" in e]
+        self.assertTrue(errs and "at 12.99" in errs[0] and "at 14.99" in errs[0], errs)
 
     def test_row_ship_key_resolves(self):
         plan = ladder_plan(self.disc)
@@ -2442,6 +2447,7 @@ class TieredShippingLadder(unittest.TestCase):
         man = ca.apply(make_client(t), plan, sha, mp, mp)
         e2 = man.entry("shipping_methods", "ship-2")
         self.assertEqual((e2["status"], e2["id"], e2.get("reconciled")), ("created", lost_id, True))
+        self.assertIsNone(e2.get("intent"))
         self.assertEqual(man.entry("shipping_methods", "ship-1")["id"], before["shipping_methods"][0]["id"])
         self.assertEqual([c[2]["price"] for c in self._ship_posts(t)], ["14.99", "16.99"])
         self.assertEqual(len(state["shipping-methods"][cid]), 4)
@@ -2509,6 +2515,10 @@ class TieredShippingLadder(unittest.TestCase):
         with self.assertRaises(ca.CampaignAdminError):
             ca.teardown(make_client(t), man, plan, sha, lambda: True)
         self.assertFalse([c for c in t.calls if c[0] == "DELETE"])
+        state["shipping-methods"][cid][sid]["prices"] = [{"currency": "USD", "price": "NaN"}]
+        with self.assertRaises(ca.CampaignAdminError):
+            ca.teardown(make_client(t), man, plan, sha, lambda: True)
+        self.assertFalse([c for c in t.calls if c[0] == "DELETE"])
         state["shipping-methods"][cid][sid]["prices"] = [{"currency": "USD", "price": "14.99"}]
         ca.teardown(make_client(t), man, plan, sha, lambda: True)
         ship_deletes = [c[1] for c in t.calls if c[0] == "DELETE" and "/shipping-methods/" in c[1]]
@@ -2572,6 +2582,13 @@ class TieredShippingLadder(unittest.TestCase):
         report, _ = self._run(plan, after_apply=recode_ship_2)
         checks = self._checks(report)
         self.assertEqual(checks["shipping ship-2 code"]["result"], "FAIL")
+
+        def nan_ship_3(state, man, cid, t):
+            sid = man.entry("shipping_methods", "ship-3")["id"]
+            state["shipping-methods"][cid][sid]["prices"] = [{"currency": "USD", "price": "NaN"}]
+        nan_checks = self._checks(self._run(plan, after_apply=nan_ship_3)[0])
+        self.assertEqual(nan_checks["shipping ship-3 price"]["result"], "FAIL")
+        self.assertEqual(nan_checks["shipping ship-3 price"]["detail"], "unreadable vs 14.99")
         self.assertEqual(checks["shipping ship-1 code"]["result"], "PASS")
         # rows without a key use ship-1, the plan's first method
         self.assertTrue(all(c["shipping_key"] == "ship-1" and c["expected_shipping"] == "9.99"
@@ -2603,6 +2620,10 @@ class TieredShippingLadder(unittest.TestCase):
             self.assertTrue(self._row(lines, tier).endswith(f"shipping {price}"), tier)
         self.assertIn("  standard  9.99  key ship-1", lines)
         self.assertIn("  standard  16.99  key ship-4", lines)
+        # the gate runs before validation: an unresolved key says so instead of borrowing a price
+        plan = ladder_plan(self.disc)
+        plan["landed_prices"][1]["shipping_key"] = "ship-9"
+        self.assertTrue(self._row(self._gate(plan), "Buy 2").endswith("shipping ? (key 'ship-9' unresolved)"))
 
     def test_code_only_plan_unchanged(self):
         plan = ca.recommend(self.disc, ns())
