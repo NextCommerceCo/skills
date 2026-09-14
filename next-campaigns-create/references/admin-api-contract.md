@@ -1,4 +1,4 @@
-# next-create-campaign: Admin API contract and file schemas
+# next-campaigns-create: Admin API contract and file schemas
 
 Companion to `SKILL.md`. Field-level detail for `scripts/campaign_admin.py`. The
 sources are the public developer docs: the provisioning flow at
@@ -250,7 +250,7 @@ price or reads a package price from the catalogue for bumps or upsells.
 
 Files live in a run directory:
 
-- `discover` defaults to `./next-create-campaign-runs/<slug>/` under the current
+- `discover` defaults to `./next-campaigns-create-runs/<slug>/` under the current
   working directory.
 - `recommend` writes next to the discovery file it reads.
 - `apply` and `verify` write next to the plan file.

@@ -1,4 +1,4 @@
-"""Tests for next-create-campaign.sh, the bash launcher (no network).
+"""Tests for next-campaigns-create.sh, the bash launcher (no network).
 
 CI runs no shell linter, so this file is the launcher's only gate: syntax,
 version, help, the interpreter check, verbatim argument forwarding, symlinked
@@ -19,7 +19,7 @@ from pathlib import Path
 
 SKILL_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = SKILL_DIR.parent
-WRAPPER = SKILL_DIR / "next-create-campaign.sh"
+WRAPPER = SKILL_DIR / "next-campaigns-create.sh"
 ENGINE = SKILL_DIR / "scripts" / "campaign_admin.py"
 EXAMPLE_PLAN = SKILL_DIR / "examples" / "campaign-plan.example.json"
 FIXTURE = SKILL_DIR / "tests" / "fixtures" / "discovery.json"
@@ -28,7 +28,7 @@ FIXTURE = SKILL_DIR / "tests" / "fixtures" / "discovery.json"
 def clean_env(**extra):
     env = {k: v for k, v in os.environ.items()
            if k != "NEXT_ADMIN_API_TOKEN" and not k.endswith("_NEXT_ADMIN_API_TOKEN")}
-    env.pop("NEXT_CREATE_CAMPAIGN_PYTHON", None)
+    env.pop("NEXT_CAMPAIGNS_CREATE_PYTHON", None)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     env.update(extra)
     return env
@@ -71,10 +71,10 @@ class Launcher(unittest.TestCase):
         r = run("--version", cwd=self.root)
         self.assertEqual(r.returncode, 0, r.stderr)
         want = re.search(r"^version:\s*(\S+)", (SKILL_DIR / "SKILL.md").read_text(), re.M).group(1)
-        self.assertEqual(r.stdout.strip(), f"next-create-campaign {want}")
+        self.assertEqual(r.stdout.strip(), f"next-campaigns-create {want}")
         catalog = REPO_ROOT / "skills.json"
         if catalog.exists():  # absent in an installed copy, present in the repository
-            entry = next(s for s in json.loads(catalog.read_text())["skills"] if s["id"] == "next-create-campaign")
+            entry = next(s for s in json.loads(catalog.read_text())["skills"] if s["id"] == "next-campaigns-create")
             self.assertEqual(entry["version"], want)
 
     def test_help_exit_zero(self):
@@ -91,7 +91,7 @@ class Launcher(unittest.TestCase):
     def test_args_forwarded_verbatim(self):
         stub, record = self.make_stub()
         args = ["discover", "--store", "https://my-store.29next.store/", "--out", "two words"]
-        r = run(*args, cwd=self.root, env=clean_env(NEXT_CREATE_CAMPAIGN_PYTHON=str(stub)))
+        r = run(*args, cwd=self.root, env=clean_env(NEXT_CAMPAIGNS_CREATE_PYTHON=str(stub)))
         self.assertEqual(r.returncode, 0, r.stderr)
         lines = record.read_text().splitlines()
         self.assertEqual(lines[0], "TOKEN=<unset>")  # the launcher never loads or exports a token
@@ -99,9 +99,9 @@ class Launcher(unittest.TestCase):
 
     def test_bad_python_override(self):
         r = run("discover", "--store", "mystore", cwd=self.root,
-                env=clean_env(NEXT_CREATE_CAMPAIGN_PYTHON=str(self.root / "no-such-python")))
+                env=clean_env(NEXT_CAMPAIGNS_CREATE_PYTHON=str(self.root / "no-such-python")))
         self.assertEqual(r.returncode, 2)
-        self.assertIn("NEXT_CREATE_CAMPAIGN_PYTHON", r.stderr)
+        self.assertIn("NEXT_CAMPAIGNS_CREATE_PYTHON", r.stderr)
 
     def test_symlinked_launcher_finds_engine(self):
         (self.root / "bin").mkdir()
@@ -109,10 +109,10 @@ class Launcher(unittest.TestCase):
         link.symlink_to(WRAPPER)
         r = run("--version", cwd=self.root, wrapper=link)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertTrue(r.stdout.startswith("next-create-campaign "))
+        self.assertTrue(r.stdout.startswith("next-campaigns-create "))
         stub, record = self.make_stub()
         r = run("plan", "--plan", "p.json", cwd=self.root, wrapper=link,
-                env=clean_env(NEXT_CREATE_CAMPAIGN_PYTHON=str(stub)))
+                env=clean_env(NEXT_CAMPAIGNS_CREATE_PYTHON=str(stub)))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn(f"ARG={ENGINE}", record.read_text())
 
@@ -121,7 +121,7 @@ class Launcher(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stderr)
         self.assertIn("MY_STORE_NEXT_ADMIN_API_TOKEN", r.stderr)
         self.assertIn(".env", r.stderr)
-        self.assertFalse((self.root / "next-create-campaign-runs").exists())
+        self.assertFalse((self.root / "next-campaigns-create-runs").exists())
 
     def test_placeholder_token_refused(self):
         (self.root / ".env").write_text("MYSTORE_NEXT_ADMIN_API_TOKEN=<paste-token-here>\n")
@@ -133,12 +133,12 @@ class Launcher(unittest.TestCase):
         r = run("plan", "--plan", str(EXAMPLE_PLAN), cwd=self.root)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("Plan SHA-256:", r.stdout)
-        self.assertIn("next-create-campaign.sh apply --plan", r.stdout)
+        self.assertIn("next-campaigns-create.sh apply --plan", r.stdout)
 
     def test_real_recommend_offline(self):
         if in_git_repo(self.root):
             self.skipTest("the temp directory sits inside a git repository")
-        run_dir = self.root / "next-create-campaign-runs" / "teststore"
+        run_dir = self.root / "next-campaigns-create-runs" / "teststore"
         run_dir.mkdir(parents=True)
         shutil.copy(FIXTURE, run_dir / "discovery.json")
         r = run("recommend", "--discovery", str(run_dir / "discovery.json"), "--hero", "22", "--ctc", "low",

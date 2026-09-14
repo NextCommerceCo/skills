@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Provision a Campaigns App campaign over the NEXT Admin API.
 
-Backs the `/next-create-campaign` skill and is normally run through
-`next-create-campaign.sh`. Seven subcommands, in the usual order:
+Backs the `/next-campaigns-create` skill and is normally run through
+`next-campaigns-create.sh`. Seven subcommands, in the usual order:
 
     discover  --store <slug>                      read-only store snapshot
     metadata  --store <slug> [--apply]            audit or create the campaign metadata definitions
@@ -77,8 +77,8 @@ OFFER_TYPES = ("offer", "voucher")
 DEFAULT_TIERS = (50, 55, 60)
 DEFAULT_EXIT_PCT = 10
 
-PROG = "next-create-campaign.sh"
-RUNS_DIR_NAME = "next-create-campaign-runs"
+PROG = "next-campaigns-create.sh"
+RUNS_DIR_NAME = "next-campaigns-create-runs"
 MANIFEST_NAME = "run-manifest.json"
 DOTENV_NAME = ".env"
 GENERIC_TOKEN_ENV = "NEXT_ADMIN_API_TOKEN"

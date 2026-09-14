@@ -1,6 +1,6 @@
 ---
-name: next-create-campaign
-version: 0.4.0
+name: next-campaigns-create
+version: 0.5.0
 description: |
   Provision a launch-ready Campaigns App campaign over the NEXT Admin API:
   read the store's catalogue, gateway groups and shipping methods, recommend a
@@ -25,7 +25,7 @@ allowed-tools:
   - TodoWrite
 ---
 
-# /next-create-campaign: Provision a Campaigns App campaign over the Admin API
+# /next-campaigns-create: Provision a Campaigns App campaign over the Admin API
 
 ## Using This Skill
 
@@ -34,7 +34,7 @@ This skill works with any AI coding tool that can load a markdown file as contex
 | Tool | How to Use |
 |------|-----------|
 | **Recommended** | Clone `NextCommerceCo/skills` and run `./skills.sh`; choose your local agent target and this skill. |
-| **No checkout** | Use `npx skills add NextCommerceCo/skills -g --skill next-create-campaign` and add `-a <agent>` when you want a specific agent. |
+| **No checkout** | Use `npx skills add NextCommerceCo/skills -g --skill next-campaigns-create` and add `-a <agent>` when you want a specific agent. |
 | **Fallback** | Load this `SKILL.md` as a system prompt, context file, rule, or chat upload if your tool does not support native skills. |
 
 ---
@@ -42,7 +42,7 @@ This skill works with any AI coding tool that can load a markdown file as contex
 Creates a new Campaigns App campaign on a NEXT store over the Admin API and
 hands back the campaign api_key and the package ids the funnel needs. The
 bundled engine (`scripts/campaign_admin.py`, run through the
-`next-create-campaign.sh` launcher) owns the API contract, the approval gate,
+`next-campaigns-create.sh` launcher) owns the API contract, the approval gate,
 the run manifest and the safety checks. This skill drives it and makes the
 operator decisions the engine refuses to guess.
 
@@ -94,7 +94,7 @@ hand-craft either one.
 
 ## Prerequisites
 
-- **bash and Python 3.9 or newer.** `NEXT_CREATE_CAMPAIGN_PYTHON` can point the
+- **bash and Python 3.9 or newer.** `NEXT_CAMPAIGNS_CREATE_PYTHON` can point the
   launcher at a specific interpreter.
 - **Windows without bash:** run
   `python3 <skill-dir>/scripts/campaign_admin.py <subcommand> ...` directly,
@@ -150,37 +150,37 @@ definition.
 ## Phase 0: Locate the executable
 
 `<skill-dir>` is the directory this skill is installed into, which depends on
-the install target: `~/.claude/skills/next-create-campaign` (Claude Code),
-`~/.codex/skills/next-create-campaign` (Codex),
-`~/.agents/skills/next-create-campaign` (other agents), or the
-`next-create-campaign/` folder of a repo checkout.
+the install target: `~/.claude/skills/next-campaigns-create` (Claude Code),
+`~/.codex/skills/next-campaigns-create` (Codex),
+`~/.agents/skills/next-campaigns-create` (other agents), or the
+`next-campaigns-create/` folder of a repo checkout.
 
 Every command in this file is written
-`bash <skill-dir>/next-create-campaign.sh <subcommand> ...`. Always call it
+`bash <skill-dir>/next-campaigns-create.sh <subcommand> ...`. Always call it
 through `bash`; never rely on the executable bit. Run it from the operator's
 project directory, not from the skill directory: that is where `.env` and the
 run directory live.
 
 ```bash
-bash <skill-dir>/next-create-campaign.sh --version
+bash <skill-dir>/next-campaigns-create.sh --version
 ```
 
 This prints the installed version. If the launcher exits 2 with a Python
-message, install Python 3.9 or newer, or set `NEXT_CREATE_CAMPAIGN_PYTHON` to
+message, install Python 3.9 or newer, or set `NEXT_CAMPAIGNS_CREATE_PYTHON` to
 one, then retry.
 
 The full command surface, as a synopsis (run each line as
-`bash <skill-dir>/next-create-campaign.sh ...`):
+`bash <skill-dir>/next-campaigns-create.sh ...`):
 
 ```
-next-create-campaign.sh --version
-next-create-campaign.sh discover  --store <subdomain> [--out <dir>]
-next-create-campaign.sh metadata  --store <subdomain> [--apply]
-next-create-campaign.sh recommend --discovery <dir>/discovery.json --hero <product_id> --ctc low|high --anchor-price <decimal> --shipping <code>:<price>[:<key>] [--shipping ...] [--name <campaign name>] [--gateway-group <id>] [--payment-methods a,b] [--express-methods a,b] [--currency USD] [--language en] [--countries US,CA] [--tiers 50,55,60] [--exit 10] [--exit-code CODE] [--bump <variant_id>:<price>] [--upsell <variant_id>:<price>:<pct>] [--free-shipping | --free-shipping-min-qty <n>] [--rounding 0.95] [--statement-descriptor <text>] [--out <dir>]
-next-create-campaign.sh plan      --plan <dir>/campaign-plan.json [--check-store]
-next-create-campaign.sh apply     --plan <dir>/campaign-plan.json --yes --plan-sha256 <plan-sha256> [--resume <dir>/run-manifest.json] [--out <dir>]
-next-create-campaign.sh verify    --manifest <dir>/run-manifest.json --plan <dir>/campaign-plan.json [--out <dir>]
-next-create-campaign.sh teardown  --manifest <dir>/run-manifest.json --plan <dir>/campaign-plan.json --yes
+next-campaigns-create.sh --version
+next-campaigns-create.sh discover  --store <subdomain> [--out <dir>]
+next-campaigns-create.sh metadata  --store <subdomain> [--apply]
+next-campaigns-create.sh recommend --discovery <dir>/discovery.json --hero <product_id> --ctc low|high --anchor-price <decimal> --shipping <code>:<price>[:<key>] [--shipping ...] [--name <campaign name>] [--gateway-group <id>] [--payment-methods a,b] [--express-methods a,b] [--currency USD] [--language en] [--countries US,CA] [--tiers 50,55,60] [--exit 10] [--exit-code CODE] [--bump <variant_id>:<price>] [--upsell <variant_id>:<price>:<pct>] [--free-shipping | --free-shipping-min-qty <n>] [--rounding 0.95] [--statement-descriptor <text>] [--out <dir>]
+next-campaigns-create.sh plan      --plan <dir>/campaign-plan.json [--check-store]
+next-campaigns-create.sh apply     --plan <dir>/campaign-plan.json --yes --plan-sha256 <plan-sha256> [--resume <dir>/run-manifest.json] [--out <dir>]
+next-campaigns-create.sh verify    --manifest <dir>/run-manifest.json --plan <dir>/campaign-plan.json [--out <dir>]
+next-campaigns-create.sh teardown  --manifest <dir>/run-manifest.json --plan <dir>/campaign-plan.json --yes
 ```
 
 `--store` accepts a bare subdomain (`mystore`) or `mystore.29next.store`.
@@ -243,7 +243,7 @@ user's project, not the skill checkout), one line per store. The user pastes
 the token in with a text editor, so it never touches the chat.
 
 1. If this directory is inside a git repository, make sure the repository's
-   `.gitignore` ignores both `.env` and `next-create-campaign-runs/`. Add a line
+   `.gitignore` ignores both `.env` and `next-campaigns-create-runs/`. Add a line
    for whichever is missing.
 2. Create the file (or append the store's line), then lock it so only this user
    can read it (`chmod 600 .env`):
@@ -264,7 +264,7 @@ Do not read the file back to check the value. Go to Phase 2.
 ## Phase 2: Discover
 
 ```bash
-bash <skill-dir>/next-create-campaign.sh discover --store <subdomain>
+bash <skill-dir>/next-campaigns-create.sh discover --store <subdomain>
 ```
 
 Read-only. The first request is `GET /api/admin/store/`, so a bad or
@@ -275,7 +275,7 @@ and retrying does not help.
 After the store, `discover` reads the gateway groups, shipping methods,
 catalogue and existing campaigns, probes whether the Offers API is live on this
 store, and audits the 11 campaign metadata definitions. It writes
-`discovery.json` to `./next-create-campaign-runs/<subdomain>/` under the current
+`discovery.json` to `./next-campaigns-create-runs/<subdomain>/` under the current
 working directory (or `--out <dir>`) and prints a summary. Show the operator the
 product table (the hero candidates with their variant ids and prices), the
 gateway groups, the shipping methods and the existing campaign names.
@@ -316,7 +316,7 @@ state into the plan's blockers.
   On A, run:
 
   ```bash
-  bash <skill-dir>/next-create-campaign.sh metadata --store <subdomain> --apply
+  bash <skill-dir>/next-campaigns-create.sh metadata --store <subdomain> --apply
   ```
 
   It is idempotent, creates only the missing definitions, and needs
@@ -390,8 +390,8 @@ or `0.99`), `--payment-methods`, `--express-methods` and
 This phase is the gate.
 
 ```bash
-bash <skill-dir>/next-create-campaign.sh recommend \
-  --discovery ./next-create-campaign-runs/<subdomain>/discovery.json \
+bash <skill-dir>/next-campaigns-create.sh recommend \
+  --discovery ./next-campaigns-create-runs/<subdomain>/discovery.json \
   --hero <product_id> --ctc <low|high> --anchor-price <decimal> \
   --shipping <code>:<price>[:<key>] [--name "<campaign name>"] [--countries US,CA] \
   [--bump <variant_id>:<price> ...] [--upsell <variant_id>:<price>:<pct> ...] \
@@ -406,8 +406,8 @@ is the only file that can resume or tear that campaign down; pass
 Then print the plan for review:
 
 ```bash
-bash <skill-dir>/next-create-campaign.sh plan \
-  --plan ./next-create-campaign-runs/<subdomain>/campaign-plan.json --check-store
+bash <skill-dir>/next-campaigns-create.sh plan \
+  --plan ./next-campaigns-create-runs/<subdomain>/campaign-plan.json --check-store
 ```
 
 `--check-store` also asks the store whether a campaign with the same name
@@ -450,8 +450,8 @@ this file write the hash as `<plan-sha256>`; substitute the value the latest
 Only after an A at the gate:
 
 ```bash
-bash <skill-dir>/next-create-campaign.sh apply \
-  --plan ./next-create-campaign-runs/<subdomain>/campaign-plan.json \
+bash <skill-dir>/next-campaigns-create.sh apply \
+  --plan ./next-campaigns-create-runs/<subdomain>/campaign-plan.json \
   --yes --plan-sha256 <plan-sha256>
 ```
 
@@ -491,10 +491,10 @@ read the message rather than assuming a rollback:
 To resume after fixing the cause, pass the same plan and hash with the manifest:
 
 ```bash
-bash <skill-dir>/next-create-campaign.sh apply \
-  --plan ./next-create-campaign-runs/<subdomain>/campaign-plan.json \
+bash <skill-dir>/next-campaigns-create.sh apply \
+  --plan ./next-campaigns-create-runs/<subdomain>/campaign-plan.json \
   --yes --plan-sha256 <plan-sha256> \
-  --resume ./next-create-campaign-runs/<subdomain>/run-manifest.json
+  --resume ./next-campaigns-create-runs/<subdomain>/run-manifest.json
 ```
 
 A resume refuses a changed plan, a destination that holds a different run,
@@ -514,9 +514,9 @@ To remove what the run created instead, ask the operator first with
 On A:
 
 ```bash
-bash <skill-dir>/next-create-campaign.sh teardown \
-  --manifest ./next-create-campaign-runs/<subdomain>/run-manifest.json \
-  --plan ./next-create-campaign-runs/<subdomain>/campaign-plan.json --yes
+bash <skill-dir>/next-campaigns-create.sh teardown \
+  --manifest ./next-campaigns-create-runs/<subdomain>/run-manifest.json \
+  --plan ./next-campaigns-create-runs/<subdomain>/campaign-plan.json --yes
 ```
 
 Teardown takes no hash argument: it computes the plan's hash itself and refuses
@@ -529,9 +529,9 @@ last.
 ## Phase 6: Verify and hand off
 
 ```bash
-bash <skill-dir>/next-create-campaign.sh verify \
-  --manifest ./next-create-campaign-runs/<subdomain>/run-manifest.json \
-  --plan ./next-create-campaign-runs/<subdomain>/campaign-plan.json
+bash <skill-dir>/next-campaigns-create.sh verify \
+  --manifest ./next-campaigns-create-runs/<subdomain>/run-manifest.json \
+  --plan ./next-campaigns-create-runs/<subdomain>/campaign-plan.json
 ```
 
 `verify` reads every resource back and calls `carts/calculate` for each tier, a
@@ -577,14 +577,14 @@ need.
 | `credential missing` | no token found for this store in the environment, `.env` or `NEXT_ADMIN_API_TOKEN` | add the `{SUBDOMAIN}_NEXT_ADMIN_API_TOKEN` line to `.env` (Phase 1); never paste it in chat |
 | `still holds a placeholder` | the token value is a placeholder such as `<paste-token-here>` | have the user paste the real token over it in a text editor |
 | 401 or 403 from the store | key rejected, or missing one of the six permissions | re-create the key with all six under Dashboard > Settings > API Access; retrying does not help |
-| launcher exits 2 with a Python message | no Python 3.9 or newer found | install Python 3.9 or newer, or set `NEXT_CREATE_CAMPAIGN_PYTHON` |
+| launcher exits 2 with a Python message | no Python 3.9 or newer found | install Python 3.9 or newer, or set `NEXT_CAMPAIGNS_CREATE_PYTHON` |
 | `NOT APPLIED: pass --yes --plan-sha256` | the gate | re-run `plan`, copy the hash, pass it to `apply` |
 | `plan has blockers` | metadata missing or conflicting, or a stale discovery after `metadata --apply` | run `metadata --apply` if needed, re-run `discover`, re-run `recommend` |
 | `a campaign named ... already exists` | name collision | rename in the plan (re-run `recommend` with `--name`), or resume that run's manifest |
 | `already holds a run` | `recommend` into a directory that has a `run-manifest.json` | pass `--out <new dir>` |
 | `already holds a different run` | `--resume` or `--out` points at another run's manifest | resume with that run's own plan and manifest, or choose a new `--out` |
 | `this run was torn down` | `--resume` on a manifest that teardown started or finished | re-run `teardown` if it was interrupted, then start a fresh run with `recommend --out <new dir>` |
-| `not gitignored` | the run directory is inside a git repository that does not ignore it | add `next-create-campaign-runs/` to `.gitignore`, or pass `--out` outside the repository |
+| `not gitignored` | the run directory is inside a git repository that does not ignore it | add `next-campaigns-create-runs/` to `.gitignore`, or pass `--out` outside the repository |
 | `cannot confirm ... is safe to write` | a `.git` directory was found but git could not be asked | install git, or pass `--out` outside the repository |
 | offers POST returns 404/405 | store's Offers API not live | campaign, packages and shipping are created; build offers in the dashboard |
 | image PUT returns 404/405 | store's build predates package images | everything is created; packages keep the catalogue image, set overrides in the dashboard |
@@ -622,7 +622,7 @@ need.
 
 ## Output files
 
-`discover` writes to `./next-create-campaign-runs/<subdomain>/` under the current
+`discover` writes to `./next-campaigns-create-runs/<subdomain>/` under the current
 working directory. `recommend` writes next to the discovery file it reads;
 `apply` and `verify` write next to the plan file. `--out` overrides each.
 
@@ -647,20 +647,33 @@ holding a live secret.
 ## Staying up to date
 
 - The installed version is the `version:` line in this file's frontmatter, also
-  printed by `bash <skill-dir>/next-create-campaign.sh --version`.
+  printed by `bash <skill-dir>/next-campaigns-create.sh --version`.
 - From a checkout of `NextCommerceCo/skills`,
   `git pull --ff-only && ./skills.sh status` reports `stale` when a newer
   version exists, and
-  `./skills.sh install <claude|codex|agents|all> next-create-campaign` updates
+  `./skills.sh install <claude|codex|agents|all> next-campaigns-create` updates
   it. Use `--force` only after reviewing a `modified` row.
 - Without a checkout, run `npx skills update`.
 - To check for a newer version without a checkout, compare `--version` with the
-  `version` of the `next-create-campaign` entry in
+  `version` of the `next-campaigns-create` entry in
   https://raw.githubusercontent.com/NextCommerceCo/skills/main/skills.json.
+- Versions before 0.5.0 shipped as `next-create-campaign`. The installer does
+  not update or remove a copy under that name: install `next-campaigns-create`,
+  then delete the old directory (`~/.claude/skills/next-create-campaign`,
+  `~/.codex/skills/next-create-campaign` or `~/.agents/skills/next-create-campaign`).
+  The launcher is now `next-campaigns-create.sh`, `discover` defaults to
+  `./next-campaigns-create-runs/`, and the interpreter override is
+  `NEXT_CAMPAIGNS_CREATE_PYTHON`. An existing `next-create-campaign-runs/`
+  directory still works when its files are passed by path, as long as it stays
+  gitignored.
 - Release notes and breaking changes live in the merged pull request that
-  carried each version bump, titled `next-create-campaign X.Y.Z: ...` (the first
-  one is `Add next-create-campaign public skill`). They are listed at
-  https://github.com/NextCommerceCo/skills/pulls?q=is%3Apr+is%3Amerged+next-create-campaign.
+  carried each version bump, titled `next-campaigns-create X.Y.Z: ...` from
+  0.5.0 and `next-create-campaign X.Y.Z: ...` before that (the first one is
+  `Add next-create-campaign public skill`). They are listed at
+  https://github.com/NextCommerceCo/skills/pulls?q=is%3Apr+is%3Amerged+next-campaigns-create
+  (0.5.0 onward) and
+  https://github.com/NextCommerceCo/skills/pulls?q=is%3Apr+is%3Amerged+next-create-campaign
+  (earlier versions).
 - There are no tags, releases or notifications today, so check before starting a
   campaign.
 
