@@ -161,6 +161,18 @@ class Cache(Base):
     def cache_path(self) -> Path:
         return Path(self.env["XDG_CACHE_HOME"]) / "next-skills" / "catalog.json"
 
+    def test_failure_does_not_overwrite_concurrent_success(self):
+        skill = self.make_skill(self.root / "anywhere")
+        good = FakeTransport(catalog(next_create_campaign="0.4.0"))
+
+        def fail_after_other_launch_succeeds(url, timeout):
+            uc.check(skill, self.env, transport=good, no_cache=True)  # a concurrent launch wins the race
+            raise OSError("offline")
+
+        result = uc.check(skill, self.env, transport=fail_after_other_launch_succeeds, no_cache=True)
+        self.assertEqual(result["status"], "update-available")
+        self.assertTrue(json.loads(self.cache_path().read_text())["ok"])
+
     def test_fresh_cache_skips_transport(self):
         skill = self.make_skill(self.root / "anywhere")
         self.run_check(skill)
@@ -207,6 +219,19 @@ class Cache(Base):
         self.env["XDG_CACHE_HOME"] = str(blocker)
         result, _ = self.run_check(skill)
         self.assertEqual(result["status"], "update-available")
+
+    def test_relative_xdg_cache_home_ignored(self):
+        skill = self.make_skill(self.root / "anywhere")
+        self.env["XDG_CACHE_HOME"] = "relative-cache"
+        self.run_check(skill)
+        self.assertTrue((self.home / ".cache" / "next-skills" / "catalog.json").is_file())
+        self.assertFalse(Path("relative-cache").exists())
+
+    def test_usage_error_prints_text_fallback(self):
+        out = io.StringIO()
+        with redirect_stdout(out), unittest.mock.patch("sys.stderr", io.StringIO()):
+            self.assertEqual(uc.main(["--bogus"], env=self.env), 0)
+        self.assertIn("Could not check for updates", out.getvalue())
 
     def test_no_cache_flag_fetches(self):
         skill = self.make_skill(self.root / "anywhere")
@@ -345,6 +370,19 @@ class NoSecrets(Base):
         result = uc.check(skill, env, now=NOW, transport=FakeTransport(catalog(next_create_campaign="0.4.0")))
         self.assertEqual(result["status"], "update-available")
         self.assertNotIn("secret-value", json.dumps(result))
+
+    def test_json_mode_errors_stay_json(self):
+        skill = self.make_skill(self.root / "anywhere")
+        for argv, patch in ((["--json", "--bogus"], None), (["--skill-dir", str(skill), "--json"], ValueError)):
+            out = io.StringIO()
+            with redirect_stdout(out), unittest.mock.patch("sys.stderr", io.StringIO()):
+                if patch:
+                    with unittest.mock.patch.object(uc, "check", side_effect=patch):
+                        code = uc.main(argv, env=self.env)
+                else:
+                    code = uc.main(argv, env=self.env)
+            self.assertEqual(code, 0)
+            self.assertEqual(json.loads(out.getvalue())["status"], "could-not-check", argv)
 
     def test_json_output_shape(self):
         skill = self.make_skill(self.root / "anywhere")

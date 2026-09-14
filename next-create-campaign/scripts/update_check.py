@@ -138,7 +138,7 @@ def parse_catalog(body: bytes) -> dict:
 
 def cache_file(env) -> Path | None:
     base = env.get("XDG_CACHE_HOME")
-    if base:
+    if base and Path(base).is_absolute():  # the XDG spec says relative values are ignored
         root = Path(base)
     else:
         home = _home(env)
@@ -204,6 +204,11 @@ def latest_versions(env, now: float, transport, no_cache: bool, deadline: float)
             raise ValueError("catalog URL must be https")
         versions = parse_catalog(fetch_with_deadline(transport, url, deadline))
     except Exception:
+        # Another launch may have refreshed the cache while this fetch failed;
+        # never replace a fresh success with a failure.
+        concurrent = load_cache(path, time.time())
+        if concurrent is not None and concurrent["ok"]:
+            return concurrent["versions"], label
         save_cache(path, now, False, {})
         return None, label
     save_cache(path, now, True, versions)
@@ -378,8 +383,14 @@ def check(skill_dir: Path, env, *, now: float | None = None, transport=urllib_tr
     return result
 
 
+def fallback_result() -> dict:
+    return {"skill": None, "installed": None, "latest": None, "status": "could-not-check",
+            "lines": ["Could not check for updates.", f"  Latest is listed at {CATALOG_PAGE}"]}
+
+
 def main(argv=None, env=None, transport=urllib_transport) -> int:
     env = os.environ if env is None else env
+    as_json = "--json" in (sys.argv[1:] if argv is None else argv)
     try:
         parser = argparse.ArgumentParser(description="Check whether this skill has a newer published version.")
         parser.add_argument("--no-cache", action="store_true", help="fetch the catalog even if the cache is fresh")
@@ -392,10 +403,14 @@ def main(argv=None, env=None, transport=urllib_transport) -> int:
             print(json.dumps(result, indent=2))
         else:
             print("\n".join(result["lines"]))
-    except SystemExit:  # --help, or a usage error argparse already printed
+    except SystemExit as exit_request:  # --help, or a usage error argparse already printed
+        if exit_request.code not in (0, None):
+            result = fallback_result()
+            print(json.dumps(result, indent=2) if as_json else "\n".join(result["lines"]))
         return 0
     except Exception:
-        print(f"Could not check for updates.\n  Latest is listed at {CATALOG_PAGE}")
+        result = fallback_result()
+        print(json.dumps(result, indent=2) if as_json else "\n".join(result["lines"]))
     return 0
 
 
