@@ -31,7 +31,7 @@ Usage:
   next-create-campaign.sh metadata  --store <subdomain> [--apply]
   next-create-campaign.sh recommend --discovery <dir>/discovery.json --hero <product_id>
                                     --ctc low|high --anchor-price <decimal>
-                                    --shipping <code>:<price> [options]
+                                    --shipping <code>:<price>[:<key>] [options]
   next-create-campaign.sh plan      --plan <dir>/campaign-plan.json [--check-store]
   next-create-campaign.sh apply     --plan <dir>/campaign-plan.json --yes --plan-sha256 <plan-sha256>
                                     [--resume <dir>/run-manifest.json] [--out <dir>]

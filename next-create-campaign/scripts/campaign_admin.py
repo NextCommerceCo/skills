@@ -900,16 +900,31 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
 
     # shipping (required, explicit)
     if not a.shipping:
-        raise CampaignAdminError("at least one --shipping <code>:<price> is required")
+        raise CampaignAdminError("at least one --shipping <code>:<price>[:<key>] is required")
     codes = {m["code"] for m in discovery["shipping_methods"]}
     shipping = []
     for spec in a.shipping:
-        code, price = _parse_kv(spec, 2, "shipping")
+        # <code>:<price>[:<key>]. A key lets one store code carry several campaign
+        # prices (a paid-shipping ladder); without one the key is the code.
+        bits = spec.split(":")
+        if len(bits) not in (2, 3):
+            raise CampaignAdminError(f"--shipping expects <code>:<price>[:<key>], got {spec!r}")
+        code, price = bits[0], bits[1]
         if code not in codes:
             raise CampaignAdminError(f"shipping code {code!r} is not configured on the store ({sorted(codes)})")
         if not DECIMAL_RE.match(price):
             raise CampaignAdminError(f"shipping price {price!r} is not a decimal")
-        shipping.append({"shipping_method": code, "price": money(D(price))})
+        entry = {"shipping_method": code, "price": money(D(price))}
+        if len(bits) == 3:
+            if not bits[2]:
+                raise CampaignAdminError(f"--shipping {spec!r}: the key after the price is empty")
+            entry["key"] = bits[2]
+        if any(s["shipping_method"] == code and ("key" not in s or "key" not in entry) for s in shipping):
+            raise CampaignAdminError(f"shipping code {code!r} given twice; give each entry its own key, "
+                                     f"e.g. {code}:{price}:ship-{len(shipping) + 1}")
+        if any(ship_key(s) == ship_key(entry) for s in shipping):
+            raise CampaignAdminError(f"shipping key {ship_key(entry)!r} given twice")
+        shipping.append(entry)
 
     # bumps / upsells: explicit variant, price, pct; nothing inferred
     variant_index = {v["id"]: (p, v) for p in discovery["products"] for v in p["variants"]}
@@ -1248,16 +1263,32 @@ def _validate_plan(plan: dict) -> list:
 
     if not plan.get("shipping_methods"):
         errs.append("at least one shipping method is required")
-    ship_codes = set()
+    # A campaign may carry several shipping methods on one store code at different
+    # prices. The plan-level key (default: the code) is the identity; the store
+    # returns no key, so a repeated code needs its own key and its own price.
+    ship_keys, ship_code_prices = {}, set()
     for s in plan.get("shipping_methods", []):
         code = s.get("shipping_method")
         if not code:
             errs.append("shipping_method code is required")
-        elif code in ship_codes:
-            errs.append(f"duplicate shipping method code {code!r}")
-        ship_codes.add(code)
-        if not DECIMAL_RE.match(str(s.get("price", ""))):
-            errs.append(f"shipping {s.get('shipping_method')}: price {s.get('price')!r} is not a decimal")
+        if "key" in s and (not isinstance(s["key"], str) or not s["key"]):
+            errs.append(f"shipping {code}: key must be a non-empty string")
+            continue
+        k = ship_key(s)
+        if k in ship_keys:
+            hint = ""
+            if "key" not in s and "key" not in ship_keys[k]:
+                hint = f" (give each entry on code {code!r} its own key)"
+            errs.append(f"duplicate shipping key {k!r}{hint}")
+        else:
+            ship_keys[k] = s
+        price = str(s.get("price", ""))
+        if not DECIMAL_RE.match(price):
+            errs.append(f"shipping {k}: price {s.get('price')!r} is not a decimal")
+        elif code:
+            if (code, D(price)) in ship_code_prices:
+                errs.append(f"shipping {k}: duplicates code {code!r} at {price} (same code and price as another entry)")
+            ship_code_prices.add((code, D(price)))
 
     names, codes, offer_keys = set(), set(), set()
     for o in plan.get("offers", []):
@@ -1326,11 +1357,22 @@ def _validate_plan(plan: dict) -> list:
         ok_ = l.get("offer_key")
         if ok_ is not None and ok_ not in offer_keys:
             errs.append(f"{tag}: offer_key {ok_!r} does not resolve")
+        sk = l.get("shipping_key")
+        if sk is not None:
+            if l.get("kind") == "upsell":
+                errs.append(f"{tag}: upsell rows carry no shipping method; remove shipping_key")
+            elif sk not in ship_keys:
+                errs.append(f"{tag}: shipping_key {sk!r} does not resolve")
         if l.get("kind") == "upsell" and ok_ is not None:
             up = next((o for o in plan.get("offers", []) if o.get("key") == ok_), None)
             if up and up.get("offer_type") != "voucher":
                 errs.append(f"{tag}: upsell offer {ok_!r} must be a voucher")
     return errs
+
+
+def ship_key(s: dict):
+    """Plan-level identity of a campaign shipping method: its `key`, else the store code."""
+    return s.get("key") or s.get("shipping_method")
 
 
 def campaign_body(plan: dict) -> dict:
@@ -1419,7 +1461,7 @@ def print_plan(plan: dict, plan_path: Path | None) -> None:
         print(f"  {p['key']:<14} {p['role']:<7} {p['name']}  variant {p['product_variant_ids']} ({p.get('variant_title')})  price {p['price']}{img}")
     print("Shipping methods:")
     for s in plan["shipping_methods"]:
-        print(f"  {s['shipping_method']}  {s['price']}")
+        print(f"  {s['shipping_method']}  {s['price']}" + (f"  key {s['key']}" if s.get("key") else ""))
     print("Offers:")
     for o in plan.get("offers", []):
         cond = o["condition"]
@@ -1551,15 +1593,35 @@ def reconcile(client: Client, man: Manifest, plan: dict) -> None:
                 man.mark("packages", e["key"], status="absent")
             else:
                 raise CampaignAdminError(f"pending package {e['key']} matches {len(hit)} remote packages; resolve by hand")
+    plan_sm = {ship_key(s): s for s in plan["shipping_methods"]}
+    currency = plan["campaign"]["currency"]
     for e in man.data["shipping_methods"]:
-        if e.get("status") == "pending":
-            hit = [x for x in ships if x.get("shipping_method") == e["key"]]
-            if len(hit) == 1:
-                man.mark("shipping_methods", e["key"], status="created", id=hit[0]["id"], reconciled=True)
-            elif not hit:
-                man.mark("shipping_methods", e["key"], status="absent")
-            else:
-                raise CampaignAdminError(f"pending shipping method {e['key']} matches {len(hit)} remote entries")
+        if e.get("status") != "pending":
+            continue
+        s = plan_sm.get(e["key"])
+        if s is None:
+            raise CampaignAdminError(f"manifest shipping entry {e['key']} is not in the plan")
+        # The store returns no plan key, so a lost response is claimed by code and
+        # price. Entries already journalled under another key are never candidates
+        # (recomputed per entry, so one claimed a moment ago is excluded too).
+        claimed = {x.get("id") for x in man.data["shipping_methods"]
+                   if x.get("status") == "created" and x.get("id") is not None}
+        cands = [x for x in ships if x.get("shipping_method") == s["shipping_method"] and x.get("id") not in claimed]
+        if not cands:
+            # the only path that lets apply POST this entry again
+            man.mark("shipping_methods", e["key"], status="absent")
+            continue
+        # Anything short of one exact price match among readable prices stops: a
+        # re-POST from here could leave a duplicate method on the campaign.
+        read = [(x.get("id"), _finite(_num(_price_in(x, currency)))) for x in cands]
+        priced = [i for i, p in read if p is not None and p == D(s["price"])]
+        if len(priced) == 1 and all(p is not None for _, p in read):
+            man.mark("shipping_methods", e["key"], status="created", id=priced[0], reconciled=True)
+        else:
+            seen = ", ".join(f"{i} at {'unreadable' if p is None else money(p)}" for i, p in read)
+            raise CampaignAdminError(
+                f"pending shipping method {e['key']} ({s['shipping_method']} at {s['price']}) matches "
+                f"{len(priced)} remote entries at that price; unclaimed entries on that code: {seen}; resolve by hand")
     plan_of = {o["key"]: o for o in plan.get("offers", [])}
     for e in man.data["offers"]:
         if e.get("status") == "pending":
@@ -1719,15 +1781,15 @@ def apply(client: Client, plan: dict, plan_sha: str, manifest_path: Path, resume
 
     # shipping
     for s in plan["shipping_methods"]:
-        key = s["shipping_method"]
+        key = ship_key(s)
         e = man.entry("shipping_methods", key)
         if e and e.get("status") == "created":
             continue
-        body = {"shipping_method": key, "price": s["price"]}
+        body = {"shipping_method": s["shipping_method"], "price": s["price"]}
         man.mark("shipping_methods", key, status="pending", intent=body)
         resp = _created(client, "POST", f"/api/admin/campaigns/{cid}/shipping-methods/", body, f"create shipping {key}")
         man.mark("shipping_methods", key, status="created", id=resp["id"], intent=None)
-        print(f"created shipping method {resp['id']} {key!r} at {s['price']}")
+        print(f"created shipping method {resp['id']} {key!r} ({s['shipping_method']} at {s['price']})")
 
     # offers
     package_ids = {e["key"]: e["id"] for e in man.data["packages"] if e.get("status") == "created"}
@@ -1797,6 +1859,17 @@ def teardown(client: Client, man: Manifest, plan: dict, plan_sha: str, confirm) 
     cid = camp.get("id")
     plan_pk = {p["key"]: p for p in plan["packages"]}
     plan_of = {o["key"]: o for o in plan.get("offers", [])}
+    plan_sm = {ship_key(s): s for s in plan["shipping_methods"]}
+    currency = plan["campaign"]["currency"]
+
+    def ship_ident(e, x):
+        # The GET is by the journalled id; the code must match, and so must the
+        # price whenever the store reports one in the campaign currency.
+        s = plan_sm.get(e["key"], {})
+        if not s or x.get("shipping_method") != s.get("shipping_method"):
+            return False
+        live_price = _price_in(x, currency)
+        return live_price is None or _num(live_price) == _num(s.get("price"))
 
     # Phase 1: read everything back and verify identity BEFORE any DELETE.
     todo = []  # (section, key, path)
@@ -1810,7 +1883,7 @@ def teardown(client: Client, man: Manifest, plan: dict, plan_sha: str, confirm) 
 
     for section, path_part, ident in (
         ("offers", "offers", lambda e, x: x.get("name") == plan_of.get(e["key"], {}).get("name")),
-        ("shipping_methods", "shipping-methods", lambda e, x: x.get("shipping_method") == e["key"]),
+        ("shipping_methods", "shipping-methods", ship_ident),
         ("packages", "packages", lambda e, x: x.get("product_variant_id") == e.get("product_variant_id")
          and x.get("name") == (e.get("name") or plan_pk.get(e["key"], {}).get("name"))),
     ):
@@ -1855,6 +1928,17 @@ def _num(x) -> Decimal | None:
         return D(x) if x is not None else None
     except CampaignAdminError:
         return None
+
+
+def _finite(d: Decimal | None) -> Decimal | None:
+    """d when it is a finite number, else None (NaN and Infinity parse as Decimals)."""
+    return d if d is not None and d.is_finite() else None
+
+
+def _price_in(obj: dict, currency: str):
+    """The raw price for `currency` in an Admin API object's `prices` list, or None."""
+    prices = obj.get("prices") if isinstance(obj, dict) else None
+    return next((x.get("price") for x in (prices or []) if isinstance(x, dict) and x.get("currency") == currency), None)
 
 
 def _free_shipping_offers(plan: dict) -> list:
@@ -1925,37 +2009,46 @@ def _landed_shipping(plan: dict, l: dict) -> str:
     # covers one of these keys and has a threshold within qty.
     if not any(_ships_free(plan, [(k, qty)]) for k in keys):
         ships = plan.get("shipping_methods") or [{}]
-        return f"shipping {ships[0].get('price', '?')}"
+        sk = l.get("shipping_key")
+        chosen = next((s for s in ships if sk is not None and ship_key(s) == sk), ships[0])
+        return f"shipping {chosen.get('price', '?')}"
     return "shipping depends on variant mix"
+
+
+CartCase = namedtuple("CartCase", "name lines vouchers expected ship line_keys shipping_key")
+CartCase.__new__.__defaults__ = (None,)
 
 
 def _cart_cases_from_plan(plan: dict, ids: dict) -> list:
     """Build carts/calculate cases straight from the structured landed_prices rows.
 
-    Each case is (name, lines, vouchers, expected_subtotal, ship, line_keys).
+    Each case is a CartCase (name, lines, vouchers, expected_subtotal, ship,
+    line_keys, shipping_key).
     `ship` is "paid" or "free" for a checkout cart, decided by whether that cart
     meets a free-shipping offer's condition, and "none" for an upsell voucher:
     a post-purchase upsell adds lines to a placed order and carries no shipping
     method. `line_keys` is the (package_key, quantity) list the cart was built
-    from. Each row names its package_keys and offer_key, so nothing is parsed
-    back out of display labels. Rows whose packages were not created are
+    from. `shipping_key` is the row's own shipping method, or None to use the
+    campaign's first (always None for an upsell). Each row names its
+    package_keys and offer_key, so nothing is parsed back out of display labels. Rows whose packages were not created are
     skipped (the admin read-back has already recorded that failure)."""
     offers = {o["key"]: o for o in plan.get("offers", [])}
     exit_offer = offers.get("exit-pop")
     free_scopes = [scope for _, _, scope in _free_shipping_offers(plan)]
     cases = []
 
-    def add(name, line_keys, vouchers, total, ship=None):
+    def add(name, line_keys, vouchers, total, ship=None, shipping_key=None):
         if ship is None:
             ship = "free" if _ships_free(plan, line_keys) else "paid"
         lines = [{"package_id": ids[k], "quantity": q} for k, q in line_keys]
-        cases.append((name, lines, vouchers, total, ship, line_keys))
+        cases.append(CartCase(name, lines, vouchers, total, ship, line_keys, shipping_key))
 
     for l in plan.get("landed_prices", []):
         keys = [k for k in l["package_keys"] if ids.get(k)]
         if not keys:
             continue
         qty, total = l["qty"], D(l["order_total"])
+        sk = l.get("shipping_key")
         if l["kind"] in ("tier", "single"):
             # A free-shipping offer scoped to a variant other than the row's first
             # would never meet a cart it can fire on, so each such scope gets a
@@ -1966,13 +2059,14 @@ def _cart_cases_from_plan(plan: dict, ids: dict) -> list:
                 if k is not None and keys[0] not in scope and k not in leads:
                     leads.append(k)
             for i, k in enumerate(leads):
-                add(f"{l['tier']} single variant" + (f" {k}" if i else ""), [(k, qty)], [], total)
+                add(f"{l['tier']} single variant" + (f" {k}" if i else ""), [(k, qty)], [], total, shipping_key=sk)
             if qty > 1 and len(keys) > 1:
-                add(f"{l['tier']} mixed variants", [(keys[i % len(keys)], 1) for i in range(qty)], [], total)
+                add(f"{l['tier']} mixed variants", [(keys[i % len(keys)], 1) for i in range(qty)], [], total,
+                    shipping_key=sk)
             if exit_offer:
                 unit = landed_unit(D(l["unit_after"]), D(exit_offer["benefit"]["value"]),
                                    exit_offer["benefit"].get("price_rounding"))
-                add(f"{l['tier']} + exit voucher", [(keys[0], qty)], [exit_offer["code"]], unit * qty)
+                add(f"{l['tier']} + exit voucher", [(keys[0], qty)], [exit_offer["code"]], unit * qty, shipping_key=sk)
         elif l["kind"] == "upsell":
             up = offers.get(l.get("offer_key")) if l.get("offer_key") else None
             if up and up.get("offer_type") == "voucher":
@@ -1980,38 +2074,43 @@ def _cart_cases_from_plan(plan: dict, ids: dict) -> list:
     return cases
 
 
-def _free_shipping_coverage(cases: list, offers: list, key, n: int, scope, ship_price) -> tuple:
+def _free_shipping_coverage(cases: list, offers: list, key, n: int, scope, price_of) -> tuple:
     """(ok, detail) for one free-shipping offer. calculate pins its threshold only
     with a checkout cart at exactly n in-scope units that no other free-shipping
     offer would free on its own, and, for n > 1, one at exactly n - 1 that pays.
     Wider gaps would pass a live offer that starts earlier or later, and a cart
     another offer frees anyway says nothing about this one. A cart also only
     counts when the shipping price clears its rounding tolerance (0.01 a unit);
-    below that, a free cart and a paid one price the same. ship_price is None
-    when the campaign has no shipping method, which proves nothing either."""
+    below that, a free cart and a paid one price the same. price_of(case) is the
+    shipping price that case is probed with, or None when it has no shipping
+    method to carry (none on the campaign, or its row's method was never
+    created); such a case is not probed with shipping and proves nothing. Cases
+    may sit on different methods: each is compared against its own price."""
     def units(x):
         return f"{x} in-scope unit" + ("" if x == 1 else "s")
 
     def freed_by_other(lk):
         return next((k for k, m, s in offers if k != key and _in_scope(lk, s) >= m), None)
 
-    if ship_price is None:
+    priced = [(c[4], c[5], price_of(c)) for c in cases if c[4] != "none"]
+    if priced and all(p is None for _, _, p in priced):
         return False, "no shipping method on the campaign, so calculate cannot tell free shipping from paid"
-    checkout_candidates = [(ship, _in_scope(lk, scope), lk) for _, _, _, _, ship, lk in cases if ship != "none"]
-    checkout = [c for c in checkout_candidates if ship_price > Decimal("0.01") * sum(q for _, q in c[2])]
+    checkout_candidates = [(ship, _in_scope(lk, scope), lk, p) for ship, lk, p in priced if p is not None]
+    checkout = [c for c in checkout_candidates if c[3] > Decimal("0.01") * sum(q for _, q in c[2])]
+    tiny = ", ".join(sorted({money(c[3]) for c in checkout_candidates if c not in checkout}))
     if checkout_candidates and not checkout:
-        return False, (f"shipping price {money(ship_price)} is within calculate's rounding tolerance, "
+        return False, (f"shipping price {tiny} is within calculate's rounding tolerance, "
                        "so a free cart and a paid one price the same")
-    seen = ", ".join(str(u) for u in sorted({u for _, u, _ in checkout if u})) or "none"
+    seen = ", ".join(str(u) for u in sorted({u for _, u, _, _ in checkout if u})) or "none"
     problems = []
-    at = [lk for _, u, lk in checkout if u == n]
+    at = [lk for _, u, lk, _ in checkout if u == n]
     if not at:
         problems.append(f"no calculate case with exactly {units(n)}")
     elif all(freed_by_other(lk) for lk in at):
         problems.append(f"threshold masked by offer {freed_by_other(at[0])} at {units(n)}; "
                         "calculate cannot prove it")
     if n > 1:
-        below = [(ship, lk) for ship, u, lk in checkout if u == n - 1]
+        below = [(ship, lk) for ship, u, lk, _ in checkout if u == n - 1]
         if not below:
             problems.append(f"no calculate case with exactly {units(n - 1)}")
         elif all(ship == "free" for ship, _ in below):
@@ -2021,7 +2120,7 @@ def _free_shipping_coverage(cases: list, offers: list, key, n: int, scope, ship_
                             f"{units(n - 1)}; calculate cannot prove it")
     if problems:
         dropped = len(checkout_candidates) - len(checkout)
-        note = (f" ({dropped} cart(s) left out: shipping {money(ship_price)} is within their rounding tolerance)"
+        note = (f" ({dropped} cart(s) left out: shipping {tiny} is within their rounding tolerance)"
                 if dropped else "")
         return False, "; ".join(problems) + f"; cases cover {seen} in-scope units{note}"
     return True, f"cases at {n - 1} and {units(n)}" if n > 1 else f"a case at {units(1)}"
@@ -2093,18 +2192,37 @@ def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: st
                   e.get("image_status") == "set" and live_p.get("image") == e.get("image"),
                   f"{e.get('image_status')} {live_p.get('image')}")
 
+    plan_sm = {ship_key(s): s for s in plan["shipping_methods"]}
+    journalled_ships = {e.get("key") for e in man.data["shipping_methods"]}
+    for k in plan_sm:
+        if k not in journalled_ships:
+            check(f"shipping {k} journalled", False, "no manifest entry for this planned shipping method")
     ships = {s["id"]: s for s in client.paginate(f"/api/admin/campaigns/{cid}/shipping-methods/")}
-    shipping_id, shipping_price = None, Decimal(0)
+    ship_by_key = {}  # shipping key -> (created id, planned price), in manifest order
     for e in man.data["shipping_methods"]:
-        s = next(x for x in plan["shipping_methods"] if x["shipping_method"] == e["key"])
+        s = plan_sm.get(e.get("key"))
+        if s is None:
+            check(f"shipping {e.get('key')}", False, "manifest entry is not in the plan")
+            continue
+        if e.get("status") != "created" or not e.get("id"):
+            check(f"shipping {e['key']}", False, f"status {e.get('status')}")
+            continue
         live_s = ships.get(e.get("id"))
         if not live_s:
             check(f"shipping {e['key']}", False, "missing remotely")
             continue
-        price = next((x.get("price") for x in live_s.get("prices", []) if x.get("currency") == c["currency"]), None)
+        price = _price_in(live_s, c["currency"])
         check(f"shipping {e['key']} price", _num(price) == D(s["price"]), f"{price} vs {s['price']}")
-        if shipping_id is None:
-            shipping_id, shipping_price = e["id"], D(s["price"])
+        ship_by_key.setdefault(e["key"], (e["id"], D(s["price"])))
+    # A row without its own shipping_key carries the first method, as before 0.4.0.
+    default_key = next(iter(ship_by_key), None)
+
+    def case_ship_key(case):
+        return None if case.ship == "none" else (case.shipping_key or default_key)
+
+    def case_ship_price(case):
+        sk = case_ship_key(case)
+        return ship_by_key[sk][1] if sk in ship_by_key else None
 
     # apply journals an offer only as it creates it, so a run that stopped partway
     # leaves later planned offers with no entry and no row below.
@@ -2144,29 +2262,41 @@ def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: st
     cart_cases = _cart_cases_from_plan(plan, ids)
     if hero_present:
         free_offers = _free_shipping_offers(plan)
-        ship_price = shipping_price if shipping_id is not None else None
         for key, n, scope in free_offers:
-            ok, detail = _free_shipping_coverage(cart_cases, free_offers, key, n, scope, ship_price)
+            ok, detail = _free_shipping_coverage(cart_cases, free_offers, key, n, scope, case_ship_price)
             check(f"offer {key} free-shipping coverage", ok, detail)
 
-    for name, lines, vouchers, expected, ship, _ in cart_cases:
+    for case in cart_cases:
+        name, lines, vouchers, expected, ship = case.name, case.lines, case.vouchers, case.expected, case.ship
         body = {"lines": lines}
         if vouchers:
             body["vouchers"] = vouchers
         path = "/api/v1/carts/calculate/"
+        sk = case_ship_key(case)
+        shipping_price = Decimal(0)
+        units = sum(l["quantity"] for l in lines)
+        tol = Decimal("0.01") * units  # documented per-unit rounding bound (offer doctrine: Rounding and stacking)
         if ship == "none":
             # The Cart API's upsell mode skips site-wide automatic offers, as a real
             # upsell page does; an upsell has no shipping method of its own.
             path += "?upsell=true"
-        elif shipping_id is not None:
-            body["shipping_method"] = shipping_id
+        elif sk is not None and sk not in ship_by_key:
+            # Probing without the row's method would price a different cart and
+            # could pass; the row is unproven, so it fails without a call.
+            cases.append({"case": name, "result": "FAIL", "status": None,
+                          "expected_total": None, "got_total": None, "delta": None,
+                          "tolerance": money(tol), "units": units,
+                          "shipping": ship, "expected_shipping": None, "shipping_key": sk,
+                          "path": path, "request": body, "response_keys": None,
+                          "error": f"shipping method {sk!r} was not created; cannot price this row"})
+            continue
+        elif sk is not None:
+            body["shipping_method"], shipping_price = ship_by_key[sk]
         status, resp = cart.request("POST", path, body)
         got_total = _num((resp or {}).get("total")) if isinstance(resp, dict) else None
         shipped = "shipping_method" in body
         ship_component = shipping_price if (ship == "paid" and shipped) else Decimal(0)
         want_total = expected + ship_component
-        units = sum(l["quantity"] for l in lines)
-        tol = Decimal("0.01") * units  # documented per-unit rounding bound (offer doctrine: Rounding and stacking)
         delta = None if got_total is None else (got_total - want_total)
         ok = status == 200 and delta is not None and abs(delta) <= tol
         cases.append({"case": name, "result": "PASS" if ok else "FAIL", "status": status,
@@ -2174,6 +2304,7 @@ def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: st
                       "delta": None if delta is None else money(delta),
                       "tolerance": money(tol), "units": units,
                       "shipping": ship, "expected_shipping": money(ship_component) if shipped else None,
+                      "shipping_key": sk if shipped else None,
                       "path": path, "request": body,
                       "response_keys": sorted(resp.keys()) if isinstance(resp, dict) else None,
                       "error": None if ok else _short(resp)})
@@ -2216,6 +2347,8 @@ def print_verify(report: dict) -> None:
         extra = "" if x["result"] == "PASS" else f"  ({x['error']})"
         if x.get("shipping") == "none":
             ship = "no shipping, upsell"
+        elif x.get("expected_shipping") is None and x.get("shipping_key"):
+            ship = f"shipping method {x['shipping_key']} not created"
         elif x.get("expected_shipping") is None:
             ship = "no shipping method"
         elif x.get("shipping") == "free":
@@ -2249,7 +2382,8 @@ def main(argv=None) -> int:
     r.add_argument("--hero", type=int, required=True, help="hero product id")
     r.add_argument("--ctc", required=True, choices=["low", "high"])
     r.add_argument("--anchor-price", required=True, help="package price tiers discount from")
-    r.add_argument("--shipping", action="append", required=True, help="<code>:<price>, repeatable")
+    r.add_argument("--shipping", action="append", required=True,
+                   help="<code>:<price>[:<key>], repeatable; a key lets one code carry several prices")
     r.add_argument("--name", help="campaign name (default: hero product title)")
     r.add_argument("--gateway-group", type=int)
     r.add_argument("--payment-methods")

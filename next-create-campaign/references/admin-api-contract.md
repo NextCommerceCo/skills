@@ -124,6 +124,26 @@ token that has been pasted into a chat or a ticket once the work is done.
     the same source the image already comes from.
 - Shipping create takes the store `shipping_method` code and a `price` in the
   campaign's default currency; other currencies are filled by forex.
+- One store code can carry several campaign shipping methods at different prices.
+  Each create returns its own id, the Cart API lists all of them under that code,
+  and `carts/calculate` charges the price of the id the cart names. Store shipping
+  methods are read-only over the Admin API, so this is how a store with a single
+  shipping method offers a paid-shipping ladder, for example `default` at $9.99,
+  $12.99, $14.99 and $16.99. In the plan:
+  - Each `shipping_methods[]` entry may carry a `key`. It defaults to the code and
+    is the entry's identity in the manifest. Keys must be unique, and a repeated
+    code needs a key on each entry. The same code at the same price twice is
+    rejected.
+  - A `landed_prices` row may carry a `shipping_key`. `verify` prices that row's
+    checkout carts with that method; a row without one uses the first method.
+    Upsell rows cannot carry one.
+  - `recommend --shipping <code>:<price>:<key>` sets the key. Assigning a
+    `shipping_key` to a row is a plan edit.
+  - The store returns no key, so resume identifies a lost entry by code and price
+    among the entries on that code not already journalled, and stops unless
+    exactly one has that price and every other price is readable. Teardown reads
+    each entry back by its journalled id and requires the code, and the price
+    whenever the store reports one in the campaign currency.
 - Offer create requires `name` (unique in the campaign, at most 128), `condition`
   and `benefit`. `offer_type` is `offer` (automatic, checkout only) or `voucher`
   (customer-entered `code`, works post-purchase). `condition.type` is `any` or
@@ -148,15 +168,20 @@ token that has been pasted into a chat or a ticket once the work is done.
     handoff instead, with the calculate probes that prove it.
   - `verify` decides shipping per cart from the plan's offers. A cart meets an
     offer when its in-scope units reach the threshold (`any` counts as 1); a cart
-    that meets none expects the first shipping method's price. Each offer gets a
+    that meets none expects the price of its row's `shipping_key` method, or the
+    first shipping method's price when the row names none. A free-shipping offer
+    is assumed to apply whichever campaign shipping method the cart carries, so
+    the carts at N and N-1 may sit on different methods: each is compared with
+    its own price. Each offer gets a
     `free-shipping coverage` row that needs a checkout cart at exactly N in-scope
     units and, for N above 1, one at exactly N-1 that pays. A gap, or a second
     free-shipping offer that would free those carts anyway, fails the row,
     because calculate could not tell that threshold from its neighbour. A cart
-    only counts when the shipping price is above its rounding tolerance (0.01 a
-    unit), so free shipping on a 0.00 method can never pass. When an offer is
-    scoped to a variant other than a row's first, verify adds a single-variant
-    cart for it.
+    only counts when its own shipping price is above its rounding tolerance (0.01
+    a unit), so free shipping on a 0.00 method can never pass. A row whose
+    `shipping_key` method was never created fails without a calculate call.
+    When an offer is scoped to a variant other than a row's first, verify adds a
+    single-variant cart for it.
   - Partial shipping offers (`shipping_percentage` below 100) are not modelled.
     The plan gate labels the rows they touch `shipping partly discounted`, and
     verify expects full shipping there, so prove those by hand.
@@ -242,8 +267,9 @@ otherwise.
   Mode 600 where the OS supports it, written atomically. The only file holding a
   live secret.
 - `verify-report.json`: the admin read-back checks and the `calculate` cases.
-  Each case records `shipping` (`paid`, `free` or `none`), `expected_shipping`
-  and the request `path`.
+  Each case records `shipping` (`paid`, `free` or `none`), `expected_shipping`,
+  `shipping_key` (the method the cart carried, null for an upsell) and the
+  request `path`.
 
 ### campaign-plan.json
 
@@ -257,12 +283,12 @@ otherwise.
  "packages": [{"key","role":"hero|bump|upsell","name","variant_title",
    "product_id","product_variant_ids","price",
    "image":{"src","file_name"}}],
- "shipping_methods": [{"shipping_method","price"}],
+ "shipping_methods": [{"key","shipping_method","price"}],
  "offers": [{"key","name","offer_type","code",
    "condition":{"type","value","package_keys"},
    "benefit":{"type","value","price_rounding"}}],
  "landed_prices": [{"tier","kind":"tier|single|upsell","qty","offer_key","package_keys",
-   "anchor","pct","unit_after","order_total"}],
+   "shipping_key","anchor","pct","unit_after","order_total"}],
  "rationale": ["..."], "blockers": ["..."], "waivers": ["..."], "handoff": ["..."]}
 ```
 
@@ -278,7 +304,10 @@ otherwise.
 ```
 
 `package_keys` in the plan resolve to created ids at apply time. Each
-`landed_prices` row carries its own `package_keys` and `offer_key`, so `verify`
-builds its cart cases by lookup rather than parsing the display label. Resume matches
-`pending` entries by identity (package: variant id + name; shipping: code;
-offer: name) before creating anything, so a lost response never duplicates.
+`landed_prices` row carries its own `package_keys`, `offer_key` and optional
+`shipping_key`, so `verify` builds its cart cases by lookup rather than parsing
+the display label. Manifest shipping entries are keyed by the shipping key, which
+is the store code for an entry without one, so manifests written before 0.4.0
+still resume, verify and tear down. Resume matches `pending` entries by identity
+(package: variant id + name; shipping: code + price; offer: name) before creating
+anything, so a lost response never duplicates.
