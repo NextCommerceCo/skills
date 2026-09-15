@@ -86,7 +86,8 @@ class FakeClock:
 def ns(**kw):
     base = dict(hero=22, ctc="low", anchor_price="49.95", shipping=["standard:6.95"], name=None,
                 gateway_group=None, payment_methods=None, express_methods=None, currency=None,
-                language=None, countries=None, tiers=None, exit=None, exit_code=None, bump=None,
+                language=None, countries=None, offer_type="quantity", paid_qty=None, free_qty=None,
+                gift=None, gift_mode="auto", tiers=None, exit=None, exit_code=None, bump=None,
                 upsell=None, free_shipping=False, free_shipping_min_qty=None, rounding=None,
                 statement_descriptor=None)
     base.update(kw)
@@ -398,6 +399,8 @@ class Recommendation(unittest.TestCase):
         self.assertEqual(plan["campaign"]["payment_gateway_group_id"], 1)
         self.assertEqual(plan["campaign"]["available_payment_methods"], ["bankcard"])
         self.assertEqual(plan["blockers"], [])
+        self.assertEqual(plan["offer_kind"], "quantity")
+        self.assertFalse(any(o["key"].startswith("bxgy-") or o["key"] == "gift-free" for o in plan["offers"]))
 
     def test_rounding_applies_charm_cents(self):
         plan = ca.recommend(self.disc, ns(rounding="0.95"))
@@ -457,6 +460,153 @@ class Recommendation(unittest.TestCase):
                             ns(bump=["24:19.95"], upsell=["25:39.95:20"]))
         self.assertTrue(all("image" not in p for p in plan["packages"]))
         self.assertFalse([r for r in ca.render_requests(plan) if r[0] == "PUT"])
+
+    def test_bxgy_buy_1_get_1(self):
+        plan = ca.recommend(self.disc, ns(offer_type="bxgy", paid_qty=1, free_qty=1))
+        self.assertEqual(ca.validate_plan(plan), [])
+        self.assertEqual(plan["offer_kind"], "bxgy")
+        o = next(x for x in plan["offers"] if x["key"] == "bxgy-1-1")
+        self.assertEqual((o["condition"]["type"], o["condition"]["value"], o["benefit"]["value"]),
+                         ("count", 2, "50.00"))
+        self.assertFalse([x for x in plan["offers"] if x["key"].startswith("tier-")])
+        buy1 = next(l for l in plan["landed_prices"] if l["tier"] == "Buy 1")
+        self.assertNotIn("paid_qty", buy1)
+        self.assertNotIn("approximation", buy1)
+        deal = next(l for l in plan["landed_prices"] if l["qty"] == 2)
+        self.assertEqual((deal["unit_after"], deal["order_total"]), ("24.97", "49.94"))
+        self.assertEqual(deal["paid_qty"], 1)
+        self.assertEqual(deal["pct"], 50)
+
+    def test_bxgy_buy_2_get_1(self):
+        plan = ca.recommend(self.disc, ns(offer_type="bxgy", paid_qty=2, free_qty=1))
+        self.assertEqual(ca.validate_plan(plan), [])
+        o = next(x for x in plan["offers"] if x["key"] == "bxgy-2-1")
+        self.assertEqual(o["condition"]["value"], 3)
+        self.assertEqual(o["benefit"]["value"], "33.33")
+        self.assertEqual(o["benefit"]["type"], "package_percentage")
+        self.assertTrue(o["name"].startswith("Photo Bracelet - Buy 2 get 1 free"))
+        landed = {l["tier"]: l for l in plan["landed_prices"]}
+        self.assertEqual(landed["Buy 1"]["unit_after"], "49.95")
+        self.assertNotIn("paid_qty", landed["Buy 1"])
+        self.assertNotIn("approximation", landed["Buy 1"])
+        deal = landed["Buy 2 get 1 free"]
+        self.assertEqual((deal["qty"], deal["unit_after"], deal["order_total"], deal["payable"], deal["savings"]),
+                         (3, "33.30", "99.90", "99.90", "49.95"))
+        self.assertEqual(deal["pct"], "33.33")
+        extra = next(l for l in plan["landed_prices"] if l["qty"] == 4)
+        self.assertEqual(extra["order_total"], "133.20")
+        self.assertTrue(extra["approximation"])
+        self.assertTrue(any("does not repeat" in r for r in plan["rationale"]))
+        self.assertTrue(any("proportional-off-all" in r for r in plan["rationale"]))
+
+    def test_bxgy_buy_3_get_2(self):
+        plan = ca.recommend(self.disc, ns(offer_type="bxgy", paid_qty=3, free_qty=2))
+        self.assertEqual(ca.validate_plan(plan), [])
+        o = next(x for x in plan["offers"] if x["key"] == "bxgy-3-2")
+        self.assertEqual((o["condition"]["value"], o["benefit"]["value"]), (5, "40.00"))
+        deal = next(l for l in plan["landed_prices"] if l["qty"] == 5)
+        self.assertEqual((deal["unit_after"], deal["order_total"]), ("29.97", "149.85"))
+
+    def test_bxgy_refuses_tiers_high_ctc_and_missing_qty(self):
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.recommend(self.disc, ns(offer_type="bxgy", paid_qty=2, free_qty=1, tiers="50,55,60"))
+        self.assertIn("--tiers", str(cm.exception))
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.recommend(self.disc, ns(offer_type="bxgy", paid_qty=2, free_qty=1, ctc="high"))
+        self.assertIn("high", str(cm.exception))
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.recommend(self.disc, ns(offer_type="bxgy"))
+        self.assertIn("--paid-qty", str(cm.exception))
+        with self.assertRaises(ca.CampaignAdminError):
+            ca.recommend(self.disc, ns(offer_type="quantity", paid_qty=2, free_qty=1))
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.recommend(self.disc, ns(offer_type="bxgy", paid_qty=100, free_qty=1))
+        self.assertIn("<= 99", str(cm.exception))
+
+    def test_gwp_gift_scoped_100(self):
+        plan = ca.recommend(self.disc, ns(offer_type="gwp", gift=["7:24.95"]))
+        self.assertEqual(ca.validate_plan(plan), [])
+        self.assertEqual(plan["offer_kind"], "gwp")
+        self.assertFalse([o for o in plan["offers"] if o["key"].startswith("tier-")])
+        gift = next(p for p in plan["packages"] if p["role"] == "gift")
+        self.assertEqual((gift["key"], gift["price"], gift["product_variant_ids"]), ("gift-7", "24.95", [7]))
+        o = next(x for x in plan["offers"] if x["key"] == "gift-free")
+        self.assertEqual(o["condition"], {"type": "any", "value": None, "package_keys": ["gift-7"]})
+        self.assertEqual(o["benefit"], {"type": "package_percentage", "value": "100.00", "price_rounding": None})
+        row = next(l for l in plan["landed_prices"] if l["offer_key"] == "gift-free")
+        self.assertEqual((row["kind"], row["unit_after"], row["order_total"]), ("single", "0.00", "0.00"))
+        hero_row = next(l for l in plan["landed_prices"] if l["tier"] == "Buy 1")
+        self.assertEqual(hero_row["unit_after"], "49.95")
+        self.assertTrue(any("noSlot" in h for h in plan["handoff"]))
+        self.assertTrue(any("Min-spend" in h for h in plan["handoff"]))
+
+    def test_gwp_low_ctc_rationale(self):
+        plan = ca.recommend(self.disc, ns(offer_type="gwp", ctc="low", gift=["7:24.95"]))
+        self.assertEqual(ca.validate_plan(plan), [])
+        self.assertFalse([o for o in plan["offers"] if o["key"].startswith("tier-")])
+        self.assertTrue(any("GWP at low CTC" in r for r in plan["rationale"]))
+        self.assertTrue(any("--offer-type quantity --gift" in r for r in plan["rationale"]))
+
+    def test_gwp_rounding_forced_none_and_quantity_plus_gift(self):
+        mixed = ca.recommend(self.disc, ns(gift=["7:24.95"], rounding="0.95"))
+        self.assertEqual(ca.validate_plan(mixed), [])
+        self.assertEqual(mixed["offer_kind"], "quantity")
+        tiers = [o for o in mixed["offers"] if o["key"].startswith("tier-")]
+        self.assertEqual([o["benefit"]["value"] for o in tiers], ["50.00", "55.00", "60.00"])
+        self.assertTrue(all(o["benefit"]["price_rounding"] == "0.95" for o in tiers))
+        gift = next(o for o in mixed["offers"] if o["key"] == "gift-free")
+        self.assertEqual(gift["benefit"]["price_rounding"], None)
+        self.assertEqual(gift["condition"]["package_keys"], ["gift-7"])
+        self.assertTrue(all("gift-7" not in o["condition"]["package_keys"] for o in tiers))
+        ids = {p["key"]: 100 + i for i, p in enumerate(mixed["packages"])}
+        cases = ca._cart_cases_from_plan(mixed, ids)
+        mixed_case = next(c for c in cases if "Buy 1 + Gift" in c[0])
+        self.assertEqual(mixed_case[3], Decimal("24.95"))  # rounded 50% hero + free gift
+
+    def test_multi_gift_mixed_cart_cases(self):
+        plan = ca.recommend(self.disc, ns(offer_type="gwp", gift=["7:24.95", "8:15.00"]))
+        self.assertEqual(ca.validate_plan(plan), [])
+        gifts = [p for p in plan["packages"] if p["role"] == "gift"]
+        self.assertEqual(sorted(p["key"] for p in gifts), ["gift-7", "gift-8"])
+        gift_offer = next(o for o in plan["offers"] if o["key"] == "gift-free")
+        self.assertEqual(sorted(gift_offer["condition"]["package_keys"]), ["gift-7", "gift-8"])
+        ids = {p["key"]: 100 + i for i, p in enumerate(plan["packages"])}
+        mixed_names = [c[0] for c in ca._cart_cases_from_plan(plan, ids) if "Buy 1 + Gift" in c[0]]
+        self.assertEqual(len(mixed_names), 2)
+        self.assertTrue(any("Memorial Ornament" in n for n in mixed_names))
+
+    def test_gwp_refusals(self):
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.recommend(self.disc, ns(offer_type="gwp"))
+        self.assertIn("--gift", str(cm.exception))
+        with self.assertRaises(ca.CampaignAdminError):
+            ca.recommend(self.disc, ns(offer_type="gwp", gift=["7:24.95"], tiers="50,55,60"))
+        with self.assertRaises(ca.CampaignAdminError):
+            ca.recommend(self.disc, ns(offer_type="gwp", gift=["7:24.95"], paid_qty=2, free_qty=1))
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.recommend(self.disc, ns(offer_type="gwp", gift=["23:24.95"]))
+        self.assertIn("already", str(cm.exception))
+        d = json.loads(json.dumps(self.disc))
+        for p in d["products"]:
+            for v in p["variants"]:
+                if v["id"] == 7:
+                    v["purchase_availability"] = "unavailable"
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.recommend(d, ns(offer_type="gwp", gift=["7:24.95"]))
+        self.assertIn("not purchasable", str(cm.exception))
+
+    def test_bxgy_helpers(self):
+        self.assertEqual(ca.money(ca.bxgy_percentage(1, 1)), "50.00")
+        self.assertEqual(ca.money(ca.bxgy_percentage(2, 1)), "33.33")
+        self.assertEqual(ca.money(ca.bxgy_percentage(3, 2)), "40.00")
+        self.assertEqual(ca.true_bxgy_payable(Decimal("49.95"), 2, 1, 3), Decimal("99.90"))
+        self.assertEqual(ca.true_bxgy_payable(Decimal("49.95"), 2, 1, 4), Decimal("149.85"))
+        with self.assertRaises(ca.CampaignAdminError):
+            ca.bxgy_percentage(0, 1)
+        with self.assertRaises(ca.CampaignAdminError):
+            ca.bxgy_percentage(2, 0)
+        with self.assertRaises(ca.CampaignAdminError):
+            ca.bxgy_percentage(100, 1)
 
 
 class PlanValidation(unittest.TestCase):

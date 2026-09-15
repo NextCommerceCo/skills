@@ -152,7 +152,13 @@ token that has been pasted into a chat or a ticket once the work is done.
   tier offer wants; the plan never uses it. `benefit.type` is
   `package_percentage`, `shipping_percentage` or `order_percentage`; `value` is a
   decimal string; `price_rounding` is one of `null`, `"0.00"`, `"0.95"`,
-  `"0.97"`, `"0.99"`.
+  `"0.97"`, `"0.99"`. There is no free-quantity benefit, no fixed-amount
+  benefit, no min-spend condition, and no separate benefit package list.
+  `recommend --offer-type bxgy` therefore emits a labeled
+  `package_percentage` of `100 × Y / (X + Y)` at `count = X + Y`.
+  `recommend --gift` emits `package_percentage` `100.00` with `condition: any`
+  scoped only to gift packages, and omits `price_rounding` so charm rounding
+  cannot bring a 100% line back to 0.95.
 - Offer scope read-back: the offers list omits `condition.packages`; only the
   per-offer retrieve carries the scope. `verify` retrieves each offer by id.
 - Free shipping is an automatic `offer` with `benefit.type`
@@ -234,6 +240,8 @@ teardown later deletes it, as this run's.
 | Rule | Source |
 |---|---|
 | Low CTC: one package per variant + Buy 1/2/3 tier offers at 50/55/60 | [Cost-to-consumer decides the structure](offer-doctrine.md#cost-to-consumer-decides-the-structure), [Standard tiers](offer-doctrine.md#standard-tiers) |
+| `--offer-type bxgy`: one count-(X+Y) offer at 100×Y/(X+Y)% off every hero unit | [Buy-X-get-Y approximation](offer-doctrine.md#buy-x-get-y-approximation), [worked-examples.md](worked-examples.md) |
+| `--gift` / `--offer-type gwp`: gift package + 100% offer scoped only to it | [Gift with purchase](offer-doctrine.md#gift-with-purchase) |
 | High CTC: single unit, no tiers, bumps + upsell vouchers | [Cost-to-consumer decides the structure](offer-doctrine.md#cost-to-consumer-decides-the-structure) |
 | Every campaign gets an exit-pop voucher (extra 5 to 10%) | [Exit-pop voucher](offer-doctrine.md#exit-pop-voucher) |
 | Tier offers are `offer` type, scoped to hero package ids, never `all_packages` | [Naming and scoping](offer-doctrine.md#naming-and-scoping) |
@@ -281,12 +289,12 @@ otherwise.
 
 ```json
 {"store_slug": "...", "store_origin": "https://<slug>.29next.store",
- "generated_at": "...", "ctc": "low|high",
+ "generated_at": "...", "ctc": "low|high", "offer_kind": "quantity|bxgy|gwp",
  "campaign": {"name","currency","language","payment_gateway_group_id",
    "additional_currencies","available_payment_methods",
    "available_express_payment_methods","available_shipping_countries",
    "statement_descriptor"},
- "packages": [{"key","role":"hero|bump|upsell","name","variant_title",
+ "packages": [{"key","role":"hero|bump|upsell|gift","name","variant_title",
    "product_id","product_variant_ids","price",
    "image":{"src","file_name"}}],
  "shipping_methods": [{"key","shipping_method","price"}],
@@ -294,9 +302,23 @@ otherwise.
    "condition":{"type","value","package_keys"},
    "benefit":{"type","value","price_rounding"}}],
  "landed_prices": [{"tier","kind":"tier|single|upsell","qty","offer_key","package_keys",
-   "shipping_key","anchor","pct","unit_after","order_total"}],
+   "shipping_key","anchor","pct","unit_after","order_total",
+   "paid_qty","free_qty","total_qty","full_retail","payable","savings",
+   "effective_pct","effective_unit","approximation","note"}],
  "rationale": ["..."], "blockers": ["..."], "waivers": ["..."], "handoff": ["..."]}
 ```
+
+`offer_kind` is written by `recommend` (`quantity` when `--offer-type` is omitted)
+and is optional for `validate_plan`. Package `role` is not schema-checked;
+`recommend` emits `hero`, `bump`, `upsell` and `gift`. The extra landed fields
+(`paid_qty` through `note`) appear only on buy-X-get-Y deal and over-qty rows;
+the BXGY Buy 1 list-price row, quantity rows and gift rows keep the original
+columns. Gift carts stay `kind: single` so verify's existing three kinds still
+cover them. When a gift package is present, verify also probes a synthetic
+hero+gift cart so the two `package_percentage` offers are proven together.
+`pct` on quantity and list-price rows is an integer; on BXGY deal rows it is an
+integer when the rate is whole and a decimal string (for example `"33.33"`) when
+fractional. `print_plan` formats either.
 
 ### run-manifest.json
 

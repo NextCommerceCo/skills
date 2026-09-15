@@ -50,6 +50,92 @@ convert, it is very hard to make that up with upsells, and affiliates stop sendi
 traffic to an offer that earns them little per click. Launch lean with the simplest
 offer that converts, then add bumps and upsells once traffic is flowing.
 
+Quantity Buy 1/2/3 is one of three offer kinds `recommend` can emit. The others
+are a labeled buy-X-get-Y approximation and a gift-with-purchase composition.
+Ask which kind first; do not mix a Buy 1 percentage with a lower BXGY rate on
+the same packages. Worked numbers are in [worked-examples.md](worked-examples.md).
+
+## Buy-X-get-Y approximation
+
+The Campaigns App has no free-unit benefit, no cheapest-free allocator, and no
+repeat/once switch. Condition types are `any` or `count >= N`. Benefit types are
+percentages only, and `package_percentage` discounts the same packages the
+condition matches.
+
+`recommend --offer-type bxgy` therefore encodes buy X get Y free as **one**
+automatic offer:
+
+- `condition.type: count`, `value: X + Y`
+- `benefit.type: package_percentage`, `value: 100 × Y / (X + Y)` (two decimal
+  places)
+- scoped to the hero packages, same as a quantity tier
+
+At exactly `X + Y` equal-priced units this matches paying for X. It is not
+Nth-unit-free: every matching unit gets that percentage, including mixed-price
+variants. Which unit is "free" is not a merchant choice. Cheapest-free would
+save `min(prices)`; this saves `% × sum(prices)`.
+
+The offer does not repeat per extra qualifying set. Extra units above `X + Y`
+still get the same percentage, because the engine picks the highest matching
+automatic `package_percentage` and applies it to all in-scope units. A true
+repeating BOGO cannot be encoded: a lower percentage at count `X + Y + 1`
+cannot beat the deal rate. `recommend` adds a landed row at `X + Y + 1` so
+the operator sees the over-discount before approving.
+
+`--offer-type bxgy` cannot take `--tiers`. A Buy 1 percentage on the same
+packages would mask a lower BXGY rate (for example Buy 1 at 50% plus buy 2 get
+1 free at 33.33%: quantity 3 would take 50%). Buy 1 at list (no offer) plus
+the BXGY offer is the default encode. A deeper percentage at a higher count
+than `X + Y` is allowed if the operator hand-authors it; `recommend` will not
+emit a non-monotonic mix.
+
+Different product or variant as the free item is a platform gap: the API has
+no separate benefit `package_ids`. Putting both SKUs in one scope discounts
+the paid item too. Scoping only the gift makes the condition track gift
+quantity. Use `--offer-type gwp` for a gift package that is free whenever it
+is in the cart, not when the hero qualifies.
+
+`--ctc high` refuses BXGY. It is a quantity structure.
+
+Customer copy: say "3 for the price of 2" or "buy 2 get 1 free (~33.33% off
+when you take 3)" rather than promising one specific unit free. Strike-through
+on every unit at the effective price is what the cart actually shows.
+
+## Gift with purchase
+
+There is no min-spend condition, no engine auto-add/remove, and no way to
+discount the gift only after the hero qualifies.
+
+`recommend --offer-type gwp` (or `--gift` on a quantity or BXGY plan) creates:
+
+- a package with `role: gift` at the operator-supplied price (never inferred)
+- one automatic offer `gift-free`: `package_percentage` `100.00`,
+  `condition.type: any`, scoped **only** to the gift package keys, with
+  `price_rounding` omitted even if `--rounding` is set (100% plus charm cents
+  would land at 0.95, not free)
+
+The gift is free whenever it is in the cart. A gift-only cart is free on the
+line and still pays shipping, because free-shipping offers stay on the hero
+keys. Qualification is cart composition, not hero quantity or spend.
+
+Auto-add versus customer pick is funnel work. `--gift-mode auto` (default)
+hands off to `next-campaigns-setup`: add the gift package as a bundle item
+with `"noSlot": true`. `--gift-mode select` asks for a visible gift choice.
+This skill does not write funnel markup. The SDK behaviour if a shopper
+removes a `noSlot` item, and whether the engine would auto-remove an
+unqualified gift, are unverified. The Offers API will not do either.
+
+Out of stock: `discover` already surfaces `purchase_availability`; `recommend`
+refuses an unavailable gift variant.
+
+Min-spend GWP, "discount the gift when the hero qty/spend is met", and engine
+auto-add/remove are platform follow-ups. How a 100%-off line appears on
+orders, fulfilment and refunds versus a true free gift is unverified; do not
+invent accounting rules.
+
+Admin API "Gift cards" are stored-value cards. Spark/theme free-gift auto-add
+is storefront Offers. Neither is Campaigns App.
+
 ## Exit-pop voucher
 
 Every campaign gets an exit voucher, shown when the customer signals they are
@@ -142,6 +228,8 @@ Offer names:
 | Offer | Name | Code |
 |---|---|---|
 | Checkout tier (site offer) | `{Product} - Buy {n} - {pct}%` | none |
+| Buy-X-get-Y (site offer, labeled approximation) | `{Product} - Buy {x} get {y} free (~{pct}%)` | none |
+| Gift free (site offer, gift packages only) | `{Product} - Gift free` | none |
 | Upsell voucher | `{Product} - {pct}%` | `{PRODUCT}{PCT}`, uppercase alphanumeric, for example `TRAVELMUG50` |
 | Exit voucher | `{Product} - Exit - {pct}%` | `--exit-code` when given, else `{PRODUCT}{PCT}`; keep it short, for example `SAVE10` |
 
@@ -201,6 +289,10 @@ Stacking:
   bump, add nothing to its base and are left alone by it.
 - Stacking is multiplicative. A 50 percent offer plus a 50 percent voucher is 75
   percent off, not free.
+- Multiple automatic `package_percentage` offers do not stack with each other.
+  The engine keeps the highest matching percentage and applies it to every
+  in-scope unit. That is why a 50% Buy 1 cannot sit next to a 33.33% BOGO on
+  the same packages.
 - The voucher discount is computed per unit and rounded to cents, and the line
   total is quantity times that unit. A cart total can therefore differ from a
   literal percentage of the total by a few cents. That is expected.
@@ -218,9 +310,12 @@ Engineering a voucher to a target price:
   the rounding, 9.97 percent of $45.53 is $4.5393, which rounds to $4.54 and lands
   at $40.99. A plain 10 percent is $4.553, which rounds to $4.55 and lands at
   $40.98.
-- `recommend` takes whole percentages only. A fractional voucher goes into the
-  plan file by hand before the `plan` review, which gives it a new hash to
-  approve.
+- `recommend` takes whole percentages in `[1, 99]` for quantity tiers, upsells
+  and the exit voucher. Buy-X-get-Y is the exception: it emits the exact
+  `100 × Y / (X + Y)` rate, which may be fractional (buy 2 get 1 is 33.33).
+  A 100% package benefit is reserved for a gift-scoped offer; quantity `recommend`
+  still refuses it. A fractional voucher still goes into the plan file by hand
+  before the `plan` review, which gives it a new hash to approve.
 
 On the Cart API `calculate` call the coupon field is `vouchers: [...]`. The fields
 `coupon` and `coupons` are silently ignored: the call returns 200 with no voucher

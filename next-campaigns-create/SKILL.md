@@ -1,19 +1,22 @@
 ---
 name: next-campaigns-create
-version: 0.6.0
+version: 0.7.0
 description: |
   Provision a launch-ready Campaigns App campaign over the NEXT Admin API:
   read the store's catalogue, gateway groups and shipping methods, recommend a
   campaign structure from the offer doctrine, show the operator every request
   and the landed prices, then create the campaign, its packages, shipping
   methods and offers in one approval-gated run. Hands back the campaign api_key
-  and the package ids the funnel needs.
+  and the package ids the funnel needs. Offer kinds: quantity Buy 1/2/3,
+  buy-X-get-Y as a labeled percentage approximation, and gift-with-purchase as
+  a gift package plus a gift-scoped 100% offer.
 
   Use when: "create a campaign for {store}", "set up the campaign in the
   Campaigns App", "provision a campaign over the API", "recommend a campaign
-  structure", "build the offers for {product}", or when a new campaign needs to
-  exist on a store before funnel work starts. Creating a NEW campaign only;
-  editing a campaign that already exists is out of scope.
+  structure", "build the offers for {product}", "buy X get Y", "BOGO",
+  "gift with purchase", or when a new campaign needs to exist on a store
+  before funnel work starts. Creating a NEW campaign only; editing a campaign
+  that already exists is out of scope.
 allowed-tools:
   - Bash
   - Read
@@ -47,7 +50,9 @@ the run manifest and the safety checks. This skill drives it and makes the
 operator decisions the engine refuses to guess.
 
 If this file and the engine ever disagree, the engine wins for behaviour and
-`references/admin-api-contract.md` wins for the API contract.
+`references/admin-api-contract.md` wins for the API contract. Offer reasoning
+is in `references/offer-doctrine.md`; worked numbers for quantity, buy-X-get-Y
+and gift-with-purchase are in `references/worked-examples.md`.
 
 ---
 
@@ -206,7 +211,7 @@ next-campaigns-create.sh --version
 next-campaigns-create.sh check-update [--no-cache] [--json]
 next-campaigns-create.sh discover  --store <subdomain> [--out <dir>]
 next-campaigns-create.sh metadata  --store <subdomain> [--apply]
-next-campaigns-create.sh recommend --discovery <dir>/discovery.json --hero <product_id> --ctc low|high --anchor-price <decimal> --shipping <code>:<price>[:<key>] [--shipping ...] [--name <campaign name>] [--gateway-group <id>] [--payment-methods a,b] [--express-methods a,b] [--currency USD] [--language en] [--countries US,CA] [--tiers 50,55,60] [--exit 10] [--exit-code CODE] [--bump <variant_id>:<price>] [--upsell <variant_id>:<price>:<pct>] [--free-shipping | --free-shipping-min-qty <n>] [--rounding 0.95] [--statement-descriptor <text>] [--out <dir>]
+next-campaigns-create.sh recommend --discovery <dir>/discovery.json --hero <product_id> --ctc low|high --anchor-price <decimal> --shipping <code>:<price>[:<key>] [--shipping ...] [--offer-type quantity|bxgy|gwp] [--paid-qty <n> --free-qty <n>] [--gift <variant_id>:<price>[:<qty>]] [--gift-mode auto|select] [--name <campaign name>] [--gateway-group <id>] [--payment-methods a,b] [--express-methods a,b] [--currency USD] [--language en] [--countries US,CA] [--tiers 50,55,60] [--exit 10] [--exit-code CODE] [--bump <variant_id>:<price>] [--upsell <variant_id>:<price>:<pct>] [--free-shipping | --free-shipping-min-qty <n>] [--rounding 0.95] [--statement-descriptor <text>] [--out <dir>]
 next-campaigns-create.sh plan      --plan <dir>/campaign-plan.json [--check-store]
 next-campaigns-create.sh apply     --plan <dir>/campaign-plan.json --yes --plan-sha256 <plan-sha256> [--resume <dir>/run-manifest.json] [--out <dir>]
 next-campaigns-create.sh verify    --manifest <dir>/run-manifest.json --plan <dir>/campaign-plan.json [--out <dir>]
@@ -371,14 +376,39 @@ state into the plan's blockers.
 ## Phase 3: Gather inputs
 
 Collect these via `AskUserQuestion` when the request does not already settle
-them:
+them. **Ask offer type first**, then only that type's questions. Do not walk
+the quantity-tier list for a buy-X-get-Y or gift-with-purchase campaign.
+
+### Offer type
+
+> What kind of offer is this campaign?
+>
+> - A) Quantity Buy 1/2/3 (percentage off every unit at each count)
+> - B) Buy X get Y free (same product; encoded as a labeled percentage)
+> - C) Gift with purchase (a separate gift package, free whenever it is in the cart)
+
+The Campaigns App has no free-unit benefit, no cheapest-free allocator, no
+min-spend condition, and no way to discount a different product than the one
+that qualified. B and C are labeled compositions inside those limits. Numbers
+and the mixed-price / repeat cases are in `references/worked-examples.md`.
+
+Refuse a non-monotonic mix on the same hero packages: "Buy 1 at 50% plus buy 2
+get 1 free" cannot be encoded, because the engine keeps the highest matching
+`package_percentage` and quantity 3 would take 50%. Allowed: Buy 1 at list plus
+BOGO; BOGO plus a deeper percentage at a higher count; quantity tiers plus a
+gift (different package keys). `--tiers` with `--offer-type bxgy` is an error.
+
+### Shared, every type
 
 - **Hero product id**: from the discovery product table.
 - **CTC, low or high**: operator judgement, never inferred. Cost-to-consumer is
-  what the customer pays. Low CTC gets Buy 1/2/3 tier offers; high CTC gets
-  single units plus bumps and upsells.
-- **Anchor price**: the package price the tiers discount from. This is not
-  always the catalogue price; a catalogue price may already be discounted.
+  what the customer pays. Low CTC is the quantity-tier path and is required
+  for buy-X-get-Y. High CTC is single units plus bumps and upsells; gift-with-
+  purchase uses that shape for the hero. `recommend` refuses `--ctc high` with
+  `--offer-type bxgy`.
+- **Anchor price**: the package price quantity and BXGY discounts come off.
+  This is not always the catalogue price; a catalogue price may already be
+  discounted.
 - **Markets**: currency, language and shipping countries (`--currency`,
   `--language`, `--countries`). Defaults come from the store's enabled set. The
   currency cannot be changed after the campaign is created, and the gateway
@@ -397,7 +427,9 @@ them:
   This is an operator decision, and the two flags are alternatives; passing both
   is an error. N has to be a quantity the landed rows reach, along with the one
   below it, so on the default Buy 1/2/3 tiers it is 2 or 3. `recommend` refuses
-  anything else, and a high-CTC plan (Buy 1 only) cannot take a threshold.
+  anything else, and a high-CTC or gift-only hero (Buy 1 only) cannot take a
+  threshold. Free shipping stays scoped to **hero** packages; a gift-only cart
+  still pays shipping.
 - **Bumps and upsells**: each as an explicit variant id, package price and, for
   upsells, voucher percentage. Nothing is inferred from catalogue prices.
 - **Standing checkout bump**: ask whether the store requires a bump on every
@@ -406,12 +438,67 @@ them:
 - **Campaign name** (`--name`): the doctrine uses the hero product name. It must
   not match a campaign that already exists on the store.
 
+### Quantity (A)
+
+Keep this path identical to previous versions: `--ctc low|high` and
+`--tiers 50,55,60` (default) emit Buy 1/2/3 at 50/55/60 percent off **every**
+in-scope unit. That is not "Nth unit free". Override `--tiers` only when the
+operator asks.
+
+Optional: `--gift <variant_id>:<price>[:<qty>]` adds a gift package beside the
+quantity ladder (see Gift below). `--paid-qty` / `--free-qty` on this type is
+an error; use `--offer-type bxgy`.
+
+### Buy X get Y (B)
+
+Ask paid quantity X and free quantity Y (integers >= 1). Pass
+`--offer-type bxgy --paid-qty X --free-qty Y`. `recommend` emits one automatic
+offer at count `X+Y` with percentage `100 × Y / (X+Y)` (fractional rates
+allowed on this path only; buy 2 get 1 is 33.33).
+
+Tell the operator, before they approve:
+
+- At exactly `X+Y` equal-priced units this matches paying for X. Extra units
+  above that still get the same percentage; it does not repeat per extra set.
+- Which unit is free is not a choice. Mixed-price variants all take the same
+  %. That is proportional-off-all, not cheapest-free.
+- Customer copy should say "3 for the price of 2" or "buy 2 get 1 free
+  (~33.33% off when you take 3)", not "the cheapest unit is free". The cart
+  shows a discounted unit on a consolidated line, not a $0 FREE line.
+- A different product as the free item cannot be encoded. Stop and use gift
+  with purchase if they want a separate SKU that is free whenever it is in
+  the cart (not when the hero qualifies).
+
+`--tiers` with bxgy is an error (Buy 1 % would mask a lower BXGY rate).
+Optional `--gift` is allowed; the gift uses different package keys.
+
+Per-customer limits and date ranges are not offer-create fields. PATCH
+`available` on/off is out of this skill's create path.
+
+### Gift with purchase (C)
+
+Ask which variant is the gift and the package price to put on it (never infer
+the price). Pass `--offer-type gwp --gift <variant_id>:<price>[:<qty>]`.
+`--tiers` and `--paid-qty`/`--free-qty` with gwp are errors; combine a gift
+with quantity tiers via `--offer-type quantity --gift ...`.
+
+Then ask auto-add versus customer pick (`--gift-mode auto|select`, default
+auto). That choice is a **funnel handoff only**. The Offers API cannot
+auto-add or auto-remove the gift. Min-spend GWP is a platform gap; do not
+fake it.
+
+Refuse an unavailable gift variant (`purchase_availability`) and a gift
+variant that is already a hero, bump or upsell.
+
+### Defaults
+
 The remaining flags have defaults; override them only when the operator asks.
-The tier percentages (`--tiers`) default to 50,55,60 off the anchor and the exit
-voucher (`--exit`) to 10 percent, both from `references/offer-doctrine.md`. The
+The quantity tier percentages (`--tiers`) default to 50,55,60 off the anchor
+and the exit voucher (`--exit`) to 10 percent, both from
+`references/offer-doctrine.md`. `--offer-type` defaults to `quantity`. The
 others are `--exit-code`, price rounding (`--rounding`: `0.00`, `0.95`, `0.97`
-or `0.99`), `--payment-methods`, `--express-methods` and
-`--statement-descriptor`.
+or `0.99`; never applied to a 100% gift offer), `--payment-methods`,
+`--express-methods` and `--statement-descriptor`.
 
 ---
 
@@ -424,9 +511,16 @@ bash <skill-dir>/next-campaigns-create.sh recommend \
   --discovery ./next-campaigns-create-runs/<subdomain>/discovery.json \
   --hero <product_id> --ctc <low|high> --anchor-price <decimal> \
   --shipping <code>:<price>[:<key>] [--name "<campaign name>"] [--countries US,CA] \
+  [--offer-type quantity|bxgy|gwp] [--paid-qty <n> --free-qty <n>] \
+  [--gift <variant_id>:<price>[:<qty>]] [--gift-mode auto|select] \
   [--bump <variant_id>:<price> ...] [--upsell <variant_id>:<price>:<pct> ...] \
   [--exit 10] [--rounding 0.95] [--free-shipping | --free-shipping-min-qty <n>]
 ```
+
+Quantity is the default `--offer-type` and still emits Buy 1/2/3 at 50/55/60
+when `--ctc` is low. Buy-X-get-Y needs `--offer-type bxgy --paid-qty --free-qty`.
+Gift-with-purchase needs `--offer-type gwp --gift ...`. Omit `--offer-type` (or
+pass `quantity`) to keep the existing encode.
 
 `recommend` writes `campaign-plan.json` next to the discovery file. It refuses a
 directory that already holds a `run-manifest.json`, because that manifest's plan
@@ -582,7 +676,11 @@ or FAIL, with the failing checks. Then hand off:
 
 - Campaign id, and the manifest path where the full api_key lives (gitignored,
   never echoed). Point the operator at the file; do not read the key into chat.
-- Package ids for `data-next-package-id` in the funnel markup.
+- Package ids for `data-next-package-id` in the funnel markup. Gift packages
+  are listed too. For `--gift-mode auto`, tell `next-campaigns-setup` to add
+  each gift package as a bundle item with `"noSlot": true`; for `select`, show
+  it as a visible gift choice. This skill does not write that markup, and the
+  Offers API will not auto-add or auto-remove the gift.
 - Shipping method ids, one per shipping key, from the manifest's
   `shipping_methods` entries. When one store code carries several prices the
   code alone does not pick a price: the funnel has to send the id of the rung
@@ -636,6 +734,12 @@ need.
 
 - Never scope a tier offer to `all_packages`; always name the hero package ids.
 - Never create quantity packages (`2x ...`); tiers are offers.
+- Never encode buy-X-get-Y as a free-unit or Nth-unit-free field; label the
+  percentage approximation and the repeat / mixed-price limits.
+- Never scope a 100% gift offer to hero packages, and never apply
+  `price_rounding` to it.
+- Never invent a min-spend condition, a split condition/benefit package list,
+  or an Offers API auto-add. Those are platform gaps; say so in the handoff.
 - Never infer CTC or the anchor price; both come from the operator.
 - Never touch a campaign the run manifest does not own. Teardown deletes only
   what this run created, after reading each object back.
