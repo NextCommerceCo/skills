@@ -816,6 +816,9 @@ def landed_unit(anchor: Decimal, pct: Decimal, rounding: str | None) -> Decimal:
     return unit
 
 
+BXGY_QTY_MAX = 99
+
+
 def bxgy_percentage(paid: int, free: int) -> Decimal:
     """Percentage-off-all-units that matches a true free-unit deal at exactly paid+free
     units, before per-unit rounding. The Campaigns App has no free-qty benefit, so
@@ -823,6 +826,9 @@ def bxgy_percentage(paid: int, free: int) -> Decimal:
     if type(paid) is not int or type(free) is not int or paid < 1 or free < 1:
         raise CampaignAdminError(
             f"buy-X-get-Y needs paid and free quantities that are integers >= 1; got paid={paid!r} free={free!r}")
+    if paid > BXGY_QTY_MAX or free > BXGY_QTY_MAX:
+        raise CampaignAdminError(
+            f"buy-X-get-Y paid and free quantities must be <= {BXGY_QTY_MAX}; got paid={paid} free={free}")
     return Decimal(free) * Decimal(100) / Decimal(paid + free)
 
 
@@ -838,6 +844,8 @@ def true_bxgy_payable(anchor: Decimal, paid: int, free: int, qty: int) -> Decima
 
 
 def _pct_for_landed(pct: Decimal):
+    """Landed `pct` for BXGY rows: int when whole (matches quantity tiers), else a
+    money string so fractional rates such as 33.33 stay exact. See admin-api-contract."""
     if pct == pct.to_integral_value():
         return int(pct)
     return money(pct)
@@ -1113,12 +1121,13 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
             f"The offer does not repeat per extra qualifying set. Qty {extra_qty} still gets {money(pct)}% off "
             f"all {extra_qty} units (engine {money(extra_engine)}) rather than one complete deal plus leftover "
             f"units at full price (true repeating BOGO {money(extra_true)}).")
-        landed.append(_bxgy_landed_row(
-            "Buy 1", "single", 1, None, hero_keys, anchor, Decimal(0), None,
-            1, 0, note="list price; BXGY count not met"))
-        # Buy 1 is not an approximation of a free unit.
-        landed[-1]["approximation"] = False
-        offer_key = "bxgy-1" if offers_supported is not False else None
+        # Buy 1 at list uses the standard landed shape (no BXGY columns); only the
+        # deal and over-qty rows carry paid_qty / free_qty / approximation fields.
+        landed.append({"tier": "Buy 1", "kind": "single", "qty": 1, "offer_key": None,
+                       "package_keys": list(hero_keys),
+                       "anchor": money(anchor), "pct": 0,
+                       "unit_after": money(anchor), "order_total": money(anchor)})
+        offer_key = f"bxgy-{paid_qty}-{free_qty}" if offers_supported is not False else None
         landed.append(_bxgy_landed_row(
             f"Buy {paid_qty} get {free_qty} free", "tier", total_qty, offer_key,
             hero_keys, anchor, pct, rounding, paid_qty, free_qty))
@@ -1128,7 +1137,7 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
             note=f"engine applies {money(pct)}% to all units once count {total_qty} is met"))
         if offers_supported is not False:
             offers.append({
-                "key": "bxgy-1",
+                "key": offer_key,
                 "name": f"{hero_title} - Buy {paid_qty} get {free_qty} free (~{money(pct)}%)",
                 "offer_type": "offer", "code": None,
                 "condition": {"type": "count", "value": total_qty, "package_keys": list(hero_keys)},
@@ -1141,6 +1150,11 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
             "in the cart. The Offers API cannot key that on hero quantity or spend, cannot auto-add or "
             "auto-remove the gift, and cannot discount the gift based on a different product "
             "(offer doctrine: Gift with purchase).")
+        if a.ctc == "low":
+            rationale.append(
+                "GWP at low CTC: no Buy 1/2/3 ladder on the hero; the gift package is the only "
+                "offer-engine hook for this offer type. To keep quantity tiers beside a gift, use "
+                "--offer-type quantity --gift ...")
         landed.append({"tier": "Buy 1", "kind": "single", "qty": 1, "offer_key": None,
                        "package_keys": list(hero_keys),
                        "anchor": money(anchor), "pct": 0,
@@ -2317,6 +2331,26 @@ def _cart_cases_from_plan(plan: dict, ids: dict) -> list:
             up = offers.get(l.get("offer_key")) if l.get("offer_key") else None
             if up and up.get("offer_type") == "voucher":
                 add(f"{l['tier']} voucher", [(keys[0], 1)], [up["code"]], D(l["unit_after"]), ship="none")
+
+    # Hero and gift package_percentage offers run in the same cart when a gift is
+    # present; prove they do not shadow each other (separate single-line cases alone
+    # would miss that regression).
+    roles = {p["key"]: p.get("role") for p in plan.get("packages", [])}
+    hero_one = next((l for l in plan.get("landed_prices", [])
+                     if l.get("kind") in ("tier", "single") and l.get("qty") == 1
+                     and l.get("package_keys")
+                     and all(roles.get(k) == "hero" for k in l["package_keys"])
+                     and ids.get(l["package_keys"][0])), None)
+    gift_one = next((l for l in plan.get("landed_prices", [])
+                     if l.get("kind") == "single" and l.get("package_keys")
+                     and all(roles.get(k) == "gift" for k in l["package_keys"])
+                     and all(ids.get(k) for k in l["package_keys"])), None)
+    if hero_one and gift_one:
+        hk, gk = hero_one["package_keys"][0], gift_one["package_keys"][0]
+        add(f"{hero_one['tier']} + {gift_one['tier']}",
+            [(hk, hero_one["qty"]), (gk, gift_one["qty"])], [],
+            D(hero_one["order_total"]) + D(gift_one["order_total"]),
+            shipping_key=hero_one.get("shipping_key"))
     return cases
 
 

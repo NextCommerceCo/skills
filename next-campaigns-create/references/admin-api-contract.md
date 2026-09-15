@@ -311,9 +311,14 @@ otherwise.
 `offer_kind` is written by `recommend` (`quantity` when `--offer-type` is omitted)
 and is optional for `validate_plan`. Package `role` is not schema-checked;
 `recommend` emits `hero`, `bump`, `upsell` and `gift`. The extra landed fields
-(`paid_qty` through `note`) appear on buy-X-get-Y rows; quantity and gift rows
-keep the original columns. Gift carts stay `kind: single` so verify's existing
-three kinds still cover them.
+(`paid_qty` through `note`) appear only on buy-X-get-Y deal and over-qty rows;
+the BXGY Buy 1 list-price row, quantity rows and gift rows keep the original
+columns. Gift carts stay `kind: single` so verify's existing three kinds still
+cover them. When a gift package is present, verify also probes a synthetic
+hero+gift cart so the two `package_percentage` offers are proven together.
+`pct` on quantity and list-price rows is an integer; on BXGY deal rows it is an
+integer when the rate is whole and a decimal string (for example `"33.33"`) when
+fractional. `print_plan` formats either.
 
 ### run-manifest.json
 
