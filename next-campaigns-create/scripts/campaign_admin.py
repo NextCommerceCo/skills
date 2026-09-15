@@ -6,7 +6,7 @@ Backs the `/next-campaigns-create` skill and is normally run through
 
     discover  --store <slug>                      read-only store snapshot
     metadata  --store <slug> [--apply]            audit or create the campaign metadata definitions
-    recommend --discovery ... --hero ... --ctc ... build campaign-plan.json
+    recommend --discovery ... --hero ... --ctc ... [--offer-type quantity|bxgy|gwp] build campaign-plan.json
     plan      --plan campaign-plan.json           validate + print requests + hash
     apply     --plan ... --yes --plan-sha256 ...  create campaign/packages/shipping/offers
     verify    --manifest ... --plan ...           read back + Cart API calculate
@@ -74,6 +74,7 @@ PRICE_ROUNDINGS = (None, "0.00", "0.95", "0.97", "0.99")
 BENEFIT_TYPES = ("package_percentage", "shipping_percentage", "order_percentage")
 CONDITION_TYPES = ("any", "count")
 OFFER_TYPES = ("offer", "voucher")
+OFFER_KINDS = ("quantity", "bxgy", "gwp")
 DEFAULT_TIERS = (50, 55, 60)
 DEFAULT_EXIT_PCT = 10
 
@@ -815,6 +816,55 @@ def landed_unit(anchor: Decimal, pct: Decimal, rounding: str | None) -> Decimal:
     return unit
 
 
+def bxgy_percentage(paid: int, free: int) -> Decimal:
+    """Percentage-off-all-units that matches a true free-unit deal at exactly paid+free
+    units, before per-unit rounding. The Campaigns App has no free-qty benefit, so
+    recommend encodes buy-X-get-Y this way and labels it an approximation."""
+    if type(paid) is not int or type(free) is not int or paid < 1 or free < 1:
+        raise CampaignAdminError(
+            f"buy-X-get-Y needs paid and free quantities that are integers >= 1; got paid={paid!r} free={free!r}")
+    return Decimal(free) * Decimal(100) / Decimal(paid + free)
+
+
+def true_bxgy_payable(anchor: Decimal, paid: int, free: int, qty: int) -> Decimal:
+    """What a repeating free-unit deal would charge: complete deals of (paid+free),
+    leftover units at full price. The engine cannot do this; it applies one % to
+    every in-scope unit once the count is met."""
+    if qty < 1:
+        raise CampaignAdminError(f"quantity must be >= 1; got {qty!r}")
+    deal = paid + free
+    deals, rem = divmod(qty, deal)
+    return anchor * (deals * paid + rem)
+
+
+def _pct_for_landed(pct: Decimal):
+    if pct == pct.to_integral_value():
+        return int(pct)
+    return money(pct)
+
+
+def _bxgy_landed_row(tier, kind, qty, offer_key, hero_keys, anchor, pct, rounding,
+                     paid, free, note=None) -> dict:
+    unit = landed_unit(anchor, pct, rounding)
+    full = anchor * qty
+    payable = unit * qty
+    savings = full - payable
+    row = {
+        "tier": tier, "kind": kind, "qty": qty, "offer_key": offer_key,
+        "package_keys": list(hero_keys),
+        "anchor": money(anchor), "pct": _pct_for_landed(pct),
+        "unit_after": money(unit), "order_total": money(payable),
+        "paid_qty": paid, "free_qty": free, "total_qty": qty,
+        "full_retail": money(full), "payable": money(payable),
+        "savings": money(savings), "effective_pct": money(pct),
+        "effective_unit": money(unit),
+        "approximation": True,
+    }
+    if note:
+        row["note"] = note
+    return row
+
+
 def short_name(title: str) -> str:
     return re.sub(r"\s+", " ", title).strip()
 
@@ -966,31 +1016,131 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
             raise CampaignAdminError(f"{what} percentage must be a whole number in [1, 99]; got {x}")
         return int(d)
 
-    tiers = [whole_pct(t, "tier") for t in (a.tiers.split(",") if a.tiers else DEFAULT_TIERS)]
-    if a.ctc == "low":
-        rationale.append("Low CTC: one package per variant at the anchor price; Buy 1/2/3 automatic tier offers "
-                         "(offer doctrine: Cost-to-consumer). Tiers are offers, never quantity packages "
-                         "(offer doctrine: Naming and scoping).")
-        for qty, pct in enumerate(tiers, start=1):
-            unit = landed_unit(anchor, D(pct), rounding)
-            if unit <= 0:
-                raise CampaignAdminError(f"Buy {qty} tier at {pct}% yields a non-positive unit price ({unit}); "
-                                         "lower the discount or raise the anchor")
-            landed.append({"tier": f"Buy {qty}", "kind": "tier", "qty": qty,
-                           "offer_key": f"tier-{qty}" if offers_supported is not False else None,
-                           "package_keys": list(hero_keys),
-                           "anchor": money(anchor), "pct": pct,
-                           "unit_after": money(unit), "order_total": money(unit * qty)})
-            if offers_supported is not False:
-                offers.append({
-                    "key": f"tier-{qty}", "name": f"{hero_title} - Buy {qty} - {pct}%",
-                    "offer_type": "offer", "code": None,
-                    "condition": {"type": "count", "value": qty, "package_keys": list(hero_keys)},
-                    "benefit": {"type": "package_percentage", "value": money(D(pct)), "price_rounding": rounding},
-                })
+    offer_kind = getattr(a, "offer_type", None) or "quantity"
+    if offer_kind not in OFFER_KINDS:
+        raise CampaignAdminError(f"--offer-type must be one of {', '.join(OFFER_KINDS)}; got {offer_kind!r}")
+    paid_qty = getattr(a, "paid_qty", None)
+    free_qty = getattr(a, "free_qty", None)
+    gift_specs = getattr(a, "gift", None) or []
+    gift_mode = getattr(a, "gift_mode", None) or "auto"
+    if gift_mode not in ("auto", "select"):
+        raise CampaignAdminError("--gift-mode must be auto (funnel silent-add) or select (customer picks)")
+
+    if offer_kind == "quantity":
+        if paid_qty is not None or free_qty is not None:
+            raise CampaignAdminError(
+                "quantity offers use --tiers (Buy 1/2/3 percentages), not --paid-qty/--free-qty; "
+                "pass --offer-type bxgy for a buy-X-get-Y approximation")
+    elif offer_kind == "bxgy":
+        if a.ctc == "high":
+            raise CampaignAdminError(
+                "buy-X-get-Y is a quantity structure; --ctc high refuses quantity deals. "
+                "Use --ctc low, or --offer-type quantity for a high-CTC single-unit plan")
+        if a.tiers is not None:
+            raise CampaignAdminError(
+                "--tiers is the quantity-offer ladder and cannot be combined with --offer-type bxgy: "
+                "the engine applies the highest matching package_percentage, so a Buy 1 percentage "
+                "would mask a lower BXGY rate. Omit --tiers for Buy 1 at list plus the BXGY offer")
+        if paid_qty is None or free_qty is None:
+            raise CampaignAdminError("--offer-type bxgy requires --paid-qty and --free-qty")
+        bxgy_percentage(paid_qty, free_qty)
     else:
-        rationale.append("High CTC: single-unit packages, no quantity tiers; AOV comes from low-friction bumps "
-                         "and post-purchase upsells (offer doctrine: Cost-to-consumer).")
+        if not gift_specs:
+            raise CampaignAdminError(
+                "--offer-type gwp requires at least one --gift <variant_id>:<price>[:<qty>]")
+        if paid_qty is not None or free_qty is not None:
+            raise CampaignAdminError(
+                "gift-with-purchase cannot discount a different product based on hero quantity "
+                "(condition and benefit share one package list). Use --offer-type bxgy for "
+                "same-product buy-X-get-Y, or --offer-type quantity --gift ... to add a gift "
+                "beside quantity tiers")
+        if a.tiers is not None:
+            raise CampaignAdminError(
+                "--tiers is for --offer-type quantity; to combine quantity tiers with a gift, "
+                "use --offer-type quantity and pass --gift")
+
+    if offer_kind == "quantity":
+        tiers = [whole_pct(t, "tier") for t in (a.tiers.split(",") if a.tiers else DEFAULT_TIERS)]
+        if a.ctc == "low":
+            rationale.append("Low CTC: one package per variant at the anchor price; Buy 1/2/3 automatic tier offers "
+                             "(offer doctrine: Cost-to-consumer). Tiers are offers, never quantity packages "
+                             "(offer doctrine: Naming and scoping).")
+            for qty, pct in enumerate(tiers, start=1):
+                unit = landed_unit(anchor, D(pct), rounding)
+                if unit <= 0:
+                    raise CampaignAdminError(f"Buy {qty} tier at {pct}% yields a non-positive unit price ({unit}); "
+                                             "lower the discount or raise the anchor")
+                landed.append({"tier": f"Buy {qty}", "kind": "tier", "qty": qty,
+                               "offer_key": f"tier-{qty}" if offers_supported is not False else None,
+                               "package_keys": list(hero_keys),
+                               "anchor": money(anchor), "pct": pct,
+                               "unit_after": money(unit), "order_total": money(unit * qty)})
+                if offers_supported is not False:
+                    offers.append({
+                        "key": f"tier-{qty}", "name": f"{hero_title} - Buy {qty} - {pct}%",
+                        "offer_type": "offer", "code": None,
+                        "condition": {"type": "count", "value": qty, "package_keys": list(hero_keys)},
+                        "benefit": {"type": "package_percentage", "value": money(D(pct)), "price_rounding": rounding},
+                    })
+        else:
+            rationale.append("High CTC: single-unit packages, no quantity tiers; AOV comes from low-friction bumps "
+                             "and post-purchase upsells (offer doctrine: Cost-to-consumer).")
+            landed.append({"tier": "Buy 1", "kind": "single", "qty": 1, "offer_key": None,
+                           "package_keys": list(hero_keys),
+                           "anchor": money(anchor), "pct": 0,
+                           "unit_after": money(anchor), "order_total": money(anchor)})
+    elif offer_kind == "bxgy":
+        pct = D(money(bxgy_percentage(paid_qty, free_qty)))
+        total_qty = paid_qty + free_qty
+        unit = landed_unit(anchor, pct, rounding)
+        if unit <= 0:
+            raise CampaignAdminError(
+                f"buy {paid_qty} get {free_qty} free at {money(pct)}% yields a non-positive unit price ({unit}); "
+                "lower the free quantity or raise the anchor")
+        rationale.append(
+            f"Buy {paid_qty} get {free_qty} free is an approximation: the Campaigns App has no free-unit "
+            f"benefit, so this is a count-{total_qty} automatic offer at {money(pct)}% off every in-scope unit "
+            f"(offer doctrine: Buy-X-get-Y approximation). At exactly {total_qty} equal-priced units it matches "
+            "paying for the paid quantity; it is not Nth-unit-free.")
+        rationale.append(
+            "Which unit is free is not merchant-chosen: the engine applies the same percentage to every "
+            "matching unit, including mixed-price variants (proportional-off-all, not cheapest-free or "
+            "most-expensive-free).")
+        extra_qty = total_qty + 1
+        extra_engine = landed_unit(anchor, pct, rounding) * extra_qty
+        extra_true = true_bxgy_payable(anchor, paid_qty, free_qty, extra_qty)
+        rationale.append(
+            f"The offer does not repeat per extra qualifying set. Qty {extra_qty} still gets {money(pct)}% off "
+            f"all {extra_qty} units (engine {money(extra_engine)}) rather than one complete deal plus leftover "
+            f"units at full price (true repeating BOGO {money(extra_true)}).")
+        landed.append(_bxgy_landed_row(
+            "Buy 1", "single", 1, None, hero_keys, anchor, Decimal(0), None,
+            1, 0, note="list price; BXGY count not met"))
+        # Buy 1 is not an approximation of a free unit.
+        landed[-1]["approximation"] = False
+        offer_key = "bxgy-1" if offers_supported is not False else None
+        landed.append(_bxgy_landed_row(
+            f"Buy {paid_qty} get {free_qty} free", "tier", total_qty, offer_key,
+            hero_keys, anchor, pct, rounding, paid_qty, free_qty))
+        landed.append(_bxgy_landed_row(
+            f"Buy {extra_qty} (engine; not true repeat)", "tier", extra_qty, offer_key,
+            hero_keys, anchor, pct, rounding, paid_qty, free_qty,
+            note=f"engine applies {money(pct)}% to all units once count {total_qty} is met"))
+        if offers_supported is not False:
+            offers.append({
+                "key": "bxgy-1",
+                "name": f"{hero_title} - Buy {paid_qty} get {free_qty} free (~{money(pct)}%)",
+                "offer_type": "offer", "code": None,
+                "condition": {"type": "count", "value": total_qty, "package_keys": list(hero_keys)},
+                "benefit": {"type": "package_percentage", "value": money(pct), "price_rounding": rounding},
+            })
+    else:
+        rationale.append(
+            "Gift with purchase: the hero sells at the anchor with no quantity-tier percentages. "
+            "A 100% package_percentage scoped only to the gift package makes the gift free when it is "
+            "in the cart. The Offers API cannot key that on hero quantity or spend, cannot auto-add or "
+            "auto-remove the gift, and cannot discount the gift based on a different product "
+            "(offer doctrine: Gift with purchase).")
         landed.append({"tier": "Buy 1", "kind": "single", "qty": 1, "offer_key": None,
                        "package_keys": list(hero_keys),
                        "anchor": money(anchor), "pct": 0,
@@ -1036,6 +1186,82 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
                 "benefit": {"type": "package_percentage", "value": money(pct), "price_rounding": rounding},
             })
         rationale.append(f"Upsell {pkg['name']} uses a voucher (site offers do not apply post-purchase).")
+
+    gift_keys = []
+    for spec in gift_specs:
+        bits = spec.split(":")
+        if len(bits) not in (2, 3):
+            raise CampaignAdminError(f"--gift expects <variant_id>:<price>[:<qty>], got {spec!r}")
+        try:
+            vid = int(bits[0])
+        except ValueError:
+            raise CampaignAdminError(f"--gift variant id must be an integer; got {bits[0]!r}")
+        if not DECIMAL_RE.match(bits[1]):
+            raise CampaignAdminError(f"--gift price {bits[1]!r} is not a decimal")
+        gift_price = D(bits[1])
+        if gift_price <= 0:
+            raise CampaignAdminError(f"--gift price must be greater than 0; got {bits[1]!r}")
+        qty = 1
+        if len(bits) == 3:
+            try:
+                qty = int(bits[2])
+            except ValueError:
+                raise CampaignAdminError(f"--gift qty must be an integer >= 1; got {bits[2]!r}")
+            if qty < 1:
+                raise CampaignAdminError(f"--gift qty must be an integer >= 1; got {bits[2]!r}")
+        if vid not in variant_index:
+            raise CampaignAdminError(f"gift variant {vid} not found in discovery")
+        p, v = variant_index[vid]
+        if v.get("purchase_availability", "available") != "available":
+            raise CampaignAdminError(
+                f"gift variant {vid} is not purchasable "
+                f"(purchase_availability={v.get('purchase_availability')!r}); pick an available variant")
+        used = {x for pkg in packages for x in (pkg.get("product_variant_ids") or [])}
+        if vid in used:
+            raise CampaignAdminError(
+                f"gift variant {vid} is already a hero, bump, upsell or gift package; "
+                "the 100% gift offer must not share a variant with a paid item")
+        title = short_name(p["title"])
+        pkg = {"key": f"gift-{vid}", "role": "gift", "name": title, "variant_title": v.get("title"),
+               "product_id": p["id"], "product_variant_ids": [vid], "price": money(gift_price)}
+        packages.append(pkg)
+        gift_keys.append(pkg["key"])
+        unit = landed_unit(gift_price, Decimal(100), None)
+        landed.append({"tier": f"Gift {title}", "kind": "single", "qty": qty,
+                       "offer_key": "gift-free" if offers_supported is not False else None,
+                       "package_keys": [pkg["key"]],
+                       "anchor": pkg["price"], "pct": 100,
+                       "unit_after": money(unit), "order_total": money(unit * qty)})
+        rationale.append(f"Gift package {title} at {pkg['price']}; a 100% package_percentage scoped only "
+                         "to this package makes it free when it is in the cart "
+                         "(offer doctrine: Gift with purchase).")
+    if gift_keys:
+        if offers_supported is not False:
+            offers.append({
+                "key": "gift-free", "name": f"{hero_title} - Gift free",
+                "offer_type": "offer", "code": None,
+                "condition": {"type": "any", "value": None, "package_keys": list(gift_keys)},
+                "benefit": {"type": "package_percentage", "value": "100.00", "price_rounding": None},
+            })
+        if rounding:
+            rationale.append("The gift offer omits price_rounding even though --rounding was set: "
+                             "100% with charm rounding would land at the charm cents, not free.")
+        if gift_mode == "auto":
+            handoff.append(
+                "Gift auto-add is funnel work, not an Offers API field. In next-campaigns-setup, add "
+                "each gift package as a bundle item with \"noSlot\": true so the SDK silently adds it. "
+                "This skill does not write funnel markup. The engine will not remove the gift if the "
+                "shopper no longer qualifies; qualification is only that the gift is in the cart.")
+        else:
+            handoff.append(
+                "Gift selection is funnel work: show the gift package as a visible choice (not a silent "
+                "noSlot add). This skill does not write funnel markup. The 100% offer fires whenever "
+                "the gift package is in the cart, whether or not the hero is present.")
+        handoff.append(
+            "Campaigns App cannot key a gift on hero quantity or spend, cannot auto-add or auto-remove "
+            "it from the offer engine, and cannot discount a different product than the one that "
+            "qualified. Min-spend GWP is a platform gap. How a 100%-off line appears on orders, "
+            "fulfilment and refunds versus a true free gift is unverified; do not invent accounting rules.")
 
     def _is_zero(x):
         try:
@@ -1122,6 +1348,7 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
         "store_origin": discovery["store_origin"],
         "generated_at": utcnow(),
         "ctc": a.ctc,
+        "offer_kind": offer_kind,
         "campaign": {
             "name": a.name or hero_title,
             "currency": currency, "language": language,
@@ -1455,7 +1682,8 @@ def render_requests(plan: dict) -> list:
 
 def print_plan(plan: dict, plan_path: Path | None) -> None:
     c = plan["campaign"]
-    print(f"Campaign: {c['name']}  {c['currency']}/{c['language']}  gateway group {c['payment_gateway_group_id']}  store {plan['store_origin']}")
+    kind = plan.get("offer_kind") or "quantity"
+    print(f"Campaign: {c['name']}  {c['currency']}/{c['language']}  gateway group {c['payment_gateway_group_id']}  store {plan['store_origin']}  offer {kind}")
     print(f"  payment methods: {c['available_payment_methods']}  express: {c['available_express_payment_methods']}  countries: {c['available_shipping_countries'] or 'all'}")
     print("Packages:")
     for p in plan["packages"]:
@@ -1473,8 +1701,14 @@ def print_plan(plan: dict, plan_path: Path | None) -> None:
         print(f"  {o['key']:<14} {o.get('offer_type','offer'):<7} {o['name']}  {crit} on {cond['package_keys']}  {o['benefit']['type']} {o['benefit']['value']}%{code}")
     print("Landed prices (confirm these):")
     for l in plan["landed_prices"]:
+        extra = ""
+        if l.get("paid_qty") is not None and l.get("free_qty") is not None and l.get("full_retail") is not None:
+            extra = (f"  paid {l['paid_qty']} free {l['free_qty']}  retail {l['full_retail']} "
+                     f"payable {l.get('payable')}  save {l.get('savings')}")
+        if l.get("note"):
+            extra += f"  ({l['note']})"
         print(f"  {l['tier']:<28} qty {l['qty']}  anchor {l['anchor']}  -{l['pct']}%  unit {l['unit_after']}  "
-              f"total {l['order_total']}  {_landed_shipping(plan, l)}")
+              f"total {l['order_total']}  {_landed_shipping(plan, l)}{extra}")
     for r in plan.get("rationale", []):
         print(f"  why: {r}")
     if plan.get("blockers"):
@@ -2410,7 +2644,15 @@ def main(argv=None) -> int:
     r.add_argument("--currency")
     r.add_argument("--language")
     r.add_argument("--countries", help="comma-separated ISO alpha-2")
-    r.add_argument("--tiers", help="comma-separated percentages for Buy 1/2/3 (default 50,55,60)")
+    r.add_argument("--offer-type", choices=["quantity", "bxgy", "gwp"], default="quantity",
+                   help="quantity (Buy 1/2/3, default), bxgy (buy-X-get-Y approximation), or gwp (gift with purchase)")
+    r.add_argument("--paid-qty", type=int, help="paid units for --offer-type bxgy")
+    r.add_argument("--free-qty", type=int, help="free units for --offer-type bxgy")
+    r.add_argument("--gift", action="append",
+                   help="<variant_id>:<price>[:<qty>], repeatable; gift package plus a 100%% offer scoped to it")
+    r.add_argument("--gift-mode", choices=["auto", "select"], default="auto",
+                   help="funnel handoff only: auto = silent noSlot add, select = customer picks (default auto)")
+    r.add_argument("--tiers", help="comma-separated percentages for Buy 1/2/3 (default 50,55,60; quantity only)")
     r.add_argument("--exit", help="exit-pop voucher percentage (default 10; 0 disables)")
     r.add_argument("--exit-code")
     r.add_argument("--bump", action="append", help="<variant_id>:<price>, repeatable")

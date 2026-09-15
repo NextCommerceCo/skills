@@ -38,8 +38,11 @@ never guesses. It works out the rest from your answers.
 | You decide | The assistant works out |
 |------------|-------------------------|
 | The hero product the campaign sells | The package list |
-| Low or high cost-to-consumer | The tier offers |
+| Quantity Buy 1/2/3, buy-X-get-Y, or gift-with-purchase | How that maps onto percentage offers the Campaigns App actually has |
+| Low or high cost-to-consumer | The quantity-tier offers (Buy 1/2/3 stays 50/55/60 unless you change it) |
 | The anchor price the discounts come off | The exit voucher |
+| For buy-X-get-Y: paid and free quantities | The single count threshold and percentage (labeled as an approximation) |
+| For a gift: which variant, its price, silent-add vs customer pick | The gift package and the 100% offer scoped only to it; funnel auto-add is a later handoff |
 | Shipping price and countries | The campaign settings |
 | Any add-on or upsell products, and their prices | The order the requests go in |
 
@@ -104,6 +107,19 @@ shipping comes out like this:
 
 The 6.95 shipping charge is added at checkout. The exit voucher takes a further
 10 percent off the product price.
+
+Buy 2 get 1 free is not a free unit. The Campaigns App only has percentages, so
+that deal is one offer at 33.33% off every unit once the cart has 3. At 3 units
+of 49.95 the payable is 99.90 (pay for two). A fourth unit still gets 33.33%
+off, which is more discount than a repeating BOGO. A gift with purchase is a
+separate gift package with a 100% offer that applies whenever that package is
+in the cart, not when the hero quantity or spend is met. The assistant will
+say so before you approve.
+
+> [!NOTE]
+> Combining Buy 1 at 50% with buy 2 get 1 free on the same products does not
+> work: the engine keeps the larger percentage, so three units would take 50%.
+> Buy 1 at the list price plus the BOGO offer is the supported mix.
 
 ## Safety
 
