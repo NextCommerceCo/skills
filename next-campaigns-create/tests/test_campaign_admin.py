@@ -563,6 +563,18 @@ class Recommendation(unittest.TestCase):
         mixed_case = next(c for c in cases if "Buy 1 + Gift" in c[0])
         self.assertEqual(mixed_case[3], Decimal("24.95"))  # rounded 50% hero + free gift
 
+    def test_multi_gift_mixed_cart_cases(self):
+        plan = ca.recommend(self.disc, ns(offer_type="gwp", gift=["7:24.95", "8:15.00"]))
+        self.assertEqual(ca.validate_plan(plan), [])
+        gifts = [p for p in plan["packages"] if p["role"] == "gift"]
+        self.assertEqual(sorted(p["key"] for p in gifts), ["gift-7", "gift-8"])
+        gift_offer = next(o for o in plan["offers"] if o["key"] == "gift-free")
+        self.assertEqual(sorted(gift_offer["condition"]["package_keys"]), ["gift-7", "gift-8"])
+        ids = {p["key"]: 100 + i for i, p in enumerate(plan["packages"])}
+        mixed_names = [c[0] for c in ca._cart_cases_from_plan(plan, ids) if "Buy 1 + Gift" in c[0]]
+        self.assertEqual(len(mixed_names), 2)
+        self.assertTrue(any("Memorial Ornament" in n for n in mixed_names))
+
     def test_gwp_refusals(self):
         with self.assertRaises(ca.CampaignAdminError) as cm:
             ca.recommend(self.disc, ns(offer_type="gwp"))

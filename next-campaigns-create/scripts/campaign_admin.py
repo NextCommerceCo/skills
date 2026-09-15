@@ -2334,23 +2334,25 @@ def _cart_cases_from_plan(plan: dict, ids: dict) -> list:
 
     # Hero and gift package_percentage offers run in the same cart when a gift is
     # present; prove they do not shadow each other (separate single-line cases alone
-    # would miss that regression).
+    # would miss that regression). One mixed case per gift covers multi-gift plans.
     roles = {p["key"]: p.get("role") for p in plan.get("packages", [])}
     hero_one = next((l for l in plan.get("landed_prices", [])
                      if l.get("kind") in ("tier", "single") and l.get("qty") == 1
                      and l.get("package_keys")
                      and all(roles.get(k) == "hero" for k in l["package_keys"])
                      and ids.get(l["package_keys"][0])), None)
-    gift_one = next((l for l in plan.get("landed_prices", [])
-                     if l.get("kind") == "single" and l.get("package_keys")
-                     and all(roles.get(k) == "gift" for k in l["package_keys"])
-                     and all(ids.get(k) for k in l["package_keys"])), None)
-    if hero_one and gift_one:
-        hk, gk = hero_one["package_keys"][0], gift_one["package_keys"][0]
-        add(f"{hero_one['tier']} + {gift_one['tier']}",
-            [(hk, hero_one["qty"]), (gk, gift_one["qty"])], [],
-            D(hero_one["order_total"]) + D(gift_one["order_total"]),
-            shipping_key=hero_one.get("shipping_key"))
+    gift_rows = [l for l in plan.get("landed_prices", [])
+                 if l.get("kind") == "single" and l.get("package_keys")
+                 and all(roles.get(k) == "gift" for k in l["package_keys"])
+                 and all(ids.get(k) for k in l["package_keys"])]
+    if hero_one:
+        hk = hero_one["package_keys"][0]
+        for gift_one in gift_rows:
+            gk = gift_one["package_keys"][0]
+            add(f"{hero_one['tier']} + {gift_one['tier']}",
+                [(hk, hero_one["qty"]), (gk, gift_one["qty"])], [],
+                D(hero_one["order_total"]) + D(gift_one["order_total"]),
+                shipping_key=hero_one.get("shipping_key"))
     return cases
 
 
