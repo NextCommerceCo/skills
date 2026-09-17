@@ -1,6 +1,6 @@
 ---
 name: next-theme-dev
-version: 1.14.1
+version: 1.14.2
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
@@ -806,6 +806,7 @@ until the exact behavior is confirmed in that starter and version.
 | **Shared** | **Preview session pinning** | Visiting `?preview_theme=<theme_id>` pins that browser session with a cookie. Use the preview indicator's **Exit preview** action or visit `/?deactivate-theme=true`; a plain URL does not exit preview |
 | **Shared** | **ntk accepted directories** | Only these are recognized: assets, checkout, configs, layouts, partials, templates, locales, sass. Files outside these are silently ignored |
 | **Shared** | **Asset path mapping** | A local file like `assets/img/merchant/hero.jpg` is uploaded as `assets/img/merchant/hero.jpg`, but templates reference it without the `assets/` prefix: `{{ 'img/merchant/hero.jpg'|asset_url }}` |
+| **Shared** | **No relative `url()` to assets inside stylesheets** | `.css` and `.js` are stored in the store database and served through the application (CloudFront host); every other asset is served from a shared S3 bucket on a different host, and S3 renames re-uploaded files. A relative `url('fonts/x.woff2')` inside `assets/main.css` therefore requests the wrong host and returns an empty HTTP 200, not a 404: the font never decodes and no request fails. Reference fonts, background images, masks, and cursors from a template with `{{ 'fonts/x.woff2'|asset_url }}` (e.g. an inline `<style>` in `layouts/base.html`), never from a relative or hard-coded CDN URL. See the Assets note at `https://developers.nextcommerce.com/docs/storefront/themes#assets` |
 | **Shared** | **Figma export overlays** | Figma frames often include labels, badges, card UI, shadows, or text that the theme also renders. Inspect the node tree before export; export the clean underlying image/fill when the overlay is theme UI |
 | **Shared** | **Build artifacts must be committed** | The platform doesn't compile CSS/JS server-side and doesn't preserve binaries on push. Compiled CSS must be checked in or the theme is unstyled on install. Gitignore the toolchain and commit the artifact |
 | **Shared** | **Stale stored cart IDs** | A cached cart ID (sessionStorage/cookie) goes dead after checkout completion or expiry, but mutations against it return HTTP 200 with a null payload + `errors` — silent failure if you only check truthiness. Discard the ID and recover via `createCart` (returns the session's current cart); never retry the dead ID |
@@ -896,7 +897,11 @@ This is the **#1 time bottleneck** — design assets are merchant-specific and c
 
 - **Fonts:** Preserve the identified family's typography contract. Add local
   `.woff2` assets and `@font-face` only when the design and current theme call
-  for them. In Intro Bootstrap, inspect `font_script`, `font_body`, and
+  for them. Declare the `@font-face` in a template (an inline `<style>` in
+  `layouts/base.html`) with `src: url("{{ 'fonts/x.woff2'|asset_url }}")`, not
+  inside `assets/main.css`: stylesheets and uploaded assets are served from
+  different hosts, so a relative `url()` in CSS fails silently (see Known
+  Gotchas). In Intro Bootstrap, inspect `font_script`, `font_body`, and
   `font_header` settings plus the derived base before changing typography.
 - **Images:** Hero images, product photography, lifestyle shots, product cutouts, and press logos must come from the merchant or the design source. Use placeholders only while blocked, and replace them before QA
 - **Icons:** Prefer inline SVG (smallest payload, style-able) or an icon font. Avoid individual image files for icons
@@ -1083,6 +1088,7 @@ Build order:
   <style>:root { --primary: {{ settings.primary_color|default:"#1E293B" }}; }</style>
   ```
 - For Tailwind output, **run sass-compat.py before every push** (required — platform rejects modern CSS)
+- Never point a `url()` in `assets/main.css` (or any compiled stylesheet) at a theme asset — fonts, background images, masks, cursors. Stylesheets and assets are served from different hosts and the miss is an empty 200. Declare those references in a template with `asset_url` (see Known Gotchas)
 - Test responsive breakpoints: mobile (375px), tablet (768px), desktop (1280px+)
 - Put decorative hover-only behavior behind `@media (hover: hover)`. Touch
   devices need an explicit tap/button interaction; do not rely on sticky
