@@ -897,12 +897,12 @@ This is the **#1 time bottleneck** — design assets are merchant-specific and c
 
 - **Fonts:** Preserve the identified family's typography contract. Add local
   `.woff2` assets and `@font-face` only when the design and current theme call
-  for them. Declare the `@font-face` in a template (an inline `<style>` in
-  `layouts/base.html`) with `src: url("{{ 'fonts/x.woff2'|asset_url }}")`, not
-  inside `assets/main.css`: stylesheets and uploaded assets are served from
-  different hosts, so a relative `url()` in CSS fails silently (see Known
-  Gotchas). In Intro Bootstrap, inspect `font_script`, `font_body`, and
+  for them. In Intro Bootstrap, inspect `font_script`, `font_body`, and
   `font_header` settings plus the derived base before changing typography.
+- **Font file references:** Declare `@font-face` in a template with
+  `src: url("{{ 'fonts/x.woff2'|asset_url }}")`, never inside
+  `assets/main.css`. See Known Gotchas: *No relative `url()` to assets inside
+  stylesheets*.
 - **Images:** Hero images, product photography, lifestyle shots, product cutouts, and press logos must come from the merchant or the design source. Use placeholders only while blocked, and replace them before QA
 - **Icons:** Prefer inline SVG (smallest payload, style-able) or an icon font. Avoid individual image files for icons
 - **Optimization:** All assets serve via CDN. Keep routine images under 200KB when quality allows. `ntk` supports WebP, but the current accepted extension list does not include AVIF.
@@ -1088,7 +1088,7 @@ Build order:
   <style>:root { --primary: {{ settings.primary_color|default:"#1E293B" }}; }</style>
   ```
 - For Tailwind output, **run sass-compat.py before every push** (required — platform rejects modern CSS)
-- Never point a `url()` in `assets/main.css` (or any compiled stylesheet) at a theme asset — fonts, background images, masks, cursors. Stylesheets and assets are served from different hosts and the miss is an empty 200. Declare those references in a template with `asset_url` (see Known Gotchas)
+- No `url()` to a theme asset inside `assets/main.css` or any compiled stylesheet. See Known Gotchas: *No relative `url()` to assets inside stylesheets*
 - Test responsive breakpoints: mobile (375px), tablet (768px), desktop (1280px+)
 - Put decorative hover-only behavior behind `@media (hover: hover)`. Touch
   devices need an explicit tap/button interaction; do not rely on sticky
