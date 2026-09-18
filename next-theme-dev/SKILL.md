@@ -1,6 +1,6 @@
 ---
 name: next-theme-dev
-version: 1.14.2
+version: 1.15.0
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
@@ -698,14 +698,51 @@ Tailwind scans source files at build time to determine which classes to include.
 
 The platform processes all theme files through the DTL engine, including `.js` files. Non-ASCII characters (curly quotes, em dashes, emoji) in JS files cause encoding errors. Stick to plain ASCII in all JavaScript.
 
+### Sync Before Editing: Pull and Diff First
+
+The local checkout is not the source of truth. The store is. Merchants edit
+in the Theme Editor, teammates push from other machines, and dashboard-side
+tools write files, none of which reach a local directory until someone pulls.
+A push sends the local file as-is and overwrites whatever the store had, so
+editing a stale file and pushing it silently discards work done elsewhere.
+
+Before editing any file on an existing store theme, and again before any
+`ntk push` or `ntk watch` that was not preceded by one in the same session:
+
+```bash
+# Pull the remote theme into a scratch directory, not over the checkout.
+mkdir -p /tmp/theme-remote && cp config.yml /tmp/theme-remote/
+(cd /tmp/theme-remote && ntk pull)
+
+# Diff remote against local. Anything listed is drift.
+diff -rq --exclude=config.yml /tmp/theme-remote .
+```
+
+Resolve every drifted file before touching it:
+
+- **Remote is newer:** copy the remote file into the checkout and continue
+  from that version. This is the usual case.
+- **Local has uncommitted work the store lacks:** stop and confirm with the
+  operator which side wins before editing. Do not merge silently.
+- **Line endings only:** `diff` after `tr -d '\r'` on both sides. If they
+  then match, the file is not drifted; note it and move on.
+- **`configs/settings_data.json` differs:** expected. It is saved Theme Editor
+  state and changes whenever a merchant saves settings. Pull it, do not push
+  it, unless the task is an intentional settings change.
+
+Record the pull time in the approval prompt below so the operator can see
+the push is built on a current copy. A push built on a checkout that was not
+pulled this session is a live mutation of unknown scope and must not proceed.
+
 ### Live Theme Mutation Approval Gate
 
 `ntk push` and `ntk watch` both mutate the selected remote store theme. Before
 running either command, use `AskUserQuestion` to show the operator the exact
-store, environment, theme ID and status, and files or watch scope, then obtain
-explicit confirmation. Do not push or start a watch session without that
-confirmation; approval for one command or watch session does not authorize a
-later one.
+store, environment, theme ID and status, files or watch scope, and when the
+checkout was last pulled and diffed against the store (see "Sync Before
+Editing" above), then obtain explicit confirmation. Do not push or start a
+watch session without that confirmation; approval for one command or watch
+session does not authorize a later one.
 
 If the selected target is the active theme, read
 `references/active-theme-publish-and-qa.md` completely before publishing. Its
@@ -801,6 +838,7 @@ until the exact behavior is confirmed in that starter and version.
 | **Shared** | **Settings schema shape** | `settings_schema.json` is top-level section -> group -> array of setting objects. Do not use ad hoc object maps for new public examples |
 | **Shared** | **Theme-family attribution** | Confirm the exact behavior in the current upstream starter and version before calling a merchant-theme issue a Spark or Intro Bootstrap defect |
 | **Shared** | **CRLF line endings** | Theme files may use CRLF endings. Byte-exact text edits can then fail confusingly; detect line endings first and preserve or normalize them deliberately |
+| **Shared** | **Stale local checkout** | The store is the source of truth, not the checkout. Merchants and teammates change files on the store without pulling locally. Pull into scratch and `diff -rq` before every edit and push; a push of a stale file silently overwrites their work (see "Sync Before Editing") |
 | **Shared** | **manifest.json can't be pushed** | ntk excludes `manifest.json` from push/watch. Version is set at `ntk init` only |
 | **Shared** | **Preview URL** | `https://<store-subdomain>.29next.store/?preview_theme=<theme_id>` is the canonical URL for testing unpublished theme changes |
 | **Shared** | **Preview session pinning** | Visiting `?preview_theme=<theme_id>` pins that browser session with a cookie. Use the preview indicator's **Exit preview** action or visit `/?deactivate-theme=true`; a plain URL does not exit preview |
