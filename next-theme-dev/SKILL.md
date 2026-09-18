@@ -710,20 +710,28 @@ Before editing any file on an existing store theme, and again before any
 `ntk push` or `ntk watch` that was not preceded by one in the same session:
 
 ```bash
-# Pull the remote theme into a scratch directory, not over the checkout.
-mkdir -p /tmp/theme-remote && cp config.yml /tmp/theme-remote/
-(cd /tmp/theme-remote && ntk pull)
+# Pull the remote theme into a fresh scratch directory, not over the checkout.
+# Fail fast: a partial pull would make every remote file look like drift and
+# could then copy truncated files over the checkout.
+rm -rf /tmp/theme-remote && mkdir -p /tmp/theme-remote && cp config.yml /tmp/theme-remote/
+(cd /tmp/theme-remote && ntk pull) || { echo "ntk pull failed; aborting sync gate" >&2; exit 1; }
 
-# Diff remote against local. Anything listed is drift.
+# Only after a verified pull: diff remote against local. Anything listed is drift.
 diff -rq --exclude=config.yml /tmp/theme-remote .
 ```
+
+Read the complete `ntk pull` output as well as the exit code. Theme Kit 1.2.0
+prints the file count it is pulling; if that count or the progress bar looks
+short, treat the pull as failed and rerun it before diffing.
 
 Resolve every drifted file before touching it:
 
 - **Remote is newer:** copy the remote file into the checkout and continue
   from that version. This is the usual case.
-- **Local has uncommitted work the store lacks:** stop and confirm with the
-  operator which side wins before editing. Do not merge silently.
+- **Files only in the local checkout, or local edits the store lacks:** stop
+  and confirm with the operator which side wins before editing. `diff -rq` is a
+  filesystem comparison and knows nothing about git state, so a clean
+  `git status` does not clear this case. Do not merge silently.
 - **Line endings only:** `diff` after `tr -d '\r'` on both sides. If they
   then match, the file is not drifted; note it and move on.
 - **`configs/settings_data.json` differs:** expected. It is saved Theme Editor
