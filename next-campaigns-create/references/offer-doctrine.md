@@ -180,6 +180,18 @@ Upsells run after the first order is placed.
 - Put the upsell most likely to be taken first, while buying momentum is highest.
 - Stop at 5 or 6. Past that, take rates drop and an extra upsell tends to lower
   total upsell revenue.
+- One voucher per upsell product and percentage. All variants of that product go
+  under the one voucher, scoped to every variant package. Splitting variants
+  into separate offers gives the customer different codes for the same upsell.
+- The hero product itself is a common upsell ("add one more"). When the upsell
+  price is the price its package already has, `recommend` reuses that package
+  rather than creating a second package for the same variant and price. The
+  cost: a voucher works on every page, so that upsell code also applies at
+  checkout if a shopper enters it there, stacking on the tier price. The exit
+  voucher already has the same exposure on the hero packages. The funnel must
+  never show the upsell code on the checkout page. The upsell price comes from
+  the voucher percentage off that package's price: there is one package per
+  variant, so a second package at a lower price is not an option.
 
 ## Offer types and where they work
 
@@ -223,6 +235,18 @@ Package names:
 - The old `2x Product` convention for quantity packages is deprecated. Tier pricing
   is done with offers, never with a separate package per quantity.
 
+Package reuse:
+
+- One package per variant, and one campaign shipping method per store code.
+  The Campaigns API rejects a second package for the same variant and a second
+  shipping method on the same code. A different price for the same product or
+  shipping method is an offer or voucher.
+- An upsell of an already packaged variant reuses that package, and its voucher
+  percentage sets the upsell price.
+- A bump must be a variant no other package uses. A bump line on a hero package
+  would count toward the hero quantity tiers, and a second package for the hero
+  variant is not allowed.
+
 Offer names:
 
 | Offer | Name | Code |
@@ -230,7 +254,7 @@ Offer names:
 | Checkout tier (site offer) | `{Product} - Buy {n} - {pct}%` | none |
 | Buy-X-get-Y (site offer, labeled approximation) | `{Product} - Buy {x} get {y} free (~{pct}%)` | none |
 | Gift free (site offer, gift packages only) | `{Product} - Gift free` | none |
-| Upsell voucher | `{Product} - {pct}%` | `{PRODUCT}{PCT}`, uppercase alphanumeric, for example `TRAVELMUG50` |
+| Upsell voucher (one per product and percentage, never per variant) | `{Product} - {pct}%` | `{PRODUCT}{PCT}`, uppercase alphanumeric, for example `TRAVELMUG50` |
 | Exit voucher | `{Product} - Exit - {pct}%` | `--exit-code` when given, else `{PRODUCT}{PCT}`; keep it short, for example `SAVE10` |
 
 Scoping rules:

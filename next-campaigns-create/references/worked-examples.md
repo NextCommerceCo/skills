@@ -109,3 +109,29 @@ is absent, and does not wait for a min spend or hero quantity. Funnel setup
 `--offer-type quantity --gift 7:24.95` keeps the Buy 1/2/3 ladder on the
 hero and adds the same gift composition. The 100% gift offer does not compete
 with the hero percentages because they name different package keys.
+
+## 5. Upsells: one voucher per product, package reuse
+
+`--hero 10 --ctc high --anchor-price 189.95 --upsell 16:39.95:50 --upsell 17:39.95:50`
+
+Both Music Photo Magnet variants land under one voucher, `Music Photo Magnet -
+50%`, code `MUSICPHOTOMAGNET50`, scoped to `upsell-16` and `upsell-17`. There is
+one landed row per variant, both pointing at that voucher, so `verify` prices
+each variant with the code in upsell mode.
+
+| Row | Package | % | Unit |
+|---|---|---|---|
+| Upsell Music Photo Magnet - 4 in - 50% (upsell-16) | upsell-16 | 50 | 19.97 |
+| Upsell Music Photo Magnet - 6 in - 50% (upsell-17) | upsell-17 | 50 | 19.97 |
+
+50% of 39.95 is 19.975, which rounds to 19.98 off, so the unit is **19.97**.
+
+`--hero 22 --ctc low --anchor-price 49.95 --upsell 23:49.95:50` is the hero
+product as its own upsell. Variant 23 is already `hero-23` at 49.95, so no
+second package is created: voucher `PHOTOBRACELET50` is scoped to `hero-23`. In
+upsell mode the cart is 24.97. Entered at checkout the code stacks on the Buy 1
+tier, 24.97 then 50% again, landing at 12.48. The plan's handoff says so, and the
+funnel never shows that code on the checkout page. An upsell price other than
+49.95 is refused, because there is one package per variant. For example
+`--upsell 23:39.95:50` asks for 19.97, and the error suggests
+`--upsell 23:49.95:60`, which lands at 19.98 on the existing package.

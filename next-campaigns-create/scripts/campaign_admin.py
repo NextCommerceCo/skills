@@ -84,8 +84,22 @@ MANIFEST_NAME = "run-manifest.json"
 DOTENV_NAME = ".env"
 GENERIC_TOKEN_ENV = "NEXT_ADMIN_API_TOKEN"
 TOKEN_SUFFIX = "_NEXT_ADMIN_API_TOKEN"
-CAMPAIGN_SCOPES = "campaigns:read, campaigns:write, catalogue:read, gateways:read"
+# Every scope the engine's requests need, per the published Admin API spec
+# (2024-04-01). store:read covers GET /store/, the first request discover sends.
+REQUIRED_SCOPES = ("store:read, campaigns:read, campaigns:write, catalogue:read, gateways:read, "
+                   "metadata:read, metadata:write")
 METADATA_SCOPES = "metadata:read, metadata:write"
+# Path prefix -> (scope for GET, scope for writes). NO_SCOPE marks an endpoint the
+# spec lists with an empty oauth2 scope list: any valid token may call it.
+NO_SCOPE = ""
+_SCOPE_TABLE = (
+    ("/api/admin/store/", "store:read", None),
+    ("/api/admin/gateway-groups/", "gateways:read", None),
+    ("/api/admin/products/", "catalogue:read", "catalogue:write"),
+    ("/api/admin/metadata/", "metadata:read", "metadata:write"),
+    ("/api/admin/campaigns/", "campaigns:read", "campaigns:write"),
+    ("/api/admin/shipping-methods/", NO_SCOPE, None),
+)
 
 
 class CampaignAdminError(Exception):
@@ -327,9 +341,8 @@ class Client:
         status, body = self.request("GET", path)
         if status in (401, 403):
             raise HttpStatusError(
-                f"GET {path} returned {status}: the token was rejected by {self.origin}. Check the API "
-                "key was created on this store (Dashboard > Settings > API Access) with "
-                f"{CAMPAIGN_SCOPES}, {METADATA_SCOPES}.", status, path)
+                f"GET {path} returned {status}: the token was rejected by {self.origin}."
+                + auth_hint(status, "GET", path), status, path)
         if status != 200:
             raise HttpStatusError(f"GET {path} returned {status}: {_short(body)}", status, path)
         return body
@@ -353,6 +366,36 @@ class Client:
             if not url:
                 return out
         raise CampaignAdminError(f"pagination exceeded {MAX_PAGES} pages for {path}")
+
+
+def scope_for(method: str, path_or_url: str):
+    """The scope a request needs: a scope string, NO_SCOPE for an endpoint the spec
+    marks scopeless, or None when the path is not one this engine knows. Absolute
+    URLs (pagination `next` links) and query strings are reduced to the path first."""
+    path = urllib.parse.urlsplit(path_or_url).path
+    best = None
+    for prefix, read, write in _SCOPE_TABLE:
+        if path.startswith(prefix) and (best is None or len(prefix) > len(best[0])):
+            best = (prefix, read, write)
+    if best is None:
+        return None
+    return best[1] if method.upper() == "GET" else best[2]
+
+
+def auth_hint(status, method: str, path_or_url: str) -> str:
+    """Why a 401/403 happened and what fixes it; empty for any other status."""
+    if status not in (401, 403):
+        return ""
+    scope = scope_for(method, path_or_url)
+    if scope is None:
+        need = ""
+    elif scope == NO_SCOPE:
+        need = (f" {method} on this endpoint needs no scope, so the token itself was rejected "
+                "(wrong store, revoked, or mistyped).")
+    else:
+        need = f" {method} on this endpoint needs the {scope} permission."
+    return (f"{need} Create the API key on this store under Dashboard > Settings > API Access with "
+            f"all of: {REQUIRED_SCOPES}. Retrying the same key does not help.")
 
 
 def _short(body, n: int = 300) -> str:
@@ -671,7 +714,8 @@ def metadata_provision(client: Client, slug: str, apply_changes: bool) -> int:
             print(f"  [created] {f.object:<11} {f.key}")
         else:
             failed += 1
-            print(f"  [FAILED {status}] {f.object:<11} {f.key}: {_short(resp)}")
+            print(f"  [FAILED {status}] {f.object:<11} {f.key}: {_short(resp)}"
+                  + auth_hint(status, "POST", METADATA_PATH))
     print(f"Done: {created} created, {failed} failed.")
     if failed or conflicts:
         return 1
@@ -877,9 +921,10 @@ def short_name(title: str) -> str:
     return re.sub(r"\s+", " ", title).strip()
 
 
-def code_from(title: str, pct) -> str:
+def code_from(title: str, pct, tag: str = "") -> str:
+    """{STEM}{TAG}{PCT}: the tag goes after the 40-character cut so it always survives."""
     stem = re.sub(r"[^A-Z0-9]", "", title.upper())[:40] or "OFFER"
-    return f"{stem}{int(pct)}"
+    return f"{stem}{tag}{int(pct)}"
 
 
 def _parse_kv(spec: str, parts: int, label: str) -> list:
@@ -962,8 +1007,8 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
     codes = {m["code"] for m in discovery["shipping_methods"]}
     shipping = []
     for spec in a.shipping:
-        # <code>:<price>[:<key>]. A key lets one store code carry several campaign
-        # prices (a paid-shipping ladder); without one the key is the code.
+        # <code>:<price>[:<key>]. The platform allows one campaign shipping method
+        # per store code, so a code appears once; the optional key only names it.
         bits = spec.split(":")
         if len(bits) not in (2, 3):
             raise CampaignAdminError(f"--shipping expects <code>:<price>[:<key>], got {spec!r}")
@@ -977,17 +1022,25 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
             if not bits[2]:
                 raise CampaignAdminError(f"--shipping {spec!r}: the key after the price is empty")
             entry["key"] = bits[2]
-        if any(s["shipping_method"] == code and ("key" not in s or "key" not in entry) for s in shipping):
-            raise CampaignAdminError(f"shipping code {code!r} given twice; give each entry its own key, "
-                                     f"e.g. {code}:{price}:ship-{len(shipping) + 1}")
+        if any(s["shipping_method"] == code for s in shipping):
+            raise CampaignAdminError(
+                f"shipping code {code!r} given twice; the Campaigns API allows one campaign shipping method "
+                "per store code. A different price per bundle needs a different store shipping method, "
+                "or one method plus a shipping discount offer")
         if any(ship_key(s) == ship_key(entry) for s in shipping):
             raise CampaignAdminError(f"shipping key {ship_key(entry)!r} given twice")
         shipping.append(entry)
 
     # bumps / upsells: explicit variant, price, pct; nothing inferred
     variant_index = {v["id"]: (p, v) for p in discovery["products"] for v in p["variants"]}
+    seen_upsell_variants = set()
 
     def add_extra(spec: str, role: str):
+        """(package, pct, title, reused). An upsell reuses any hero or bump package
+        for the same variant at the same price instead of creating a twin. Every
+        bump is built before any upsell (they are separate argument lists), so the
+        flag order on the command line does not matter. A bump always gets its own
+        package so it never counts toward hero tiers."""
         parts = _parse_kv(spec, 2 if role == "bump" else 3, role)
         vid = int(parts[0])
         if vid not in variant_index:
@@ -999,10 +1052,51 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
             raise CampaignAdminError(f"{role} variant {vid} is not purchasable "
                                      f"(purchase_availability={v.get('purchase_availability')!r}); pick an available variant")
         title = short_name(p["title"])
+        price = money(D(parts[1]))
+        # Validated here, before the reuse check compares it: NaN or Infinity would
+        # otherwise escape as an InvalidOperation traceback.
+        pct = Decimal(whole_pct(parts[2], "upsell")) if role == "upsell" else None
+        if role == "bump":
+            held = next((x for x in packages if x.get("product_variant_ids") == [vid]), None)
+            if held is not None:
+                raise CampaignAdminError(
+                    f"bump variant {vid} is already package {held['key']}; the Campaigns API allows one "
+                    "package per variant, and a bump on a hero variant would count toward the hero "
+                    "quantity tiers. Choose a different variant or product for the bump")
+        if role == "upsell":
+            # Tracked apart from package roles: a reused hero or bump package keeps its
+            # role, so a role check could never see the second occurrence.
+            if vid in seen_upsell_variants:
+                raise CampaignAdminError(f"upsell variant {vid} given twice; pass each upsell variant once")
+            seen_upsell_variants.add(vid)
+            # Match the (variant, price) pair across every package, not the variant
+            # first: a differently priced hero must not hide an exact bump match.
+            same = next((x for x in packages if x.get("product_variant_ids") == [vid]
+                         and D(x["price"]) == D(price)), None)
+            if same is not None:
+                rationale.append(f"Upsell {title} ({v.get('title')}) reuses package {same['key']}: same variant "
+                                 "at the same price, so no second package is created.")
+                return same, pct, title, True
+            held = next((x for x in packages if x.get("product_variant_ids") == [vid]), None)
+            if held is not None:
+                # One package per variant: the price difference has to come from the
+                # voucher. Suggest the whole percentage that lands nearest the target.
+                target = landed_unit(D(price), pct, None) if Decimal(0) < pct < Decimal(100) else None
+                hint = ""
+                if target is not None and D(held["price"]) > target:
+                    exact = (D(held["price"]) - target) / D(held["price"]) * 100
+                    whole = int(exact.to_integral_value(rounding=ROUND_HALF_UP))
+                    if 0 < whole < 100:
+                        hint = (f" To land near {money(target)}, pass --upsell {vid}:{held['price']}:{whole} "
+                                f"(lands at {money(landed_unit(D(held['price']), Decimal(whole), None))}).")
+                raise CampaignAdminError(
+                    f"upsell variant {vid} is already package {held['key']} at {held['price']}; the Campaigns "
+                    f"API allows one package per variant, so the upsell reuses that package at its price and "
+                    f"the voucher percentage sets the upsell price.{hint}")
         pkg = {"key": f"{role}-{vid}", "role": role, "name": title, "variant_title": v.get("title"),
-               "product_id": p["id"], "product_variant_ids": [vid], "price": money(D(parts[1]))}
+               "product_id": p["id"], "product_variant_ids": [vid], "price": price}
         packages.append(pkg)
-        return pkg, (D(parts[2]) if role == "upsell" else None), title
+        return pkg, pct, title, False
 
     offers, landed, rationale, handoff, blockers = [], [], [], [], []
     rounding = a.rounding if a.rounding else None
@@ -1181,25 +1275,86 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
     free_ship = bool(a.free_shipping) or min_qty is not None
 
     for spec in a.bump or []:
-        pkg, _, _ = add_extra(spec, "bump")
+        pkg, _, _, _ = add_extra(spec, "bump")
         rationale.append(f"Checkout bump {pkg['name']} at {pkg['price']} (operator-specified).")
+
+    # Upsells: one voucher per (product, percentage), scoped to every variant package
+    # of that product at that percentage.
+    groups = {}
     for spec in a.upsell or []:
-        pkg, pct, title = add_extra(spec, "upsell")
-        pct = Decimal(whole_pct(pct, "upsell"))
-        unit = landed_unit(D(pkg["price"]), pct, rounding)
-        landed.append({"tier": f"Upsell {pkg['name']}", "kind": "upsell", "qty": 1,
-                       "offer_key": f"upsell-{pkg['key']}" if offers_supported is not False else None,
-                       "package_keys": [pkg["key"]],
-                       "anchor": pkg["price"], "pct": int(pct),
-                       "unit_after": money(unit), "order_total": money(unit)})
+        pkg, pct, title, reused = add_extra(spec, "upsell")
+        pct = whole_pct(pct, "upsell")
+        g = groups.setdefault((pkg["product_id"], pct), {"title": title, "pct": pct, "items": []})
+        g["items"].append((pkg, reused))
+    groups_per_product = {}
+    for (pid, _), g in groups.items():
+        groups_per_product[pid] = groups_per_product.get(pid, 0) + 1
+    products_per_title, products_per_stem = {}, {}
+    for (pid, _), g in groups.items():
+        products_per_title.setdefault(g["title"], set()).add(pid)
+        # code_from strips punctuation and truncates, so different titles can still
+        # share a code stem; collisions are decided on the stem, not the raw title.
+        products_per_stem.setdefault(code_from(g["title"], 0), set()).add(pid)
+    upsell_codes = set()
+    for (pid, pct), g in groups.items():
+        title, items = g["title"], g["items"]
+        key = f"upsell-{pid}-{pct}"
+        # Two upsold products can share a title; fold the product id into the name
+        # and code only then, so the usual {PRODUCT}{PCT} code stays short.
+        twin = len(products_per_stem[code_from(title, 0)]) > 1
+        code = code_from(title, pct, tag=str(pid) if twin else "")
+        offer_name = f"{title} ({pid}) - {pct}%" if twin else f"{title} - {pct}%"
+        upsell_codes.add(code)
+        solo = (groups_per_product[pid] == 1 and len(items) == 1
+                and len(products_per_title[title]) == 1)
+        who = f"{title} ({pid})" if twin else title
+        for pkg, _ in items:
+            unit = landed_unit(D(pkg["price"]), Decimal(pct), rounding)
+            # Labels become verify case names, so they must be unique: the bare product
+            # name only when this product has exactly one upsell package in the plan.
+            label = (f"Upsell {title}" if solo else
+                     f"Upsell {pkg.get('variant_title') or pkg['name']} - {pct}% ({pkg['key']})")
+            landed.append({"tier": label, "kind": "upsell", "qty": 1,
+                           "offer_key": key if offers_supported is not False else None,
+                           "package_keys": [pkg["key"]],
+                           "anchor": pkg["price"], "pct": pct,
+                           "unit_after": money(unit), "order_total": money(unit)})
+        keys = [pkg["key"] for pkg, _ in items]
         if offers_supported is not False:
             offers.append({
-                "key": f"upsell-{pkg['key']}", "name": f"{pkg['name']} - {int(pct)}%",
-                "offer_type": "voucher", "code": code_from(title, pct),
-                "condition": {"type": "any", "value": None, "package_keys": [pkg["key"]]},
-                "benefit": {"type": "package_percentage", "value": money(pct), "price_rounding": rounding},
+                "key": key, "name": offer_name,
+                "offer_type": "voucher", "code": code,
+                "condition": {"type": "any", "value": None, "package_keys": keys},
+                "benefit": {"type": "package_percentage", "value": money(D(pct)), "price_rounding": rounding},
             })
-        rationale.append(f"Upsell {pkg['name']} uses a voucher (site offers do not apply post-purchase).")
+        rationale.append(f"Upsell {who}: one voucher {code} scoped to {len(keys)} variant package(s) {keys}; "
+                         "variants at one percentage share one voucher (site offers do not apply post-purchase).")
+        shared = [pkg["key"] for pkg, reused in items if reused]
+        if shared:
+            handoff.append(
+                f"Upsell voucher {code} is scoped to {shared}, which are also sold on the checkout page. "
+                "A voucher works on every page, so the code also applies at checkout if a shopper enters "
+                "it there, stacking on any checkout offer. Never show this code on the checkout page.")
+    # Surface a partial or split upsell rather than let it pass quietly: the operator
+    # chooses which variants to upsell, so this informs instead of refusing.
+    for pid in groups_per_product:
+        pcts = sorted(pct for (gp, pct) in groups if gp == pid)
+        title = next(g["title"] for (gp, _), g in groups.items() if gp == pid)
+        if len(pcts) > 1:
+            rationale.append(f"Upsell {title} is split across {len(pcts)} vouchers because its variants were "
+                             f"given different percentages ({pcts}). Give them one percentage for one voucher.")
+        product = next((x for x in discovery["products"] if x["id"] == pid), None)
+        if product:
+            buyable = {v["id"] for v in product["variants"]
+                       if v.get("purchase_availability", "available") == "available"}
+            given = {vid for (gp, _), g in groups.items() if gp == pid
+                     for pkg, _ in g["items"] for vid in pkg["product_variant_ids"]}
+            if buyable - given:
+                rationale.append(f"Upsell {title} covers {len(given & buyable)} of its {len(buyable)} purchasable "
+                                 f"variants; variants {sorted(buyable - given)} are not in any upsell voucher.")
+    upsell_labels = [l["tier"] for l in landed if l["kind"] == "upsell"]
+    if len(upsell_labels) != len(set(upsell_labels)):
+        raise CampaignAdminError(f"upsell landed labels are not unique: {upsell_labels} (bug)")
 
     gift_keys = []
     for spec in gift_specs:
@@ -1284,9 +1439,14 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
             return False
     exit_pct = DEFAULT_EXIT_PCT if a.exit is None else (0 if _is_zero(a.exit) else whole_pct(a.exit, "exit"))
     if exit_pct and offers_supported is not False:
+        exit_code = a.exit_code or code_from(hero_title, exit_pct)
+        if exit_code in upsell_codes:
+            raise CampaignAdminError(
+                f"the exit voucher code {exit_code} is also an upsell voucher code (an upsell of the hero "
+                f"product at {exit_pct}%); pass a short --exit-code such as SAVE{exit_pct}")
         offers.append({
             "key": "exit-pop", "name": f"{hero_title} - Exit - {exit_pct}%",
-            "offer_type": "voucher", "code": a.exit_code or code_from(hero_title, exit_pct),
+            "offer_type": "voucher", "code": exit_code,
             "condition": {"type": "any", "value": None, "package_keys": list(hero_keys)},
             "benefit": {"type": "package_percentage", "value": money(D(exit_pct)), "price_rounding": rounding},
         })
@@ -1447,15 +1607,43 @@ def _image_errors(key, img) -> list:
     return errs
 
 
-def validate_plan(plan: dict) -> list:
+def validate_plan(plan: dict, for_create: bool = True) -> list:
     """Every problem with a plan as a list of messages. A hand-edited plan with the
     wrong shape somewhere is reported, never allowed to escape as a traceback, and
-    an empty list is the only answer that lets a caller proceed."""
+    an empty list is the only answer that lets a caller proceed.
+
+    for_create adds the Campaigns API's uniqueness rules: one package per variant
+    and one campaign shipping method per store code. recommend, plan and apply
+    check them; verify does not, so a run created before those rules can still be
+    read back and priced."""
     try:
-        return _validate_plan(plan)
+        errs = _validate_plan(plan)
+        return errs + (_uniqueness_errors(plan) if for_create else [])
     except (TypeError, AttributeError, KeyError, ValueError, InvalidOperation) as e:
         return [f"plan is malformed ({type(e).__name__}: {e}); regenerate it with recommend "
                 "or correct the field by hand"]
+
+
+def _uniqueness_errors(plan: dict) -> list:
+    if not isinstance(plan, dict):
+        return []
+    errs, by_variant, by_code = [], {}, {}
+    for p in plan.get("packages", []):
+        for vid in p.get("product_variant_ids") or []:
+            if vid in by_variant:
+                errs.append(f"packages {by_variant[vid]} and {p.get('key')} both use variant {vid}; the Campaigns "
+                            "API allows one package per variant. Reuse the one package and set the price "
+                            "difference with an offer or voucher")
+            else:
+                by_variant[vid] = p.get("key")
+    for sm in plan.get("shipping_methods", []):
+        code = sm.get("shipping_method")
+        if code in by_code:
+            errs.append(f"shipping methods {by_code[code]} and {ship_key(sm)} both use store code {code!r}; the "
+                        "Campaigns API allows one campaign shipping method per store code")
+        elif code:
+            by_code[code] = ship_key(sm)
+    return errs
 
 
 def _validate_plan(plan: dict) -> list:
@@ -1789,7 +1977,8 @@ def _created(client: Client, method: str, path: str, body: dict, what: str) -> d
     if isinstance(resp, list) and len(resp) == 1 and isinstance(resp[0], dict):
         resp = resp[0]
     if status not in (200, 201) or not isinstance(resp, dict):
-        raise CampaignAdminError(f"{what}: {method} {path} returned {status}: {_short(resp)}")
+        raise CampaignAdminError(f"{what}: {method} {path} returned {status}: {_short(resp)}"
+                                 + auth_hint(status, method, path))
     return resp
 
 
@@ -2023,7 +2212,8 @@ def apply(client: Client, plan: dict, plan_sha: str, manifest_path: Path, resume
                                   f"(left pending, --resume will retry): {_short(resp)}")
         elif status != 200 or not isinstance(resp, dict) or not resp.get("image"):
             man.mark("packages", p["key"], image_status="failed", image_intent=None, image_error=_short(resp))
-            image_failures.append(f"{p['key']}: PUT returned {status}: {_short(resp)}")
+            image_failures.append(f"{p['key']}: PUT returned {status}: {_short(resp)}"
+                                  + auth_hint(status, "PUT", f"/api/admin/campaigns/{cid}/packages/{e['id']}/image/"))
         else:
             man.mark("packages", p["key"], image_status="set", image_intent=None,
                      image=resp.get("image"), image_error=None)
@@ -2063,7 +2253,8 @@ def apply(client: Client, plan: dict, plan_sha: str, manifest_path: Path, resume
             offers_unsupported = True
             continue
         if status not in (200, 201) or not isinstance(resp, dict):
-            raise CampaignAdminError(f"create offer {o['key']}: POST returned {status}: {_short(resp)}")
+            raise CampaignAdminError(f"create offer {o['key']}: POST returned {status}: {_short(resp)}"
+                                     + auth_hint(status, "POST", f"/api/admin/campaigns/{cid}/offers/"))
         man.mark("offers", o["key"], status="created", id=resp["id"], name=resp.get("name"), intent=None)
         print(f"created offer {resp['id']} {o['name']!r}")
     man.data["completed_at"] = utcnow()
@@ -2132,7 +2323,9 @@ def teardown(client: Client, man: Manifest, plan: dict, plan_sha: str, confirm) 
         print(f"campaign {cid} already gone; nothing left to delete")
         return
     if status != 200 or live.get("name") != camp.get("name") or not same_instant(live.get("created_at"), camp.get("created_at")):
-        raise CampaignAdminError(f"campaign {cid} identity mismatch (name/created_at); refusing to delete anything")
+        raise CampaignAdminError(f"campaign {cid} identity mismatch (name/created_at); refusing to delete anything"
+                                 + (f" (GET returned {status})" + auth_hint(status, "GET", f"/api/admin/campaigns/{cid}/")
+                                    if status in (401, 403) else ""))
 
     for section, path_part, ident in (
         ("offers", "offers", lambda e, x: x.get("name") == plan_of.get(e["key"], {}).get("name")),
@@ -2149,7 +2342,8 @@ def teardown(client: Client, man: Manifest, plan: dict, plan_sha: str, confirm) 
                 man.mark(section, e["key"], status="deleted")
                 continue
             if st != 200 or not ident(e, x):
-                raise CampaignAdminError(f"{section} {e['key']} (id {e['id']}) identity mismatch; aborting before any delete")
+                raise CampaignAdminError(f"{section} {e['key']} (id {e['id']}) identity mismatch; aborting before any delete"
+                                         + (f" (GET returned {st})" + auth_hint(st, "GET", path) if st in (401, 403) else ""))
             todo.append((section, e["key"], path))
     todo.append(("campaign", "campaign", f"/api/admin/campaigns/{cid}/"))
 
@@ -2167,7 +2361,8 @@ def teardown(client: Client, man: Manifest, plan: dict, plan_sha: str, confirm) 
             man.mark(section, key, status="deleted")
             print(f"deleted {section} {key}")
         else:
-            raise CampaignAdminError(f"DELETE {path} returned {st}: {_short(body)}; rerun teardown to continue")
+            raise CampaignAdminError(f"DELETE {path} returned {st}: {_short(body)}; rerun teardown to continue"
+                                     + auth_hint(st, "DELETE", path))
     man.data["torn_down_at"] = utcnow()
     man.save()
 
@@ -2409,7 +2604,7 @@ def _free_shipping_coverage(cases: list, offers: list, key, n: int, scope, price
 
 
 def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: str) -> dict:
-    errs = validate_plan(plan)
+    errs = validate_plan(plan, for_create=False)
     if errs:
         raise CampaignAdminError("plan is invalid, cannot verify:\n  - " + "\n  - ".join(errs))
     check_origin_binding(man.data, "manifest")
@@ -2530,7 +2725,8 @@ def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: st
                 continue
             st, live_o = client.request("GET", f"/api/admin/campaigns/{cid}/offers/{e['id']}/")
             if st != 200 or not isinstance(live_o, dict):
-                check(f"offer {e['key']}", False, f"retrieve returned {st}")
+                check(f"offer {e['key']}", False, f"retrieve returned {st}"
+                      + auth_hint(st, "GET", f"/api/admin/campaigns/{cid}/offers/{e['id']}/"))
                 continue
             unresolved = [k for k in o["condition"]["package_keys"] if k not in ids]
             if unresolved:
@@ -2672,7 +2868,7 @@ def main(argv=None) -> int:
     r.add_argument("--ctc", required=True, choices=["low", "high"])
     r.add_argument("--anchor-price", required=True, help="package price tiers discount from")
     r.add_argument("--shipping", action="append", required=True,
-                   help="<code>:<price>[:<key>], repeatable; a key lets one code carry several prices")
+                   help="<code>:<price>[:<key>], repeatable; each store code once (one campaign method per code)")
     r.add_argument("--name", help="campaign name (default: hero product title)")
     r.add_argument("--gateway-group", type=int)
     r.add_argument("--payment-methods")
