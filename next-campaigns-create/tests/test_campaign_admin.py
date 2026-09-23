@@ -2973,6 +2973,25 @@ class UpsellPackagesAndVouchers(unittest.TestCase):
         tiers = [l["tier"] for l in plan["landed_prices"] if l["kind"] == "upsell"]
         self.assertEqual(len(set(tiers)), 2, tiers)
 
+    def test_partial_and_split_upsells_are_disclosed(self):
+        plan = ca.recommend(self.disc, ns(hero=10, ctc="high", anchor_price="189.95", upsell=["16:39.95:50"]))
+        self.assertTrue(any("covers 1 of its 2 purchasable variants" in r and "[17]" in r for r in plan["rationale"]))
+        split = ca.recommend(self.disc, ns(hero=10, ctc="high", anchor_price="189.95",
+                                           upsell=["16:39.95:50", "17:39.95:40"]))
+        self.assertTrue(any("split across 2 vouchers" in r for r in split["rationale"]))
+        whole = ca.recommend(self.disc, ns(hero=10, ctc="high", anchor_price="189.95",
+                                           upsell=["16:39.95:50", "17:39.95:50"]))
+        self.assertFalse(any("vouchers because" in r or "purchasable variants;" in r for r in whole["rationale"]))
+
+    def test_two_products_with_one_title_get_distinct_labels(self):
+        d = json.loads(json.dumps(self.disc))
+        twin = next(p for p in d["products"] if p["id"] == 18)
+        twin["title"] = "Music Photo Magnet"
+        plan = ca.recommend(d, ns(hero=10, ctc="high", anchor_price="189.95", exit_code="SAVE10",
+                                  upsell=["16:39.95:50", "19:29.95:40"]))
+        tiers = [l["tier"] for l in plan["landed_prices"] if l["kind"] == "upsell"]
+        self.assertEqual(len(set(tiers)), 2, tiers)
+
     def test_exit_code_collision_needs_exit_code(self):
         with self.assertRaises(ca.CampaignAdminError) as cm:
             ca.recommend(self.disc, ns(upsell=["23:49.95:10"]))

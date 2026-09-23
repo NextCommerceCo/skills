@@ -1254,7 +1254,7 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
         rationale.append(f"Checkout bump {pkg['name']} at {pkg['price']} (operator-specified).")
 
     # Upsells: one voucher per (product, percentage), scoped to every variant package
-    # of that product. Variants are never split across offers.
+    # of that product at that percentage.
     groups = {}
     for spec in a.upsell or []:
         pkg, pct, title, reused = add_extra(spec, "upsell")
@@ -1264,13 +1264,17 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
     groups_per_product = {}
     for (pid, _), g in groups.items():
         groups_per_product[pid] = groups_per_product.get(pid, 0) + 1
+    products_per_title = {}
+    for (pid, _), g in groups.items():
+        products_per_title.setdefault(g["title"], set()).add(pid)
     upsell_codes = set()
     for (pid, pct), g in groups.items():
         title, items = g["title"], g["items"]
         key = f"upsell-{pid}-{pct}"
         code = code_from(title, pct)
         upsell_codes.add(code)
-        solo = groups_per_product[pid] == 1 and len(items) == 1
+        solo = (groups_per_product[pid] == 1 and len(items) == 1
+                and len(products_per_title[title]) == 1)
         for pkg, _ in items:
             unit = landed_unit(D(pkg["price"]), Decimal(pct), rounding)
             # Labels become verify case names, so they must be unique: the bare product
@@ -1291,13 +1295,30 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
                 "benefit": {"type": "package_percentage", "value": money(D(pct)), "price_rounding": rounding},
             })
         rationale.append(f"Upsell {title}: one voucher {code} scoped to {len(keys)} variant package(s) {keys}; "
-                         "variants are never split across offers (site offers do not apply post-purchase).")
+                         "variants at one percentage share one voucher (site offers do not apply post-purchase).")
         shared = [pkg["key"] for pkg, reused in items if reused]
         if shared:
             handoff.append(
                 f"Upsell voucher {code} is scoped to {shared}, which are also sold on the checkout page. "
                 "A voucher works on every page, so the code also applies at checkout if a shopper enters "
                 "it there, stacking on any checkout offer. Never show this code on the checkout page.")
+    # Surface a partial or split upsell rather than let it pass quietly: the operator
+    # chooses which variants to upsell, so this informs instead of refusing.
+    for pid in groups_per_product:
+        pcts = sorted(pct for (gp, pct) in groups if gp == pid)
+        title = next(g["title"] for (gp, _), g in groups.items() if gp == pid)
+        if len(pcts) > 1:
+            rationale.append(f"Upsell {title} is split across {len(pcts)} vouchers because its variants were "
+                             f"given different percentages ({pcts}). Give them one percentage for one voucher.")
+        product = next((x for x in discovery["products"] if x["id"] == pid), None)
+        if product:
+            buyable = {v["id"] for v in product["variants"]
+                       if v.get("purchase_availability", "available") == "available"}
+            given = {vid for (gp, _), g in groups.items() if gp == pid
+                     for pkg, _ in g["items"] for vid in pkg["product_variant_ids"]}
+            if buyable - given:
+                rationale.append(f"Upsell {title} covers {len(given & buyable)} of its {len(buyable)} purchasable "
+                                 f"variants; variants {sorted(buyable - given)} are not in any upsell voucher.")
     upsell_labels = [l["tier"] for l in landed if l["kind"] == "upsell"]
     if len(upsell_labels) != len(set(upsell_labels)):
         raise CampaignAdminError(f"upsell landed labels are not unique: {upsell_labels} (bug)")
