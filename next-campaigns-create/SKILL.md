@@ -128,6 +128,16 @@ needs no permission of its own. A 401 or 403 from the engine names the
 permission the failing request needed. Permission reference:
 https://developers.nextcommerce.com/docs/admin-api/permissions
 
+## Platform uniqueness rules
+
+The Campaigns API allows **one package per variant** and **one campaign shipping
+method per store code** in a campaign.
+A different price for the same product or the same shipping method is an offer
+or voucher, never a second package or method. The engine applies both rules in
+`recommend`, `plan` and `apply`, so a plan that breaks them fails before any
+request. `verify` and `teardown` do not apply them, so a run created before the
+rules can still be read back, priced and removed.
+
 ## Write inventory
 
 Read this before running. Every mutation the skill can make, and the one
@@ -419,13 +429,15 @@ gift (different package keys). `--tiers` with `--offer-type bxgy` is an error.
   group (`--gateway-group`) must list that currency and every payment method
   code the campaign enables.
 - **Shipping**: at least one `<code>:<price>`, using a shipping method code
-  from the discovery. One code can carry several prices when each entry gets a
-  key, `<code>:<price>:<key>`. A store with only a `default` method can charge
-  per bundle this way: `--shipping default:9.99:ship-1 --shipping
-  default:12.99:ship-2` and so on. To price each landed row with its own rung,
-  add `"shipping_key": "ship-2"` (for example) to that row in
-  `campaign-plan.json` before running `plan`. A row without one uses the first
-  shipping method.
+  from the discovery. Each store code appears **once**: the platform allows one
+  campaign shipping method per code, and `recommend` refuses a repeated code.
+  An optional key names the entry, `<code>:<price>:<key>`. To charge a
+  different price per bundle, use a different store shipping method for each
+  (`--shipping standard:9.99:ship-1 --shipping tracked:12.99:ship-2`) and add
+  `"shipping_key": "ship-2"` (for example) to that row in `campaign-plan.json`
+  before running `plan`. A row without one uses the first shipping method. A
+  store with only one method cannot charge per bundle; use free shipping from a
+  quantity instead, or have the merchant add store shipping methods first.
 - **Free shipping**: none, every order (`--free-shipping`), or from a minimum
   number of hero units (`--free-shipping-min-qty N`, for example 2 for Buy 2+).
   This is an operator decision, and the two flags are alternatives; passing both
@@ -439,15 +451,20 @@ gift (different package keys). `--tiers` with `--offer-type bxgy` is an error.
   - Pass every variant of an upsell product as its own `--upsell`, all at the
     same percentage. `recommend` puts them in **one** voucher scoped to all of
     those variant packages. Never split them into one offer per variant.
-  - When the upsell is the hero product (or a bump) at the price it already has,
-    pass that variant id and price. `recommend` reuses the existing package
-    instead of creating a second one for the same variant and price. The
-    voucher then also works at checkout if a shopper enters it there, stacking
-    on the tier; the plan's handoff says so, and the funnel must never show that
-    code on the checkout page.
-  - Never hand-author a second package for a variant already packaged at that
-    price, and never rename or split offers to get past a duplicate offer name
-    or code error. That error means the specs belong in one group.
+  - One package per variant. When the upsell is the hero product (or a bump),
+    pass that variant id at the price its package already has, and set the
+    upsell price with the voucher percentage. `recommend` reuses the existing
+    package. A different price for an already packaged variant is refused, and
+    the error suggests the whole percentage that lands nearest the price asked
+    for. The reused voucher also works at checkout if a shopper enters it
+    there, stacking on the tier; the plan's handoff says so, and the funnel must
+    never show that code on the checkout page.
+  - A bump must be a variant no other package uses. A bump on a hero variant is
+    refused: it would need a second package for that variant, and a bump line
+    on the hero package would count toward the hero quantity tiers.
+  - Never hand-author a second package for a variant already packaged, and
+    never rename or split offers to get past a duplicate offer name or code
+    error. That error means the specs belong in one group.
 - **Standing checkout bump**: ask whether the store requires a bump on every
   campaign, such as a shipping-insurance product. If yes, it goes in as
   `--bump <variant_id>:<price>`.
@@ -698,9 +715,8 @@ or FAIL, with the failing checks. Then hand off:
   it as a visible gift choice. This skill does not write that markup, and the
   Offers API will not auto-add or auto-remove the gift.
 - Shipping method ids, one per shipping key, from the manifest's
-  `shipping_methods` entries. When one store code carries several prices the
-  code alone does not pick a price: the funnel has to send the id of the rung
-  each bundle should charge.
+  `shipping_methods` entries. When bundles charge different methods, the funnel
+  sends the id of the method each bundle should charge.
 - Offer codes for the funnel's voucher wiring.
 - Manual dashboard steps the API does not cover: Allowed Domains
   (Development/Production), PayPal account linking, Map Builder.
@@ -722,6 +738,9 @@ need.
 | `credential missing` | no token found for this store in the environment, `.env` or `NEXT_ADMIN_API_TOKEN` | add the `{SUBDOMAIN}_NEXT_ADMIN_API_TOKEN` line to `.env` (Phase 1); never paste it in chat |
 | `still holds a placeholder` | the token value is a placeholder such as `<paste-token-here>` | have the user paste the real token over it in a text editor |
 | 401 or 403 from the store | key rejected, or missing one of the seven permissions; the message names the permission the request needed (`store:read` on the first `discover` request is the usual one) | re-create the key with all seven under Dashboard > Settings > API Access; retrying does not help, and full access is not needed |
+| `shipping code ... given twice` or `both use store code` | the same store code at two prices | one campaign shipping method per code: use a different store shipping method per price, or free shipping from a quantity |
+| `upsell variant ... is already package ...` | an upsell at a different price from the package that variant already has | pass the variant at its package price and the percentage the error suggests |
+| `bump variant ... is already package ...` or `both use variant` | a bump on a hero variant, or a hand-edited second package for one variant | choose a different variant for the bump; for a hand edit, reuse the one package and set the price with an offer |
 | `upsell variant ... given twice` | the same variant passed to `--upsell` more than once | pass each upsell variant once; variants of one product at the same percentage already share one voucher |
 | `exit voucher code ... is also an upsell voucher code` | an upsell of the hero product at the exit percentage generates the same code | pass a short `--exit-code`, such as `SAVE10` |
 | launcher exits 2 with a Python message | no Python 3.9 or newer found | install Python 3.9 or newer, or set `NEXT_CAMPAIGNS_CREATE_PYTHON` |
@@ -759,10 +778,9 @@ need.
 - Never invent a min-spend condition, a split condition/benefit package list,
   or an Offers API auto-add. Those are platform gaps; say so in the handoff.
 - Never infer CTC or the anchor price; both come from the operator.
-- An upsell never gets a second package for a variant already packaged at that
-  price; it reuses that package. Checkout bumps are the exception and always get
-  their own package, because a bump line must not count toward the hero
-  quantity tiers.
+- One package per variant and one campaign shipping method per store code.
+  A price difference is an offer or voucher. An upsell reuses the package its
+  variant already has; a bump must be a variant no other package uses.
 - One voucher per upsell product and percentage, scoped to every variant
   package of that product.
 - Never touch a campaign the run manifest does not own. Teardown deletes only

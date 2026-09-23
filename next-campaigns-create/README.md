@@ -54,6 +54,12 @@ a time, with add-ons at checkout and upsells after the order. The anchor price
 is the full price the discounts are taken from, and it isn't always the price
 in your catalogue.
 
+A campaign uses each product variant in one package and each of your store's
+shipping methods once. If you want the same product or the same shipping
+method at a different price, that difference comes from a discount, not from a
+second copy. For example, offering your main product again after the order at
+a lower price is done with a discount code on the package you already have.
+
 > [!IMPORTANT]
 > The first campaign on a store needs eleven metadata definitions, created
 > once. Orders still go through without them, but you can't filter, export or

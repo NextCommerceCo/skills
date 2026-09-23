@@ -189,8 +189,9 @@ Upsells run after the first order is placed.
   cost: a voucher works on every page, so that upsell code also applies at
   checkout if a shopper enters it there, stacking on the tier price. The exit
   voucher already has the same exposure on the hero packages. The funnel must
-  never show the upsell code on the checkout page. A different upsell price
-  gets its own package, which never appears at checkout.
+  never show the upsell code on the checkout page. The upsell price comes from
+  the voucher percentage off that package's price: there is one package per
+  variant, so a second package at a lower price is not an option.
 
 ## Offer types and where they work
 
@@ -236,10 +237,15 @@ Package names:
 
 Package reuse:
 
-- An upsell never gets a second package for a variant already packaged at the
-  same price; it reuses that package. Checkout bumps are the exception: a bump
-  always gets its own package, because a bump line on a hero package would count
-  toward the hero quantity tiers.
+- One package per variant, and one campaign shipping method per store code.
+  The Campaigns API rejects a second package for the same variant and a second
+  shipping method on the same code. A different price for the same product or
+  shipping method is an offer or voucher.
+- An upsell of an already packaged variant reuses that package, and its voucher
+  percentage sets the upsell price.
+- A bump must be a variant no other package uses. A bump line on a hero package
+  would count toward the hero quantity tiers, and a second package for the hero
+  variant is not allowed.
 
 Offer names:
 

@@ -132,4 +132,6 @@ second package is created: voucher `PHOTOBRACELET50` is scoped to `hero-23`. In
 upsell mode the cart is 24.97. Entered at checkout the code stacks on the Buy 1
 tier, 24.97 then 50% again, landing at 12.48. The plan's handoff says so, and the
 funnel never shows that code on the checkout page. An upsell price other than
-49.95 would get its own `upsell-23` package instead.
+49.95 is refused, because there is one package per variant. For example
+`--upsell 23:39.95:50` asks for 19.97, and the error suggests
+`--upsell 23:49.95:60`, which lands at 19.98 on the existing package.

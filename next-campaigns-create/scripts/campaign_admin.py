@@ -1006,8 +1006,8 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
     codes = {m["code"] for m in discovery["shipping_methods"]}
     shipping = []
     for spec in a.shipping:
-        # <code>:<price>[:<key>]. A key lets one store code carry several campaign
-        # prices (a paid-shipping ladder); without one the key is the code.
+        # <code>:<price>[:<key>]. The platform allows one campaign shipping method
+        # per store code, so a code appears once; the optional key only names it.
         bits = spec.split(":")
         if len(bits) not in (2, 3):
             raise CampaignAdminError(f"--shipping expects <code>:<price>[:<key>], got {spec!r}")
@@ -1021,9 +1021,11 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
             if not bits[2]:
                 raise CampaignAdminError(f"--shipping {spec!r}: the key after the price is empty")
             entry["key"] = bits[2]
-        if any(s["shipping_method"] == code and ("key" not in s or "key" not in entry) for s in shipping):
-            raise CampaignAdminError(f"shipping code {code!r} given twice; give each entry its own key, "
-                                     f"e.g. {code}:{price}:ship-{len(shipping) + 1}")
+        if any(s["shipping_method"] == code for s in shipping):
+            raise CampaignAdminError(
+                f"shipping code {code!r} given twice; the Campaigns API allows one campaign shipping method "
+                "per store code. A different price per bundle needs a different store shipping method, "
+                "or one method plus a shipping discount offer")
         if any(ship_key(s) == ship_key(entry) for s in shipping):
             raise CampaignAdminError(f"shipping key {ship_key(entry)!r} given twice")
         shipping.append(entry)
@@ -1051,6 +1053,13 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
         title = short_name(p["title"])
         price = money(D(parts[1]))
         pct = D(parts[2]) if role == "upsell" else None
+        if role == "bump":
+            held = next((x for x in packages if x.get("product_variant_ids") == [vid]), None)
+            if held is not None:
+                raise CampaignAdminError(
+                    f"bump variant {vid} is already package {held['key']}; the Campaigns API allows one "
+                    "package per variant, and a bump on a hero variant would count toward the hero "
+                    "quantity tiers. Choose a different variant or product for the bump")
         if role == "upsell":
             # Tracked apart from package roles: a reused hero or bump package keeps its
             # role, so a role check could never see the second occurrence.
@@ -1065,11 +1074,22 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
                 rationale.append(f"Upsell {title} ({v.get('title')}) reuses package {same['key']}: same variant "
                                  "at the same price, so no second package is created.")
                 return same, pct, title, True
-            other = [x["key"] for x in packages if x.get("product_variant_ids") == [vid]]
-            if other:
-                rationale.append(f"Upsell {title} ({v.get('title')}) at {price} gets its own package: variant {vid} "
-                                 f"is already packaged as {other} at a different price, and a package carries "
-                                 "one price.")
+            held = next((x for x in packages if x.get("product_variant_ids") == [vid]), None)
+            if held is not None:
+                # One package per variant: the price difference has to come from the
+                # voucher. Suggest the whole percentage that lands nearest the target.
+                target = landed_unit(D(price), pct, None) if Decimal(0) < pct < Decimal(100) else None
+                hint = ""
+                if target is not None and D(held["price"]) > target:
+                    exact = (D(held["price"]) - target) / D(held["price"]) * 100
+                    whole = int(exact.to_integral_value(rounding=ROUND_HALF_UP))
+                    if 0 < whole < 100:
+                        hint = (f" To land near {money(target)}, pass --upsell {vid}:{held['price']}:{whole} "
+                                f"(lands at {money(landed_unit(D(held['price']), Decimal(whole), None))}).")
+                raise CampaignAdminError(
+                    f"upsell variant {vid} is already package {held['key']} at {held['price']}; the Campaigns "
+                    f"API allows one package per variant, so the upsell reuses that package at its price and "
+                    f"the voucher percentage sets the upsell price.{hint}")
         pkg = {"key": f"{role}-{vid}", "role": role, "name": title, "variant_title": v.get("title"),
                "product_id": p["id"], "product_variant_ids": [vid], "price": price}
         packages.append(pkg)
@@ -1281,6 +1301,7 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
         upsell_codes.add(code)
         solo = (groups_per_product[pid] == 1 and len(items) == 1
                 and len(products_per_title[title]) == 1)
+        who = f"{title} ({pid})" if twin else title
         for pkg, _ in items:
             unit = landed_unit(D(pkg["price"]), Decimal(pct), rounding)
             # Labels become verify case names, so they must be unique: the bare product
@@ -1300,7 +1321,7 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
                 "condition": {"type": "any", "value": None, "package_keys": keys},
                 "benefit": {"type": "package_percentage", "value": money(D(pct)), "price_rounding": rounding},
             })
-        rationale.append(f"Upsell {title}: one voucher {code} scoped to {len(keys)} variant package(s) {keys}; "
+        rationale.append(f"Upsell {who}: one voucher {code} scoped to {len(keys)} variant package(s) {keys}; "
                          "variants at one percentage share one voucher (site offers do not apply post-purchase).")
         shared = [pkg["key"] for pkg, reused in items if reused]
         if shared:
@@ -1580,15 +1601,43 @@ def _image_errors(key, img) -> list:
     return errs
 
 
-def validate_plan(plan: dict) -> list:
+def validate_plan(plan: dict, for_create: bool = True) -> list:
     """Every problem with a plan as a list of messages. A hand-edited plan with the
     wrong shape somewhere is reported, never allowed to escape as a traceback, and
-    an empty list is the only answer that lets a caller proceed."""
+    an empty list is the only answer that lets a caller proceed.
+
+    for_create adds the Campaigns API's uniqueness rules: one package per variant
+    and one campaign shipping method per store code. recommend, plan and apply
+    check them; verify does not, so a run created before those rules can still be
+    read back and priced."""
     try:
-        return _validate_plan(plan)
+        errs = _validate_plan(plan)
+        return errs + (_uniqueness_errors(plan) if for_create else [])
     except (TypeError, AttributeError, KeyError, ValueError, InvalidOperation) as e:
         return [f"plan is malformed ({type(e).__name__}: {e}); regenerate it with recommend "
                 "or correct the field by hand"]
+
+
+def _uniqueness_errors(plan: dict) -> list:
+    if not isinstance(plan, dict):
+        return []
+    errs, by_variant, by_code = [], {}, {}
+    for p in plan.get("packages", []):
+        for vid in p.get("product_variant_ids") or []:
+            if vid in by_variant:
+                errs.append(f"packages {by_variant[vid]} and {p.get('key')} both use variant {vid}; the Campaigns "
+                            "API allows one package per variant. Reuse the one package and set the price "
+                            "difference with an offer or voucher")
+            else:
+                by_variant[vid] = p.get("key")
+    for sm in plan.get("shipping_methods", []):
+        code = sm.get("shipping_method")
+        if code in by_code:
+            errs.append(f"shipping methods {by_code[code]} and {ship_key(sm)} both use store code {code!r}; the "
+                        "Campaigns API allows one campaign shipping method per store code")
+        elif code:
+            by_code[code] = ship_key(sm)
+    return errs
 
 
 def _validate_plan(plan: dict) -> list:
@@ -2549,7 +2598,7 @@ def _free_shipping_coverage(cases: list, offers: list, key, n: int, scope, price
 
 
 def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: str) -> dict:
-    errs = validate_plan(plan)
+    errs = validate_plan(plan, for_create=False)
     if errs:
         raise CampaignAdminError("plan is invalid, cannot verify:\n  - " + "\n  - ".join(errs))
     check_origin_binding(man.data, "manifest")

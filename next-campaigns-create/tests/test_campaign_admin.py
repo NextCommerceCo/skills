@@ -457,7 +457,7 @@ class Recommendation(unittest.TestCase):
         """An override is hand-authored. recommend builds from the catalogue, which is
         the same source the package already inherits its image from."""
         plan = ca.recommend(load_fixture("discovery.json"),
-                            ns(bump=["24:19.95"], upsell=["25:39.95:20"]))
+                            ns(bump=["7:19.95"], upsell=["16:39.95:20"]))
         self.assertTrue(all("image" not in p for p in plan["packages"]))
         self.assertFalse([r for r in ca.render_requests(plan) if r[0] == "PUT"])
 
@@ -2441,12 +2441,13 @@ class FreeShippingPerCase(unittest.TestCase):
         self.assertIn("no shipping method", detail)
 
 
-LADDER = ["standard:9.99:ship-1", "standard:12.99:ship-2", "standard:14.99:ship-3", "standard:16.99:ship-4"]
+LADDER = ["standard:9.99:ship-1", "tracked:12.99:ship-2", "priority:14.99:ship-3", "overnight:16.99:ship-4"]
+LADDER_CODES = ["standard", "tracked", "priority", "overnight"]
 RUNG = {"Buy 1": "9.99", "Buy 2": "12.99", "Buy 3": "14.99", "Buy 4": "16.99"}
 
 
 def ladder_plan(disc, **kw):
-    """Four tiers on one store code, each tier row priced with its own rung."""
+    """Four tiers on four store codes, each tier row priced with its own method."""
     plan = ca.recommend(disc, ns(tiers="50,55,60,65", shipping=LADDER, **kw))
     for i, row in enumerate(r for r in plan["landed_prices"] if r["kind"] == "tier"):
         row["shipping_key"] = f"ship-{i + 1}"
@@ -2454,8 +2455,9 @@ def ladder_plan(disc, **kw):
 
 
 class TieredShippingLadder(unittest.TestCase):
-    """Several campaign shipping methods on the same store code at different
-    prices, identified by a plan-level key, each landed row priced with its own."""
+    """Several campaign shipping methods, one per store code (the Campaigns API
+    rejects a repeated code), identified by a plan-level key, each landed row
+    priced with its own."""
 
     _engine = staticmethod(FreeShippingPerCase._engine)
     _run = FreeShippingPerCase._run
@@ -2486,30 +2488,28 @@ class TieredShippingLadder(unittest.TestCase):
 
     # --- plan validation ----------------------------------------------------
 
-    def test_same_code_different_prices_validates(self):
+    def test_one_method_per_code_validates(self):
         plan = ladder_plan(self.disc)
         self.assertEqual(ca.validate_plan(plan), [])
         ships = [r[2] for r in ca.render_requests(plan) if r[1].endswith("/shipping-methods/")]
-        self.assertEqual(ships, [{"shipping_method": "standard", "price": p} for p in ("9.99", "12.99", "14.99", "16.99")])
+        self.assertEqual(ships, [{"shipping_method": c, "price": p}
+                                 for c, p in zip(LADDER_CODES, ("9.99", "12.99", "14.99", "16.99"))])
 
-    def test_same_code_same_price_rejects(self):
+    def test_repeated_code_rejected_for_create_only(self):
         plan = ladder_plan(self.disc)
-        plan["shipping_methods"][1]["price"] = "9.99"
+        plan["shipping_methods"][1]["shipping_method"] = "standard"
         errs = ca.validate_plan(plan)
+        self.assertTrue(any("both use store code 'standard'" in e for e in errs), errs)
+        # a run created before the rule can still be verified
+        self.assertEqual(ca.validate_plan(plan, for_create=False), [])
+        plan["shipping_methods"][1]["price"] = "9.99"
+        errs = ca.validate_plan(plan, for_create=False)
         self.assertTrue(any("duplicates code 'standard' at 9.99" in e for e in errs), errs)
 
     def test_duplicate_keys_reject(self):
         plan = ladder_plan(self.disc)
         plan["shipping_methods"][1]["key"] = "ship-1"
         self.assertTrue(any("duplicate shipping key 'ship-1'" in e for e in ca.validate_plan(plan)))
-        # two code-only entries on one code: the key defaults to the code and collides
-        plan = ladder_plan(self.disc)
-        for s in plan["shipping_methods"]:
-            s.pop("key")
-        for row in plan["landed_prices"]:
-            row.pop("shipping_key", None)
-        errs = ca.validate_plan(plan)
-        self.assertTrue(any("give each entry on code 'standard' its own key" in e for e in errs), errs)
         # a key equal to another entry's defaulted code collides as well
         plan = ladder_plan(self.disc)
         plan["shipping_methods"][0].pop("key")
@@ -2537,11 +2537,12 @@ class TieredShippingLadder(unittest.TestCase):
     def test_recommend_shipping_key_segment(self):
         plan = ca.recommend(self.disc, ns(shipping=["standard:9.99:ship-1"]))
         self.assertEqual(plan["shipping_methods"], [{"shipping_method": "standard", "price": "9.99", "key": "ship-1"}])
+        for twice in (["standard:9.99", "standard:12.99"], ["standard:9.99:ship-1", "standard:12.99:ship-2"]):
+            with self.assertRaises(ca.CampaignAdminError) as cm:
+                ca.recommend(self.disc, ns(shipping=twice))
+            self.assertIn("one campaign shipping method per store code", str(cm.exception))
         with self.assertRaises(ca.CampaignAdminError) as cm:
-            ca.recommend(self.disc, ns(shipping=["standard:9.99", "standard:12.99"]))
-        self.assertIn("give each entry its own key", str(cm.exception))
-        with self.assertRaises(ca.CampaignAdminError) as cm:
-            ca.recommend(self.disc, ns(shipping=["standard:9.99:ship-1", "standard:12.99:ship-1"]))
+            ca.recommend(self.disc, ns(shipping=["standard:9.99:ship-1", "tracked:12.99:ship-1"]))
         self.assertIn("shipping key 'ship-1' given twice", str(cm.exception))
         for bad in ("standard:9.99:", "standard:9.99:a:b", "standard"):
             with self.assertRaises(ca.CampaignAdminError, msg=bad):
@@ -2558,9 +2559,9 @@ class TieredShippingLadder(unittest.TestCase):
         self.assertEqual([e["status"] for e in man.data["shipping_methods"]], ["created"] * 4)
         remote = list(state["shipping-methods"][man.data["campaign"]["id"]].values())
         self.assertEqual([(r["shipping_method"], r["price"]) for r in remote],
-                         [("standard", "9.99"), ("standard", "12.99"), ("standard", "14.99"), ("standard", "16.99")])
+                         list(zip(LADDER_CODES, ("9.99", "12.99", "14.99", "16.99"))))
         self.assertEqual(len({e["id"] for e in man.data["shipping_methods"]}), 4)
-        self.assertTrue(all(c[2]["shipping_method"] == "standard" for c in self._ship_posts(t)))
+        self.assertEqual([c[2]["shipping_method"] for c in self._ship_posts(t)], LADDER_CODES)
 
     def _interrupt_second_shipping_post(self, plan, lands):
         """apply with the second shipping POST answering 500; `lands` decides
@@ -2638,7 +2639,7 @@ class TieredShippingLadder(unittest.TestCase):
         plan = ladder_plan(self.disc)
         state, t, sha, mp, before = self._interrupt_second_shipping_post(plan, lands=True)
         cid = before["campaign"]["id"]
-        state["shipping-methods"][cid][999] = {"id": 999, "shipping_method": "standard", "price": "12.99",
+        state["shipping-methods"][cid][999] = {"id": 999, "shipping_method": "tracked", "price": "12.99",
                                               "prices": [{"currency": "USD", "price": "12.99"}]}
         self._assert_resume_stops(plan, t, sha, mp, state, cid, "matches 2 remote entries")
 
@@ -2769,7 +2770,7 @@ class TieredShippingLadder(unittest.TestCase):
         for tier, price in RUNG.items():
             self.assertTrue(self._row(lines, tier).endswith(f"shipping {price}"), tier)
         self.assertIn("  standard  9.99  key ship-1", lines)
-        self.assertIn("  standard  16.99  key ship-4", lines)
+        self.assertIn("  overnight  16.99  key ship-4", lines)
         # the gate runs before validation: an unresolved key says so instead of borrowing a price
         plan = ladder_plan(self.disc)
         plan["landed_prices"][1]["shipping_key"] = "ship-9"
@@ -2917,26 +2918,45 @@ class UpsellPackagesAndVouchers(unittest.TestCase):
         self.assertTrue(any("reuses package hero-23" in r for r in plan["rationale"]))
         self.assertTrue(any("also applies at checkout" in h and up["code"] in h for h in plan["handoff"]))
 
-    def test_upsell_at_other_price_gets_its_own_package(self):
-        plan = ca.recommend(self.disc, ns(upsell=["23:39.95:50"]))
-        pkg = next(p for p in plan["packages"] if p["key"] == "upsell-23")
-        self.assertEqual(pkg["price"], "39.95")
-        self.assertTrue(any("different price" in r for r in plan["rationale"]))
+    def test_upsell_at_other_price_is_refused_with_a_percentage(self):
+        # one package per variant: 39.95 at 50% off lands 19.97; on the 49.95 hero
+        # package that is 60.02%, so the nearest whole 60% (19.98) is suggested
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.recommend(self.disc, ns(upsell=["23:39.95:50"]))
+        msg = str(cm.exception)
+        self.assertIn("already package hero-23 at 49.95", msg)
+        self.assertIn("one package per variant", msg)
+        self.assertIn("--upsell 23:49.95:60 (lands at 19.98)", msg)
+        plan = ca.recommend(self.disc, ns(upsell=["23:49.95:60"]))
+        self.assertEqual(next(l for l in plan["landed_prices"] if l["kind"] == "upsell")["unit_after"], "19.98")
+
+    def test_standalone_upsell_gets_its_own_package(self):
+        plan = ca.recommend(self.disc, ns(upsell=["16:39.95:50"]))
+        self.assertEqual(next(p for p in plan["packages"] if p["key"] == "upsell-16")["price"], "39.95")
         self.assertFalse(any("also applies at checkout" in h for h in plan["handoff"]))
 
-    def test_reuse_matches_variant_and_price_together(self):
-        plan = ca.recommend(self.disc, ns(bump=["23:39.95"], upsell=["23:39.95:50"]))
+    def test_upsell_reuses_a_bump_package_at_its_price(self):
+        plan = ca.recommend(self.disc, ns(bump=["7:9.95"], upsell=["7:9.95:50"]))
         self.assertEqual(ca.validate_plan(plan), [])
-        self.assertNotIn("upsell-23", [p["key"] for p in plan["packages"]])
+        self.assertNotIn("upsell-7", [p["key"] for p in plan["packages"]])
         (up,) = self._upsell_offers(plan)
-        self.assertEqual(up["condition"]["package_keys"], ["bump-23"])
-        plan2 = ca.recommend(self.disc, ns(bump=["23:39.95"], upsell=["23:29.95:50"]))
-        self.assertEqual(next(p for p in plan2["packages"] if p["key"] == "upsell-23")["price"], "29.95")
+        self.assertEqual(up["condition"]["package_keys"], ["bump-7"])
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.recommend(self.disc, ns(bump=["7:9.95"], upsell=["7:8.95:50"]))
+        self.assertIn("already package bump-7", str(cm.exception))
 
-    def test_bump_is_never_merged_into_hero(self):
-        plan = ca.recommend(self.disc, ns(bump=["23:49.95"]))
-        self.assertIn("bump-23", [p["key"] for p in plan["packages"]])
-        self.assertEqual(ca.validate_plan(plan), [])
+    def test_bump_on_a_packaged_variant_is_refused(self):
+        for kw in (dict(bump=["23:49.95"]), dict(bump=["7:9.95", "7:9.95"])):
+            with self.assertRaises(ca.CampaignAdminError) as cm:
+                ca.recommend(self.disc, ns(**kw))
+            self.assertIn("one package per variant", str(cm.exception))
+
+    def test_hand_edited_duplicate_variant_is_rejected_for_create_only(self):
+        plan = ca.recommend(self.disc, ns(upsell=["16:39.95:50"]))
+        plan["packages"].append(dict(next(p for p in plan["packages"] if p["key"] == "hero-23"), key="twin-23"))
+        errs = ca.validate_plan(plan)
+        self.assertTrue(any("hero-23 and twin-23 both use variant 23" in e for e in errs), errs)
+        self.assertEqual(ca.validate_plan(plan, for_create=False), [])
 
     def test_same_upsell_variant_twice_is_refused(self):
         for kw in (dict(upsell=["23:49.95:50", "23:49.95:50"]),
@@ -3008,11 +3028,11 @@ class UpsellPackagesAndVouchers(unittest.TestCase):
         with mock.patch.object(ca, "_dispatch", lambda a: setattr(self, "_ns", a) or 0):
             ca.main(["recommend", "--discovery", "x", "--hero", "22", "--ctc", "low",
                      "--anchor-price", "49.95", "--shipping", "standard:6.95",
-                     "--upsell", "23:39.95:50", "--bump", "23:39.95"])
+                     "--upsell", "7:9.95:50", "--bump", "7:9.95"])
         plan = ca.recommend(self.disc, self._ns)
-        self.assertEqual([p["key"] for p in plan["packages"]].count("upsell-23"), 0)
+        self.assertEqual([p["key"] for p in plan["packages"]].count("upsell-7"), 0)
         (up,) = self._upsell_offers(plan)
-        self.assertEqual(up["condition"]["package_keys"], ["bump-23"])
+        self.assertEqual(up["condition"]["package_keys"], ["bump-7"])
 
     def test_exit_code_collision_needs_exit_code(self):
         with self.assertRaises(ca.CampaignAdminError) as cm:
@@ -3057,10 +3077,10 @@ class UpsellVoucherVerify(unittest.TestCase):
     def test_bump_reuse_voucher_verifies_in_upsell_mode(self):
         """The upsell page adds a package by id, whichever page also sells it, so a
         voucher scoped to a reused bump package prices the upsell cart."""
-        plan = ca.recommend(self.disc, ns(bump=["23:39.95"], upsell=["23:39.95:50"]))
+        plan = ca.recommend(self.disc, ns(bump=["7:9.95"], upsell=["7:9.95:50"]))
         report, _ = self._run(plan)
         self.assertEqual(report["result"], "PASS", json.dumps(report, indent=1))
-        self.assertEqual(self._cases(report)["Upsell Photo Bracelet voucher"]["got_total"], "19.97")
+        self.assertEqual(self._cases(report)["Upsell Memorial Ornament voucher"]["got_total"], "4.97")
 
     def test_grouped_variants_each_verified(self):
         plan = ca.recommend(self.disc, ns(hero=10, ctc="high", anchor_price="189.95",

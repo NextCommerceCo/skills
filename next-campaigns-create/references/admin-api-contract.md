@@ -131,16 +131,17 @@ token that has been pasted into a chat or a ticket once the work is done.
     the same source the image already comes from.
 - Shipping create takes the store `shipping_method` code and a `price` in the
   campaign's default currency; other currencies are filled by forex.
-- One store code can carry several campaign shipping methods at different prices.
-  Each create returns its own id, the Cart API lists all of them under that code,
-  and `carts/calculate` charges the price of the id the cart names. Store shipping
-  methods are read-only over the Admin API, so this is how a store with a single
-  shipping method offers a paid-shipping ladder, for example `default` at $9.99,
-  $12.99, $14.99 and $16.99. In the plan:
+- Uniqueness: a campaign takes one package per variant and one campaign shipping
+  method per store code; create and update reject a duplicate.
+  `validate_plan` applies both for `recommend`, `plan` and `apply`, and skips
+  them for `verify` (`for_create=False`) so a run created earlier stays
+  verifiable. Before the rule, one code could carry several campaign methods at
+  different prices (a paid-shipping ladder); new plans cannot.
+- Several campaign shipping methods on different store codes: each create
+  returns its own id, and `carts/calculate` charges the price of the id the cart
+  names. In the plan:
   - Each `shipping_methods[]` entry may carry a `key`. It defaults to the code and
-    is the entry's identity in the manifest. Keys must be unique, and a repeated
-    code needs a key on each entry. The same code at the same price twice is
-    rejected.
+    is the entry's identity in the manifest. Keys must be unique.
   - A `landed_prices` row may carry a `shipping_key`. `verify` prices that row's
     checkout carts with that method; a row without one uses the first method.
     Upsell rows cannot carry one.
@@ -254,7 +255,7 @@ teardown later deletes it, as this run's.
 | Tier offers are `offer` type, scoped to hero package ids, never `all_packages` | [Naming and scoping](offer-doctrine.md#naming-and-scoping) |
 | Upsell/exit offers are `voucher` type (site offers don't fire post-purchase) | [Offer types and where they work](offer-doctrine.md#offer-types-and-where-they-work) |
 | One upsell voucher per product and percentage, scoped to every variant package; key `upsell-{product_id}-{pct}` | [Post-purchase upsells](offer-doctrine.md#post-purchase-upsells) |
-| An upsell at a variant's existing package price reuses that package; bumps never do | [Naming and scoping](offer-doctrine.md#naming-and-scoping) |
+| One package per variant, one shipping method per store code; an upsell reuses its variant's package and the voucher sets its price; a bump must be an unpackaged variant | [Naming and scoping](offer-doctrine.md#naming-and-scoping) |
 | Voucher code `{PRODUCT}{PCT}`, uppercase alphanumeric | [Naming and scoping](offer-doctrine.md#naming-and-scoping) |
 | Package name `{Product}` or `{Product} - {Variant}`; never `2x Product` | [Naming and scoping](offer-doctrine.md#naming-and-scoping) |
 | Campaign name = hero product; gateway group must carry the currency | [Campaign settings](offer-doctrine.md#campaign-settings) |
