@@ -1,6 +1,6 @@
 ---
 name: next-campaigns-create
-version: 0.7.0
+version: 0.7.1
 description: |
   Provision a launch-ready Campaigns App campaign over the NEXT Admin API:
   read the store's catalogue, gateway groups and shipping methods, recommend a
@@ -110,10 +110,11 @@ hand-craft either one.
 - **git on the PATH** when the working directory is inside a git repository.
   The engine asks git whether the run directory is ignored before it writes.
 - **An Admin API key** created in the store admin under Dashboard > Settings >
-  API Access, with all six of these permissions:
+  API Access, with all seven of these permissions:
 
 | Permission | Used for |
 |---|---|
+| `store:read` | the store's enabled currencies and languages; the first request `discover` sends |
 | `campaigns:read` | reading existing campaigns and reading back what a run created |
 | `campaigns:write` | creating the campaign, packages, package images, shipping methods and offers; teardown deletes |
 | `catalogue:read` | the product and variant ids the packages point at |
@@ -121,8 +122,10 @@ hand-craft either one.
 | `metadata:read` | the metadata definition audit in `discover` |
 | `metadata:write` | `metadata --apply` |
 
-If any of the six is missing, the key has to be re-created with all six;
-retrying with the same key does not help. Permission reference:
+If any of the seven is missing, the key has to be re-created with all seven;
+retrying with the same key does not help. The store's shipping methods list
+needs no permission of its own. A 401 or 403 from the engine names the
+permission the failing request needed. Permission reference:
 https://developers.nextcommerce.com/docs/admin-api/permissions
 
 ## Write inventory
@@ -267,7 +270,7 @@ rejected.
 
 The token never enters CLI arguments, chat, echoes, scripts or result files. You
 never load, export, print or `curl` with it, and there is no separate validation
-request: `discover` is the validation (Phase 2). The key needs the six
+request: `discover` is the validation (Phase 2). The key needs the seven
 permissions listed under Prerequisites.
 
 If the store's variable is already set in the environment (check presence
@@ -302,10 +305,11 @@ Do not read the file back to check the value. Go to Phase 2.
 bash <skill-dir>/next-campaigns-create.sh discover --store <subdomain>
 ```
 
-Read-only. The first request is `GET /api/admin/store/`, so a bad or
-under-scoped key stops there with a 401/403 message. That means the key was
-rejected or lacks one of the six permissions; the fix is a new key with all six,
-and retrying does not help.
+Read-only. The first request is `GET /api/admin/store/`, which needs
+`store:read`, so a bad or under-scoped key stops there with a 401/403 message.
+The message names the permission that request needed. The fix is a new key with
+all seven permissions, and retrying does not help. Do not tell the operator to
+grant full access: the seven are enough.
 
 After the store, `discover` reads the gateway groups, shipping methods,
 catalogue and existing campaigns, probes whether the Offers API is live on this
@@ -366,7 +370,7 @@ state into the plan's blockers.
   then you re-run `discover`. Conflicts block `recommend` until then.
 
 - **Audit failed.** In `metadata_error`, 401 or 403 means the key lacks
-  `metadata:read`: create a key with all six permissions and re-run `discover`.
+  `metadata:read`: create a key with all seven permissions and re-run `discover`.
   404 or 405 means the metadata endpoint is not on this store. Either way the
   plan carries a blocker; report the status to the operator rather than working
   around it.
@@ -432,6 +436,18 @@ gift (different package keys). `--tiers` with `--offer-type bxgy` is an error.
   still pays shipping.
 - **Bumps and upsells**: each as an explicit variant id, package price and, for
   upsells, voucher percentage. Nothing is inferred from catalogue prices.
+  - Pass every variant of an upsell product as its own `--upsell`, all at the
+    same percentage. `recommend` puts them in **one** voucher scoped to all of
+    those variant packages. Never split them into one offer per variant.
+  - When the upsell is the hero product (or a bump) at the price it already has,
+    pass that variant id and price. `recommend` reuses the existing package
+    instead of creating a second one for the same variant and price. The
+    voucher then also works at checkout if a shopper enters it there, stacking
+    on the tier; the plan's handoff says so, and the funnel must never show that
+    code on the checkout page.
+  - Never hand-author a second package for a variant already packaged at that
+    price, and never rename or split offers to get past a duplicate offer name
+    or code error. That error means the specs belong in one group.
 - **Standing checkout bump**: ask whether the store requires a bump on every
   campaign, such as a shipping-insurance product. If yes, it goes in as
   `--bump <variant_id>:<price>`.
@@ -705,7 +721,9 @@ need.
 | `Could not check for updates` | offline, GitHub unreachable, or Python missing; failures are cached for an hour | nothing to fix: continue. Compare versions by hand with the catalog link it prints if it matters for this run |
 | `credential missing` | no token found for this store in the environment, `.env` or `NEXT_ADMIN_API_TOKEN` | add the `{SUBDOMAIN}_NEXT_ADMIN_API_TOKEN` line to `.env` (Phase 1); never paste it in chat |
 | `still holds a placeholder` | the token value is a placeholder such as `<paste-token-here>` | have the user paste the real token over it in a text editor |
-| 401 or 403 from the store | key rejected, or missing one of the six permissions | re-create the key with all six under Dashboard > Settings > API Access; retrying does not help |
+| 401 or 403 from the store | key rejected, or missing one of the seven permissions; the message names the permission the request needed (`store:read` on the first `discover` request is the usual one) | re-create the key with all seven under Dashboard > Settings > API Access; retrying does not help, and full access is not needed |
+| `upsell variant ... given twice` | the same variant passed to `--upsell` more than once | pass each upsell variant once; variants of one product at the same percentage already share one voucher |
+| `exit voucher code ... is also an upsell voucher code` | an upsell of the hero product at the exit percentage generates the same code | pass a short `--exit-code`, such as `SAVE10` |
 | launcher exits 2 with a Python message | no Python 3.9 or newer found | install Python 3.9 or newer, or set `NEXT_CAMPAIGNS_CREATE_PYTHON` |
 | `NOT APPLIED: pass --yes --plan-sha256` | the gate | re-run `plan`, copy the hash, pass it to `apply` |
 | `plan has blockers` | metadata missing or conflicting, or a stale discovery after `metadata --apply` | run `metadata --apply` if needed, re-run `discover`, re-run `recommend` |
@@ -741,6 +759,12 @@ need.
 - Never invent a min-spend condition, a split condition/benefit package list,
   or an Offers API auto-add. Those are platform gaps; say so in the handoff.
 - Never infer CTC or the anchor price; both come from the operator.
+- An upsell never gets a second package for a variant already packaged at that
+  price; it reuses that package. Checkout bumps are the exception and always get
+  their own package, because a bump line must not count toward the hero
+  quantity tiers.
+- One voucher per upsell product and percentage, scoped to every variant
+  package of that product.
 - Never touch a campaign the run manifest does not own. Teardown deletes only
   what this run created, after reading each object back.
 - Never PUT an image on a package this run did not create, and never use the

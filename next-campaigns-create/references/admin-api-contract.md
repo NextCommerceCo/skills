@@ -22,9 +22,16 @@ Token permissions:
 
 | Permission | Used by |
 |---|---|
+| `store:read` | `discover` (`GET /store/`, its first request) |
 | `campaigns:read`, `campaigns:write`, `catalogue:read`, `gateways:read` | `discover`, `plan --check-store`, `apply`, `verify`, `teardown` |
 | `metadata:read` | the metadata audit in `discover` |
 | `metadata:write` | `metadata --apply` |
+
+`GET /shipping-methods/` carries no scope in the published spec, so any valid
+token may call it. Source for every scope above: the 2024-04-01 OpenAPI file at
+<https://developers.nextcommerce.com/api/admin/2024-04-01.yaml>. A 401 or 403
+from the engine names the scope the failing request needed (`scope_for()` and
+`auth_hint()` in the engine).
 
 The Cart API used by `verify` is a different host, `https://campaigns.apps.29next.com`.
 It takes the campaign `api_key` raw in `Authorization`, with no `Bearer` prefix and
@@ -246,6 +253,8 @@ teardown later deletes it, as this run's.
 | Every campaign gets an exit-pop voucher (extra 5 to 10%) | [Exit-pop voucher](offer-doctrine.md#exit-pop-voucher) |
 | Tier offers are `offer` type, scoped to hero package ids, never `all_packages` | [Naming and scoping](offer-doctrine.md#naming-and-scoping) |
 | Upsell/exit offers are `voucher` type (site offers don't fire post-purchase) | [Offer types and where they work](offer-doctrine.md#offer-types-and-where-they-work) |
+| One upsell voucher per product and percentage, scoped to every variant package; key `upsell-{product_id}-{pct}` | [Post-purchase upsells](offer-doctrine.md#post-purchase-upsells) |
+| An upsell at a variant's existing package price reuses that package; bumps never do | [Naming and scoping](offer-doctrine.md#naming-and-scoping) |
 | Voucher code `{PRODUCT}{PCT}`, uppercase alphanumeric | [Naming and scoping](offer-doctrine.md#naming-and-scoping) |
 | Package name `{Product}` or `{Product} - {Variant}`; never `2x Product` | [Naming and scoping](offer-doctrine.md#naming-and-scoping) |
 | Campaign name = hero product; gateway group must carry the currency | [Campaign settings](offer-doctrine.md#campaign-settings) |
@@ -307,6 +316,11 @@ otherwise.
    "effective_pct","effective_unit","approximation","note"}],
  "rationale": ["..."], "blockers": ["..."], "waivers": ["..."], "handoff": ["..."]}
 ```
+
+Several `landed_prices` rows may share one `offer_key`: a grouped upsell voucher
+has one `upsell` row per variant package, so `verify` probes each variant with
+the code. An upsell row's `package_keys` may name a hero or bump package when
+the upsell reused it.
 
 `offer_kind` is written by `recommend` (`quantity` when `--offer-type` is omitted)
 and is optional for `validate_plan`. Package `role` is not schema-checked;

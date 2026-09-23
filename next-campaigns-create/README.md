@@ -16,11 +16,12 @@ campaign you already have are made in the Campaigns App dashboard.
 - **Your store's web address**: for example, `mystore` if your store is at
   mystore.29next.store.
 - **An API key for your store**: created in your store admin under
-  Dashboard > Settings > API Access. It needs six permissions: read and write
-  campaigns, read the catalogue, read gateways, and read and write metadata.
-  Your assistant tells you if the key doesn't work. A key that is missing a
-  permission has to be created again with all six; trying the same key again
-  won't help.
+  Dashboard > Settings > API Access. It needs seven permissions: read the
+  store settings, read and write campaigns, read the catalogue, read gateways,
+  and read and write metadata. You don't need to give it full access. If the
+  key doesn't work, your assistant tells you which permission is missing. A key
+  that is missing a permission has to be created again with all seven; trying
+  the same key again won't help.
 - **The Campaigns App** installed on your store.
 - **A computer with Python 3.9 or newer and a bash shell.** On Windows, use
   WSL, or ask your assistant to run the Python program directly.
@@ -44,7 +45,7 @@ never guesses. It works out the rest from your answers.
 | For buy-X-get-Y: paid and free quantities | The single count threshold and percentage (labeled as an approximation) |
 | For a gift: which variant, its price, silent-add vs customer pick | The gift package and the 100% offer scoped only to it; funnel auto-add is a later handoff |
 | Shipping price and countries | The campaign settings |
-| Any add-on or upsell products, and their prices | The order the requests go in |
+| Any add-on or upsell products, and their prices | One upsell discount per product covering all its variants, and the order the requests go in |
 
 Cost-to-consumer is what your customer pays, not what the product costs you.
 A low-priced product gets Buy 1, Buy 2 and Buy 3 offers, with a bigger

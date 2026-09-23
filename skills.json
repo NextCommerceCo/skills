@@ -262,7 +262,7 @@
     {
       "id": "next-campaigns-create",
       "name": "Campaign Provisioning",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "path": "next-campaigns-create/SKILL.md",
       "domain": "campaigns",
       "description": "Create a launch-ready Campaigns App campaign over the Admin API: packages, shipping, quantity Buy 1/2/3, buy-X-get-Y as a labeled percentage, and gift-with-purchase, behind a plan-hash approval gate.",
@@ -285,7 +285,7 @@
       ],
       "prerequisites": [
         "Python 3.9 or newer (standard library only) and a bash shell; on Windows run scripts/campaign_admin.py with Python directly",
-        "A Next Commerce store with the Campaigns App installed and an API key (campaigns:read, campaigns:write, catalogue:read, gateways:read, metadata:read, metadata:write scopes)",
+        "A Next Commerce store with the Campaigns App installed and an API key (store:read, campaigns:read, campaigns:write, catalogue:read, gateways:read, metadata:read, metadata:write scopes)",
         "Admin API token in a local .env ({SUBDOMAIN}_NEXT_ADMIN_API_TOKEN) or the environment"
       ],
       "safety": {
