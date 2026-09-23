@@ -3034,6 +3034,31 @@ class UpsellPackagesAndVouchers(unittest.TestCase):
         (up,) = self._upsell_offers(plan)
         self.assertEqual(up["condition"]["package_keys"], ["bump-7"])
 
+    def test_non_finite_upsell_percentage_is_a_clean_error(self):
+        for bad in ("nan", "inf", "-inf", "NaN"):
+            with self.assertRaises(ca.CampaignAdminError, msg=bad):
+                ca.recommend(self.disc, ns(upsell=[f"23:49.95:{bad}"]))
+
+    def test_titles_that_share_a_code_stem_get_distinct_codes(self):
+        d = json.loads(json.dumps(self.disc))
+        next(p for p in d["products"] if p["id"] == 18)["title"] = "Music-Photo Magnet!"
+        plan = ca.recommend(d, ns(hero=10, ctc="high", anchor_price="189.95",
+                                  upsell=["16:39.95:50", "19:29.95:50"]))
+        self.assertEqual(ca.validate_plan(plan), [])
+        self.assertEqual(sorted(o["code"] for o in self._upsell_offers(plan)),
+                         ["MUSICPHOTOMAGNET1550", "MUSICPHOTOMAGNET1850"])
+
+    def test_long_titles_keep_the_product_id_in_the_code(self):
+        d = json.loads(json.dumps(self.disc))
+        long = "Personalized Music Photo Magnet With Custom Song Lyrics"
+        for pid, suffix in ((15, " Small"), (18, " Large")):
+            next(p for p in d["products"] if p["id"] == pid)["title"] = long + suffix
+        plan = ca.recommend(d, ns(hero=10, ctc="high", anchor_price="189.95",
+                                  upsell=["16:39.95:50", "19:29.95:50"]))
+        self.assertEqual(ca.validate_plan(plan), [])
+        codes = sorted(o["code"] for o in self._upsell_offers(plan))
+        self.assertEqual([c[-4:] for c in codes], ["1550", "1850"])
+
     def test_exit_code_collision_needs_exit_code(self):
         with self.assertRaises(ca.CampaignAdminError) as cm:
             ca.recommend(self.disc, ns(upsell=["23:49.95:10"]))

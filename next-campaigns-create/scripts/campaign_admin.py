@@ -921,9 +921,10 @@ def short_name(title: str) -> str:
     return re.sub(r"\s+", " ", title).strip()
 
 
-def code_from(title: str, pct) -> str:
+def code_from(title: str, pct, tag: str = "") -> str:
+    """{STEM}{TAG}{PCT}: the tag goes after the 40-character cut so it always survives."""
     stem = re.sub(r"[^A-Z0-9]", "", title.upper())[:40] or "OFFER"
-    return f"{stem}{int(pct)}"
+    return f"{stem}{tag}{int(pct)}"
 
 
 def _parse_kv(spec: str, parts: int, label: str) -> list:
@@ -1052,7 +1053,9 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
                                      f"(purchase_availability={v.get('purchase_availability')!r}); pick an available variant")
         title = short_name(p["title"])
         price = money(D(parts[1]))
-        pct = D(parts[2]) if role == "upsell" else None
+        # Validated here, before the reuse check compares it: NaN or Infinity would
+        # otherwise escape as an InvalidOperation traceback.
+        pct = Decimal(whole_pct(parts[2], "upsell")) if role == "upsell" else None
         if role == "bump":
             held = next((x for x in packages if x.get("product_variant_ids") == [vid]), None)
             if held is not None:
@@ -1286,17 +1289,20 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
     groups_per_product = {}
     for (pid, _), g in groups.items():
         groups_per_product[pid] = groups_per_product.get(pid, 0) + 1
-    products_per_title = {}
+    products_per_title, products_per_stem = {}, {}
     for (pid, _), g in groups.items():
         products_per_title.setdefault(g["title"], set()).add(pid)
+        # code_from strips punctuation and truncates, so different titles can still
+        # share a code stem; collisions are decided on the stem, not the raw title.
+        products_per_stem.setdefault(code_from(g["title"], 0), set()).add(pid)
     upsell_codes = set()
     for (pid, pct), g in groups.items():
         title, items = g["title"], g["items"]
         key = f"upsell-{pid}-{pct}"
         # Two upsold products can share a title; fold the product id into the name
         # and code only then, so the usual {PRODUCT}{PCT} code stays short.
-        twin = len(products_per_title[title]) > 1
-        code = code_from(f"{title} {pid}" if twin else title, pct)
+        twin = len(products_per_stem[code_from(title, 0)]) > 1
+        code = code_from(title, pct, tag=str(pid) if twin else "")
         offer_name = f"{title} ({pid}) - {pct}%" if twin else f"{title} - {pct}%"
         upsell_codes.add(code)
         solo = (groups_per_product[pid] == 1 and len(items) == 1
@@ -2862,7 +2868,7 @@ def main(argv=None) -> int:
     r.add_argument("--ctc", required=True, choices=["low", "high"])
     r.add_argument("--anchor-price", required=True, help="package price tiers discount from")
     r.add_argument("--shipping", action="append", required=True,
-                   help="<code>:<price>[:<key>], repeatable; a key lets one code carry several prices")
+                   help="<code>:<price>[:<key>], repeatable; each store code once (one campaign method per code)")
     r.add_argument("--name", help="campaign name (default: hero product title)")
     r.add_argument("--gateway-group", type=int)
     r.add_argument("--payment-methods")
