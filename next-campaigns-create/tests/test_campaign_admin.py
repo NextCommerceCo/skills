@@ -2992,6 +2992,28 @@ class UpsellPackagesAndVouchers(unittest.TestCase):
         tiers = [l["tier"] for l in plan["landed_prices"] if l["kind"] == "upsell"]
         self.assertEqual(len(set(tiers)), 2, tiers)
 
+    def test_two_products_with_one_title_same_pct_get_distinct_codes(self):
+        d = json.loads(json.dumps(self.disc))
+        next(p for p in d["products"] if p["id"] == 18)["title"] = "Music Photo Magnet"
+        plan = ca.recommend(d, ns(hero=10, ctc="high", anchor_price="189.95",
+                                  upsell=["16:39.95:50", "19:29.95:50"]))
+        self.assertEqual(ca.validate_plan(plan), [])
+        ups = self._upsell_offers(plan)
+        self.assertEqual(sorted(o["code"] for o in ups), ["MUSICPHOTOMAGNET1550", "MUSICPHOTOMAGNET1850"])
+        self.assertEqual(len({o["name"] for o in ups}), 2)
+
+    def test_bump_and_upsell_flag_order_does_not_matter(self):
+        # bumps and upsells are separate argparse lists; recommend builds every bump
+        # first, so "--upsell ... --bump ..." still reuses the bump package.
+        with mock.patch.object(ca, "_dispatch", lambda a: setattr(self, "_ns", a) or 0):
+            ca.main(["recommend", "--discovery", "x", "--hero", "22", "--ctc", "low",
+                     "--anchor-price", "49.95", "--shipping", "standard:6.95",
+                     "--upsell", "23:39.95:50", "--bump", "23:39.95"])
+        plan = ca.recommend(self.disc, self._ns)
+        self.assertEqual([p["key"] for p in plan["packages"]].count("upsell-23"), 0)
+        (up,) = self._upsell_offers(plan)
+        self.assertEqual(up["condition"]["package_keys"], ["bump-23"])
+
     def test_exit_code_collision_needs_exit_code(self):
         with self.assertRaises(ca.CampaignAdminError) as cm:
             ca.recommend(self.disc, ns(upsell=["23:49.95:10"]))
@@ -3031,6 +3053,14 @@ class UpsellVoucherVerify(unittest.TestCase):
         _, checkout = calc("/api/v1/carts/calculate/",
                            {"lines": [{"package_id": ids["hero-23"], "quantity": 1}], "vouchers": ["PHOTOBRACELET50"]})
         self.assertEqual((upsell_page["total"], checkout["total"]), ("24.97", "12.48"))
+
+    def test_bump_reuse_voucher_verifies_in_upsell_mode(self):
+        """The upsell page adds a package by id, whichever page also sells it, so a
+        voucher scoped to a reused bump package prices the upsell cart."""
+        plan = ca.recommend(self.disc, ns(bump=["23:39.95"], upsell=["23:39.95:50"]))
+        report, _ = self._run(plan)
+        self.assertEqual(report["result"], "PASS", json.dumps(report, indent=1))
+        self.assertEqual(self._cases(report)["Upsell Photo Bracelet voucher"]["got_total"], "19.97")
 
     def test_grouped_variants_each_verified(self):
         plan = ca.recommend(self.disc, ns(hero=10, ctc="high", anchor_price="189.95",

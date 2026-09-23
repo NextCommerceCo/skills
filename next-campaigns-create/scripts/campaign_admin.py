@@ -1033,9 +1033,11 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
     seen_upsell_variants = set()
 
     def add_extra(spec: str, role: str):
-        """(package, pct, title, reused). An upsell reuses any package already in the
-        plan for the same variant at the same price instead of creating a twin; a
-        bump always gets its own package so it never counts toward hero tiers."""
+        """(package, pct, title, reused). An upsell reuses any hero or bump package
+        for the same variant at the same price instead of creating a twin. Every
+        bump is built before any upsell (they are separate argument lists), so the
+        flag order on the command line does not matter. A bump always gets its own
+        package so it never counts toward hero tiers."""
         parts = _parse_kv(spec, 2 if role == "bump" else 3, role)
         vid = int(parts[0])
         if vid not in variant_index:
@@ -1271,7 +1273,11 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
     for (pid, pct), g in groups.items():
         title, items = g["title"], g["items"]
         key = f"upsell-{pid}-{pct}"
-        code = code_from(title, pct)
+        # Two upsold products can share a title; fold the product id into the name
+        # and code only then, so the usual {PRODUCT}{PCT} code stays short.
+        twin = len(products_per_title[title]) > 1
+        code = code_from(f"{title} {pid}" if twin else title, pct)
+        offer_name = f"{title} ({pid}) - {pct}%" if twin else f"{title} - {pct}%"
         upsell_codes.add(code)
         solo = (groups_per_product[pid] == 1 and len(items) == 1
                 and len(products_per_title[title]) == 1)
@@ -1289,7 +1295,7 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
         keys = [pkg["key"] for pkg, _ in items]
         if offers_supported is not False:
             offers.append({
-                "key": key, "name": f"{title} - {pct}%",
+                "key": key, "name": offer_name,
                 "offer_type": "voucher", "code": code,
                 "condition": {"type": "any", "value": None, "package_keys": keys},
                 "benefit": {"type": "package_percentage", "value": money(D(pct)), "price_rounding": rounding},
