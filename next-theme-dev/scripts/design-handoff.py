@@ -1515,10 +1515,15 @@ def print_result(result: Result, readiness: dict) -> None:
               f"{len(sections)} intended section(s) blocked)")
     for entry in sections:
         state = "READY  " if entry["ready"] else "BLOCKED"
-        detail = "; ".join(entry["blockers"])
-        print(f"  {state} {entry['route_id']}/{entry['section_id']}{': ' + detail if detail else ''}")
+        print(f"  {state} {entry['route_id']}/{entry['section_id']}")
+        for blocker in entry["blockers"]:
+            print(f"    blocker: {blocker}")
+        # Blockers are already surfaced; list only the non-blocking items the
+        # operator should still see before the section is built.
         for item in entry["surface"]:
-            print(f"    surface to operator: {item}")
+            if not item.endswith(": unresolved") and not item.endswith(": no treatment") \
+                    and not item.endswith(": replacement needed"):
+                print(f"    surface to operator: {item}")
     for entry in readiness["excluded_sections"]:
         print(f"  EXCLUDED {entry['route_id']}/{entry['section_id']}: {entry['reason']}")
 
