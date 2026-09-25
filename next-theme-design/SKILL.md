@@ -117,6 +117,10 @@ invented layout.
 2. **Targets.** Write a targets file: one `{ "key", "selector" }` per section
    (`hero`) and per element the build must reproduce (`hero::heading`,
    `hero::cta`, `hero::product`). Each selector must match exactly one node.
+   When a page swaps separate desktop and mobile copies of an element (one
+   hidden per width), write one targets file per width with the same keys.
+   A match that is hidden at the capture width is listed as a gap, not
+   measured.
 3. **Static captures.** At each width: load the page, wait for it to settle,
    set `preload_scroll: true` so lazy media loads, run the script with
    `state: "static"`, save its output, then take the full-page screenshot
@@ -173,7 +177,8 @@ python3 <design-dir>/scripts/design-package.py draft-styles --package <package> 
   section. Review the build hooks (`selector`), and add `assert` or
   `align_anchor` where the source box is not the box the build must match.
 - **Copy.** `draft-copy` records each captured string as `source_text` with
-  decision `unresolved`. Set a role and a decision for each:
+  decision `unresolved`. Delete drafts of container targets whose text repeats
+  their children's, then set a role and a decision for each:
 
   | Decision | `text` | Needs |
   |---|---|---|
