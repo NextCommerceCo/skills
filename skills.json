@@ -49,6 +49,47 @@
       }
     },
     {
+      "id": "next-theme-design",
+      "name": "Theme Live-Site Handoff",
+      "version": "0.1.0",
+      "path": "next-theme-design/SKILL.md",
+      "domain": "storefronts",
+      "description": "Turn a live website or its HTML into a validated handoff package for next-theme-dev: captures at three widths, sections, geometry, copy decisions, styles, behaviors, and commerce divergences.",
+      "related_skills": [
+        {
+          "id": "next-theme-dev",
+          "relationship": "Linked skill, installed together: owns the package format, scaffolder, and validator this skill uses, and builds the theme from the package"
+        },
+        {
+          "id": "next-theme-figma",
+          "relationship": "Linked skill, installed together: the source skill for Figma designs; holds the Spark section roster and copy lint this skill uses"
+        }
+      ],
+      "triggers": [
+        "live site to theme",
+        "rebuild a landing page as a Spark storefront",
+        "capture a website design",
+        "website to NEXT theme handoff",
+        "landing page design capture",
+        "prepare a live-site handoff for next-theme-dev",
+        "HTML to storefront theme"
+      ],
+      "prerequisites": [
+        "Python 3.10 or newer (standard library only)",
+        "A browser tool that can set an exact viewport width, height, and device pixel ratio, evaluate a script in the page, and save unscaled full-page PNG screenshots; the skill does not bundle browser automation",
+        "The source page URL or its HTML with assets, and the operator's statement of the source owner and reuse rights",
+        "Target Next Commerce store, theme, and theme repo",
+        "next-theme-dev and next-theme-figma installed alongside; the three theme skills are installed together"
+      ],
+      "safety": {
+        "mutates_remote": false,
+        "writes_local": true,
+        "requires_approval": false,
+        "network": "source-site-readonly",
+        "notes": "Reads the source page in a browser without submitting forms, adding to cart, checking out, or evading blocks. Writes only the local handoff package. Downloads source media only when the operator declares reuse. Never changes store configuration or uploads a theme."
+      }
+    },
+    {
       "id": "next-theme-dev",
       "name": "Theme Development",
       "version": "1.16.0",
