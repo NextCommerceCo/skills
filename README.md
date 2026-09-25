@@ -26,10 +26,8 @@ Cursor, GitHub Copilot, and any other agent that reads markdown.
 
 Each skill directory holds a `README.md` for the person running it (what it
 does, what you need, how to ask for it) and a `SKILL.md` with the technical
-instructions the agent follows. For design-led theme work, run a source
-skill before `next-theme-dev`: `next-theme-figma` for a Figma design, or
-`next-theme-design` for a live website or its HTML. Install all three theme
-skills together.
+instructions the agent follows. For design-led theme work, run
+`next-theme-figma` before `next-theme-dev`.
 
 ## Quick Start
 
