@@ -1,0 +1,31 @@
+{
+  "schema_version": "next-theme-dev/design-handoff/v1",
+  "generated_at": "2026-09-25T12:00:00Z",
+  "generator": "next-theme-design 0.1.0 (synthetic fixture)",
+  "project": "northlight-fixture",
+  "mode": "implementation-handoff",
+  "source": {
+    "kind": "live-site",
+    "urls": [
+      "https://northlight.example.test/"
+    ],
+    "supplied_html": [],
+    "captured_on": "2026-09-25",
+    "rights": {
+      "owner": "Northlight (fictional fixture brand)",
+      "reuse": "reuse-allowed",
+      "statement": "The fixture author made this page and its media for the test suite and allows their reuse.",
+      "stated_by": "fixture author"
+    }
+  },
+  "target": {
+    "store": "example-store",
+    "repo": "example-theme-repo",
+    "preview_url": "",
+    "theme_id": "",
+    "theme_family": "spark",
+    "runtime_contract": "web-components"
+  },
+  "gaps": [],
+  "unresolved_questions": []
+}

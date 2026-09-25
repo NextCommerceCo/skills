@@ -1,0 +1,98 @@
+{
+  "schema_version": "next-theme-dev/handoff-behaviors/v1",
+  "project": "tidewell-fixture",
+  "behaviors": [
+    {
+      "behavior_id": "badge-spin",
+      "kind": "motion",
+      "route_id": "home",
+      "section_id": "intro",
+      "viewport": null,
+      "capture_ids": [
+        "home-desktop-motion",
+        "home-mobile-motion",
+        "home-desktop-static"
+      ],
+      "trigger": "page load",
+      "observed": "The badge rotates one full turn every 12 s, linear, forever.",
+      "evidence": "extracted",
+      "details": {
+        "animation_name": "badge-spin",
+        "duration_ms": 12000,
+        "delay_ms": 0,
+        "iterations": "infinite",
+        "easing": "linear",
+        "keyframes": [
+          {
+            "offset": 0,
+            "transform": "rotate(0deg)"
+          },
+          {
+            "offset": 1,
+            "transform": "rotate(360deg)"
+          }
+        ]
+      }
+    },
+    {
+      "behavior_id": "bottle-bob",
+      "kind": "motion",
+      "route_id": "home",
+      "section_id": "intro",
+      "viewport": null,
+      "capture_ids": [
+        "home-desktop-motion",
+        "home-mobile-motion"
+      ],
+      "trigger": "page load",
+      "observed": "The bottle moves up 12px and back every 3 s, ease-in-out, alternating.",
+      "evidence": "extracted",
+      "details": {
+        "animation_name": "bob",
+        "duration_ms": 3000,
+        "delay_ms": 0,
+        "iterations": "infinite",
+        "direction": "alternate",
+        "easing": "ease-in-out",
+        "keyframes": [
+          {
+            "offset": 0,
+            "transform": "translateY(0px)"
+          },
+          {
+            "offset": 1,
+            "transform": "translateY(-12px)"
+          }
+        ]
+      }
+    },
+    {
+      "behavior_id": "intro-mobile-order",
+      "kind": "responsive-order",
+      "route_id": "home",
+      "section_id": "intro",
+      "viewport": null,
+      "capture_ids": [
+        "home-desktop-static",
+        "home-mobile-static"
+      ],
+      "trigger": "viewport width below 821px",
+      "observed": "Desktop: text left, bottle right. Below 821px the bottle and badge come first, then the text.",
+      "evidence": "extracted"
+    },
+    {
+      "behavior_id": "faq-disclosure",
+      "kind": "interaction",
+      "route_id": "home",
+      "section_id": "faq",
+      "viewport": "desktop",
+      "capture_ids": [
+        "home-desktop-static"
+      ],
+      "trigger": "click a question",
+      "observed": "Questions are native details elements, closed on load.",
+      "evidence": "observed",
+      "method": "Read the markup and the closed state in the desktop screenshot; no click was made."
+    }
+  ]
+}

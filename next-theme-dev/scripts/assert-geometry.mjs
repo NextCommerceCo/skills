@@ -3,8 +3,10 @@
 /**
  * assert-geometry — deterministic per-element geometry assertion.
  *
- * Compares the boxes a browser actually laid out against the boxes the
- * next-theme-figma handoff extracted from Figma metadata (`geometry.json`).
+ * Compares the boxes a browser actually laid out against the boxes a handoff
+ * package recorded in `geometry.json`: extracted from Figma metadata by
+ * next-theme-figma, or from capture records of a live site by
+ * next-theme-design. Both use the same coordinate rules.
  * It reports per-element deltas in pixels: position within the section, size,
  * shared-edge alignment, and sibling gaps.
  *
@@ -32,7 +34,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 
-const SCHEMA = 'next-theme-figma/geometry/v1';
+// Figma packages use the first schema; live-site packages use the second.
+// The coordinate rules are the same for both: section boxes relative to the
+// page, element boxes relative to their section's top-left corner.
+const SCHEMAS = ['next-theme-figma/geometry/v1', 'next-theme-dev/handoff-geometry/v1'];
 const BOXES_SCHEMA = 'next-theme-dev/geometry-boxes/v1';
 const REPORT_SCHEMA = 'next-theme-dev/geometry-report/v1';
 
@@ -124,8 +129,8 @@ function loadFrame(opts) {
     throw new Error(`--viewport must be one of ${VIEWPORT_NAMES.join(', ')}`);
   }
   const manifest = readJson(manifestPath);
-  if (manifest.schema_version !== SCHEMA) {
-    throw new Error(`${manifestPath}: schema_version must be "${SCHEMA}"`);
+  if (!SCHEMAS.includes(manifest.schema_version)) {
+    throw new Error(`${manifestPath}: schema_version must be one of ${SCHEMAS.map((id) => `"${id}"`).join(', ')}`);
   }
   const route = (manifest.routes || []).find((entry) => entry.route_id === routeId);
   if (!route) throw new Error(`${manifestPath}: no route "${routeId}"`);

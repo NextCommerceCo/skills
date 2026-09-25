@@ -1,0 +1,206 @@
+{
+  "schema_version": "next-theme-dev/handoff-sections/v1",
+  "sections": [
+    {
+      "section_id": "bar",
+      "route_id": "home",
+      "order": 1,
+      "in_scope": true,
+      "source_selector": ".nl-bar",
+      "capture_refs": {
+        "desktop": "home-desktop-static",
+        "tablet": "home-tablet-static",
+        "mobile": "home-mobile-static"
+      },
+      "classification": "semantic-rebuild",
+      "classification_rationale": "Live text bar; shipping copy comes from the store offer.",
+      "spark_section": "section_promo_banner",
+      "roster_status": "shipped",
+      "implementation_target": {
+        "template": "partials/section_promo_banner.html",
+        "partials": [],
+        "settings": []
+      },
+      "commerce_surface": "",
+      "asset_ids": [],
+      "divergence_ids": [
+        "delivery-promise"
+      ],
+      "behavior_ids": [
+        "bar-sticky"
+      ],
+      "responsive_notes": ""
+    },
+    {
+      "section_id": "header",
+      "route_id": "home",
+      "order": 2,
+      "in_scope": true,
+      "source_selector": ".nl-header",
+      "capture_refs": {
+        "desktop": "home-desktop-static",
+        "tablet": "home-tablet-static",
+        "mobile": "home-mobile-static"
+      },
+      "classification": "live-commerce-component",
+      "classification_rationale": "Shared header chrome.",
+      "spark_section": "header",
+      "roster_status": "chrome",
+      "implementation_target": {
+        "template": "partials/header.html",
+        "partials": [],
+        "settings": []
+      },
+      "commerce_surface": "",
+      "asset_ids": [],
+      "divergence_ids": [],
+      "behavior_ids": [],
+      "responsive_notes": ""
+    },
+    {
+      "section_id": "hero",
+      "route_id": "home",
+      "order": 3,
+      "in_scope": true,
+      "source_selector": ".nl-hero",
+      "capture_refs": {
+        "desktop": "home-desktop-static",
+        "tablet": "home-tablet-static",
+        "mobile": "home-mobile-static"
+      },
+      "classification": "semantic-rebuild",
+      "classification_rationale": "Heading, copy, CTA, and a product image with a callout.",
+      "spark_section": "section_hero",
+      "roster_status": "shipped",
+      "implementation_target": {
+        "template": "partials/section_hero.html",
+        "partials": [],
+        "settings": []
+      },
+      "commerce_surface": "",
+      "asset_ids": [
+        "hero-lamp"
+      ],
+      "divergence_ids": [],
+      "behavior_ids": [
+        "hero-mobile-order"
+      ],
+      "responsive_notes": "Desktop: copy left, product and callout right. Below 900px: product, copy, then callout."
+    },
+    {
+      "section_id": "demo",
+      "route_id": "home",
+      "order": 4,
+      "in_scope": true,
+      "source_selector": ".nl-demo",
+      "capture_refs": {
+        "desktop": "home-desktop-static",
+        "tablet": "home-tablet-static",
+        "mobile": "home-mobile-static"
+      },
+      "classification": "reusable-media",
+      "classification_rationale": "Section built around one looping product video.",
+      "spark_section": "",
+      "roster_status": "unmapped",
+      "implementation_target": {
+        "template": "partials/section_demo_video.html",
+        "partials": [],
+        "settings": []
+      },
+      "commerce_surface": "",
+      "asset_ids": [
+        "demo-video"
+      ],
+      "divergence_ids": [
+        "video-rating-claim"
+      ],
+      "behavior_ids": [
+        "demo-video-playback",
+        "demo-video-claim"
+      ],
+      "responsive_notes": ""
+    },
+    {
+      "section_id": "specs",
+      "route_id": "home",
+      "order": 5,
+      "in_scope": true,
+      "source_selector": ".nl-specs",
+      "capture_refs": {
+        "desktop": "home-desktop-static",
+        "tablet": "home-tablet-static",
+        "mobile": "home-mobile-static"
+      },
+      "classification": "semantic-rebuild",
+      "classification_rationale": "Heading and a live spec list, below the fold.",
+      "spark_section": "section_value_props",
+      "roster_status": "unshipped",
+      "implementation_target": {
+        "template": "partials/section_value_props.html",
+        "partials": [],
+        "settings": []
+      },
+      "commerce_surface": "",
+      "asset_ids": [],
+      "divergence_ids": [],
+      "behavior_ids": [],
+      "responsive_notes": ""
+    },
+    {
+      "section_id": "offer",
+      "route_id": "home",
+      "order": 6,
+      "in_scope": true,
+      "source_selector": ".nl-offer",
+      "capture_refs": {
+        "desktop": "home-desktop-static",
+        "tablet": "home-tablet-static",
+        "mobile": "home-mobile-static"
+      },
+      "classification": "live-commerce-component",
+      "classification_rationale": "Bundle cards whose prices and links come from NEXT, not the source page.",
+      "spark_section": "",
+      "roster_status": "unmapped",
+      "implementation_target": {
+        "template": "partials/section_bundle_offer.html",
+        "partials": [],
+        "settings": []
+      },
+      "commerce_surface": "bundle selector",
+      "asset_ids": [],
+      "divergence_ids": [
+        "bundle-prices"
+      ],
+      "behavior_ids": [
+        "offer-cta-destinations"
+      ],
+      "responsive_notes": ""
+    },
+    {
+      "section_id": "footer",
+      "route_id": "home",
+      "order": 7,
+      "in_scope": true,
+      "source_selector": ".nl-footer",
+      "capture_refs": {
+        "desktop": "home-desktop-static",
+        "tablet": "home-tablet-static",
+        "mobile": "home-mobile-static"
+      },
+      "classification": "live-commerce-component",
+      "classification_rationale": "Shared footer chrome.",
+      "spark_section": "footer",
+      "roster_status": "chrome",
+      "implementation_target": {
+        "template": "partials/footer.html",
+        "partials": [],
+        "settings": []
+      },
+      "commerce_surface": "",
+      "asset_ids": [],
+      "divergence_ids": [],
+      "behavior_ids": [],
+      "responsive_notes": ""
+    }
+  ]
+}

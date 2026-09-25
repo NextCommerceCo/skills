@@ -1,0 +1,43 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: Georgia, "Times New Roman", serif; color: #1f2430; background: #faf8f4; }
+.nl-bar { position: sticky; top: 0; z-index: 10; background: #1f2430; color: #faf8f4; text-align: center; }
+.nl-bar__text { margin: 0; padding: 10px 16px; font: 600 14px/20px Arial, Helvetica, sans-serif; letter-spacing: .02em; }
+.nl-header { display: flex; justify-content: space-between; align-items: center; max-width: 1200px; margin: 0 auto; padding: 18px 24px; }
+.nl-header__logo { font-size: 22px; font-weight: 700; }
+.nl-header__link { font: 600 15px Arial, Helvetica, sans-serif; color: #1f2430; }
+.nl-hero { display: grid; grid-template-columns: 1fr 1fr; gap: 24px 48px; max-width: 1200px; margin: 0 auto; padding: 64px 24px 72px; }
+.nl-hero__copy { grid-column: 1; grid-row: 1 / span 2; align-self: center; }
+.nl-hero__title { margin: 0 0 20px; font-size: 56px; line-height: 1.08; }
+.nl-hero__lede { margin: 0 0 32px; font-size: 20px; line-height: 1.5; max-width: 480px; }
+.nl-hero__cta { display: inline-block; padding: 16px 32px; border-radius: 999px; background: #c8631c; color: #fff; font: 700 17px Arial, Helvetica, sans-serif; text-decoration: none; }
+.nl-hero__media { display: contents; }
+.nl-hero__product { grid-column: 2; grid-row: 1; justify-self: center; width: 360px; height: auto; }
+.nl-hero__note { grid-column: 2; grid-row: 2; justify-self: center; width: 360px; margin: 0; padding: 16px 20px; border: 2px solid #c8631c; border-radius: 12px; background: #fff; font: 15px/1.4 Arial, Helvetica, sans-serif; }
+.nl-demo { padding: 72px 24px; background: #fff; text-align: center; }
+.nl-demo__title { margin: 0 0 32px; font-size: 38px; }
+.nl-demo__video { display: block; width: 640px; max-width: 100%; height: auto; margin: 0 auto 40px; border-radius: 16px; }
+.nl-demo__points { display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; max-width: 1000px; margin: 0 auto; }
+.nl-demo__point h3 { margin: 0 0 8px; font-size: 22px; }
+.nl-demo__point p { margin: 0; font: 16px/1.5 Arial, Helvetica, sans-serif; }
+.nl-specs { max-width: 1200px; margin: 0 auto; padding: 72px 24px; }
+.nl-specs__title { margin: 0 0 24px 96px; font-size: 34px; }
+.nl-specs__list { margin: 0 0 0 96px; padding: 0 0 0 20px; font: 18px/1.8 Arial, Helvetica, sans-serif; }
+.nl-offer { padding: 72px 24px 96px; background: #f1ebe1; text-align: center; }
+.nl-offer__title { margin: 0 0 32px; font-size: 38px; }
+.nl-offer__cards { display: grid; grid-template-columns: repeat(3, 240px); justify-content: center; gap: 24px; }
+.nl-offer__card { display: flex; flex-direction: column; gap: 8px; padding: 28px 20px; border-radius: 16px; background: #fff; color: #1f2430; text-decoration: none; border: 2px solid transparent; }
+.nl-offer__card--best { border-color: #c8631c; }
+.nl-offer__qty { font-size: 22px; font-weight: 700; }
+.nl-offer__price { font: 700 30px Arial, Helvetica, sans-serif; }
+.nl-offer__save { font: 14px Arial, Helvetica, sans-serif; color: #8a3f0e; }
+.nl-footer { padding: 32px 24px; text-align: center; font: 14px Arial, Helvetica, sans-serif; color: #5b606b; }
+@media (max-width: 899px) {
+  .nl-hero { grid-template-columns: 1fr; padding: 40px 20px 48px; }
+  .nl-hero__product { grid-column: 1; grid-row: auto; order: 1; width: 280px; }
+  .nl-hero__copy { grid-column: 1; grid-row: auto; order: 2; }
+  .nl-hero__note { grid-column: 1; grid-row: auto; order: 3; width: 100%; }
+  .nl-hero__title { font-size: 40px; }
+  .nl-demo__points { grid-template-columns: 1fr; }
+  .nl-specs__title, .nl-specs__list { margin-left: 0; }
+  .nl-offer__cards { grid-template-columns: minmax(0, 320px); }
+}

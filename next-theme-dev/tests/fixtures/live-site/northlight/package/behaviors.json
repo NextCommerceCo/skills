@@ -1,0 +1,120 @@
+{
+  "schema_version": "next-theme-dev/handoff-behaviors/v1",
+  "project": "northlight-fixture",
+  "behaviors": [
+    {
+      "behavior_id": "bar-sticky",
+      "kind": "sticky",
+      "route_id": "home",
+      "section_id": "bar",
+      "viewport": "desktop",
+      "capture_ids": [
+        "home-desktop-static",
+        "home-desktop-scrolled"
+      ],
+      "trigger": "scroll",
+      "observed": "The bar is position: sticky with top 0 and stays at the top of the viewport after scrolling to y=1400.",
+      "evidence": "extracted",
+      "details": {
+        "position": "sticky",
+        "top": "0px",
+        "z_index": "10"
+      }
+    },
+    {
+      "behavior_id": "hero-mobile-order",
+      "kind": "responsive-order",
+      "route_id": "home",
+      "section_id": "hero",
+      "viewport": null,
+      "capture_ids": [
+        "home-desktop-static",
+        "home-tablet-static",
+        "home-mobile-static"
+      ],
+      "trigger": "viewport width below 900px",
+      "observed": "Desktop: copy on the left, product then callout on the right. Tablet and mobile: product, copy, then callout.",
+      "evidence": "extracted",
+      "details": {
+        "desktop": [
+          "copy",
+          "product",
+          "note"
+        ],
+        "mobile": [
+          "product",
+          "copy",
+          "note"
+        ]
+      }
+    },
+    {
+      "behavior_id": "demo-video-playback",
+      "kind": "media",
+      "route_id": "home",
+      "section_id": "demo",
+      "viewport": "desktop",
+      "capture_ids": [
+        "home-desktop-static",
+        "home-desktop-motion"
+      ],
+      "trigger": "page load",
+      "observed": "The 3 s video autoplays muted, loops, plays inline, and shows no controls.",
+      "evidence": "extracted",
+      "details": {
+        "media_url": "https://northlight.example.test/demo.webm",
+        "duration_s": 3,
+        "autoplay": true,
+        "loop": true,
+        "muted": true,
+        "plays_inline": true,
+        "controls": false
+      }
+    },
+    {
+      "behavior_id": "demo-video-claim",
+      "kind": "media",
+      "route_id": "home",
+      "section_id": "demo",
+      "viewport": "desktop",
+      "capture_ids": [
+        "home-desktop-video-frame"
+      ],
+      "trigger": "playback reaches 2 s",
+      "observed": "From 2 s to the end, the frame reads as a best-lamp rating claim.",
+      "evidence": "observed",
+      "method": "Paused and seeked the video to 2.5 s, then read the frame in the screenshot.",
+      "claims": [
+        {
+          "claim_id": "rating",
+          "text": "Rated best desk lamp of 2026",
+          "media_url": "https://northlight.example.test/demo.webm",
+          "time_s": 2.5,
+          "capture_id": "home-desktop-video-frame",
+          "divergence_id": "video-rating-claim"
+        }
+      ]
+    },
+    {
+      "behavior_id": "offer-cta-destinations",
+      "kind": "cta-destination",
+      "route_id": "home",
+      "section_id": "offer",
+      "viewport": "desktop",
+      "capture_ids": [
+        "home-desktop-static"
+      ],
+      "trigger": "click a bundle card",
+      "observed": "Each card links to an external cart URL with set=1, 2, or 3.",
+      "evidence": "extracted",
+      "details": {
+        "destinations": [
+          "https://checkout.example.test/cart?set=1",
+          "https://checkout.example.test/cart?set=2",
+          "https://checkout.example.test/cart?set=3"
+        ],
+        "target_rule": "Link to the NEXT checkout or cart for the matching offer, never the source URLs."
+      }
+    }
+  ]
+}

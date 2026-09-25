@@ -1,0 +1,35 @@
+{
+  "schema_version": "next-theme-dev/handoff-assets/v1",
+  "assets": [
+    {
+      "asset_id": "hero-lamp",
+      "section_id": "hero",
+      "role": "product-image",
+      "media_type": "image",
+      "source_url": "https://northlight.example.test/lamp.png",
+      "capture_id": "home-desktop-static",
+      "alt": "Northlight desk lamp in graphite",
+      "natural_width": 360,
+      "natural_height": 540,
+      "state": "downloaded",
+      "treatment": "use-downloaded",
+      "local_path": "media/lamp.png",
+      "notes": "Reuse is declared in design-handoff.json source.rights."
+    },
+    {
+      "asset_id": "demo-video",
+      "section_id": "demo",
+      "role": "product-video",
+      "media_type": "video",
+      "source_url": "https://northlight.example.test/demo.webm",
+      "capture_id": "home-desktop-static",
+      "alt": "",
+      "natural_width": 320,
+      "natural_height": 180,
+      "duration_s": 3,
+      "state": "reference-only",
+      "treatment": "replace-with-store-media",
+      "notes": "Kept as a reference: its last second shows an unverified rating claim. Use the store's own edit."
+    }
+  ]
+}

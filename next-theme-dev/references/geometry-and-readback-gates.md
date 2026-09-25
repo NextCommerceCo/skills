@@ -26,7 +26,9 @@ anyone's recollection of the frame.
 ## 1. Geometry assertion
 
 `scripts/assert-geometry.mjs` compares rendered DOM boxes against the
-`geometry.json` boxes extracted from Figma metadata. It reports per-element
+`geometry.json` boxes of a handoff package: extracted from Figma metadata
+(`next-theme-figma/geometry/v1`) or from the capture records of a live site
+(`next-theme-dev/handoff-geometry/v1`). The coordinate rules are the same. It reports per-element
 deltas: position within the section, size, shared-edge alignment, and sibling
 gaps.
 
@@ -90,7 +92,9 @@ a skip.
 ## 2. Copy lint
 
 `next-theme-figma/scripts/copy-lint.py` diffs the built templates against
-`copy.json`. Run it in the builder gate and again in any repair gate, before
+`copy.json`, from a Figma package or a live-site package
+(`next-theme-dev/handoff-copy/v1`, where `text` holds only permitted build
+text). Run it in the builder gate and again in any repair gate, before
 the work is reported done.
 
 ```bash

@@ -1,0 +1,33 @@
+{
+  "schema_version": "next-theme-dev/handoff-assets/v1",
+  "assets": [
+    {
+      "asset_id": "intro-bottle",
+      "section_id": "intro",
+      "role": "product-image",
+      "media_type": "image",
+      "source_url": "https://tidewell.example.test/bottle.png",
+      "capture_id": "home-desktop-static",
+      "alt": "Tidewell bottle in sea green",
+      "natural_width": 240,
+      "natural_height": 480,
+      "state": "reference-only",
+      "treatment": "replace-with-store-media",
+      "notes": "No reuse statement, so the run is reference-only; use the product image from the store."
+    },
+    {
+      "asset_id": "intro-wave",
+      "section_id": "intro",
+      "role": "background",
+      "media_type": "background-image",
+      "source_url": "https://tidewell.example.test/wave.png",
+      "capture_id": "home-desktop-static",
+      "alt": "",
+      "natural_width": 1440,
+      "natural_height": 160,
+      "state": "reference-only",
+      "treatment": null,
+      "notes": "No treatment chosen yet: omit, rebuild in CSS, or supply a store asset."
+    }
+  ]
+}

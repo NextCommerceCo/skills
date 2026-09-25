@@ -1,0 +1,1345 @@
+{
+  "schema_version": "next-theme-dev/handoff-geometry/v1",
+  "project": "northlight-fixture",
+  "source": "dom-capture",
+  "extracted_at": "2026-09-25T12:00:00Z",
+  "routes": [
+    {
+      "route_id": "home",
+      "viewports": {
+        "desktop": {
+          "capture_id": "home-desktop-static",
+          "frame_width": 1440,
+          "frame_height": 2360,
+          "sections": [
+            {
+              "section_id": "bar",
+              "capture_id": "home-desktop-static",
+              "selector": "[data-geo-section=\"bar\"]",
+              "source_selector": ".nl-bar",
+              "box": {
+                "x": 0,
+                "y": 0,
+                "width": 1440,
+                "height": 40
+              },
+              "elements": [
+                {
+                  "element_id": "text",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"bar-text\"]",
+                  "source_selector": ".nl-bar__text",
+                  "role": "text",
+                  "box": {
+                    "x": 0,
+                    "y": 0,
+                    "width": 1440,
+                    "height": 40
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "header",
+              "capture_id": "home-desktop-static",
+              "selector": "[data-geo-section=\"header\"]",
+              "source_selector": ".nl-header",
+              "box": {
+                "x": 120,
+                "y": 40,
+                "width": 1200,
+                "height": 61
+              },
+              "elements": [
+                {
+                  "element_id": "logo",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"header-logo\"]",
+                  "source_selector": ".nl-header__logo",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 18,
+                    "width": 119.33,
+                    "height": 25
+                  }
+                },
+                {
+                  "element_id": "link",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"header-link\"]",
+                  "source_selector": ".nl-header__link",
+                  "role": "control",
+                  "box": {
+                    "x": 1072.66,
+                    "y": 22,
+                    "width": 103.34,
+                    "height": 17
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "hero",
+              "capture_id": "home-desktop-static",
+              "selector": "[data-geo-section=\"hero\"]",
+              "source_selector": ".nl-hero",
+              "box": {
+                "x": 120,
+                "y": 101,
+                "width": 1200,
+                "height": 778
+              },
+              "elements": [
+                {
+                  "element_id": "title",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"hero-title\"]",
+                  "source_selector": ".nl-hero__title",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 242.53,
+                    "width": 552,
+                    "height": 120.94
+                  }
+                },
+                {
+                  "element_id": "lede",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"hero-lede\"]",
+                  "source_selector": ".nl-hero__lede",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 383.47,
+                    "width": 480,
+                    "height": 60
+                  }
+                },
+                {
+                  "element_id": "cta",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"hero-cta\"]",
+                  "source_selector": ".nl-hero__cta",
+                  "role": "control",
+                  "box": {
+                    "x": 24,
+                    "y": 475.47,
+                    "width": 212.31,
+                    "height": 52
+                  }
+                },
+                {
+                  "element_id": "product",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"hero-product\"]",
+                  "source_selector": ".nl-hero__product",
+                  "role": "image",
+                  "box": {
+                    "x": 720,
+                    "y": 64,
+                    "width": 360,
+                    "height": 540
+                  }
+                },
+                {
+                  "element_id": "note",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"hero-note\"]",
+                  "source_selector": ".nl-hero__note",
+                  "role": "text",
+                  "box": {
+                    "x": 720,
+                    "y": 628,
+                    "width": 360,
+                    "height": 78
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "demo",
+              "capture_id": "home-desktop-static",
+              "selector": "[data-geo-section=\"demo\"]",
+              "source_selector": ".nl-demo",
+              "box": {
+                "x": 0,
+                "y": 879,
+                "width": 1440,
+                "height": 676
+              },
+              "elements": [
+                {
+                  "element_id": "title",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"demo-title\"]",
+                  "source_selector": ".nl-demo__title",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 72,
+                    "width": 1392,
+                    "height": 43
+                  }
+                },
+                {
+                  "element_id": "video",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"demo-video\"]",
+                  "source_selector": ".nl-demo__video",
+                  "role": "image",
+                  "box": {
+                    "x": 400,
+                    "y": 147,
+                    "width": 640,
+                    "height": 360
+                  }
+                },
+                {
+                  "element_id": "p1_title",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"demo-p1_title\"]",
+                  "source_selector": ".nl-demo__point:nth-child(1) h3",
+                  "role": "text",
+                  "box": {
+                    "x": 220,
+                    "y": 547,
+                    "width": 312,
+                    "height": 25
+                  }
+                },
+                {
+                  "element_id": "p1_body",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"demo-p1_body\"]",
+                  "source_selector": ".nl-demo__point:nth-child(1) p",
+                  "role": "text",
+                  "box": {
+                    "x": 220,
+                    "y": 580,
+                    "width": 312,
+                    "height": 24
+                  }
+                },
+                {
+                  "element_id": "p2_title",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"demo-p2_title\"]",
+                  "source_selector": ".nl-demo__point:nth-child(2) h3",
+                  "role": "text",
+                  "box": {
+                    "x": 564,
+                    "y": 547,
+                    "width": 312,
+                    "height": 25
+                  }
+                },
+                {
+                  "element_id": "p2_body",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"demo-p2_body\"]",
+                  "source_selector": ".nl-demo__point:nth-child(2) p",
+                  "role": "text",
+                  "box": {
+                    "x": 564,
+                    "y": 580,
+                    "width": 312,
+                    "height": 24
+                  }
+                },
+                {
+                  "element_id": "p3_title",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"demo-p3_title\"]",
+                  "source_selector": ".nl-demo__point:nth-child(3) h3",
+                  "role": "text",
+                  "box": {
+                    "x": 908,
+                    "y": 547,
+                    "width": 312,
+                    "height": 25
+                  }
+                },
+                {
+                  "element_id": "p3_body",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"demo-p3_body\"]",
+                  "source_selector": ".nl-demo__point:nth-child(3) p",
+                  "role": "text",
+                  "box": {
+                    "x": 908,
+                    "y": 580,
+                    "width": 312,
+                    "height": 24
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "specs",
+              "capture_id": "home-desktop-static",
+              "selector": "[data-geo-section=\"specs\"]",
+              "source_selector": ".nl-specs",
+              "box": {
+                "x": 120,
+                "y": 1555,
+                "width": 1200,
+                "height": 303.17
+              },
+              "elements": [
+                {
+                  "element_id": "title",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"specs-title\"]",
+                  "source_selector": ".nl-specs__title",
+                  "role": "text",
+                  "box": {
+                    "x": 120,
+                    "y": 72,
+                    "width": 1056,
+                    "height": 38
+                  }
+                },
+                {
+                  "element_id": "list",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"specs-list\"]",
+                  "source_selector": ".nl-specs__list",
+                  "role": "container",
+                  "box": {
+                    "x": 120,
+                    "y": 134,
+                    "width": 1056,
+                    "height": 97.17
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "offer",
+              "capture_id": "home-desktop-static",
+              "selector": "[data-geo-section=\"offer\"]",
+              "source_selector": ".nl-offer",
+              "box": {
+                "x": 0,
+                "y": 1858.17,
+                "width": 1440,
+                "height": 394
+              },
+              "elements": [
+                {
+                  "element_id": "title",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"offer-title\"]",
+                  "source_selector": ".nl-offer__title",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 72.0,
+                    "width": 1392,
+                    "height": 43
+                  }
+                },
+                {
+                  "element_id": "card_1",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"offer-card_1\"]",
+                  "source_selector": ".nl-offer__card:nth-child(1)",
+                  "role": "control",
+                  "box": {
+                    "x": 336,
+                    "y": 147.0,
+                    "width": 240,
+                    "height": 151
+                  }
+                },
+                {
+                  "element_id": "card_2",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"offer-card_2\"]",
+                  "source_selector": ".nl-offer__card:nth-child(2)",
+                  "role": "control",
+                  "box": {
+                    "x": 600,
+                    "y": 147.0,
+                    "width": 240,
+                    "height": 151
+                  }
+                },
+                {
+                  "element_id": "card_3",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"offer-card_3\"]",
+                  "source_selector": ".nl-offer__card:nth-child(3)",
+                  "role": "control",
+                  "box": {
+                    "x": 864,
+                    "y": 147.0,
+                    "width": 240,
+                    "height": 151
+                  }
+                },
+                {
+                  "element_id": "save_2",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"offer-save_2\"]",
+                  "source_selector": ".nl-offer__card:nth-child(2) .nl-offer__save",
+                  "role": "text",
+                  "box": {
+                    "x": 622,
+                    "y": 252.0,
+                    "width": 196,
+                    "height": 16
+                  }
+                },
+                {
+                  "element_id": "save_3",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"offer-save_3\"]",
+                  "source_selector": ".nl-offer__card:nth-child(3) .nl-offer__save",
+                  "role": "text",
+                  "box": {
+                    "x": 886,
+                    "y": 252.0,
+                    "width": 196,
+                    "height": 16
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "footer",
+              "capture_id": "home-desktop-static",
+              "selector": "[data-geo-section=\"footer\"]",
+              "source_selector": ".nl-footer",
+              "box": {
+                "x": 0,
+                "y": 2252.17,
+                "width": 1440,
+                "height": 108
+              },
+              "elements": [
+                {
+                  "element_id": "text",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"footer-text\"]",
+                  "source_selector": ".nl-footer p",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 46.0,
+                    "width": 1392,
+                    "height": 16
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            }
+          ]
+        },
+        "tablet": {
+          "capture_id": "home-tablet-static",
+          "frame_width": 768,
+          "frame_height": 2906,
+          "sections": [
+            {
+              "section_id": "bar",
+              "capture_id": "home-tablet-static",
+              "selector": "[data-geo-section=\"bar\"]",
+              "source_selector": ".nl-bar",
+              "box": {
+                "x": 0,
+                "y": 0,
+                "width": 768,
+                "height": 40
+              },
+              "elements": [
+                {
+                  "element_id": "text",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"bar-text\"]",
+                  "source_selector": ".nl-bar__text",
+                  "role": "text",
+                  "box": {
+                    "x": 0,
+                    "y": 0,
+                    "width": 768,
+                    "height": 40
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "header",
+              "capture_id": "home-tablet-static",
+              "selector": "[data-geo-section=\"header\"]",
+              "source_selector": ".nl-header",
+              "box": {
+                "x": 0,
+                "y": 40,
+                "width": 768,
+                "height": 61
+              },
+              "elements": [
+                {
+                  "element_id": "logo",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"header-logo\"]",
+                  "source_selector": ".nl-header__logo",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 18,
+                    "width": 119.33,
+                    "height": 25
+                  }
+                },
+                {
+                  "element_id": "link",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"header-link\"]",
+                  "source_selector": ".nl-header__link",
+                  "role": "control",
+                  "box": {
+                    "x": 640.66,
+                    "y": 22,
+                    "width": 103.34,
+                    "height": 17
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "hero",
+              "capture_id": "home-tablet-static",
+              "selector": "[data-geo-section=\"hero\"]",
+              "source_selector": ".nl-hero",
+              "box": {
+                "x": 0,
+                "y": 101,
+                "width": 768,
+                "height": 820.19
+              },
+              "elements": [
+                {
+                  "element_id": "title",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"hero-title\"]",
+                  "source_selector": ".nl-hero__title",
+                  "role": "text",
+                  "box": {
+                    "x": 20,
+                    "y": 484,
+                    "width": 728,
+                    "height": 43.19
+                  }
+                },
+                {
+                  "element_id": "lede",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"hero-lede\"]",
+                  "source_selector": ".nl-hero__lede",
+                  "role": "text",
+                  "box": {
+                    "x": 20,
+                    "y": 547.19,
+                    "width": 480,
+                    "height": 60
+                  }
+                },
+                {
+                  "element_id": "cta",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"hero-cta\"]",
+                  "source_selector": ".nl-hero__cta",
+                  "role": "control",
+                  "box": {
+                    "x": 20,
+                    "y": 639.19,
+                    "width": 212.31,
+                    "height": 52
+                  }
+                },
+                {
+                  "element_id": "product",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"hero-product\"]",
+                  "source_selector": ".nl-hero__product",
+                  "role": "image",
+                  "box": {
+                    "x": 244,
+                    "y": 40,
+                    "width": 280,
+                    "height": 420
+                  }
+                },
+                {
+                  "element_id": "note",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"hero-note\"]",
+                  "source_selector": ".nl-hero__note",
+                  "role": "text",
+                  "box": {
+                    "x": 20,
+                    "y": 715.19,
+                    "width": 728,
+                    "height": 57
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "demo",
+              "capture_id": "home-tablet-static",
+              "selector": "[data-geo-section=\"demo\"]",
+              "source_selector": ".nl-demo",
+              "box": {
+                "x": 0,
+                "y": 921.19,
+                "width": 768,
+                "height": 854
+              },
+              "elements": [
+                {
+                  "element_id": "title",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"demo-title\"]",
+                  "source_selector": ".nl-demo__title",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 72.0,
+                    "width": 720,
+                    "height": 43
+                  }
+                },
+                {
+                  "element_id": "video",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"demo-video\"]",
+                  "source_selector": ".nl-demo__video",
+                  "role": "image",
+                  "box": {
+                    "x": 64,
+                    "y": 147.0,
+                    "width": 640,
+                    "height": 360
+                  }
+                },
+                {
+                  "element_id": "p1_title",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"demo-p1_title\"]",
+                  "source_selector": ".nl-demo__point:nth-child(1) h3",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 547.0,
+                    "width": 720,
+                    "height": 25
+                  }
+                },
+                {
+                  "element_id": "p1_body",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"demo-p1_body\"]",
+                  "source_selector": ".nl-demo__point:nth-child(1) p",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 580.0,
+                    "width": 720,
+                    "height": 24
+                  }
+                },
+                {
+                  "element_id": "p2_title",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"demo-p2_title\"]",
+                  "source_selector": ".nl-demo__point:nth-child(2) h3",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 636.0,
+                    "width": 720,
+                    "height": 25
+                  }
+                },
+                {
+                  "element_id": "p2_body",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"demo-p2_body\"]",
+                  "source_selector": ".nl-demo__point:nth-child(2) p",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 669.0,
+                    "width": 720,
+                    "height": 24
+                  }
+                },
+                {
+                  "element_id": "p3_title",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"demo-p3_title\"]",
+                  "source_selector": ".nl-demo__point:nth-child(3) h3",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 725.0,
+                    "width": 720,
+                    "height": 25
+                  }
+                },
+                {
+                  "element_id": "p3_body",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"demo-p3_body\"]",
+                  "source_selector": ".nl-demo__point:nth-child(3) p",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 758.0,
+                    "width": 720,
+                    "height": 24
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "specs",
+              "capture_id": "home-tablet-static",
+              "selector": "[data-geo-section=\"specs\"]",
+              "source_selector": ".nl-specs",
+              "box": {
+                "x": 0,
+                "y": 1775.19,
+                "width": 768,
+                "height": 303.17
+              },
+              "elements": [
+                {
+                  "element_id": "title",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"specs-title\"]",
+                  "source_selector": ".nl-specs__title",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 72.0,
+                    "width": 720,
+                    "height": 38
+                  }
+                },
+                {
+                  "element_id": "list",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"specs-list\"]",
+                  "source_selector": ".nl-specs__list",
+                  "role": "container",
+                  "box": {
+                    "x": 24,
+                    "y": 134.0,
+                    "width": 720,
+                    "height": 97.17
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "offer",
+              "capture_id": "home-tablet-static",
+              "selector": "[data-geo-section=\"offer\"]",
+              "source_selector": ".nl-offer",
+              "box": {
+                "x": 0,
+                "y": 2078.36,
+                "width": 768,
+                "height": 720
+              },
+              "elements": [
+                {
+                  "element_id": "title",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"offer-title\"]",
+                  "source_selector": ".nl-offer__title",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 72.0,
+                    "width": 720,
+                    "height": 43
+                  }
+                },
+                {
+                  "element_id": "card_1",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"offer-card_1\"]",
+                  "source_selector": ".nl-offer__card:nth-child(1)",
+                  "role": "control",
+                  "box": {
+                    "x": 224,
+                    "y": 147.0,
+                    "width": 320,
+                    "height": 127
+                  }
+                },
+                {
+                  "element_id": "card_2",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"offer-card_2\"]",
+                  "source_selector": ".nl-offer__card:nth-child(2)",
+                  "role": "control",
+                  "box": {
+                    "x": 224,
+                    "y": 298.0,
+                    "width": 320,
+                    "height": 151
+                  }
+                },
+                {
+                  "element_id": "card_3",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"offer-card_3\"]",
+                  "source_selector": ".nl-offer__card:nth-child(3)",
+                  "role": "control",
+                  "box": {
+                    "x": 224,
+                    "y": 473.0,
+                    "width": 320,
+                    "height": 151
+                  }
+                },
+                {
+                  "element_id": "save_2",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"offer-save_2\"]",
+                  "source_selector": ".nl-offer__card:nth-child(2) .nl-offer__save",
+                  "role": "text",
+                  "box": {
+                    "x": 246,
+                    "y": 403.0,
+                    "width": 276,
+                    "height": 16
+                  }
+                },
+                {
+                  "element_id": "save_3",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"offer-save_3\"]",
+                  "source_selector": ".nl-offer__card:nth-child(3) .nl-offer__save",
+                  "role": "text",
+                  "box": {
+                    "x": 246,
+                    "y": 578.0,
+                    "width": 276,
+                    "height": 16
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "footer",
+              "capture_id": "home-tablet-static",
+              "selector": "[data-geo-section=\"footer\"]",
+              "source_selector": ".nl-footer",
+              "box": {
+                "x": 0,
+                "y": 2798.36,
+                "width": 768,
+                "height": 108
+              },
+              "elements": [
+                {
+                  "element_id": "text",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"footer-text\"]",
+                  "source_selector": ".nl-footer p",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 46.0,
+                    "width": 720,
+                    "height": 16
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            }
+          ]
+        },
+        "mobile": {
+          "capture_id": "home-mobile-static",
+          "frame_width": 390,
+          "frame_height": 2957,
+          "sections": [
+            {
+              "section_id": "bar",
+              "capture_id": "home-mobile-static",
+              "selector": "[data-geo-section=\"bar\"]",
+              "source_selector": ".nl-bar",
+              "box": {
+                "x": 0,
+                "y": 0,
+                "width": 390,
+                "height": 40
+              },
+              "elements": [
+                {
+                  "element_id": "text",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"bar-text\"]",
+                  "source_selector": ".nl-bar__text",
+                  "role": "text",
+                  "box": {
+                    "x": 0,
+                    "y": 0,
+                    "width": 390,
+                    "height": 40
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "header",
+              "capture_id": "home-mobile-static",
+              "selector": "[data-geo-section=\"header\"]",
+              "source_selector": ".nl-header",
+              "box": {
+                "x": 0,
+                "y": 40,
+                "width": 390,
+                "height": 61
+              },
+              "elements": [
+                {
+                  "element_id": "logo",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"header-logo\"]",
+                  "source_selector": ".nl-header__logo",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 18,
+                    "width": 119.33,
+                    "height": 25
+                  }
+                },
+                {
+                  "element_id": "link",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"header-link\"]",
+                  "source_selector": ".nl-header__link",
+                  "role": "control",
+                  "box": {
+                    "x": 262.66,
+                    "y": 22,
+                    "width": 103.34,
+                    "height": 17
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "hero",
+              "capture_id": "home-mobile-static",
+              "selector": "[data-geo-section=\"hero\"]",
+              "source_selector": ".nl-hero",
+              "box": {
+                "x": 0,
+                "y": 101,
+                "width": 390,
+                "height": 957.56
+              },
+              "elements": [
+                {
+                  "element_id": "title",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"hero-title\"]",
+                  "source_selector": ".nl-hero__title",
+                  "role": "text",
+                  "box": {
+                    "x": 20,
+                    "y": 484,
+                    "width": 350,
+                    "height": 129.56
+                  }
+                },
+                {
+                  "element_id": "lede",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"hero-lede\"]",
+                  "source_selector": ".nl-hero__lede",
+                  "role": "text",
+                  "box": {
+                    "x": 20,
+                    "y": 633.56,
+                    "width": 350,
+                    "height": 90
+                  }
+                },
+                {
+                  "element_id": "cta",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"hero-cta\"]",
+                  "source_selector": ".nl-hero__cta",
+                  "role": "control",
+                  "box": {
+                    "x": 20,
+                    "y": 755.56,
+                    "width": 212.31,
+                    "height": 52
+                  }
+                },
+                {
+                  "element_id": "product",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"hero-product\"]",
+                  "source_selector": ".nl-hero__product",
+                  "role": "image",
+                  "box": {
+                    "x": 55,
+                    "y": 40,
+                    "width": 280,
+                    "height": 420
+                  }
+                },
+                {
+                  "element_id": "note",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"hero-note\"]",
+                  "source_selector": ".nl-hero__note",
+                  "role": "text",
+                  "box": {
+                    "x": 20,
+                    "y": 831.56,
+                    "width": 350,
+                    "height": 78
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "demo",
+              "capture_id": "home-mobile-static",
+              "selector": "[data-geo-section=\"demo\"]",
+              "source_selector": ".nl-demo",
+              "box": {
+                "x": 0,
+                "y": 1058.56,
+                "width": 390,
+                "height": 729.38
+              },
+              "elements": [
+                {
+                  "element_id": "title",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"demo-title\"]",
+                  "source_selector": ".nl-demo__title",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 72.0,
+                    "width": 342,
+                    "height": 86
+                  }
+                },
+                {
+                  "element_id": "video",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"demo-video\"]",
+                  "source_selector": ".nl-demo__video",
+                  "role": "image",
+                  "box": {
+                    "x": 24,
+                    "y": 190.0,
+                    "width": 342,
+                    "height": 192.38
+                  }
+                },
+                {
+                  "element_id": "p1_title",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"demo-p1_title\"]",
+                  "source_selector": ".nl-demo__point:nth-child(1) h3",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 422.38,
+                    "width": 342,
+                    "height": 25
+                  }
+                },
+                {
+                  "element_id": "p1_body",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"demo-p1_body\"]",
+                  "source_selector": ".nl-demo__point:nth-child(1) p",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 455.38,
+                    "width": 342,
+                    "height": 24
+                  }
+                },
+                {
+                  "element_id": "p2_title",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"demo-p2_title\"]",
+                  "source_selector": ".nl-demo__point:nth-child(2) h3",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 511.38,
+                    "width": 342,
+                    "height": 25
+                  }
+                },
+                {
+                  "element_id": "p2_body",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"demo-p2_body\"]",
+                  "source_selector": ".nl-demo__point:nth-child(2) p",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 544.38,
+                    "width": 342,
+                    "height": 24
+                  }
+                },
+                {
+                  "element_id": "p3_title",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"demo-p3_title\"]",
+                  "source_selector": ".nl-demo__point:nth-child(3) h3",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 600.38,
+                    "width": 342,
+                    "height": 25
+                  }
+                },
+                {
+                  "element_id": "p3_body",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"demo-p3_body\"]",
+                  "source_selector": ".nl-demo__point:nth-child(3) p",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 633.38,
+                    "width": 342,
+                    "height": 24
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "specs",
+              "capture_id": "home-mobile-static",
+              "selector": "[data-geo-section=\"specs\"]",
+              "source_selector": ".nl-specs",
+              "box": {
+                "x": 0,
+                "y": 1787.94,
+                "width": 390,
+                "height": 341.17
+              },
+              "elements": [
+                {
+                  "element_id": "title",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"specs-title\"]",
+                  "source_selector": ".nl-specs__title",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 72.0,
+                    "width": 342,
+                    "height": 76
+                  }
+                },
+                {
+                  "element_id": "list",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"specs-list\"]",
+                  "source_selector": ".nl-specs__list",
+                  "role": "container",
+                  "box": {
+                    "x": 24,
+                    "y": 172.0,
+                    "width": 342,
+                    "height": 97.17
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "offer",
+              "capture_id": "home-mobile-static",
+              "selector": "[data-geo-section=\"offer\"]",
+              "source_selector": ".nl-offer",
+              "box": {
+                "x": 0,
+                "y": 2129.11,
+                "width": 390,
+                "height": 720
+              },
+              "elements": [
+                {
+                  "element_id": "title",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"offer-title\"]",
+                  "source_selector": ".nl-offer__title",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 72.0,
+                    "width": 342,
+                    "height": 43
+                  }
+                },
+                {
+                  "element_id": "card_1",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"offer-card_1\"]",
+                  "source_selector": ".nl-offer__card:nth-child(1)",
+                  "role": "control",
+                  "box": {
+                    "x": 35,
+                    "y": 147.0,
+                    "width": 320,
+                    "height": 127
+                  }
+                },
+                {
+                  "element_id": "card_2",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"offer-card_2\"]",
+                  "source_selector": ".nl-offer__card:nth-child(2)",
+                  "role": "control",
+                  "box": {
+                    "x": 35,
+                    "y": 298.0,
+                    "width": 320,
+                    "height": 151
+                  }
+                },
+                {
+                  "element_id": "card_3",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"offer-card_3\"]",
+                  "source_selector": ".nl-offer__card:nth-child(3)",
+                  "role": "control",
+                  "box": {
+                    "x": 35,
+                    "y": 473.0,
+                    "width": 320,
+                    "height": 151
+                  }
+                },
+                {
+                  "element_id": "save_2",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"offer-save_2\"]",
+                  "source_selector": ".nl-offer__card:nth-child(2) .nl-offer__save",
+                  "role": "text",
+                  "box": {
+                    "x": 57,
+                    "y": 403.0,
+                    "width": 276,
+                    "height": 16
+                  }
+                },
+                {
+                  "element_id": "save_3",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"offer-save_3\"]",
+                  "source_selector": ".nl-offer__card:nth-child(3) .nl-offer__save",
+                  "role": "text",
+                  "box": {
+                    "x": 57,
+                    "y": 578.0,
+                    "width": 276,
+                    "height": 16
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "footer",
+              "capture_id": "home-mobile-static",
+              "selector": "[data-geo-section=\"footer\"]",
+              "source_selector": ".nl-footer",
+              "box": {
+                "x": 0,
+                "y": 2849.11,
+                "width": 390,
+                "height": 108
+              },
+              "elements": [
+                {
+                  "element_id": "text",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"footer-text\"]",
+                  "source_selector": ".nl-footer p",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 46.0,
+                    "width": 342,
+                    "height": 16
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

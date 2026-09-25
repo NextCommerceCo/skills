@@ -1,0 +1,1102 @@
+{
+  "schema_version": "next-theme-dev/handoff-geometry/v1",
+  "project": "tidewell-fixture",
+  "source": "dom-capture",
+  "extracted_at": "2026-09-25T12:00:00Z",
+  "routes": [
+    {
+      "route_id": "home",
+      "viewports": {
+        "desktop": {
+          "capture_id": "home-desktop-static",
+          "frame_width": 1440,
+          "frame_height": 1600,
+          "sections": [
+            {
+              "section_id": "strip",
+              "capture_id": "home-desktop-static",
+              "selector": "[data-geo-section=\"strip\"]",
+              "source_selector": "#strip",
+              "box": {
+                "x": 0,
+                "y": 0,
+                "width": 1440,
+                "height": 40
+              },
+              "elements": [
+                {
+                  "element_id": "text",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"strip-text\"]",
+                  "source_selector": "#strip span",
+                  "role": "text",
+                  "box": {
+                    "x": 556.38,
+                    "y": 11,
+                    "width": 327.23,
+                    "height": 17
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "intro",
+              "capture_id": "home-desktop-static",
+              "selector": "[data-geo-section=\"intro\"]",
+              "source_selector": "#intro",
+              "box": {
+                "x": 0,
+                "y": 40,
+                "width": 1440,
+                "height": 632
+              },
+              "elements": [
+                {
+                  "element_id": "title",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"intro-title\"]",
+                  "source_selector": "#intro .t-display",
+                  "role": "text",
+                  "box": {
+                    "x": 170,
+                    "y": 163.88,
+                    "width": 583,
+                    "height": 114.38
+                  }
+                },
+                {
+                  "element_id": "body",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"intro-body\"]",
+                  "source_selector": "#intro .t-body",
+                  "role": "text",
+                  "box": {
+                    "x": 170,
+                    "y": 294.25,
+                    "width": 460,
+                    "height": 58.88
+                  }
+                },
+                {
+                  "element_id": "cta",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"intro-cta\"]",
+                  "source_selector": "#intro .btn",
+                  "role": "control",
+                  "box": {
+                    "x": 170,
+                    "y": 381.13,
+                    "width": 189.14,
+                    "height": 47
+                  }
+                },
+                {
+                  "element_id": "bottle",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"intro-bottle\"]",
+                  "source_selector": "#intro-bottle",
+                  "role": "image",
+                  "box": {
+                    "x": 911.5,
+                    "y": 56,
+                    "width": 240,
+                    "height": 480
+                  }
+                },
+                {
+                  "element_id": "badge",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"intro-badge\"]",
+                  "source_selector": "#intro .spin-badge",
+                  "role": "container",
+                  "box": {
+                    "x": 1110,
+                    "y": 68,
+                    "width": 120,
+                    "height": 120
+                  }
+                },
+                {
+                  "element_id": "wave",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"intro-wave\"]",
+                  "source_selector": "#intro .intro-wave",
+                  "role": "container",
+                  "box": {
+                    "x": 0,
+                    "y": 472,
+                    "width": 1440,
+                    "height": 160
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "trio",
+              "capture_id": "home-desktop-static",
+              "selector": "[data-geo-section=\"trio\"]",
+              "source_selector": "#trio",
+              "box": {
+                "x": 170,
+                "y": 672,
+                "width": 1100,
+                "height": 321
+              },
+              "elements": [
+                {
+                  "element_id": "t1",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"trio-t1\"]",
+                  "source_selector": "#trio article:nth-of-type(1) h2",
+                  "role": "text",
+                  "box": {
+                    "x": 60,
+                    "y": 148,
+                    "width": 270.66,
+                    "height": 25
+                  }
+                },
+                {
+                  "element_id": "b1",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"trio-b1\"]",
+                  "source_selector": "#trio article:nth-of-type(1) p",
+                  "role": "text",
+                  "box": {
+                    "x": 60,
+                    "y": 181,
+                    "width": 270.66,
+                    "height": 48
+                  }
+                },
+                {
+                  "element_id": "t2",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"trio-t2\"]",
+                  "source_selector": "#trio article:nth-of-type(2) h2",
+                  "role": "text",
+                  "box": {
+                    "x": 414.66,
+                    "y": 148,
+                    "width": 270.67,
+                    "height": 25
+                  }
+                },
+                {
+                  "element_id": "b2",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"trio-b2\"]",
+                  "source_selector": "#trio article:nth-of-type(2) p",
+                  "role": "text",
+                  "box": {
+                    "x": 414.66,
+                    "y": 181,
+                    "width": 270.67,
+                    "height": 48
+                  }
+                },
+                {
+                  "element_id": "t3",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"trio-t3\"]",
+                  "source_selector": "#trio article:nth-of-type(3) h2",
+                  "role": "text",
+                  "box": {
+                    "x": 769.33,
+                    "y": 148,
+                    "width": 270.66,
+                    "height": 25
+                  }
+                },
+                {
+                  "element_id": "b3",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"trio-b3\"]",
+                  "source_selector": "#trio article:nth-of-type(3) p",
+                  "role": "text",
+                  "box": {
+                    "x": 769.33,
+                    "y": 181,
+                    "width": 270.66,
+                    "height": 48
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "faq",
+              "capture_id": "home-desktop-static",
+              "selector": "[data-geo-section=\"faq\"]",
+              "source_selector": "#faq",
+              "box": {
+                "x": 340,
+                "y": 993,
+                "width": 760,
+                "height": 243
+              },
+              "elements": [
+                {
+                  "element_id": "title",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"faq-title\"]",
+                  "source_selector": "#faq h2",
+                  "role": "text",
+                  "box": {
+                    "x": 32,
+                    "y": 32,
+                    "width": 696,
+                    "height": 35
+                  }
+                },
+                {
+                  "element_id": "q1",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"faq-q1\"]",
+                  "source_selector": "#faq details:nth-of-type(1) summary",
+                  "role": "control",
+                  "box": {
+                    "x": 32,
+                    "y": 98,
+                    "width": 696,
+                    "height": 19
+                  }
+                },
+                {
+                  "element_id": "q2",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"faq-q2\"]",
+                  "source_selector": "#faq details:nth-of-type(2) summary",
+                  "role": "control",
+                  "box": {
+                    "x": 32,
+                    "y": 146,
+                    "width": 696,
+                    "height": 19
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "buy",
+              "capture_id": "home-desktop-static",
+              "selector": "[data-geo-section=\"buy\"]",
+              "source_selector": "#buy",
+              "box": {
+                "x": 0,
+                "y": 1236,
+                "width": 1440,
+                "height": 275
+              },
+              "elements": [
+                {
+                  "element_id": "title",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"buy-title\"]",
+                  "source_selector": "#buy h2",
+                  "role": "text",
+                  "box": {
+                    "x": 32,
+                    "y": 64,
+                    "width": 1376,
+                    "height": 40
+                  }
+                },
+                {
+                  "element_id": "price",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"buy-price\"]",
+                  "source_selector": "#buy .price",
+                  "role": "text",
+                  "box": {
+                    "x": 32,
+                    "y": 112,
+                    "width": 1376,
+                    "height": 32
+                  }
+                },
+                {
+                  "element_id": "cta",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"buy-cta\"]",
+                  "source_selector": "#buy .btn",
+                  "role": "control",
+                  "box": {
+                    "x": 606.88,
+                    "y": 164,
+                    "width": 226.23,
+                    "height": 47
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "legal",
+              "capture_id": "home-desktop-static",
+              "selector": "[data-geo-section=\"legal\"]",
+              "source_selector": "#legal",
+              "box": {
+                "x": 0,
+                "y": 1511,
+                "width": 1440,
+                "height": 89
+              },
+              "elements": [
+                {
+                  "element_id": "text",
+                  "capture_id": "home-desktop-static",
+                  "selector": "[data-geo=\"legal-text\"]",
+                  "source_selector": "#legal p",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 37,
+                    "width": 1392,
+                    "height": 15
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            }
+          ]
+        },
+        "tablet": {
+          "capture_id": "home-tablet-static",
+          "frame_width": 768,
+          "frame_height": 2087,
+          "sections": [
+            {
+              "section_id": "strip",
+              "capture_id": "home-tablet-static",
+              "selector": "[data-geo-section=\"strip\"]",
+              "source_selector": "#strip",
+              "box": {
+                "x": 0,
+                "y": 0,
+                "width": 768,
+                "height": 40
+              },
+              "elements": [
+                {
+                  "element_id": "text",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"strip-text\"]",
+                  "source_selector": "#strip span",
+                  "role": "text",
+                  "box": {
+                    "x": 220.38,
+                    "y": 11,
+                    "width": 327.23,
+                    "height": 17
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "intro",
+              "capture_id": "home-tablet-static",
+              "selector": "[data-geo-section=\"intro\"]",
+              "source_selector": "#intro",
+              "box": {
+                "x": 0,
+                "y": 40,
+                "width": 768,
+                "height": 797.47
+              },
+              "elements": [
+                {
+                  "element_id": "title",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"intro-title\"]",
+                  "source_selector": "#intro .t-display",
+                  "role": "text",
+                  "box": {
+                    "x": 97.69,
+                    "y": 536,
+                    "width": 572.63,
+                    "height": 39.59
+                  }
+                },
+                {
+                  "element_id": "body",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"intro-body\"]",
+                  "source_selector": "#intro .t-body",
+                  "role": "text",
+                  "box": {
+                    "x": 97.69,
+                    "y": 591.59,
+                    "width": 460,
+                    "height": 58.88
+                  }
+                },
+                {
+                  "element_id": "cta",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"intro-cta\"]",
+                  "source_selector": "#intro .btn",
+                  "role": "control",
+                  "box": {
+                    "x": 97.69,
+                    "y": 678.47,
+                    "width": 189.14,
+                    "height": 47
+                  }
+                },
+                {
+                  "element_id": "bottle",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"intro-bottle\"]",
+                  "source_selector": "#intro-bottle",
+                  "role": "image",
+                  "box": {
+                    "x": 264,
+                    "y": 32,
+                    "width": 240,
+                    "height": 480
+                  }
+                },
+                {
+                  "element_id": "badge",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"intro-badge\"]",
+                  "source_selector": "#intro .spin-badge",
+                  "role": "container",
+                  "box": {
+                    "x": 408,
+                    "y": 44,
+                    "width": 96,
+                    "height": 96
+                  }
+                },
+                {
+                  "element_id": "wave",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"intro-wave\"]",
+                  "source_selector": "#intro .intro-wave",
+                  "role": "container",
+                  "box": {
+                    "x": 0,
+                    "y": 637.47,
+                    "width": 768,
+                    "height": 160
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "trio",
+              "capture_id": "home-tablet-static",
+              "selector": "[data-geo-section=\"trio\"]",
+              "source_selector": "#trio",
+              "box": {
+                "x": 0,
+                "y": 837.47,
+                "width": 768,
+                "height": 643
+              },
+              "elements": [
+                {
+                  "element_id": "t1",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"trio-t1\"]",
+                  "source_selector": "#trio article:nth-of-type(1) h2",
+                  "role": "text",
+                  "box": {
+                    "x": 48,
+                    "y": 124.0,
+                    "width": 672,
+                    "height": 25
+                  }
+                },
+                {
+                  "element_id": "b1",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"trio-b1\"]",
+                  "source_selector": "#trio article:nth-of-type(1) p",
+                  "role": "text",
+                  "box": {
+                    "x": 48,
+                    "y": 157.0,
+                    "width": 672,
+                    "height": 24
+                  }
+                },
+                {
+                  "element_id": "t2",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"trio-t2\"]",
+                  "source_selector": "#trio article:nth-of-type(2) h2",
+                  "role": "text",
+                  "box": {
+                    "x": 48,
+                    "y": 321.0,
+                    "width": 672,
+                    "height": 25
+                  }
+                },
+                {
+                  "element_id": "b2",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"trio-b2\"]",
+                  "source_selector": "#trio article:nth-of-type(2) p",
+                  "role": "text",
+                  "box": {
+                    "x": 48,
+                    "y": 354.0,
+                    "width": 672,
+                    "height": 24
+                  }
+                },
+                {
+                  "element_id": "t3",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"trio-t3\"]",
+                  "source_selector": "#trio article:nth-of-type(3) h2",
+                  "role": "text",
+                  "box": {
+                    "x": 48,
+                    "y": 518.0,
+                    "width": 672,
+                    "height": 25
+                  }
+                },
+                {
+                  "element_id": "b3",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"trio-b3\"]",
+                  "source_selector": "#trio article:nth-of-type(3) p",
+                  "role": "text",
+                  "box": {
+                    "x": 48,
+                    "y": 551.0,
+                    "width": 672,
+                    "height": 24
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "faq",
+              "capture_id": "home-tablet-static",
+              "selector": "[data-geo-section=\"faq\"]",
+              "source_selector": "#faq",
+              "box": {
+                "x": 4,
+                "y": 1480.47,
+                "width": 760,
+                "height": 243
+              },
+              "elements": [
+                {
+                  "element_id": "title",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"faq-title\"]",
+                  "source_selector": "#faq h2",
+                  "role": "text",
+                  "box": {
+                    "x": 32,
+                    "y": 32.0,
+                    "width": 696,
+                    "height": 35
+                  }
+                },
+                {
+                  "element_id": "q1",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"faq-q1\"]",
+                  "source_selector": "#faq details:nth-of-type(1) summary",
+                  "role": "control",
+                  "box": {
+                    "x": 32,
+                    "y": 98.0,
+                    "width": 696,
+                    "height": 19
+                  }
+                },
+                {
+                  "element_id": "q2",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"faq-q2\"]",
+                  "source_selector": "#faq details:nth-of-type(2) summary",
+                  "role": "control",
+                  "box": {
+                    "x": 32,
+                    "y": 146.0,
+                    "width": 696,
+                    "height": 19
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "buy",
+              "capture_id": "home-tablet-static",
+              "selector": "[data-geo-section=\"buy\"]",
+              "source_selector": "#buy",
+              "box": {
+                "x": 0,
+                "y": 1723.47,
+                "width": 768,
+                "height": 275
+              },
+              "elements": [
+                {
+                  "element_id": "title",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"buy-title\"]",
+                  "source_selector": "#buy h2",
+                  "role": "text",
+                  "box": {
+                    "x": 32,
+                    "y": 64.0,
+                    "width": 704,
+                    "height": 40
+                  }
+                },
+                {
+                  "element_id": "price",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"buy-price\"]",
+                  "source_selector": "#buy .price",
+                  "role": "text",
+                  "box": {
+                    "x": 32,
+                    "y": 112.0,
+                    "width": 704,
+                    "height": 32
+                  }
+                },
+                {
+                  "element_id": "cta",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"buy-cta\"]",
+                  "source_selector": "#buy .btn",
+                  "role": "control",
+                  "box": {
+                    "x": 270.88,
+                    "y": 164.0,
+                    "width": 226.23,
+                    "height": 47
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "legal",
+              "capture_id": "home-tablet-static",
+              "selector": "[data-geo-section=\"legal\"]",
+              "source_selector": "#legal",
+              "box": {
+                "x": 0,
+                "y": 1998.47,
+                "width": 768,
+                "height": 89
+              },
+              "elements": [
+                {
+                  "element_id": "text",
+                  "capture_id": "home-tablet-static",
+                  "selector": "[data-geo=\"legal-text\"]",
+                  "source_selector": "#legal p",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 37.0,
+                    "width": 720,
+                    "height": 15
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            }
+          ]
+        },
+        "mobile": {
+          "capture_id": "home-mobile-static",
+          "frame_width": 390,
+          "frame_height": 2269,
+          "sections": [
+            {
+              "section_id": "strip",
+              "capture_id": "home-mobile-static",
+              "selector": "[data-geo-section=\"strip\"]",
+              "source_selector": "#strip",
+              "box": {
+                "x": 0,
+                "y": 0,
+                "width": 390,
+                "height": 40
+              },
+              "elements": [
+                {
+                  "element_id": "text",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"strip-text\"]",
+                  "source_selector": "#strip span",
+                  "role": "text",
+                  "box": {
+                    "x": 31.38,
+                    "y": 11,
+                    "width": 327.23,
+                    "height": 17
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "intro",
+              "capture_id": "home-mobile-static",
+              "selector": "[data-geo-section=\"intro\"]",
+              "source_selector": "#intro",
+              "box": {
+                "x": 0,
+                "y": 40,
+                "width": 390,
+                "height": 866.5
+              },
+              "elements": [
+                {
+                  "element_id": "title",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"intro-title\"]",
+                  "source_selector": "#intro .t-display",
+                  "role": "text",
+                  "box": {
+                    "x": 20,
+                    "y": 536,
+                    "width": 350,
+                    "height": 79.19
+                  }
+                },
+                {
+                  "element_id": "body",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"intro-body\"]",
+                  "source_selector": "#intro .t-body",
+                  "role": "text",
+                  "box": {
+                    "x": 20,
+                    "y": 631.19,
+                    "width": 350,
+                    "height": 88.31
+                  }
+                },
+                {
+                  "element_id": "cta",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"intro-cta\"]",
+                  "source_selector": "#intro .btn",
+                  "role": "control",
+                  "box": {
+                    "x": 20,
+                    "y": 747.5,
+                    "width": 189.14,
+                    "height": 47
+                  }
+                },
+                {
+                  "element_id": "bottle",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"intro-bottle\"]",
+                  "source_selector": "#intro-bottle",
+                  "role": "image",
+                  "box": {
+                    "x": 75,
+                    "y": 32,
+                    "width": 240,
+                    "height": 480
+                  }
+                },
+                {
+                  "element_id": "badge",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"intro-badge\"]",
+                  "source_selector": "#intro .spin-badge",
+                  "role": "container",
+                  "box": {
+                    "x": 219,
+                    "y": 44,
+                    "width": 96,
+                    "height": 96
+                  }
+                },
+                {
+                  "element_id": "wave",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"intro-wave\"]",
+                  "source_selector": "#intro .intro-wave",
+                  "role": "container",
+                  "box": {
+                    "x": 0,
+                    "y": 706.5,
+                    "width": 390,
+                    "height": 160
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "trio",
+              "capture_id": "home-mobile-static",
+              "selector": "[data-geo-section=\"trio\"]",
+              "source_selector": "#trio",
+              "box": {
+                "x": 0,
+                "y": 906.5,
+                "width": 390,
+                "height": 715
+              },
+              "elements": [
+                {
+                  "element_id": "t1",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"trio-t1\"]",
+                  "source_selector": "#trio article:nth-of-type(1) h2",
+                  "role": "text",
+                  "box": {
+                    "x": 48,
+                    "y": 124.0,
+                    "width": 294,
+                    "height": 25
+                  }
+                },
+                {
+                  "element_id": "b1",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"trio-b1\"]",
+                  "source_selector": "#trio article:nth-of-type(1) p",
+                  "role": "text",
+                  "box": {
+                    "x": 48,
+                    "y": 157.0,
+                    "width": 294,
+                    "height": 48
+                  }
+                },
+                {
+                  "element_id": "t2",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"trio-t2\"]",
+                  "source_selector": "#trio article:nth-of-type(2) h2",
+                  "role": "text",
+                  "box": {
+                    "x": 48,
+                    "y": 345.0,
+                    "width": 294,
+                    "height": 25
+                  }
+                },
+                {
+                  "element_id": "b2",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"trio-b2\"]",
+                  "source_selector": "#trio article:nth-of-type(2) p",
+                  "role": "text",
+                  "box": {
+                    "x": 48,
+                    "y": 378.0,
+                    "width": 294,
+                    "height": 48
+                  }
+                },
+                {
+                  "element_id": "t3",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"trio-t3\"]",
+                  "source_selector": "#trio article:nth-of-type(3) h2",
+                  "role": "text",
+                  "box": {
+                    "x": 48,
+                    "y": 566.0,
+                    "width": 294,
+                    "height": 25
+                  }
+                },
+                {
+                  "element_id": "b3",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"trio-b3\"]",
+                  "source_selector": "#trio article:nth-of-type(3) p",
+                  "role": "text",
+                  "box": {
+                    "x": 48,
+                    "y": 599.0,
+                    "width": 294,
+                    "height": 48
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "faq",
+              "capture_id": "home-mobile-static",
+              "selector": "[data-geo-section=\"faq\"]",
+              "source_selector": "#faq",
+              "box": {
+                "x": 0,
+                "y": 1621.5,
+                "width": 390,
+                "height": 243
+              },
+              "elements": [
+                {
+                  "element_id": "title",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"faq-title\"]",
+                  "source_selector": "#faq h2",
+                  "role": "text",
+                  "box": {
+                    "x": 32,
+                    "y": 32.0,
+                    "width": 326,
+                    "height": 35
+                  }
+                },
+                {
+                  "element_id": "q1",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"faq-q1\"]",
+                  "source_selector": "#faq details:nth-of-type(1) summary",
+                  "role": "control",
+                  "box": {
+                    "x": 32,
+                    "y": 98.0,
+                    "width": 326,
+                    "height": 19
+                  }
+                },
+                {
+                  "element_id": "q2",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"faq-q2\"]",
+                  "source_selector": "#faq details:nth-of-type(2) summary",
+                  "role": "control",
+                  "box": {
+                    "x": 32,
+                    "y": 146.0,
+                    "width": 326,
+                    "height": 19
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "buy",
+              "capture_id": "home-mobile-static",
+              "selector": "[data-geo-section=\"buy\"]",
+              "source_selector": "#buy",
+              "box": {
+                "x": 0,
+                "y": 1864.5,
+                "width": 390,
+                "height": 315
+              },
+              "elements": [
+                {
+                  "element_id": "title",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"buy-title\"]",
+                  "source_selector": "#buy h2",
+                  "role": "text",
+                  "box": {
+                    "x": 32,
+                    "y": 64.0,
+                    "width": 326,
+                    "height": 80
+                  }
+                },
+                {
+                  "element_id": "price",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"buy-price\"]",
+                  "source_selector": "#buy .price",
+                  "role": "text",
+                  "box": {
+                    "x": 32,
+                    "y": 152.0,
+                    "width": 326,
+                    "height": 32
+                  }
+                },
+                {
+                  "element_id": "cta",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"buy-cta\"]",
+                  "source_selector": "#buy .btn",
+                  "role": "control",
+                  "box": {
+                    "x": 81.88,
+                    "y": 204.0,
+                    "width": 226.23,
+                    "height": 47
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            },
+            {
+              "section_id": "legal",
+              "capture_id": "home-mobile-static",
+              "selector": "[data-geo-section=\"legal\"]",
+              "source_selector": "#legal",
+              "box": {
+                "x": 0,
+                "y": 2179.5,
+                "width": 390,
+                "height": 89
+              },
+              "elements": [
+                {
+                  "element_id": "text",
+                  "capture_id": "home-mobile-static",
+                  "selector": "[data-geo=\"legal-text\"]",
+                  "source_selector": "#legal p",
+                  "role": "text",
+                  "box": {
+                    "x": 24,
+                    "y": 37.0,
+                    "width": 342,
+                    "height": 15
+                  }
+                }
+              ],
+              "alignment_groups": [],
+              "gaps": []
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

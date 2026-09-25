@@ -1,0 +1,1355 @@
+{
+  "schema_version": "next-theme-dev/handoff-captures/v1",
+  "captures": [
+    {
+      "capture_id": "home-desktop-static",
+      "route_id": "home",
+      "viewport": "desktop",
+      "state": "static",
+      "state_detail": "",
+      "url": "https://northlight.example.test/",
+      "viewport_width": 1440,
+      "viewport_height": 900,
+      "device_pixel_ratio": 1,
+      "scroll_x": 0,
+      "scroll_y": 0,
+      "document_width": 1440,
+      "document_height": 2360,
+      "browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151 Safari/537.36",
+      "tool": "playwright 1.62.1, chromium 151 (headless)",
+      "captured_at": "2026-09-25T13:50:35.199Z",
+      "html_sha256": "cdafb69b6305d88a",
+      "readiness": {
+        "fonts": "ready",
+        "images": "ready",
+        "media_metadata": "ready"
+      },
+      "motion": "none",
+      "media_url": "",
+      "media_time_s": null,
+      "screenshot": "captures/home-desktop-static.png",
+      "screenshot_kind": "full-page",
+      "raw_output": "captures/raw/home-desktop-static.json",
+      "boxes": {
+        "bar": {
+          "x": 0,
+          "y": 0,
+          "width": 1440,
+          "height": 40
+        },
+        "bar::text": {
+          "x": 0,
+          "y": 0,
+          "width": 1440,
+          "height": 40
+        },
+        "header": {
+          "x": 120,
+          "y": 40,
+          "width": 1200,
+          "height": 61
+        },
+        "header::logo": {
+          "x": 144,
+          "y": 58,
+          "width": 119.33,
+          "height": 25
+        },
+        "header::link": {
+          "x": 1192.66,
+          "y": 62,
+          "width": 103.34,
+          "height": 17
+        },
+        "hero": {
+          "x": 120,
+          "y": 101,
+          "width": 1200,
+          "height": 778
+        },
+        "hero::title": {
+          "x": 144,
+          "y": 343.53,
+          "width": 552,
+          "height": 120.94
+        },
+        "hero::lede": {
+          "x": 144,
+          "y": 484.47,
+          "width": 480,
+          "height": 60
+        },
+        "hero::cta": {
+          "x": 144,
+          "y": 576.47,
+          "width": 212.31,
+          "height": 52
+        },
+        "hero::product": {
+          "x": 840,
+          "y": 165,
+          "width": 360,
+          "height": 540
+        },
+        "hero::note": {
+          "x": 840,
+          "y": 729,
+          "width": 360,
+          "height": 78
+        },
+        "demo": {
+          "x": 0,
+          "y": 879,
+          "width": 1440,
+          "height": 676
+        },
+        "demo::title": {
+          "x": 24,
+          "y": 951,
+          "width": 1392,
+          "height": 43
+        },
+        "demo::video": {
+          "x": 400,
+          "y": 1026,
+          "width": 640,
+          "height": 360
+        },
+        "demo::p1_title": {
+          "x": 220,
+          "y": 1426,
+          "width": 312,
+          "height": 25
+        },
+        "demo::p1_body": {
+          "x": 220,
+          "y": 1459,
+          "width": 312,
+          "height": 24
+        },
+        "demo::p2_title": {
+          "x": 564,
+          "y": 1426,
+          "width": 312,
+          "height": 25
+        },
+        "demo::p2_body": {
+          "x": 564,
+          "y": 1459,
+          "width": 312,
+          "height": 24
+        },
+        "demo::p3_title": {
+          "x": 908,
+          "y": 1426,
+          "width": 312,
+          "height": 25
+        },
+        "demo::p3_body": {
+          "x": 908,
+          "y": 1459,
+          "width": 312,
+          "height": 24
+        },
+        "specs": {
+          "x": 120,
+          "y": 1555,
+          "width": 1200,
+          "height": 303.17
+        },
+        "specs::title": {
+          "x": 240,
+          "y": 1627,
+          "width": 1056,
+          "height": 38
+        },
+        "specs::list": {
+          "x": 240,
+          "y": 1689,
+          "width": 1056,
+          "height": 97.17
+        },
+        "offer": {
+          "x": 0,
+          "y": 1858.17,
+          "width": 1440,
+          "height": 394
+        },
+        "offer::title": {
+          "x": 24,
+          "y": 1930.17,
+          "width": 1392,
+          "height": 43
+        },
+        "offer::card_1": {
+          "x": 336,
+          "y": 2005.17,
+          "width": 240,
+          "height": 151
+        },
+        "offer::card_2": {
+          "x": 600,
+          "y": 2005.17,
+          "width": 240,
+          "height": 151
+        },
+        "offer::card_3": {
+          "x": 864,
+          "y": 2005.17,
+          "width": 240,
+          "height": 151
+        },
+        "offer::save_2": {
+          "x": 622,
+          "y": 2110.17,
+          "width": 196,
+          "height": 16
+        },
+        "offer::save_3": {
+          "x": 886,
+          "y": 2110.17,
+          "width": 196,
+          "height": 16
+        },
+        "footer": {
+          "x": 0,
+          "y": 2252.17,
+          "width": 1440,
+          "height": 108
+        },
+        "footer::text": {
+          "x": 24,
+          "y": 2298.17,
+          "width": 1392,
+          "height": 16
+        }
+      },
+      "gaps": []
+    },
+    {
+      "capture_id": "home-tablet-static",
+      "route_id": "home",
+      "viewport": "tablet",
+      "state": "static",
+      "state_detail": "",
+      "url": "https://northlight.example.test/",
+      "viewport_width": 768,
+      "viewport_height": 1024,
+      "device_pixel_ratio": 1,
+      "scroll_x": 0,
+      "scroll_y": 0,
+      "document_width": 768,
+      "document_height": 2906,
+      "browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151 Safari/537.36",
+      "tool": "playwright 1.62.1, chromium 151 (headless)",
+      "captured_at": "2026-09-25T13:50:37.347Z",
+      "html_sha256": "cdafb69b6305d88a",
+      "readiness": {
+        "fonts": "ready",
+        "images": "ready",
+        "media_metadata": "ready"
+      },
+      "motion": "none",
+      "media_url": "",
+      "media_time_s": null,
+      "screenshot": "captures/home-tablet-static.png",
+      "screenshot_kind": "full-page",
+      "raw_output": "captures/raw/home-tablet-static.json",
+      "boxes": {
+        "bar": {
+          "x": 0,
+          "y": 0,
+          "width": 768,
+          "height": 40
+        },
+        "bar::text": {
+          "x": 0,
+          "y": 0,
+          "width": 768,
+          "height": 40
+        },
+        "header": {
+          "x": 0,
+          "y": 40,
+          "width": 768,
+          "height": 61
+        },
+        "header::logo": {
+          "x": 24,
+          "y": 58,
+          "width": 119.33,
+          "height": 25
+        },
+        "header::link": {
+          "x": 640.66,
+          "y": 62,
+          "width": 103.34,
+          "height": 17
+        },
+        "hero": {
+          "x": 0,
+          "y": 101,
+          "width": 768,
+          "height": 820.19
+        },
+        "hero::title": {
+          "x": 20,
+          "y": 585,
+          "width": 728,
+          "height": 43.19
+        },
+        "hero::lede": {
+          "x": 20,
+          "y": 648.19,
+          "width": 480,
+          "height": 60
+        },
+        "hero::cta": {
+          "x": 20,
+          "y": 740.19,
+          "width": 212.31,
+          "height": 52
+        },
+        "hero::product": {
+          "x": 244,
+          "y": 141,
+          "width": 280,
+          "height": 420
+        },
+        "hero::note": {
+          "x": 20,
+          "y": 816.19,
+          "width": 728,
+          "height": 57
+        },
+        "demo": {
+          "x": 0,
+          "y": 921.19,
+          "width": 768,
+          "height": 854
+        },
+        "demo::title": {
+          "x": 24,
+          "y": 993.19,
+          "width": 720,
+          "height": 43
+        },
+        "demo::video": {
+          "x": 64,
+          "y": 1068.19,
+          "width": 640,
+          "height": 360
+        },
+        "demo::p1_title": {
+          "x": 24,
+          "y": 1468.19,
+          "width": 720,
+          "height": 25
+        },
+        "demo::p1_body": {
+          "x": 24,
+          "y": 1501.19,
+          "width": 720,
+          "height": 24
+        },
+        "demo::p2_title": {
+          "x": 24,
+          "y": 1557.19,
+          "width": 720,
+          "height": 25
+        },
+        "demo::p2_body": {
+          "x": 24,
+          "y": 1590.19,
+          "width": 720,
+          "height": 24
+        },
+        "demo::p3_title": {
+          "x": 24,
+          "y": 1646.19,
+          "width": 720,
+          "height": 25
+        },
+        "demo::p3_body": {
+          "x": 24,
+          "y": 1679.19,
+          "width": 720,
+          "height": 24
+        },
+        "specs": {
+          "x": 0,
+          "y": 1775.19,
+          "width": 768,
+          "height": 303.17
+        },
+        "specs::title": {
+          "x": 24,
+          "y": 1847.19,
+          "width": 720,
+          "height": 38
+        },
+        "specs::list": {
+          "x": 24,
+          "y": 1909.19,
+          "width": 720,
+          "height": 97.17
+        },
+        "offer": {
+          "x": 0,
+          "y": 2078.36,
+          "width": 768,
+          "height": 720
+        },
+        "offer::title": {
+          "x": 24,
+          "y": 2150.36,
+          "width": 720,
+          "height": 43
+        },
+        "offer::card_1": {
+          "x": 224,
+          "y": 2225.36,
+          "width": 320,
+          "height": 127
+        },
+        "offer::card_2": {
+          "x": 224,
+          "y": 2376.36,
+          "width": 320,
+          "height": 151
+        },
+        "offer::card_3": {
+          "x": 224,
+          "y": 2551.36,
+          "width": 320,
+          "height": 151
+        },
+        "offer::save_2": {
+          "x": 246,
+          "y": 2481.36,
+          "width": 276,
+          "height": 16
+        },
+        "offer::save_3": {
+          "x": 246,
+          "y": 2656.36,
+          "width": 276,
+          "height": 16
+        },
+        "footer": {
+          "x": 0,
+          "y": 2798.36,
+          "width": 768,
+          "height": 108
+        },
+        "footer::text": {
+          "x": 24,
+          "y": 2844.36,
+          "width": 720,
+          "height": 16
+        }
+      },
+      "gaps": []
+    },
+    {
+      "capture_id": "home-mobile-static",
+      "route_id": "home",
+      "viewport": "mobile",
+      "state": "static",
+      "state_detail": "",
+      "url": "https://northlight.example.test/",
+      "viewport_width": 390,
+      "viewport_height": 844,
+      "device_pixel_ratio": 2,
+      "scroll_x": 0,
+      "scroll_y": 0,
+      "document_width": 390,
+      "document_height": 2957,
+      "browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151 Safari/537.36",
+      "tool": "playwright 1.62.1, chromium 151 (headless)",
+      "captured_at": "2026-09-25T13:50:39.606Z",
+      "html_sha256": "cdafb69b6305d88a",
+      "readiness": {
+        "fonts": "ready",
+        "images": "ready",
+        "media_metadata": "ready"
+      },
+      "motion": "none",
+      "media_url": "",
+      "media_time_s": null,
+      "screenshot": "captures/home-mobile-static.png",
+      "screenshot_kind": "full-page",
+      "raw_output": "captures/raw/home-mobile-static.json",
+      "boxes": {
+        "bar": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 40
+        },
+        "bar::text": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 40
+        },
+        "header": {
+          "x": 0,
+          "y": 40,
+          "width": 390,
+          "height": 61
+        },
+        "header::logo": {
+          "x": 24,
+          "y": 58,
+          "width": 119.33,
+          "height": 25
+        },
+        "header::link": {
+          "x": 262.66,
+          "y": 62,
+          "width": 103.34,
+          "height": 17
+        },
+        "hero": {
+          "x": 0,
+          "y": 101,
+          "width": 390,
+          "height": 957.56
+        },
+        "hero::title": {
+          "x": 20,
+          "y": 585,
+          "width": 350,
+          "height": 129.56
+        },
+        "hero::lede": {
+          "x": 20,
+          "y": 734.56,
+          "width": 350,
+          "height": 90
+        },
+        "hero::cta": {
+          "x": 20,
+          "y": 856.56,
+          "width": 212.31,
+          "height": 52
+        },
+        "hero::product": {
+          "x": 55,
+          "y": 141,
+          "width": 280,
+          "height": 420
+        },
+        "hero::note": {
+          "x": 20,
+          "y": 932.56,
+          "width": 350,
+          "height": 78
+        },
+        "demo": {
+          "x": 0,
+          "y": 1058.56,
+          "width": 390,
+          "height": 729.38
+        },
+        "demo::title": {
+          "x": 24,
+          "y": 1130.56,
+          "width": 342,
+          "height": 86
+        },
+        "demo::video": {
+          "x": 24,
+          "y": 1248.56,
+          "width": 342,
+          "height": 192.38
+        },
+        "demo::p1_title": {
+          "x": 24,
+          "y": 1480.94,
+          "width": 342,
+          "height": 25
+        },
+        "demo::p1_body": {
+          "x": 24,
+          "y": 1513.94,
+          "width": 342,
+          "height": 24
+        },
+        "demo::p2_title": {
+          "x": 24,
+          "y": 1569.94,
+          "width": 342,
+          "height": 25
+        },
+        "demo::p2_body": {
+          "x": 24,
+          "y": 1602.94,
+          "width": 342,
+          "height": 24
+        },
+        "demo::p3_title": {
+          "x": 24,
+          "y": 1658.94,
+          "width": 342,
+          "height": 25
+        },
+        "demo::p3_body": {
+          "x": 24,
+          "y": 1691.94,
+          "width": 342,
+          "height": 24
+        },
+        "specs": {
+          "x": 0,
+          "y": 1787.94,
+          "width": 390,
+          "height": 341.17
+        },
+        "specs::title": {
+          "x": 24,
+          "y": 1859.94,
+          "width": 342,
+          "height": 76
+        },
+        "specs::list": {
+          "x": 24,
+          "y": 1959.94,
+          "width": 342,
+          "height": 97.17
+        },
+        "offer": {
+          "x": 0,
+          "y": 2129.11,
+          "width": 390,
+          "height": 720
+        },
+        "offer::title": {
+          "x": 24,
+          "y": 2201.11,
+          "width": 342,
+          "height": 43
+        },
+        "offer::card_1": {
+          "x": 35,
+          "y": 2276.11,
+          "width": 320,
+          "height": 127
+        },
+        "offer::card_2": {
+          "x": 35,
+          "y": 2427.11,
+          "width": 320,
+          "height": 151
+        },
+        "offer::card_3": {
+          "x": 35,
+          "y": 2602.11,
+          "width": 320,
+          "height": 151
+        },
+        "offer::save_2": {
+          "x": 57,
+          "y": 2532.11,
+          "width": 276,
+          "height": 16
+        },
+        "offer::save_3": {
+          "x": 57,
+          "y": 2707.11,
+          "width": 276,
+          "height": 16
+        },
+        "footer": {
+          "x": 0,
+          "y": 2849.11,
+          "width": 390,
+          "height": 108
+        },
+        "footer::text": {
+          "x": 24,
+          "y": 2895.11,
+          "width": 342,
+          "height": 16
+        }
+      },
+      "gaps": []
+    },
+    {
+      "capture_id": "home-desktop-motion",
+      "route_id": "home",
+      "viewport": "desktop",
+      "state": "motion",
+      "state_detail": "video playing after load; no animation is paused",
+      "url": "https://northlight.example.test/",
+      "viewport_width": 1440,
+      "viewport_height": 900,
+      "device_pixel_ratio": 1,
+      "scroll_x": 0,
+      "scroll_y": 0,
+      "document_width": 1440,
+      "document_height": 2360,
+      "browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151 Safari/537.36",
+      "tool": "playwright 1.62.1, chromium 151 (headless)",
+      "captured_at": "2026-09-25T13:50:42.231Z",
+      "html_sha256": "cdafb69b6305d88a",
+      "readiness": {
+        "fonts": "ready",
+        "images": "ready",
+        "media_metadata": "ready"
+      },
+      "motion": "none",
+      "media_url": "",
+      "media_time_s": null,
+      "screenshot": "captures/home-desktop-motion.png",
+      "screenshot_kind": "viewport",
+      "raw_output": "captures/raw/home-desktop-motion.json",
+      "boxes": {
+        "bar": {
+          "x": 0,
+          "y": 0,
+          "width": 1440,
+          "height": 40
+        },
+        "bar::text": {
+          "x": 0,
+          "y": 0,
+          "width": 1440,
+          "height": 40
+        },
+        "header": {
+          "x": 120,
+          "y": 40,
+          "width": 1200,
+          "height": 61
+        },
+        "header::logo": {
+          "x": 144,
+          "y": 58,
+          "width": 119.33,
+          "height": 25
+        },
+        "header::link": {
+          "x": 1192.66,
+          "y": 62,
+          "width": 103.34,
+          "height": 17
+        },
+        "hero": {
+          "x": 120,
+          "y": 101,
+          "width": 1200,
+          "height": 778
+        },
+        "hero::title": {
+          "x": 144,
+          "y": 343.53,
+          "width": 552,
+          "height": 120.94
+        },
+        "hero::lede": {
+          "x": 144,
+          "y": 484.47,
+          "width": 480,
+          "height": 60
+        },
+        "hero::cta": {
+          "x": 144,
+          "y": 576.47,
+          "width": 212.31,
+          "height": 52
+        },
+        "hero::product": {
+          "x": 840,
+          "y": 165,
+          "width": 360,
+          "height": 540
+        },
+        "hero::note": {
+          "x": 840,
+          "y": 729,
+          "width": 360,
+          "height": 78
+        },
+        "demo": {
+          "x": 0,
+          "y": 879,
+          "width": 1440,
+          "height": 676
+        },
+        "demo::title": {
+          "x": 24,
+          "y": 951,
+          "width": 1392,
+          "height": 43
+        },
+        "demo::video": {
+          "x": 400,
+          "y": 1026,
+          "width": 640,
+          "height": 360
+        },
+        "demo::p1_title": {
+          "x": 220,
+          "y": 1426,
+          "width": 312,
+          "height": 25
+        },
+        "demo::p1_body": {
+          "x": 220,
+          "y": 1459,
+          "width": 312,
+          "height": 24
+        },
+        "demo::p2_title": {
+          "x": 564,
+          "y": 1426,
+          "width": 312,
+          "height": 25
+        },
+        "demo::p2_body": {
+          "x": 564,
+          "y": 1459,
+          "width": 312,
+          "height": 24
+        },
+        "demo::p3_title": {
+          "x": 908,
+          "y": 1426,
+          "width": 312,
+          "height": 25
+        },
+        "demo::p3_body": {
+          "x": 908,
+          "y": 1459,
+          "width": 312,
+          "height": 24
+        },
+        "specs": {
+          "x": 120,
+          "y": 1555,
+          "width": 1200,
+          "height": 303.17
+        },
+        "specs::title": {
+          "x": 240,
+          "y": 1627,
+          "width": 1056,
+          "height": 38
+        },
+        "specs::list": {
+          "x": 240,
+          "y": 1689,
+          "width": 1056,
+          "height": 97.17
+        },
+        "offer": {
+          "x": 0,
+          "y": 1858.17,
+          "width": 1440,
+          "height": 394
+        },
+        "offer::title": {
+          "x": 24,
+          "y": 1930.17,
+          "width": 1392,
+          "height": 43
+        },
+        "offer::card_1": {
+          "x": 336,
+          "y": 2005.17,
+          "width": 240,
+          "height": 151
+        },
+        "offer::card_2": {
+          "x": 600,
+          "y": 2005.17,
+          "width": 240,
+          "height": 151
+        },
+        "offer::card_3": {
+          "x": 864,
+          "y": 2005.17,
+          "width": 240,
+          "height": 151
+        },
+        "offer::save_2": {
+          "x": 622,
+          "y": 2110.17,
+          "width": 196,
+          "height": 16
+        },
+        "offer::save_3": {
+          "x": 886,
+          "y": 2110.17,
+          "width": 196,
+          "height": 16
+        },
+        "footer": {
+          "x": 0,
+          "y": 2252.17,
+          "width": 1440,
+          "height": 108
+        },
+        "footer::text": {
+          "x": 24,
+          "y": 2298.17,
+          "width": 1392,
+          "height": 16
+        }
+      },
+      "gaps": []
+    },
+    {
+      "capture_id": "home-desktop-scrolled",
+      "route_id": "home",
+      "viewport": "desktop",
+      "state": "interaction",
+      "state_detail": "scrolled to y=1400 to check the announcement bar stays at the top",
+      "url": "https://northlight.example.test/",
+      "viewport_width": 1440,
+      "viewport_height": 900,
+      "device_pixel_ratio": 1,
+      "scroll_x": 0,
+      "scroll_y": 1400,
+      "document_width": 1440,
+      "document_height": 2360,
+      "browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151 Safari/537.36",
+      "tool": "playwright 1.62.1, chromium 151 (headless)",
+      "captured_at": "2026-09-25T13:50:44.155Z",
+      "html_sha256": "cdafb69b6305d88a",
+      "readiness": {
+        "fonts": "ready",
+        "images": "ready",
+        "media_metadata": "ready"
+      },
+      "motion": "none",
+      "media_url": "",
+      "media_time_s": null,
+      "screenshot": "captures/home-desktop-scrolled.png",
+      "screenshot_kind": "viewport",
+      "raw_output": "captures/raw/home-desktop-scrolled.json",
+      "boxes": {
+        "bar": {
+          "x": 0,
+          "y": 1400,
+          "width": 1440,
+          "height": 40
+        },
+        "bar::text": {
+          "x": 0,
+          "y": 1400,
+          "width": 1440,
+          "height": 40
+        },
+        "header": {
+          "x": 120,
+          "y": 40,
+          "width": 1200,
+          "height": 61
+        },
+        "header::logo": {
+          "x": 144,
+          "y": 58,
+          "width": 119.33,
+          "height": 25
+        },
+        "header::link": {
+          "x": 1192.66,
+          "y": 62,
+          "width": 103.34,
+          "height": 17
+        },
+        "hero": {
+          "x": 120,
+          "y": 101,
+          "width": 1200,
+          "height": 778
+        },
+        "hero::title": {
+          "x": 144,
+          "y": 343.53,
+          "width": 552,
+          "height": 120.94
+        },
+        "hero::lede": {
+          "x": 144,
+          "y": 484.47,
+          "width": 480,
+          "height": 60
+        },
+        "hero::cta": {
+          "x": 144,
+          "y": 576.47,
+          "width": 212.31,
+          "height": 52
+        },
+        "hero::product": {
+          "x": 840,
+          "y": 165,
+          "width": 360,
+          "height": 540
+        },
+        "hero::note": {
+          "x": 840,
+          "y": 729,
+          "width": 360,
+          "height": 78
+        },
+        "demo": {
+          "x": 0,
+          "y": 879,
+          "width": 1440,
+          "height": 676
+        },
+        "demo::title": {
+          "x": 24,
+          "y": 951,
+          "width": 1392,
+          "height": 43
+        },
+        "demo::video": {
+          "x": 400,
+          "y": 1026,
+          "width": 640,
+          "height": 360
+        },
+        "demo::p1_title": {
+          "x": 220,
+          "y": 1426,
+          "width": 312,
+          "height": 25
+        },
+        "demo::p1_body": {
+          "x": 220,
+          "y": 1459,
+          "width": 312,
+          "height": 24
+        },
+        "demo::p2_title": {
+          "x": 564,
+          "y": 1426,
+          "width": 312,
+          "height": 25
+        },
+        "demo::p2_body": {
+          "x": 564,
+          "y": 1459,
+          "width": 312,
+          "height": 24
+        },
+        "demo::p3_title": {
+          "x": 908,
+          "y": 1426,
+          "width": 312,
+          "height": 25
+        },
+        "demo::p3_body": {
+          "x": 908,
+          "y": 1459,
+          "width": 312,
+          "height": 24
+        },
+        "specs": {
+          "x": 120,
+          "y": 1555,
+          "width": 1200,
+          "height": 303.17
+        },
+        "specs::title": {
+          "x": 240,
+          "y": 1627,
+          "width": 1056,
+          "height": 38
+        },
+        "specs::list": {
+          "x": 240,
+          "y": 1689,
+          "width": 1056,
+          "height": 97.17
+        },
+        "offer": {
+          "x": 0,
+          "y": 1858.17,
+          "width": 1440,
+          "height": 394
+        },
+        "offer::title": {
+          "x": 24,
+          "y": 1930.17,
+          "width": 1392,
+          "height": 43
+        },
+        "offer::card_1": {
+          "x": 336,
+          "y": 2005.17,
+          "width": 240,
+          "height": 151
+        },
+        "offer::card_2": {
+          "x": 600,
+          "y": 2005.17,
+          "width": 240,
+          "height": 151
+        },
+        "offer::card_3": {
+          "x": 864,
+          "y": 2005.17,
+          "width": 240,
+          "height": 151
+        },
+        "offer::save_2": {
+          "x": 622,
+          "y": 2110.17,
+          "width": 196,
+          "height": 16
+        },
+        "offer::save_3": {
+          "x": 886,
+          "y": 2110.17,
+          "width": 196,
+          "height": 16
+        },
+        "footer": {
+          "x": 0,
+          "y": 2252.17,
+          "width": 1440,
+          "height": 108
+        },
+        "footer::text": {
+          "x": 24,
+          "y": 2298.17,
+          "width": 1392,
+          "height": 16
+        }
+      },
+      "gaps": []
+    },
+    {
+      "capture_id": "home-desktop-video-frame",
+      "route_id": "home",
+      "viewport": "desktop",
+      "state": "media-frame",
+      "state_detail": "demo video paused and seeked to 2.5 s",
+      "url": "https://northlight.example.test/",
+      "viewport_width": 1440,
+      "viewport_height": 900,
+      "device_pixel_ratio": 1,
+      "scroll_x": 0,
+      "scroll_y": 900,
+      "document_width": 1440,
+      "document_height": 2360,
+      "browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151 Safari/537.36",
+      "tool": "playwright 1.62.1, chromium 151 (headless)",
+      "captured_at": "2026-09-25T13:50:46.079Z",
+      "html_sha256": "cdafb69b6305d88a",
+      "readiness": {
+        "fonts": "ready",
+        "images": "ready",
+        "media_metadata": "ready"
+      },
+      "motion": "none",
+      "media_url": "https://northlight.example.test/demo.webm",
+      "media_time_s": 2.5,
+      "screenshot": "captures/home-desktop-video-frame.png",
+      "screenshot_kind": "viewport",
+      "raw_output": "captures/raw/home-desktop-video-frame.json",
+      "boxes": {
+        "bar": {
+          "x": 0,
+          "y": 900,
+          "width": 1440,
+          "height": 40
+        },
+        "bar::text": {
+          "x": 0,
+          "y": 900,
+          "width": 1440,
+          "height": 40
+        },
+        "header": {
+          "x": 120,
+          "y": 40,
+          "width": 1200,
+          "height": 61
+        },
+        "header::logo": {
+          "x": 144,
+          "y": 58,
+          "width": 119.33,
+          "height": 25
+        },
+        "header::link": {
+          "x": 1192.66,
+          "y": 62,
+          "width": 103.34,
+          "height": 17
+        },
+        "hero": {
+          "x": 120,
+          "y": 101,
+          "width": 1200,
+          "height": 778
+        },
+        "hero::title": {
+          "x": 144,
+          "y": 343.53,
+          "width": 552,
+          "height": 120.94
+        },
+        "hero::lede": {
+          "x": 144,
+          "y": 484.47,
+          "width": 480,
+          "height": 60
+        },
+        "hero::cta": {
+          "x": 144,
+          "y": 576.47,
+          "width": 212.31,
+          "height": 52
+        },
+        "hero::product": {
+          "x": 840,
+          "y": 165,
+          "width": 360,
+          "height": 540
+        },
+        "hero::note": {
+          "x": 840,
+          "y": 729,
+          "width": 360,
+          "height": 78
+        },
+        "demo": {
+          "x": 0,
+          "y": 879,
+          "width": 1440,
+          "height": 676
+        },
+        "demo::title": {
+          "x": 24,
+          "y": 951,
+          "width": 1392,
+          "height": 43
+        },
+        "demo::video": {
+          "x": 400,
+          "y": 1026,
+          "width": 640,
+          "height": 360
+        },
+        "demo::p1_title": {
+          "x": 220,
+          "y": 1426,
+          "width": 312,
+          "height": 25
+        },
+        "demo::p1_body": {
+          "x": 220,
+          "y": 1459,
+          "width": 312,
+          "height": 24
+        },
+        "demo::p2_title": {
+          "x": 564,
+          "y": 1426,
+          "width": 312,
+          "height": 25
+        },
+        "demo::p2_body": {
+          "x": 564,
+          "y": 1459,
+          "width": 312,
+          "height": 24
+        },
+        "demo::p3_title": {
+          "x": 908,
+          "y": 1426,
+          "width": 312,
+          "height": 25
+        },
+        "demo::p3_body": {
+          "x": 908,
+          "y": 1459,
+          "width": 312,
+          "height": 24
+        },
+        "specs": {
+          "x": 120,
+          "y": 1555,
+          "width": 1200,
+          "height": 303.17
+        },
+        "specs::title": {
+          "x": 240,
+          "y": 1627,
+          "width": 1056,
+          "height": 38
+        },
+        "specs::list": {
+          "x": 240,
+          "y": 1689,
+          "width": 1056,
+          "height": 97.17
+        },
+        "offer": {
+          "x": 0,
+          "y": 1858.17,
+          "width": 1440,
+          "height": 394
+        },
+        "offer::title": {
+          "x": 24,
+          "y": 1930.17,
+          "width": 1392,
+          "height": 43
+        },
+        "offer::card_1": {
+          "x": 336,
+          "y": 2005.17,
+          "width": 240,
+          "height": 151
+        },
+        "offer::card_2": {
+          "x": 600,
+          "y": 2005.17,
+          "width": 240,
+          "height": 151
+        },
+        "offer::card_3": {
+          "x": 864,
+          "y": 2005.17,
+          "width": 240,
+          "height": 151
+        },
+        "offer::save_2": {
+          "x": 622,
+          "y": 2110.17,
+          "width": 196,
+          "height": 16
+        },
+        "offer::save_3": {
+          "x": 886,
+          "y": 2110.17,
+          "width": 196,
+          "height": 16
+        },
+        "footer": {
+          "x": 0,
+          "y": 2252.17,
+          "width": 1440,
+          "height": 108
+        },
+        "footer::text": {
+          "x": 24,
+          "y": 2298.17,
+          "width": 1392,
+          "height": 16
+        }
+      },
+      "gaps": []
+    }
+  ]
+}

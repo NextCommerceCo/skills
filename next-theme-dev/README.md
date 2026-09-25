@@ -30,6 +30,14 @@ It knows:
 precise implementation package; this skill then does the building. Using the
 two together avoids the assistant guessing at what the design intends.
 
+**Starting from a live website?** Run
+[Theme Live-Site Handoff](../next-theme-design/) first. It records the page at
+desktop, tablet, and phone widths and writes a package in a format this skill
+owns and checks. The check reports two things: whether the package is
+complete, and which sections are ready to build. Sections that still wait on a
+decision, such as a price, a shipping promise, or a claim that needs proof,
+are listed so you can settle them before they are built.
+
 ## What You Need
 
 - **Python 3.10 or newer** and **NEXT Theme Kit 1.2.0**. Your assistant checks
@@ -53,8 +61,19 @@ for installation, OAuth app setup, and the current command reference.
 
 ## Install
 
-See the [repo README](../README.md) for installation. If you're not sure how,
-ask whoever set up your AI assistant — or ask the assistant itself.
+> [!IMPORTANT]
+> Theme Figma Handoff, Theme Live-Site Handoff, and Theme Development work as
+> a set: the two handoff skills prepare a design package, and Theme
+> Development checks it and builds the theme. Install all three. The installer
+> adds one named skill at a time, so run it once for each:
+>
+> - `./skills.sh install <target> next-theme-figma`
+> - `./skills.sh install <target> next-theme-design`
+> - `./skills.sh install <target> next-theme-dev`
+>
+> Replace `<target>` with `claude`, `codex`, `agents`, or `all`. The
+> [repo README](../README.md) covers other ways to install. If one of the three
+> is missing, the assistant stops and tells you which one to install.
 
 ## How to Use
 
