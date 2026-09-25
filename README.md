@@ -14,6 +14,7 @@ Cursor, GitHub Copilot, and any other agent that reads markdown.
 | Skill | Domain | What It Does |
 |-------|--------|--------------|
 | [**Theme Figma Handoff**](next-theme-figma/) | Storefronts | Turn a Figma storefront design into a validated, low-inference handoff package for next-theme-dev: sections, assets, geometry, copy, and design tokens. |
+| [**Theme Live-Site Handoff**](next-theme-design/) | Storefronts | Turn a live website or its HTML into a validated handoff package for next-theme-dev: captures at three widths, sections, geometry, copy decisions, styles, behaviors, and commerce divergences. |
 | [**Theme Development**](next-theme-dev/) | Storefronts | Build, modify, and debug Next Commerce storefront themes: Spark, Intro Bootstrap, Theme Settings, ntk CLI, DTL templates, storefront GraphQL, and builds from Figma or live-site handoff packages. |
 | [**Bulk Fulfillment Tracking Sync**](next-bulk-fulfill/) | Operations | Mark orders Fulfilled with tracking numbers from a CSV when a fulfillment provider's sync-back fails. |
 | [**Bulk Fulfillment Order Move**](next-bulk-move/) | Operations | Move fulfillment orders between warehouse locations in bulk, from a file of order numbers or a product/SKU list. |
@@ -25,8 +26,10 @@ Cursor, GitHub Copilot, and any other agent that reads markdown.
 
 Each skill directory holds a `README.md` for the person running it (what it
 does, what you need, how to ask for it) and a `SKILL.md` with the technical
-instructions the agent follows. For design-led theme work, run
-`next-theme-figma` before `next-theme-dev`.
+instructions the agent follows. For design-led theme work, run a source
+skill before `next-theme-dev`: `next-theme-figma` for a Figma design, or
+`next-theme-design` for a live website or its HTML. Install all three theme
+skills together.
 
 ## Quick Start
 
