@@ -79,7 +79,7 @@ Schema `next-theme-design/capture-output/v1`:
 | `readiness` | Fonts, images, and media metadata: `ready` or `timeout`, with counts. |
 | `motion` | `paused`, `running`, `partly-paused`, or `none`, and the animation count. |
 | `media_frame` | For each seek: the media URL, requested and actual time, and status. |
-| `targets` | Per key: selector, match count, tag, page-relative box, visibility, visible text, accessible name, link, and computed styles. |
+| `targets` | Per key: selector, match count, tag, page-relative box, visibility, visible text, accessible name, link, and computed styles. Visibility is a boolean `visible` on a single target and on each `matches[]` entry of a list target; `design-package.py geometry` reads it to explain a section with no box. |
 | `boxes` | Page-relative boxes of every target that matched exactly one node. `record` copies these into the capture record. |
 | `inventory` | Candidate page sections: selector hint, tag, classes, box, first heading, and text preview. |
 | `animations` | Every running animation or transition: name, target, duration, delay, iterations, direction, easing, fill, play state, current time, and keyframes. |

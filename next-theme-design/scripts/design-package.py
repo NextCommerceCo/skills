@@ -222,18 +222,24 @@ def element_role(tag: str) -> str:
     return "container"
 
 
-def hidden_at_width(target: dict | None) -> bool:
-    """True when the capture found the target but none of its elements is visible.
+def unmeasured_reason(target: dict | None) -> str:
+    """Why a section target has no box, from the visibility the capture recorded.
 
-    Reads the visibility the capture script recorded for a single target
-    (visible) or a list target (matches[].visible), not the wording of its gaps.
+    The capture script records a boolean visible on a single target and on each
+    matches[] entry of a list target. A capture without it cannot say whether
+    the section was hidden, so that case is named instead of guessed.
     """
     if not target or not target.get("found"):
-        return False
+        return "no matching element captured"
+    flags = [match.get("visible") for match in target.get("matches") or []] if "matches" in target \
+        else [target.get("visible")]
+    if not flags or not all(isinstance(flag, bool) for flag in flags):
+        return "visibility not recorded; re-run the capture script"
+    if not any(flags):
+        return "hidden at this width"
     if "matches" in target:
-        matches = target.get("matches") or []
-        return bool(matches) and not any(match.get("visible") for match in matches)
-    return target.get("visible") is False
+        return "a list target has no single box; capture the section as a single target"
+    return "visible but no box recorded; re-run the capture script"
 
 
 def command_geometry(args: argparse.Namespace) -> None:
@@ -266,8 +272,7 @@ def command_geometry(args: argparse.Namespace) -> None:
             # geometry.json has no record for an unmeasured section: the format
             # requires a real box. Say why, so the author can record a gap or a
             # responsive-order behavior; that decision stays with the author.
-            hidden = hidden_at_width(targets.get(section_id))
-            skipped.append(f"{section_id} ({'hidden at this width' if hidden else 'no matching element captured'})")
+            skipped.append(f"{section_id} ({unmeasured_reason(targets.get(section_id))})")
             continue
         old = previous_sections.get(section_id, {})
         old_elements = {entry.get("element_id"): entry for entry in old.get("elements", [])}
