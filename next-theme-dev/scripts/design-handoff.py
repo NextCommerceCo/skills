@@ -29,6 +29,7 @@ import json
 import re
 import struct
 import sys
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -409,8 +410,9 @@ def validate_handoff(package: Package, handoff: Any) -> str:
     if not urls and not supplied:
         result.error("design-handoff.json: record at least one source URL or supplied HTML file")
     for url in urls:
-        if not re.match(r"^https?://", url):
-            result.error(f"design-handoff.json: source URL {url!r} must start with http:// or https://")
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname or re.search(r"\s", url):
+            result.error(f"design-handoff.json: source URL {url!r} must be an http:// or https:// URL with a host")
     if not (isinstance(source.get("captured_on"), str) and DATE_RE.match(source["captured_on"])):
         result.error("design-handoff.json: source.captured_on must be the capture date as YYYY-MM-DD")
     rights = source.get("rights")
@@ -1242,8 +1244,8 @@ def validate_behaviors(package: Package) -> None:
                 capture = capture_for(package, capture_id, label, route=route_id, viewport=viewport)
                 if capture is not None:
                     states.append(capture.get("state"))
-        if kind == "motion" and evidence == "extracted" and "motion" not in states:
-            result.error(f"{label}: extracted motion cites a capture taken while motion ran (state motion)")
+            if kind == "motion" and evidence == "extracted" and "motion" not in states:
+                result.error(f"{label}: extracted motion cites a capture taken while motion ran (state motion)")
         if entry.get("details") is not None and not isinstance(entry["details"], dict):
             result.error(f"{label}: details must be an object")
         for claim in entry.get("claims") or []:
@@ -1312,6 +1314,8 @@ def compute_readiness(package: Package) -> dict:
             excluded.append({"section_id": section_id, "route_id": route_id,
                              "reason": section.get("exclusion_reason", "")})
             continue
+        # blockers stop the section; surface holds the non-blocking items the
+        # operator should still see before it is built. An item is in one list.
         blockers: list[str] = []
         surface: list[str] = []
         for gap in package.gaps.values():
@@ -1325,7 +1329,6 @@ def compute_readiness(package: Package) -> dict:
                 continue
             if entry.get("decision") == "unresolved":
                 blockers.append(f"copy {entry.get('copy_id')} is unresolved")
-                surface.append(f"copy {entry.get('copy_id')}: unresolved")
             elif entry.get("decision") == "omit":
                 surface.append(f"copy {entry.get('copy_id')}: omit")
         for asset in package.assets:
@@ -1333,16 +1336,13 @@ def compute_readiness(package: Package) -> dict:
                 continue
             if asset.get("state") == "reference-only" and asset.get("treatment") in (None, ""):
                 blockers.append(f"asset {asset.get('asset_id')} has no stated treatment")
-                surface.append(f"asset {asset.get('asset_id')}: no treatment")
             elif asset.get("state") == "replacement-needed":
                 blockers.append(f"asset {asset.get('asset_id')} needs a replacement: {asset.get('target_asset')}")
-                surface.append(f"asset {asset.get('asset_id')}: replacement needed")
         for divergence_id, entry in package.divergences.items():
             if section_id in (entry.get("section_ids") or []) and unresolved(entry):
                 blockers.append(
                     f"divergence {divergence_id} is unresolved ({entry.get('decision')}/{entry.get('status')})"
                 )
-                surface.append(f"divergence {divergence_id}: unresolved")
         sections.append({
             "section_id": section_id,
             "route_id": route_id,
@@ -1351,8 +1351,13 @@ def compute_readiness(package: Package) -> dict:
             "surface": surface,
         })
     ready = bool(sections) and all(entry["ready"] for entry in sections)
-    return {"ready": ready, "reason": "" if ready else "blocked sections", "sections": sections,
-            "excluded_sections": excluded}
+    if ready:
+        reason = ""
+    elif not sections:
+        reason = "no in-scope sections"
+    else:
+        reason = "blocked sections"
+    return {"ready": ready, "reason": reason, "sections": sections, "excluded_sections": excluded}
 
 
 # --------------------------------------------------------------------------
@@ -1404,6 +1409,9 @@ reason.
 
 def command_new(args: argparse.Namespace) -> int:
     out = Path(args.out)
+    if out.exists() and not out.is_dir():
+        print(f"design-handoff: --out {out} is not a directory", file=sys.stderr)
+        return 2
     targets = [out / filename for filename in list(FILES.values()) + list(TEXT_FILES)]
     existing = [path.name for path in targets if path.exists()]
     if existing and not args.force:
@@ -1418,7 +1426,11 @@ def command_new(args: argparse.Namespace) -> int:
     paths = [path.strip() for path in (args.routes or "/").split(",") if path.strip()]
     routes = [route_id_for(path, index) for index, path in enumerate(paths)]
     now = _dt.datetime.now(_dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-    (out / "captures" / "raw").mkdir(parents=True, exist_ok=True)
+    try:
+        (out / "captures" / "raw").mkdir(parents=True, exist_ok=True)
+    except (FileExistsError, NotADirectoryError):
+        print(f"design-handoff: cannot create {out}: a parent path is not a directory", file=sys.stderr)
+        return 2
 
     def write(key: str, body: dict) -> None:
         (out / FILES[key]).write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
@@ -1518,12 +1530,8 @@ def print_result(result: Result, readiness: dict) -> None:
         print(f"  {state} {entry['route_id']}/{entry['section_id']}")
         for blocker in entry["blockers"]:
             print(f"    blocker: {blocker}")
-        # Blockers are already surfaced; list only the non-blocking items the
-        # operator should still see before the section is built.
         for item in entry["surface"]:
-            if not item.endswith(": unresolved") and not item.endswith(": no treatment") \
-                    and not item.endswith(": replacement needed"):
-                print(f"    surface to operator: {item}")
+            print(f"    surface to operator: {item}")
     for entry in readiness["excluded_sections"]:
         print(f"  EXCLUDED {entry['route_id']}/{entry['section_id']}: {entry['reason']}")
 
