@@ -136,20 +136,26 @@ class HelperTest(unittest.TestCase):
     def test_geometry_names_each_unmeasured_section_and_why(self):
         sections = self.load("sections.json")
         in_scope = [entry["section_id"] for entry in sections["sections"]]
-        hidden, missing, excluded = in_scope[1], in_scope[2], in_scope[3]
+        hidden, hidden_list, missing, excluded = in_scope[1], in_scope[2], in_scope[3], in_scope[4]
         for entry in sections["sections"]:
             if entry["section_id"] == excluded:
                 entry.update({"in_scope": False, "exclusion_reason": "Not in this build."})
         (self.package / "sections.json").write_text(json.dumps(sections), encoding="utf-8")
 
         def drop_boxes(raw):
-            for key in (hidden, missing, excluded):
+            for key in (hidden, hidden_list, missing, excluded):
                 raw["boxes"].pop(key)
-            raw["gaps"] = [f"target {hidden}: matched an element that is hidden at this viewport"]
+            # Visibility comes from the recorded targets, not from gap wording.
+            raw["targets"][hidden]["visible"] = False
+            raw["targets"][hidden_list] = {"selector": ".carousel", "count": 2, "found": True,
+                                           "matches": [{"visible": False}, {"visible": False}]}
+            raw["targets"].pop(missing, None)
+            raw["gaps"] = []
         self.variant(drop_boxes)
         result = run(HELPER, "geometry", "--package", self.package, "--capture", "home-desktop-static")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(f"no geometry for {hidden} (hidden at this width)", result.stdout)
+        self.assertIn(f"no geometry for {hidden_list} (hidden at this width)", result.stdout)
         self.assertIn(f"no geometry for {missing} (no matching element captured)", result.stdout)
         self.assertNotIn(f"no geometry for {excluded}", result.stdout)
         frame = self.load("geometry.json")["routes"][0]["viewports"]["desktop"]

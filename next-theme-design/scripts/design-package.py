@@ -222,6 +222,20 @@ def element_role(tag: str) -> str:
     return "container"
 
 
+def hidden_at_width(target: dict | None) -> bool:
+    """True when the capture found the target but none of its elements is visible.
+
+    Reads the visibility the capture script recorded for a single target
+    (visible) or a list target (matches[].visible), not the wording of its gaps.
+    """
+    if not target or not target.get("found"):
+        return False
+    if "matches" in target:
+        matches = target.get("matches") or []
+        return bool(matches) and not any(match.get("visible") for match in matches)
+    return target.get("visible") is False
+
+
 def command_geometry(args: argparse.Namespace) -> None:
     package = Path(args.package)
     record, raw = captured(package, args.capture)
@@ -244,7 +258,6 @@ def command_geometry(args: argparse.Namespace) -> None:
     previous_sections = {entry.get("section_id"): entry for entry in previous.get("sections", [])}
     wanted = [entry for entry in sections_doc.get("sections", [])
               if entry.get("route_id") == route_id and entry.get("in_scope") is not False]
-    hidden_note = "matched an element that is hidden at this viewport"
     frame_sections = []
     skipped = []
     for section in wanted:
@@ -253,7 +266,7 @@ def command_geometry(args: argparse.Namespace) -> None:
             # geometry.json has no record for an unmeasured section: the format
             # requires a real box. Say why, so the author can record a gap or a
             # responsive-order behavior; that decision stays with the author.
-            hidden = any(gap == f"target {section_id}: {hidden_note}" for gap in record.get("gaps") or [])
+            hidden = hidden_at_width(targets.get(section_id))
             skipped.append(f"{section_id} ({'hidden at this width' if hidden else 'no matching element captured'})")
             continue
         old = previous_sections.get(section_id, {})
