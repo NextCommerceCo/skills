@@ -105,6 +105,57 @@ class HelperTest(unittest.TestCase):
         self.assertEqual(title["capture_key"], "hero::title")
         self.assertEqual(strings["hero_product"]["source_text"], "Northlight desk lamp in graphite")
 
+    def variant(self, change):
+        raw = json.loads((FIXTURE / "captures" / "raw" / "home-desktop-static.json").read_text(encoding="utf-8"))
+        change(raw)
+        path = self.root / "variant.json"
+        path.write_text(json.dumps(raw), encoding="utf-8")
+        result = run(HELPER, "record", "--package", self.package, "--raw", path, "--tool", "test")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_list_target_copy_ids_always_take_a_suffix(self):
+        def one_match_list(raw):
+            single = raw["targets"]["hero::title"]
+            raw["targets"]["hero::title"] = {"selector": single["selector"], "count": 1, "found": True,
+                                             "matches": [{"text": single["text"], "visible": True}]}
+        self.variant(one_match_list)
+        result = run(HELPER, "draft-copy", "--package", self.package, "--capture", "home-desktop-static")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        ids = {entry["copy_id"] for entry in self.load("copy.json")["strings"]}
+        self.assertIn("hero_title_1", ids)
+        self.assertNotIn("hero_title", ids)
+        self.assertIn("hero_product", ids)
+
+    def test_geometry_refuses_a_capture_without_document_height(self):
+        self.variant(lambda raw: raw["page"].pop("document_height"))
+        result = run(HELPER, "geometry", "--package", self.package, "--capture", "home-desktop-static")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("has no document_height", result.stderr)
+        self.assertEqual(self.load("geometry.json").get("routes", []), [])
+
+    def test_geometry_names_each_unmeasured_section_and_why(self):
+        sections = self.load("sections.json")
+        in_scope = [entry["section_id"] for entry in sections["sections"]]
+        hidden, missing, excluded = in_scope[1], in_scope[2], in_scope[3]
+        for entry in sections["sections"]:
+            if entry["section_id"] == excluded:
+                entry.update({"in_scope": False, "exclusion_reason": "Not in this build."})
+        (self.package / "sections.json").write_text(json.dumps(sections), encoding="utf-8")
+
+        def drop_boxes(raw):
+            for key in (hidden, missing, excluded):
+                raw["boxes"].pop(key)
+            raw["gaps"] = [f"target {hidden}: matched an element that is hidden at this viewport"]
+        self.variant(drop_boxes)
+        result = run(HELPER, "geometry", "--package", self.package, "--capture", "home-desktop-static")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"no geometry for {hidden} (hidden at this width)", result.stdout)
+        self.assertIn(f"no geometry for {missing} (no matching element captured)", result.stdout)
+        self.assertNotIn(f"no geometry for {excluded}", result.stdout)
+        frame = self.load("geometry.json")["routes"][0]["viewports"]["desktop"]
+        self.assertEqual(frame["frame_height"], 2360)
+        self.assertTrue(all(entry["box"] for entry in frame["sections"]))
+
     def test_draft_styles_copies_computed_values(self):
         self.record("home-desktop-static")
         result = run(HELPER, "draft-styles", "--package", self.package, "--capture", "home-desktop-static",

@@ -489,6 +489,10 @@
       }
     } else {
       entry.matches = nodes.slice(0, 50).map(describe);
+      // A list target with no visible match has no layout at this width either.
+      if (!nodes.some((node) => isVisible(node))) {
+        gaps.push(`target ${key}: all ${nodes.length} matches are hidden at this viewport`);
+      }
     }
   }
 

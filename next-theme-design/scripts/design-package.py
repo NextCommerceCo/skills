@@ -230,6 +230,8 @@ def command_geometry(args: argparse.Namespace) -> None:
     sections_doc = load(package_file(package, "sections.json"))
     route_id = record["route_id"]
     viewport = record["viewport"]
+    if not isinstance(record.get("document_height"), (int, float)) or record["document_height"] <= 0:
+        raise Refused(f"capture {args.capture} has no document_height; re-run the capture script and record it again")
     boxes = record.get("boxes") or {}
     targets = raw.get("targets") or {}
     geometry_path = package_file(package, "geometry.json")
@@ -240,13 +242,19 @@ def command_geometry(args: argparse.Namespace) -> None:
         geometry["routes"].append(route)
     previous = route.setdefault("viewports", {}).get(viewport) or {}
     previous_sections = {entry.get("section_id"): entry for entry in previous.get("sections", [])}
-    wanted = [entry for entry in sections_doc.get("sections", []) if entry.get("route_id") == route_id]
+    wanted = [entry for entry in sections_doc.get("sections", [])
+              if entry.get("route_id") == route_id and entry.get("in_scope") is not False]
+    hidden_note = "matched an element that is hidden at this viewport"
     frame_sections = []
     skipped = []
     for section in wanted:
         section_id = section["section_id"]
         if section_id not in boxes:
-            skipped.append(section_id)
+            # geometry.json has no record for an unmeasured section: the format
+            # requires a real box. Say why, so the author can record a gap or a
+            # responsive-order behavior; that decision stays with the author.
+            hidden = any(gap == f"target {section_id}: {hidden_note}" for gap in record.get("gaps") or [])
+            skipped.append(f"{section_id} ({'hidden at this width' if hidden else 'no matching element captured'})")
             continue
         old = previous_sections.get(section_id, {})
         old_elements = {entry.get("element_id"): entry for entry in old.get("elements", [])}
@@ -296,13 +304,15 @@ def command_geometry(args: argparse.Namespace) -> None:
     route["viewports"][viewport] = {
         "capture_id": record["capture_id"],
         "frame_width": record["viewport_width"],
-        "frame_height": record.get("document_height") or 0,
+        "frame_height": record["document_height"],
         "sections": frame_sections,
     }
     save(geometry_path, geometry)
     print(f"[next-theme-design] geometry {route_id}/{viewport} from {record['capture_id']}: "
-          f"{len(frame_sections)} section(s)"
-          + (f"; no box for {', '.join(skipped)} (capture it or record a gap)" if skipped else ""))
+          f"{len(frame_sections)} section(s)")
+    for entry in skipped:
+        print(f"[next-theme-design] no geometry for {entry}: record a gap in design-handoff.json, "
+              f"or a responsive-order behavior if it is hidden on purpose")
 
 
 def copy_id_for(key: str) -> str:
@@ -324,14 +334,18 @@ def command_draft_copy(args: argparse.Namespace) -> None:
             continue
         if not wanted and "::" not in key:
             continue
-        texts = [target.get("text") or ""] if not target.get("matches") else [
+        texts = [target.get("text") or ""] if "matches" not in target else [
             match.get("text") or "" for match in target["matches"]
         ]
         for index, text in enumerate(texts):
             text = text.strip() or (target.get("accessible_name") or "").strip()
             if not text:
                 continue
-            copy_id = copy_id_for(key) + (f"_{index + 1}" if len(texts) > 1 else "")
+            # A list target (captured with matches) always takes a 1-based
+            # suffix, even with one match, so its ids follow from the target
+            # definition; a single target never does, so reruns on an existing
+            # package keep its ids.
+            copy_id = copy_id_for(key) + (f"_{index + 1}" if "matches" in target else "")
             if copy_id in existing:
                 continue
             copy.setdefault("strings", []).append({
