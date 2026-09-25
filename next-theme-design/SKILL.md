@@ -250,3 +250,6 @@ Record these in `notes.md` when they apply, rather than guessing:
 - Headless browsers may block autoplay by default; say how the capture ran.
 - Pages that serve different markup by user agent or location may differ
   from what a shopper's phone sees.
+- Captured text is the text the page shows, so CSS `text-transform` is
+  already applied (an uppercase bar reads in capitals). Check the observed
+  `text-transform` before reusing such copy.
