@@ -1,6 +1,6 @@
 ---
 name: next-theme-figma
-version: 0.7.2
+version: 0.8.0
 description: |
   Prepare Figma storefront designs for NEXT Commerce theme
   implementation handoff. Use when auditing, inspecting, extracting assets
@@ -9,7 +9,8 @@ description: |
   desktop/tablet/mobile fidelity, Figma asset extraction, section
   classification, visual comparison, or handoff into next-theme-dev. This
   skill creates a low-inference design-source package; it does not implement
-  theme code.
+  theme code. For a live website or its HTML instead of Figma, use
+  next-theme-design.
 allowed-tools:
   - Bash
   - Read
@@ -20,6 +21,17 @@ allowed-tools:
 ---
 
 # NEXT Theme Figma
+
+> **Three linked theme skills.** `next-theme-figma`, `next-theme-design`, and
+> `next-theme-dev` are installed and used together. `next-theme-figma` turns a
+> Figma source into a handoff package and holds the Spark section roster and
+> the copy lint that the other two use. `next-theme-design` turns a live site
+> or its HTML into a handoff package and holds the in-page capture script.
+> `next-theme-dev` validates the package and builds the theme from it, and
+> holds the package format, scaffolder, validator, and geometry assertion.
+> Work always runs from one source skill into `next-theme-dev`. If a sibling
+> this skill needs is not installed, stop and name it with its install command
+> (`./skills.sh install <target> <skill>`); never re-derive what it provides.
 
 ## Using This Skill
 
@@ -36,7 +48,7 @@ This skill works with any AI coding tool that can load a markdown file as contex
 
 Use this skill upstream of `next-theme-dev`. Treat Figma as structured source, not inspiration: inspect the file, classify sections and assets, record theme/platform divergences, capture references, and produce a handoff package that a theme implementation agent can consume without guessing.
 
-If the user asks to implement a theme directly from Figma, first run this workflow until the design-source package is clear enough. Then load `next-theme-dev` for DTL/theme edits, ntk push/pull, CSS builds, and storefront QA.
+If the user asks to implement a theme directly from Figma, first run this workflow until the design-source package is clear enough. Then load `next-theme-dev` for DTL/theme edits, ntk push/pull, CSS builds, and storefront QA. When the source is a live website or its HTML rather than a Figma file, use `next-theme-design` instead; it produces a live-site package in the shared format `next-theme-dev` owns.
 
 ## Recommended Handoff Loop
 
@@ -230,6 +242,11 @@ Lint a build against the copy inventory with the bundled script:
 python3 <skill-dir>/scripts/copy-lint.py \
   --package /path/to/handoff --templates partials --templates templates
 ```
+
+The same script lints live-site packages from `next-theme-design`: it also
+accepts `copy.json` with schema `next-theme-dev/handoff-copy/v1`, whose
+`strings[].text` holds only the text the build may show. The lint logic is
+the same for both schemas.
 
 ### 5a. Optional Product Media Handoff
 

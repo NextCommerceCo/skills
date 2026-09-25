@@ -2,9 +2,12 @@
 """Diff built theme templates against the handoff copy manifest.
 
 The copy manifest (``copy.json``) is the verbatim text inventory extracted from
-the Figma text layers at handoff time. This lint reads the built templates and
-fails on any visible copy string that is not in that inventory and not covered
-by a recorded allowed deviation.
+the Figma text layers at handoff time, or, for a live-site package
+(``next-theme-dev/handoff-copy/v1``), the permitted build text recorded for
+each captured source string. Either way ``strings[].text`` is the list of text
+the build may show. This lint reads the built templates and fails on any
+visible copy string that is not in that inventory and not covered by a recorded
+allowed deviation.
 
 It exists because invented copy is cheap to write and expensive to find: it
 surfaces in a review round, days after the section was built, and costs a full
@@ -29,6 +32,11 @@ import unicodedata
 from pathlib import Path
 
 SCHEMA = "next-theme-figma/copy/v1"
+# Live-site packages: next-theme-dev owns this schema. Their strings carry the
+# captured text in source_text and only permitted build text in text ("" for
+# omit and unresolved decisions), so the lint logic is the same for both.
+LIVE_SITE_SCHEMA = "next-theme-dev/handoff-copy/v1"
+SCHEMAS = (SCHEMA, LIVE_SITE_SCHEMA)
 REPORT_SCHEMA = "next-theme-figma/copy-lint-report/v1"
 
 DEFAULT_TEMPLATE_SUFFIXES = (".html", ".htm", ".dtl")
@@ -129,8 +137,11 @@ def extract_candidates(text: str, min_length: int) -> list[dict]:
 
 def load_manifest(path: Path) -> dict:
     manifest = json.loads(path.read_text(encoding="utf-8"))
-    if manifest.get("schema_version") != SCHEMA:
-        raise ValueError(f'{path}: schema_version must be "{SCHEMA}"')
+    if manifest.get("schema_version") not in SCHEMAS:
+        raise ValueError(
+            f"{path}: schema_version must be one of "
+            + ", ".join(f'"{schema}"' for schema in SCHEMAS)
+        )
     if not isinstance(manifest.get("strings"), list):
         raise ValueError(f"{path}: strings must be an array")
     return manifest

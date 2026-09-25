@@ -1,0 +1,70 @@
+{
+  "schema_version": "next-theme-dev/handoff-divergence/v1",
+  "entries": [
+    {
+      "divergence_id": "coupon-offer",
+      "kind": "commerce",
+      "surface": "promo strip",
+      "route_ids": [
+        "home"
+      ],
+      "section_ids": [
+        "strip"
+      ],
+      "capture_ids": [
+        "home-desktop-static"
+      ],
+      "source_expectation": "The strip offers 25% off everything with a coupon code.",
+      "platform_behavior": "No matching coupon is known in the store; a coupon needs store configuration.",
+      "decision": "needs-approval",
+      "implementation_guardrail": "Do not show a code until the store has it.",
+      "status": "open",
+      "approved_by": "",
+      "target_evidence": {
+        "origin": "none",
+        "summary": ""
+      }
+    },
+    {
+      "divergence_id": "cold-claim",
+      "kind": "claim",
+      "surface": "rotating badge",
+      "route_ids": [
+        "home"
+      ],
+      "section_ids": [
+        "intro"
+      ],
+      "capture_ids": [
+        "home-desktop-static",
+        "home-desktop-motion"
+      ],
+      "source_expectation": "The badge claims drinks stay cold for 24 hours.",
+      "platform_behavior": "A performance claim needs test evidence or softer copy.",
+      "decision": "needs-approval",
+      "implementation_guardrail": "Keep the badge motion; hold the claim text.",
+      "status": "open",
+      "approved_by": ""
+    },
+    {
+      "divergence_id": "buy-price",
+      "kind": "commerce",
+      "surface": "closing price",
+      "route_ids": [
+        "home"
+      ],
+      "section_ids": [
+        "buy"
+      ],
+      "capture_ids": [
+        "home-desktop-static"
+      ],
+      "source_expectation": "The band shows a fixed price of $32.",
+      "platform_behavior": "The price comes from the store catalog.",
+      "decision": "platform-wins",
+      "implementation_guardrail": "Render the live price.",
+      "status": "approved",
+      "approved_by": "fixture operator"
+    }
+  ]
+}

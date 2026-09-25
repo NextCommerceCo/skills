@@ -1,0 +1,950 @@
+{
+  "schema_version": "next-theme-dev/handoff-captures/v1",
+  "captures": [
+    {
+      "capture_id": "home-desktop-static",
+      "route_id": "home",
+      "viewport": "desktop",
+      "state": "static",
+      "state_detail": "",
+      "url": "https://tidewell.example.test/",
+      "viewport_width": 1440,
+      "viewport_height": 900,
+      "device_pixel_ratio": 1,
+      "scroll_x": 0,
+      "scroll_y": 0,
+      "document_width": 1440,
+      "document_height": 1600,
+      "browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151 Safari/537.36",
+      "tool": "playwright 1.62.1, chromium 151 (headless)",
+      "captured_at": "2026-09-25T13:50:48.288Z",
+      "html_sha256": "e6248d7fde001521",
+      "readiness": {
+        "fonts": "ready",
+        "images": "ready",
+        "media_metadata": "none"
+      },
+      "motion": "paused",
+      "media_url": "",
+      "media_time_s": null,
+      "screenshot": "captures/home-desktop-static.png",
+      "screenshot_kind": "full-page",
+      "raw_output": "captures/raw/home-desktop-static.json",
+      "boxes": {
+        "strip": {
+          "x": 0,
+          "y": 0,
+          "width": 1440,
+          "height": 40
+        },
+        "strip::text": {
+          "x": 556.38,
+          "y": 11,
+          "width": 327.23,
+          "height": 17
+        },
+        "intro": {
+          "x": 0,
+          "y": 40,
+          "width": 1440,
+          "height": 632
+        },
+        "intro::title": {
+          "x": 170,
+          "y": 203.88,
+          "width": 583,
+          "height": 114.38
+        },
+        "intro::body": {
+          "x": 170,
+          "y": 334.25,
+          "width": 460,
+          "height": 58.88
+        },
+        "intro::cta": {
+          "x": 170,
+          "y": 421.13,
+          "width": 189.14,
+          "height": 47
+        },
+        "intro::bottle": {
+          "x": 911.5,
+          "y": 96,
+          "width": 240,
+          "height": 480
+        },
+        "intro::badge": {
+          "x": 1110,
+          "y": 108,
+          "width": 120,
+          "height": 120
+        },
+        "intro::wave": {
+          "x": 0,
+          "y": 512,
+          "width": 1440,
+          "height": 160
+        },
+        "trio": {
+          "x": 170,
+          "y": 672,
+          "width": 1100,
+          "height": 321
+        },
+        "trio::t1": {
+          "x": 230,
+          "y": 820,
+          "width": 270.66,
+          "height": 25
+        },
+        "trio::b1": {
+          "x": 230,
+          "y": 853,
+          "width": 270.66,
+          "height": 48
+        },
+        "trio::t2": {
+          "x": 584.66,
+          "y": 820,
+          "width": 270.67,
+          "height": 25
+        },
+        "trio::b2": {
+          "x": 584.66,
+          "y": 853,
+          "width": 270.67,
+          "height": 48
+        },
+        "trio::t3": {
+          "x": 939.33,
+          "y": 820,
+          "width": 270.66,
+          "height": 25
+        },
+        "trio::b3": {
+          "x": 939.33,
+          "y": 853,
+          "width": 270.66,
+          "height": 48
+        },
+        "faq": {
+          "x": 340,
+          "y": 993,
+          "width": 760,
+          "height": 243
+        },
+        "faq::title": {
+          "x": 372,
+          "y": 1025,
+          "width": 696,
+          "height": 35
+        },
+        "faq::q1": {
+          "x": 372,
+          "y": 1091,
+          "width": 696,
+          "height": 19
+        },
+        "faq::q2": {
+          "x": 372,
+          "y": 1139,
+          "width": 696,
+          "height": 19
+        },
+        "buy": {
+          "x": 0,
+          "y": 1236,
+          "width": 1440,
+          "height": 275
+        },
+        "buy::title": {
+          "x": 32,
+          "y": 1300,
+          "width": 1376,
+          "height": 40
+        },
+        "buy::price": {
+          "x": 32,
+          "y": 1348,
+          "width": 1376,
+          "height": 32
+        },
+        "buy::cta": {
+          "x": 606.88,
+          "y": 1400,
+          "width": 226.23,
+          "height": 47
+        },
+        "legal": {
+          "x": 0,
+          "y": 1511,
+          "width": 1440,
+          "height": 89
+        },
+        "legal::text": {
+          "x": 24,
+          "y": 1548,
+          "width": 1392,
+          "height": 15
+        }
+      },
+      "gaps": []
+    },
+    {
+      "capture_id": "home-tablet-static",
+      "route_id": "home",
+      "viewport": "tablet",
+      "state": "static",
+      "state_detail": "",
+      "url": "https://tidewell.example.test/",
+      "viewport_width": 768,
+      "viewport_height": 1024,
+      "device_pixel_ratio": 1,
+      "scroll_x": 0,
+      "scroll_y": 0,
+      "document_width": 768,
+      "document_height": 2087,
+      "browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151 Safari/537.36",
+      "tool": "playwright 1.62.1, chromium 151 (headless)",
+      "captured_at": "2026-09-25T13:50:50.298Z",
+      "html_sha256": "e6248d7fde001521",
+      "readiness": {
+        "fonts": "ready",
+        "images": "ready",
+        "media_metadata": "none"
+      },
+      "motion": "paused",
+      "media_url": "",
+      "media_time_s": null,
+      "screenshot": "captures/home-tablet-static.png",
+      "screenshot_kind": "full-page",
+      "raw_output": "captures/raw/home-tablet-static.json",
+      "boxes": {
+        "strip": {
+          "x": 0,
+          "y": 0,
+          "width": 768,
+          "height": 40
+        },
+        "strip::text": {
+          "x": 220.38,
+          "y": 11,
+          "width": 327.23,
+          "height": 17
+        },
+        "intro": {
+          "x": 0,
+          "y": 40,
+          "width": 768,
+          "height": 797.47
+        },
+        "intro::title": {
+          "x": 97.69,
+          "y": 576,
+          "width": 572.63,
+          "height": 39.59
+        },
+        "intro::body": {
+          "x": 97.69,
+          "y": 631.59,
+          "width": 460,
+          "height": 58.88
+        },
+        "intro::cta": {
+          "x": 97.69,
+          "y": 718.47,
+          "width": 189.14,
+          "height": 47
+        },
+        "intro::bottle": {
+          "x": 264,
+          "y": 72,
+          "width": 240,
+          "height": 480
+        },
+        "intro::badge": {
+          "x": 408,
+          "y": 84,
+          "width": 96,
+          "height": 96
+        },
+        "intro::wave": {
+          "x": 0,
+          "y": 677.47,
+          "width": 768,
+          "height": 160
+        },
+        "trio": {
+          "x": 0,
+          "y": 837.47,
+          "width": 768,
+          "height": 643
+        },
+        "trio::t1": {
+          "x": 48,
+          "y": 961.47,
+          "width": 672,
+          "height": 25
+        },
+        "trio::b1": {
+          "x": 48,
+          "y": 994.47,
+          "width": 672,
+          "height": 24
+        },
+        "trio::t2": {
+          "x": 48,
+          "y": 1158.47,
+          "width": 672,
+          "height": 25
+        },
+        "trio::b2": {
+          "x": 48,
+          "y": 1191.47,
+          "width": 672,
+          "height": 24
+        },
+        "trio::t3": {
+          "x": 48,
+          "y": 1355.47,
+          "width": 672,
+          "height": 25
+        },
+        "trio::b3": {
+          "x": 48,
+          "y": 1388.47,
+          "width": 672,
+          "height": 24
+        },
+        "faq": {
+          "x": 4,
+          "y": 1480.47,
+          "width": 760,
+          "height": 243
+        },
+        "faq::title": {
+          "x": 36,
+          "y": 1512.47,
+          "width": 696,
+          "height": 35
+        },
+        "faq::q1": {
+          "x": 36,
+          "y": 1578.47,
+          "width": 696,
+          "height": 19
+        },
+        "faq::q2": {
+          "x": 36,
+          "y": 1626.47,
+          "width": 696,
+          "height": 19
+        },
+        "buy": {
+          "x": 0,
+          "y": 1723.47,
+          "width": 768,
+          "height": 275
+        },
+        "buy::title": {
+          "x": 32,
+          "y": 1787.47,
+          "width": 704,
+          "height": 40
+        },
+        "buy::price": {
+          "x": 32,
+          "y": 1835.47,
+          "width": 704,
+          "height": 32
+        },
+        "buy::cta": {
+          "x": 270.88,
+          "y": 1887.47,
+          "width": 226.23,
+          "height": 47
+        },
+        "legal": {
+          "x": 0,
+          "y": 1998.47,
+          "width": 768,
+          "height": 89
+        },
+        "legal::text": {
+          "x": 24,
+          "y": 2035.47,
+          "width": 720,
+          "height": 15
+        }
+      },
+      "gaps": []
+    },
+    {
+      "capture_id": "home-mobile-static",
+      "route_id": "home",
+      "viewport": "mobile",
+      "state": "static",
+      "state_detail": "",
+      "url": "https://tidewell.example.test/",
+      "viewport_width": 390,
+      "viewport_height": 844,
+      "device_pixel_ratio": 2,
+      "scroll_x": 0,
+      "scroll_y": 0,
+      "document_width": 390,
+      "document_height": 2269,
+      "browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151 Safari/537.36",
+      "tool": "playwright 1.62.1, chromium 151 (headless)",
+      "captured_at": "2026-09-25T13:50:52.428Z",
+      "html_sha256": "e6248d7fde001521",
+      "readiness": {
+        "fonts": "ready",
+        "images": "ready",
+        "media_metadata": "none"
+      },
+      "motion": "paused",
+      "media_url": "",
+      "media_time_s": null,
+      "screenshot": "captures/home-mobile-static.png",
+      "screenshot_kind": "full-page",
+      "raw_output": "captures/raw/home-mobile-static.json",
+      "boxes": {
+        "strip": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 40
+        },
+        "strip::text": {
+          "x": 31.38,
+          "y": 11,
+          "width": 327.23,
+          "height": 17
+        },
+        "intro": {
+          "x": 0,
+          "y": 40,
+          "width": 390,
+          "height": 866.5
+        },
+        "intro::title": {
+          "x": 20,
+          "y": 576,
+          "width": 350,
+          "height": 79.19
+        },
+        "intro::body": {
+          "x": 20,
+          "y": 671.19,
+          "width": 350,
+          "height": 88.31
+        },
+        "intro::cta": {
+          "x": 20,
+          "y": 787.5,
+          "width": 189.14,
+          "height": 47
+        },
+        "intro::bottle": {
+          "x": 75,
+          "y": 72,
+          "width": 240,
+          "height": 480
+        },
+        "intro::badge": {
+          "x": 219,
+          "y": 84,
+          "width": 96,
+          "height": 96
+        },
+        "intro::wave": {
+          "x": 0,
+          "y": 746.5,
+          "width": 390,
+          "height": 160
+        },
+        "trio": {
+          "x": 0,
+          "y": 906.5,
+          "width": 390,
+          "height": 715
+        },
+        "trio::t1": {
+          "x": 48,
+          "y": 1030.5,
+          "width": 294,
+          "height": 25
+        },
+        "trio::b1": {
+          "x": 48,
+          "y": 1063.5,
+          "width": 294,
+          "height": 48
+        },
+        "trio::t2": {
+          "x": 48,
+          "y": 1251.5,
+          "width": 294,
+          "height": 25
+        },
+        "trio::b2": {
+          "x": 48,
+          "y": 1284.5,
+          "width": 294,
+          "height": 48
+        },
+        "trio::t3": {
+          "x": 48,
+          "y": 1472.5,
+          "width": 294,
+          "height": 25
+        },
+        "trio::b3": {
+          "x": 48,
+          "y": 1505.5,
+          "width": 294,
+          "height": 48
+        },
+        "faq": {
+          "x": 0,
+          "y": 1621.5,
+          "width": 390,
+          "height": 243
+        },
+        "faq::title": {
+          "x": 32,
+          "y": 1653.5,
+          "width": 326,
+          "height": 35
+        },
+        "faq::q1": {
+          "x": 32,
+          "y": 1719.5,
+          "width": 326,
+          "height": 19
+        },
+        "faq::q2": {
+          "x": 32,
+          "y": 1767.5,
+          "width": 326,
+          "height": 19
+        },
+        "buy": {
+          "x": 0,
+          "y": 1864.5,
+          "width": 390,
+          "height": 315
+        },
+        "buy::title": {
+          "x": 32,
+          "y": 1928.5,
+          "width": 326,
+          "height": 80
+        },
+        "buy::price": {
+          "x": 32,
+          "y": 2016.5,
+          "width": 326,
+          "height": 32
+        },
+        "buy::cta": {
+          "x": 81.88,
+          "y": 2068.5,
+          "width": 226.23,
+          "height": 47
+        },
+        "legal": {
+          "x": 0,
+          "y": 2179.5,
+          "width": 390,
+          "height": 89
+        },
+        "legal::text": {
+          "x": 24,
+          "y": 2216.5,
+          "width": 342,
+          "height": 15
+        }
+      },
+      "gaps": []
+    },
+    {
+      "capture_id": "home-desktop-motion",
+      "route_id": "home",
+      "viewport": "desktop",
+      "state": "motion",
+      "state_detail": "badge rotation and bottle bob running",
+      "url": "https://tidewell.example.test/",
+      "viewport_width": 1440,
+      "viewport_height": 900,
+      "device_pixel_ratio": 1,
+      "scroll_x": 0,
+      "scroll_y": 0,
+      "document_width": 1440,
+      "document_height": 1600,
+      "browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151 Safari/537.36",
+      "tool": "playwright 1.62.1, chromium 151 (headless)",
+      "captured_at": "2026-09-25T13:50:55.021Z",
+      "html_sha256": "e6248d7fde001521",
+      "readiness": {
+        "fonts": "ready",
+        "images": "ready",
+        "media_metadata": "none"
+      },
+      "motion": "running",
+      "media_url": "",
+      "media_time_s": null,
+      "screenshot": "captures/home-desktop-motion.png",
+      "screenshot_kind": "viewport",
+      "raw_output": "captures/raw/home-desktop-motion.json",
+      "boxes": {
+        "strip": {
+          "x": 0,
+          "y": 0,
+          "width": 1440,
+          "height": 40
+        },
+        "strip::text": {
+          "x": 556.38,
+          "y": 11,
+          "width": 327.23,
+          "height": 17
+        },
+        "intro": {
+          "x": 0,
+          "y": 40,
+          "width": 1440,
+          "height": 632
+        },
+        "intro::title": {
+          "x": 170,
+          "y": 203.88,
+          "width": 583,
+          "height": 114.38
+        },
+        "intro::body": {
+          "x": 170,
+          "y": 334.25,
+          "width": 460,
+          "height": 58.88
+        },
+        "intro::cta": {
+          "x": 170,
+          "y": 421.13,
+          "width": 189.14,
+          "height": 47
+        },
+        "intro::bottle": {
+          "x": 911.5,
+          "y": 84.76,
+          "width": 240,
+          "height": 480
+        },
+        "intro::badge": {
+          "x": 1095.88,
+          "y": 93.88,
+          "width": 148.24,
+          "height": 148.24
+        },
+        "intro::wave": {
+          "x": 0,
+          "y": 512,
+          "width": 1440,
+          "height": 160
+        },
+        "trio": {
+          "x": 170,
+          "y": 672,
+          "width": 1100,
+          "height": 321
+        },
+        "trio::t1": {
+          "x": 230,
+          "y": 820,
+          "width": 270.66,
+          "height": 25
+        },
+        "trio::b1": {
+          "x": 230,
+          "y": 853,
+          "width": 270.66,
+          "height": 48
+        },
+        "trio::t2": {
+          "x": 584.66,
+          "y": 820,
+          "width": 270.67,
+          "height": 25
+        },
+        "trio::b2": {
+          "x": 584.66,
+          "y": 853,
+          "width": 270.67,
+          "height": 48
+        },
+        "trio::t3": {
+          "x": 939.33,
+          "y": 820,
+          "width": 270.66,
+          "height": 25
+        },
+        "trio::b3": {
+          "x": 939.33,
+          "y": 853,
+          "width": 270.66,
+          "height": 48
+        },
+        "faq": {
+          "x": 340,
+          "y": 993,
+          "width": 760,
+          "height": 243
+        },
+        "faq::title": {
+          "x": 372,
+          "y": 1025,
+          "width": 696,
+          "height": 35
+        },
+        "faq::q1": {
+          "x": 372,
+          "y": 1091,
+          "width": 696,
+          "height": 19
+        },
+        "faq::q2": {
+          "x": 372,
+          "y": 1139,
+          "width": 696,
+          "height": 19
+        },
+        "buy": {
+          "x": 0,
+          "y": 1236,
+          "width": 1440,
+          "height": 275
+        },
+        "buy::title": {
+          "x": 32,
+          "y": 1300,
+          "width": 1376,
+          "height": 40
+        },
+        "buy::price": {
+          "x": 32,
+          "y": 1348,
+          "width": 1376,
+          "height": 32
+        },
+        "buy::cta": {
+          "x": 606.88,
+          "y": 1400,
+          "width": 226.23,
+          "height": 47
+        },
+        "legal": {
+          "x": 0,
+          "y": 1511,
+          "width": 1440,
+          "height": 89
+        },
+        "legal::text": {
+          "x": 24,
+          "y": 1548,
+          "width": 1392,
+          "height": 15
+        }
+      },
+      "gaps": []
+    },
+    {
+      "capture_id": "home-mobile-motion",
+      "route_id": "home",
+      "viewport": "mobile",
+      "state": "motion",
+      "state_detail": "badge rotation and bottle bob running",
+      "url": "https://tidewell.example.test/",
+      "viewport_width": 390,
+      "viewport_height": 844,
+      "device_pixel_ratio": 2,
+      "scroll_x": 0,
+      "scroll_y": 0,
+      "document_width": 390,
+      "document_height": 2269,
+      "browser": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151 Safari/537.36",
+      "tool": "playwright 1.62.1, chromium 151 (headless)",
+      "captured_at": "2026-09-25T13:50:57.087Z",
+      "html_sha256": "e6248d7fde001521",
+      "readiness": {
+        "fonts": "ready",
+        "images": "ready",
+        "media_metadata": "none"
+      },
+      "motion": "running",
+      "media_url": "",
+      "media_time_s": null,
+      "screenshot": null,
+      "screenshot_kind": null,
+      "raw_output": "captures/raw/home-mobile-motion.json",
+      "boxes": {
+        "strip": {
+          "x": 0,
+          "y": 0,
+          "width": 390,
+          "height": 40
+        },
+        "strip::text": {
+          "x": 31.38,
+          "y": 11,
+          "width": 327.23,
+          "height": 17
+        },
+        "intro": {
+          "x": 0,
+          "y": 40,
+          "width": 390,
+          "height": 866.5
+        },
+        "intro::title": {
+          "x": 20,
+          "y": 576,
+          "width": 350,
+          "height": 79.19
+        },
+        "intro::body": {
+          "x": 20,
+          "y": 671.19,
+          "width": 350,
+          "height": 88.31
+        },
+        "intro::cta": {
+          "x": 20,
+          "y": 787.5,
+          "width": 189.14,
+          "height": 47
+        },
+        "intro::bottle": {
+          "x": 75,
+          "y": 62.97,
+          "width": 240,
+          "height": 480
+        },
+        "intro::badge": {
+          "x": 201.13,
+          "y": 66.13,
+          "width": 131.74,
+          "height": 131.74
+        },
+        "intro::wave": {
+          "x": 0,
+          "y": 746.5,
+          "width": 390,
+          "height": 160
+        },
+        "trio": {
+          "x": 0,
+          "y": 906.5,
+          "width": 390,
+          "height": 715
+        },
+        "trio::t1": {
+          "x": 48,
+          "y": 1030.5,
+          "width": 294,
+          "height": 25
+        },
+        "trio::b1": {
+          "x": 48,
+          "y": 1063.5,
+          "width": 294,
+          "height": 48
+        },
+        "trio::t2": {
+          "x": 48,
+          "y": 1251.5,
+          "width": 294,
+          "height": 25
+        },
+        "trio::b2": {
+          "x": 48,
+          "y": 1284.5,
+          "width": 294,
+          "height": 48
+        },
+        "trio::t3": {
+          "x": 48,
+          "y": 1472.5,
+          "width": 294,
+          "height": 25
+        },
+        "trio::b3": {
+          "x": 48,
+          "y": 1505.5,
+          "width": 294,
+          "height": 48
+        },
+        "faq": {
+          "x": 0,
+          "y": 1621.5,
+          "width": 390,
+          "height": 243
+        },
+        "faq::title": {
+          "x": 32,
+          "y": 1653.5,
+          "width": 326,
+          "height": 35
+        },
+        "faq::q1": {
+          "x": 32,
+          "y": 1719.5,
+          "width": 326,
+          "height": 19
+        },
+        "faq::q2": {
+          "x": 32,
+          "y": 1767.5,
+          "width": 326,
+          "height": 19
+        },
+        "buy": {
+          "x": 0,
+          "y": 1864.5,
+          "width": 390,
+          "height": 315
+        },
+        "buy::title": {
+          "x": 32,
+          "y": 1928.5,
+          "width": 326,
+          "height": 80
+        },
+        "buy::price": {
+          "x": 32,
+          "y": 2016.5,
+          "width": 326,
+          "height": 32
+        },
+        "buy::cta": {
+          "x": 81.88,
+          "y": 2068.5,
+          "width": 226.23,
+          "height": 47
+        },
+        "legal": {
+          "x": 0,
+          "y": 2179.5,
+          "width": 390,
+          "height": 89
+        },
+        "legal::text": {
+          "x": 24,
+          "y": 2216.5,
+          "width": 342,
+          "height": 15
+        }
+      },
+      "gaps": []
+    }
+  ]
+}

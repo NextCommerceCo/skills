@@ -1,12 +1,13 @@
 ---
 name: next-theme-dev
-version: 1.15.0
+version: 1.16.0
 description: |
   Next Commerce theme development for Spark, Intro Bootstrap, and custom
   storefront themes. Use when building, modifying, or debugging themes with
   Django Template Language, Theme Settings, ntk CLI, storefront GraphQL,
   Tailwind/Spark Web Components, or Intro Bootstrap/SCSS patterns. Also use
-  after next-theme-figma has prepared a Figma storefront handoff package.
+  after next-theme-figma (Figma source) or next-theme-design (live site or its
+  HTML) has prepared a storefront handoff package.
   Trigger when working in a theme directory with manifest.json, config.yml, or
   standard directories such as assets/, configs/, layouts/, templates/, and
   partials/.
@@ -21,6 +22,17 @@ allowed-tools:
 ---
 
 # Next Commerce Theme Development
+
+> **Three linked theme skills.** `next-theme-figma`, `next-theme-design`, and
+> `next-theme-dev` are installed and used together. `next-theme-figma` turns a
+> Figma source into a handoff package and holds the Spark section roster and
+> the copy lint that the other two use. `next-theme-design` turns a live site
+> or its HTML into a handoff package and holds the in-page capture script.
+> `next-theme-dev` validates the package and builds the theme from it, and
+> holds the package format, scaffolder, validator, and geometry assertion.
+> Work always runs from one source skill into `next-theme-dev`. If a sibling
+> this skill needs is not installed, stop and name it with its install command
+> (`./skills.sh install <target> <skill>`); never re-derive what it provides.
 
 ## Using This Skill
 
@@ -57,9 +69,11 @@ current session and disclose that no independent agent reviewed the result.
 If the task starts from a Figma storefront design, run `next-theme-figma` first
 when practical. That upstream skill validates the Figma source, classifies
 sections/assets, records theme/platform divergences, captures reference
-screenshots, and produces the implementation handoff. Use this skill after that
-handoff exists to make the actual DTL, Spark, CSS, ntk, and storefront QA
-changes.
+screenshots, and produces the implementation handoff. If the task starts from a
+live website or its HTML, run `next-theme-design` first; it captures the page
+and produces a live-site handoff package in the format this skill owns. Use
+this skill after the handoff exists to make the actual DTL, Spark, CSS, ntk,
+and storefront QA changes.
 
 Run these checks at the start of every theme task to understand the working context:
 
@@ -164,6 +178,13 @@ change the saved connection settings.
 ---
 
 ## Implementation-Handoff Entry Contract
+
+Two package kinds enter this contract. Dispatch on the entry file in the
+package directory: `figma-handoff.json` runs the Figma gate below, unchanged;
+`design-handoff.json` runs the **Live-Site Package Entry** subsection at the
+end of this contract. A directory with both entry files, or neither, is not a
+package: stop and ask the operator. Neither path falls back to the other, and
+neither falls back to re-reading the design source.
 
 Apply this contract when the work mode is `implementation-handoff`: a
 `next-theme-figma` handoff package exists or was promised because the task
@@ -304,6 +325,71 @@ the Figma file for a token value when the manifest is present.
 `Tokens as custom properties: none`
 
 `Unmapped tokens: none`
+
+### Live-Site Package Entry (`design-handoff.json`)
+
+Apply this subsection when the package directory holds `design-handoff.json`:
+a live-site package that `next-theme-design` produced from a rendered website
+or its HTML. This skill owns its format; read
+`references/design-handoff-format.md` for every file and field. Run this
+skill's own validator before implementation:
+
+```bash
+python3 <next-theme-dev skill dir>/scripts/design-handoff.py validate /path/to/package \
+  --report ./qa-output/design-handoff-report.json
+```
+
+The validator reads the Spark section roster from the sibling
+`next-theme-figma` skill. If that skill is missing it stops, names it, and
+prints its install command; install it rather than routing sections by guess.
+
+**HARD STOP (live-site):** if the package is missing, the validator reports
+`STRUCTURE: INVALID`, `source.kind` is not `live-site`, or `mode` is
+`intake-only`, STOP and request the package or its regeneration from the
+operator or `next-theme-design`. Never capture the source site again, re-read
+its HTML, or re-derive the design as a fallback, and never run the Figma
+`theme-figma.js` gate on a live-site package.
+
+A structurally valid package can still be not ready. The validator prints
+`READINESS` with one line per section. Build only sections marked `READY`.
+Before building a section, surface to the operator the items the validator
+lists for it: `omit` and `unresolved` copy decisions, assets without a
+treatment or needing a replacement, and unresolved divergence-ledger entries.
+The package counts as ready only when every in-scope section is. A recorded
+gap never permits inventing the missing content.
+
+Read the package in this order:
+
+| Order | Package file | Implementation pass |
+|------:|--------------|---------------------|
+| 1 | `design-handoff.json` | Source URLs, capture date, the operator's rights statement, target store/repo/theme, theme family, runtime contract, and gaps. Read first. |
+| 2 | `captures.json` | The capture records: viewport, state, screenshot, and page-relative boxes. Screenshots in `captures/` are the visual reference at 1440, 768, and 390. |
+| 3 | `routes.json` | Templates plan for Step 4: source URL, storefront path, theme template, and section order per route. |
+| 4 | `sections.json` | Classification and routing. Every Spark section carries `roster_status`; route it as in Spark Section Routing By `roster_status`. The `infer-section` fallback does not apply: there is no Figma frame name. |
+| 5 | `assets.json` | Each asset is `reference-only` (build with its `treatment`), `downloaded` (copy `local_path` into `assets/` and run `scripts/validate-theme-assets.py --strict`), or `replacement-needed` (blocked until supplied). |
+| 6 | `platform-divergence-ledger.json` | Entries with decision `platform-wins` or `source-wins-with-guardrails` and status `approved`, `implemented`, or `accepted-gap` are resolved; do not re-litigate them. Surface the rest before building their sections. |
+| 7 | `viewport-coverage.json` | The capture and screenshot that are the reference for each route and width, or the gap that replaces it. |
+| 8 | `geometry.json` | Schema `next-theme-dev/handoff-geometry/v1`, same coordinate rules as Figma: section boxes page-relative, element boxes section-relative. `selector` is the hook the build carries. Drives `scripts/assert-geometry.mjs`. |
+| 9 | `copy.json` | Schema `next-theme-dev/handoff-copy/v1`. `text` is the only text the build may show; `source_text` is evidence, never build copy. Drives `next-theme-figma`'s `copy-lint.py`, unchanged. |
+| 10 | `observed-styles.json` | Computed values seen on the page, not design variables. Route each to a Theme setting, a custom property, or section CSS by the Design Tokens rules' judgment, and list the unmapped ones in the handback. |
+| 11 | `behaviors.json` | Responsive order, sticky elements, motion, media, and CTA destinations to reproduce; video-frame claims link to ledger entries and are never rebuilt as copy. |
+| 12 | `validation-checklist.md` | Completion review before handback. |
+| 13 | `notes.md` | Evidence origin, inferred entries, blocked sections, and limits of automated capture. Required in a live-site package. |
+
+The package is the design source of record in this mode. A theme's
+`DESIGN.md` still governs house style where the package is silent; surface a
+direct conflict to the operator instead of picking a winner. Prices, product
+identity, offers, shipping, coupons, and checkout URLs come from NEXT, never
+from the source page.
+
+Compare the preview with the capture screenshots at the same widths: 1440,
+768, and 390. Run `assert-geometry.mjs` and the copy lint on every fix round,
+as in Step 1.5.
+
+**Handback:** besides the Spark handback lines above, list blocked sections on
+a line that begins exactly `Blocked sections:` (write
+`Blocked sections: none` when there are none) and unmapped observed styles on
+a line that begins exactly `Unmapped observed styles:` (`none` form likewise).
 
 ---
 
@@ -611,6 +697,7 @@ Bundled references in this skill:
 | Topic | Reference |
 |-------|-----------|
 | Geometry assertion, copy lint, post-push readback, frozen-surface tests | `references/geometry-and-readback-gates.md` |
+| Live-site design handoff package format, scaffolder, and validator | `references/design-handoff-format.md` |
 | Active-theme publish evidence ladder | `references/active-theme-publish-and-qa.md` |
 | Intro Bootstrap preservation contract | `references/intro-preservation-contract.md` |
 

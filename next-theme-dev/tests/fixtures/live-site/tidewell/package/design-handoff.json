@@ -1,0 +1,42 @@
+{
+  "schema_version": "next-theme-dev/design-handoff/v1",
+  "generated_at": "2026-09-25T12:00:00Z",
+  "generator": "next-theme-design 0.1.0 (synthetic fixture)",
+  "project": "tidewell-fixture",
+  "mode": "implementation-handoff",
+  "source": {
+    "kind": "live-site",
+    "urls": [
+      "https://tidewell.example.test/"
+    ],
+    "supplied_html": [],
+    "captured_on": "2026-09-25",
+    "rights": {
+      "owner": "not stated",
+      "reuse": "not-stated",
+      "statement": "",
+      "stated_by": ""
+    }
+  },
+  "target": {
+    "store": "example-store",
+    "repo": "example-theme-repo",
+    "preview_url": "",
+    "theme_id": "",
+    "theme_family": "spark",
+    "runtime_contract": "web-components"
+  },
+  "gaps": [
+    {
+      "gap_id": "faq-answers-hidden",
+      "kind": "extraction",
+      "route_id": "home",
+      "section_id": "faq",
+      "viewport": null,
+      "reason": "Answers are inside closed details elements, so capture recorded no answer text.",
+      "next_action": "Capture again with the questions opened, or take the answers from the store.",
+      "blocks_build": true
+    }
+  ],
+  "unresolved_questions": []
+}

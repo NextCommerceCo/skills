@@ -7,14 +7,18 @@
     {
       "id": "next-theme-figma",
       "name": "Theme Figma Handoff",
-      "version": "0.7.2",
+      "version": "0.8.0",
       "path": "next-theme-figma/SKILL.md",
       "domain": "storefronts",
       "description": "Turn a Figma storefront design into a validated, low-inference handoff package for next-theme-dev: sections, assets, geometry, copy, and design tokens.",
       "related_skills": [
         {
           "id": "next-theme-dev",
-          "relationship": "Downstream implementation skill that consumes the Figma handoff and performs DTL/theme edits"
+          "relationship": "Linked skill, installed together: validates the handoff package and builds the theme from it; owns the shared live-site package format, validator, and geometry assertion"
+        },
+        {
+          "id": "next-theme-design",
+          "relationship": "Linked skill, installed together: the source skill for live sites and their HTML; uses this skill's Spark section roster and copy lint"
         }
       ],
       "triggers": [
@@ -35,7 +39,7 @@
         "Figma MCP or REST/API access when live node inspection or screenshot export is needed",
         "Node.js (runs the skill's bundled theme-figma.js helper script)",
         "An existing screenshot/browser capability or willingness to provide manual captures; the skill does not bundle browser automation",
-        "next-theme-dev for downstream theme implementation"
+        "next-theme-dev and next-theme-design installed alongside; the three theme skills are installed together"
       ],
       "safety": {
         "mutates_remote": false,
@@ -47,14 +51,18 @@
     {
       "id": "next-theme-dev",
       "name": "Theme Development",
-      "version": "1.15.0",
+      "version": "1.16.0",
       "path": "next-theme-dev/SKILL.md",
       "domain": "storefronts",
-      "description": "Build, modify, and debug Next Commerce storefront themes: Spark, Intro Bootstrap, Theme Settings, ntk CLI, DTL templates, and storefront GraphQL.",
+      "description": "Build, modify, and debug Next Commerce storefront themes: Spark, Intro Bootstrap, Theme Settings, ntk CLI, DTL templates, storefront GraphQL, and builds from Figma or live-site handoff packages.",
       "related_skills": [
         {
           "id": "next-theme-figma",
-          "relationship": "Upstream Figma source validation and handoff preparation before implementation"
+          "relationship": "Linked skill, installed together: turns a Figma source into a handoff package; holds the Spark section roster and copy lint this skill's gates use"
+        },
+        {
+          "id": "next-theme-design",
+          "relationship": "Linked skill, installed together: turns a live site or its HTML into a handoff package in the format this skill owns and validates"
         }
       ],
       "triggers": [
@@ -66,13 +74,15 @@
         "template editing",
         "side cart",
         "theme settings",
-        "DTL templates"
+        "DTL templates",
+        "live-site design handoff package"
       ],
       "prerequisites": [
         "Python 3.10 or newer (Pillow is also required to validate raster assets)",
         "NEXT Theme Kit 1.2.0; resolve the active installation from the ntk executable because pipx, uv, and system Python may differ",
         "An existing screenshot/browser capability or willingness to provide manual captures for visual changes",
-        "A Next Commerce Storefront OAuth app API key created under Settings > API Access (themes:read, themes:write permissions)"
+        "A Next Commerce Storefront OAuth app API key created under Settings > API Access (themes:read, themes:write permissions)",
+        "next-theme-figma and next-theme-design installed alongside; the three theme skills are installed together"
       ],
       "safety": {
         "mutates_remote": true,

@@ -14,7 +14,7 @@ Cursor, GitHub Copilot, and any other agent that reads markdown.
 | Skill | Domain | What It Does |
 |-------|--------|--------------|
 | [**Theme Figma Handoff**](next-theme-figma/) | Storefronts | Turn a Figma storefront design into a validated, low-inference handoff package for next-theme-dev: sections, assets, geometry, copy, and design tokens. |
-| [**Theme Development**](next-theme-dev/) | Storefronts | Build, modify, and debug Next Commerce storefront themes: Spark, Intro Bootstrap, Theme Settings, ntk CLI, DTL templates, and storefront GraphQL. |
+| [**Theme Development**](next-theme-dev/) | Storefronts | Build, modify, and debug Next Commerce storefront themes: Spark, Intro Bootstrap, Theme Settings, ntk CLI, DTL templates, storefront GraphQL, and builds from Figma or live-site handoff packages. |
 | [**Bulk Fulfillment Tracking Sync**](next-bulk-fulfill/) | Operations | Mark orders Fulfilled with tracking numbers from a CSV when a fulfillment provider's sync-back fails. |
 | [**Bulk Fulfillment Order Move**](next-bulk-move/) | Operations | Move fulfillment orders between warehouse locations in bulk, from a file of order numbers or a product/SKU list. |
 | [**Bulk Subscription Actions**](next-bulk-subscription/) | Operations | Pause, cancel, or update subscriptions in bulk from a CSV/XLSX of subscription IDs, with dry-run and verification. |

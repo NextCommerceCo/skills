@@ -1,0 +1,37 @@
+{
+  "schema_version": "next-theme-dev/handoff-viewport-coverage/v1",
+  "viewports": {
+    "desktop": {
+      "expected_width": 1440
+    },
+    "tablet": {
+      "expected_width": 768
+    },
+    "mobile": {
+      "expected_width": 390
+    }
+  },
+  "coverage": [
+    {
+      "route_id": "home",
+      "desktop": {
+        "capture_id": "home-desktop-static",
+        "source_ref": "captures/home-desktop-static.png",
+        "preview_ref": "",
+        "status": "captured"
+      },
+      "tablet": {
+        "capture_id": "home-tablet-static",
+        "source_ref": "captures/home-tablet-static.png",
+        "preview_ref": "",
+        "status": "captured"
+      },
+      "mobile": {
+        "capture_id": "home-mobile-static",
+        "source_ref": "captures/home-mobile-static.png",
+        "preview_ref": "",
+        "status": "captured"
+      }
+    }
+  ]
+}

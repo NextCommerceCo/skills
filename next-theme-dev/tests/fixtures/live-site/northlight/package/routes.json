@@ -1,0 +1,22 @@
+{
+  "schema_version": "next-theme-dev/handoff-routes/v1",
+  "routes": [
+    {
+      "route_id": "home",
+      "source_url": "https://northlight.example.test/",
+      "storefront_path": "/",
+      "theme_template": "templates/index.html",
+      "section_order": [
+        "bar",
+        "header",
+        "hero",
+        "demo",
+        "specs",
+        "offer",
+        "footer"
+      ],
+      "status": "ready",
+      "notes": "Synthetic one-page storefront."
+    }
+  ]
+}

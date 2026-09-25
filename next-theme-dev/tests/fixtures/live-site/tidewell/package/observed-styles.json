@@ -1,0 +1,104 @@
+{
+  "schema_version": "next-theme-dev/handoff-observed-styles/v1",
+  "project": "tidewell-fixture",
+  "source": "dom-capture",
+  "extracted_at": "2026-09-25T12:00:00Z",
+  "styles": [
+    {
+      "style_id": "intro-title-desktop-font-family",
+      "route_id": "home",
+      "viewport": "desktop",
+      "section_id": "intro",
+      "capture_id": "home-desktop-static",
+      "capture_key": "intro::title",
+      "source_selector": "#intro .t-display",
+      "property": "font-family",
+      "value": "\"Trebuchet MS\", Verdana, sans-serif",
+      "category": "font"
+    },
+    {
+      "style_id": "intro-title-desktop-font-size",
+      "route_id": "home",
+      "viewport": "desktop",
+      "section_id": "intro",
+      "capture_id": "home-desktop-static",
+      "capture_key": "intro::title",
+      "source_selector": "#intro .t-display",
+      "property": "font-size",
+      "value": "52px",
+      "category": "font"
+    },
+    {
+      "style_id": "intro-title-desktop-color",
+      "route_id": "home",
+      "viewport": "desktop",
+      "section_id": "intro",
+      "capture_id": "home-desktop-static",
+      "capture_key": "intro::title",
+      "source_selector": "#intro .t-display",
+      "property": "color",
+      "value": "rgb(23, 48, 51)",
+      "category": "color"
+    },
+    {
+      "style_id": "intro-title-desktop-background-color",
+      "route_id": "home",
+      "viewport": "desktop",
+      "section_id": "intro",
+      "capture_id": "home-desktop-static",
+      "capture_key": "intro::title",
+      "source_selector": "#intro .t-display",
+      "property": "background-color",
+      "value": "rgba(0, 0, 0, 0)",
+      "category": "color"
+    },
+    {
+      "style_id": "strip-desktop-font-family",
+      "route_id": "home",
+      "viewport": "desktop",
+      "section_id": "strip",
+      "capture_id": "home-desktop-static",
+      "capture_key": "strip",
+      "source_selector": "#strip",
+      "property": "font-family",
+      "value": "\"Trebuchet MS\", Verdana, sans-serif",
+      "category": "font"
+    },
+    {
+      "style_id": "strip-desktop-font-size",
+      "route_id": "home",
+      "viewport": "desktop",
+      "section_id": "strip",
+      "capture_id": "home-desktop-static",
+      "capture_key": "strip",
+      "source_selector": "#strip",
+      "property": "font-size",
+      "value": "15px",
+      "category": "font"
+    },
+    {
+      "style_id": "strip-desktop-color",
+      "route_id": "home",
+      "viewport": "desktop",
+      "section_id": "strip",
+      "capture_id": "home-desktop-static",
+      "capture_key": "strip",
+      "source_selector": "#strip",
+      "property": "color",
+      "value": "rgb(255, 255, 255)",
+      "category": "color"
+    },
+    {
+      "style_id": "strip-desktop-background-color",
+      "route_id": "home",
+      "viewport": "desktop",
+      "section_id": "strip",
+      "capture_id": "home-desktop-static",
+      "capture_key": "strip",
+      "source_selector": "#strip",
+      "property": "background-color",
+      "value": "rgb(70, 140, 134)",
+      "category": "color"
+    }
+  ]
+}

@@ -12,6 +12,12 @@ recoverable later without a review round.
 Both are required in strict validation when `figma-handoff.json` has
 `mode: implementation-handoff`. In other modes their absence is a warning.
 
+Live-site packages from `next-theme-design` carry the same two files under
+`next-theme-dev`'s schema IDs (`next-theme-dev/handoff-geometry/v1` and
+`next-theme-dev/handoff-copy/v1`), with source `dom-capture`. Their format is
+documented in `next-theme-dev`'s `references/design-handoff-format.md`; the
+downstream gates below read both.
+
 ## `geometry.json`
 
 Schema `next-theme-figma/geometry/v1`. Per route, per viewport, per section:

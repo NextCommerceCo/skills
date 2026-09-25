@@ -1,0 +1,176 @@
+{
+  "schema_version": "next-theme-dev/handoff-sections/v1",
+  "sections": [
+    {
+      "section_id": "strip",
+      "route_id": "home",
+      "order": 1,
+      "in_scope": true,
+      "source_selector": "#strip",
+      "capture_refs": {
+        "desktop": "home-desktop-static",
+        "tablet": "home-tablet-static",
+        "mobile": "home-mobile-static"
+      },
+      "classification": "semantic-rebuild",
+      "classification_rationale": "Promo strip with a coupon offer.",
+      "spark_section": "section_promo_banner",
+      "roster_status": "shipped",
+      "implementation_target": {
+        "template": "partials/section_promo_banner.html",
+        "partials": [],
+        "settings": []
+      },
+      "commerce_surface": "",
+      "asset_ids": [],
+      "divergence_ids": [
+        "coupon-offer"
+      ],
+      "behavior_ids": [],
+      "responsive_notes": ""
+    },
+    {
+      "section_id": "intro",
+      "route_id": "home",
+      "order": 2,
+      "in_scope": true,
+      "source_selector": "#intro",
+      "capture_refs": {
+        "desktop": "home-desktop-static",
+        "tablet": "home-tablet-static",
+        "mobile": "home-mobile-static"
+      },
+      "classification": "semantic-rebuild",
+      "classification_rationale": "Hero with a product image, a rotating badge, and a wave background.",
+      "spark_section": "section_hero",
+      "roster_status": "shipped",
+      "implementation_target": {
+        "template": "partials/section_hero.html",
+        "partials": [],
+        "settings": []
+      },
+      "commerce_surface": "",
+      "asset_ids": [
+        "intro-bottle",
+        "intro-wave"
+      ],
+      "divergence_ids": [
+        "cold-claim"
+      ],
+      "behavior_ids": [
+        "badge-spin",
+        "bottle-bob",
+        "intro-mobile-order"
+      ],
+      "responsive_notes": ""
+    },
+    {
+      "section_id": "trio",
+      "route_id": "home",
+      "order": 3,
+      "in_scope": true,
+      "source_selector": "#trio",
+      "capture_refs": {
+        "desktop": "home-desktop-static",
+        "tablet": "home-tablet-static",
+        "mobile": "home-mobile-static"
+      },
+      "classification": "semantic-rebuild",
+      "classification_rationale": "Three feature cards with inline icons.",
+      "spark_section": "section_value_props",
+      "roster_status": "unshipped",
+      "implementation_target": {
+        "template": "partials/section_value_props.html",
+        "partials": [],
+        "settings": []
+      },
+      "commerce_surface": "",
+      "asset_ids": [],
+      "divergence_ids": [],
+      "behavior_ids": [],
+      "responsive_notes": ""
+    },
+    {
+      "section_id": "faq",
+      "route_id": "home",
+      "order": 4,
+      "in_scope": true,
+      "source_selector": "#faq",
+      "capture_refs": {
+        "desktop": "home-desktop-static",
+        "tablet": "home-tablet-static",
+        "mobile": "home-mobile-static"
+      },
+      "classification": "semantic-rebuild",
+      "classification_rationale": "Native details/summary questions.",
+      "spark_section": "section_faq",
+      "roster_status": "unshipped",
+      "implementation_target": {
+        "template": "partials/section_faq.html",
+        "partials": [],
+        "settings": []
+      },
+      "commerce_surface": "",
+      "asset_ids": [],
+      "divergence_ids": [],
+      "behavior_ids": [
+        "faq-disclosure"
+      ],
+      "responsive_notes": ""
+    },
+    {
+      "section_id": "buy",
+      "route_id": "home",
+      "order": 5,
+      "in_scope": true,
+      "source_selector": "#buy",
+      "capture_refs": {
+        "desktop": "home-desktop-static",
+        "tablet": "home-tablet-static",
+        "mobile": "home-mobile-static"
+      },
+      "classification": "live-commerce-component",
+      "classification_rationale": "Closing CTA band with a price from NEXT.",
+      "spark_section": "section_cta_band",
+      "roster_status": "unshipped",
+      "implementation_target": {
+        "template": "partials/section_cta_band.html",
+        "partials": [],
+        "settings": []
+      },
+      "commerce_surface": "",
+      "asset_ids": [],
+      "divergence_ids": [
+        "buy-price"
+      ],
+      "behavior_ids": [],
+      "responsive_notes": ""
+    },
+    {
+      "section_id": "legal",
+      "route_id": "home",
+      "order": 6,
+      "in_scope": true,
+      "source_selector": "#legal",
+      "capture_refs": {
+        "desktop": "home-desktop-static",
+        "tablet": "home-tablet-static",
+        "mobile": "home-mobile-static"
+      },
+      "classification": "live-commerce-component",
+      "classification_rationale": "Footer chrome.",
+      "spark_section": "footer",
+      "roster_status": "chrome",
+      "implementation_target": {
+        "template": "partials/footer.html",
+        "partials": [],
+        "settings": []
+      },
+      "commerce_surface": "",
+      "asset_ids": [],
+      "divergence_ids": [],
+      "behavior_ids": [],
+      "responsive_notes": ""
+    }
+  ]
+}

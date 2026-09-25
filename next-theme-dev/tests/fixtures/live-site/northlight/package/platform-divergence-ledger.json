@@ -1,0 +1,73 @@
+{
+  "schema_version": "next-theme-dev/handoff-divergence/v1",
+  "entries": [
+    {
+      "divergence_id": "delivery-promise",
+      "kind": "commerce",
+      "surface": "announcement bar",
+      "route_ids": [
+        "home"
+      ],
+      "section_ids": [
+        "bar"
+      ],
+      "capture_ids": [
+        "home-desktop-static"
+      ],
+      "source_expectation": "The source promises delivery before the weekend for orders placed by Friday.",
+      "platform_behavior": "The store has no delivery-date promise configured; checkout shows the carrier options.",
+      "decision": "platform-wins",
+      "implementation_guardrail": "Show the approved replacement from a theme setting; never hardcode a delivery date.",
+      "status": "approved",
+      "approved_by": "fixture operator",
+      "target_evidence": {
+        "origin": "prior-input",
+        "summary": "Fixture operator statement of the store delivery settings."
+      }
+    },
+    {
+      "divergence_id": "bundle-prices",
+      "kind": "commerce",
+      "surface": "bundle cards",
+      "route_ids": [
+        "home"
+      ],
+      "section_ids": [
+        "offer"
+      ],
+      "capture_ids": [
+        "home-desktop-static"
+      ],
+      "source_expectation": "Cards show $49, $89, $119 and savings of 9% and 19%.",
+      "platform_behavior": "Prices, savings, and checkout links come from the store catalog and offers.",
+      "decision": "platform-wins",
+      "implementation_guardrail": "Render prices and links from NEXT data; omit source savings text.",
+      "status": "approved",
+      "approved_by": "fixture operator",
+      "target_evidence": {
+        "origin": "none",
+        "summary": ""
+      }
+    },
+    {
+      "divergence_id": "video-rating-claim",
+      "kind": "claim",
+      "surface": "demo video",
+      "route_ids": [
+        "home"
+      ],
+      "section_ids": [
+        "demo"
+      ],
+      "capture_ids": [
+        "home-desktop-video-frame"
+      ],
+      "source_expectation": "At 2.5 s the video shows a best-lamp rating with no source.",
+      "platform_behavior": "Claims need evidence before the store shows them.",
+      "decision": "platform-wins",
+      "implementation_guardrail": "Use store video without the rating frame.",
+      "status": "approved",
+      "approved_by": "fixture operator"
+    }
+  ]
+}

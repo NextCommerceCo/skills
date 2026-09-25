@@ -8,6 +8,8 @@ implementation that follows is faithful to the design instead of a best guess.
 This skill does **not** write theme code. It sits before implementation:
 run it first, then hand its output to [Theme Development](../next-theme-dev/),
 which does the actual building.
+If your design is a live website rather than a Figma file, use
+[Theme Live-Site Handoff](../next-theme-design/) instead.
 
 The skill now knows Spark's section roster. A designer's family-named frame,
 such as a hero or FAQ, resolves to the Spark section it maps to and whether
@@ -48,8 +50,19 @@ What you get — a complete handoff package containing:
 
 ## Install
 
-See the [repo README](../README.md) for installation. If you're not sure how,
-ask whoever set up your AI assistant — or ask the assistant itself.
+> [!IMPORTANT]
+> Theme Figma Handoff, Theme Live-Site Handoff, and Theme Development work as
+> a set: the two handoff skills prepare a design package, and Theme
+> Development checks it and builds the theme. Install all three. The installer
+> adds one named skill at a time, so run it once for each:
+>
+> - `./skills.sh install <target> next-theme-figma`
+> - `./skills.sh install <target> next-theme-design`
+> - `./skills.sh install <target> next-theme-dev`
+>
+> Replace `<target>` with `claude`, `codex`, `agents`, or `all`. The
+> [repo README](../README.md) covers other ways to install. If one of the three
+> is missing, the assistant stops and tells you which one to install.
 
 ## How to Use
 

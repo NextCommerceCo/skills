@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tidewell Bottle (synthetic fixture)</title>
+<style>
+  :root { --sea: #468c86; --ink: #173033; --foam: #ecf4f0; }
+  * { box-sizing: border-box; }
+  body.tw { margin: 0; font-family: "Trebuchet MS", Verdana, sans-serif; color: var(--ink); background: var(--foam); }
+  #strip { background: var(--sea); color: #fff; font-size: 15px; line-height: 22px; padding: 9px 12px; text-align: center; }
+  #intro { position: relative; overflow: hidden; padding: 56px 32px 96px; }
+  .intro-wave { position: absolute; left: 0; right: 0; bottom: 0; height: 160px; background: url(wave.png) center bottom / cover no-repeat; }
+  #intro .grid { position: relative; display: flex; gap: 40px; align-items: center; max-width: 1100px; margin: 0 auto; }
+  #intro .col.text { flex: 1 1 55%; }
+  #intro .col.art { position: relative; flex: 1 1 45%; display: flex; justify-content: center; }
+  .t-display { margin: 0 0 16px; font-size: 52px; line-height: 1.1; letter-spacing: -.01em; }
+  .t-body { margin: 0 0 28px; font-size: 19px; line-height: 1.55; max-width: 460px; }
+  .btn { display: inline-block; padding: 14px 28px; border-radius: 8px; font-weight: 700; text-decoration: none; }
+  .btn--solid { background: var(--ink); color: #fff; }
+  #intro-bottle { width: 240px; height: auto; animation: bob 3s ease-in-out infinite alternate; }
+  .spin-badge { position: absolute; top: 12px; right: 40px; width: 120px; height: 120px; border-radius: 50%; background: #fff; border: 3px dashed var(--sea); display: grid; place-items: center; text-align: center; font-size: 14px; font-weight: 700; padding: 18px; animation: badge-spin 12s linear infinite; }
+  @keyframes badge-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  @keyframes bob { from { transform: translateY(0); } to { transform: translateY(-12px); } }
+  #trio { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; max-width: 1100px; margin: 0 auto; padding: 64px 32px; }
+  #trio article { background: #fff; border-radius: 14px; padding: 28px; }
+  #trio svg { width: 40px; height: 40px; }
+  #trio h2 { margin: 12px 0 8px; font-size: 21px; }
+  #trio p { margin: 0; font-size: 16px; line-height: 1.5; }
+  #faq { max-width: 760px; margin: 0 auto; padding: 32px 32px 64px; }
+  #faq h2 { font-size: 30px; margin: 0 0 16px; }
+  #faq details { border-top: 1px solid #b9d3cf; padding: 14px 0; }
+  #faq summary { font-weight: 700; cursor: pointer; }
+  #buy { background: var(--ink); color: #fff; text-align: center; padding: 64px 32px; }
+  #buy h2 { margin: 0 0 8px; font-size: 34px; }
+  #buy .price { margin: 0 0 20px; font-size: 28px; }
+  #buy .btn--solid { background: #fff; color: var(--ink); }
+  #legal { padding: 24px; text-align: center; font-size: 13px; }
+  @media (max-width: 820px) {
+    #intro { padding: 32px 20px 72px; }
+    #intro .grid { flex-direction: column-reverse; gap: 24px; }
+    .t-display { font-size: 36px; }
+    .spin-badge { width: 96px; height: 96px; right: 0; font-size: 12px; padding: 12px; }
+    #trio { grid-template-columns: 1fr; padding: 40px 20px; }
+  }
+</style>
+</head>
+<body class="tw">
+<div id="strip" data-block="strip"><span>Spring sale: 25% off everything with code TIDE25</span></div>
+<div id="intro" data-block="intro">
+  <div class="intro-wave" aria-hidden="true"></div>
+  <div class="grid">
+    <div class="col text">
+      <h1 class="t-display">Cold for a full day. Hot until lunch.</h1>
+      <p class="t-body">Tidewell is a double-wall steel bottle that fits a cup holder and a backpack pocket.</p>
+      <a class="btn btn--solid" href="#buy">Get your Tidewell</a>
+    </div>
+    <div class="col art">
+      <img id="intro-bottle" src="bottle.png" alt="Tidewell bottle in sea green" width="240" height="480">
+      <div class="spin-badge"><span>Keeps drinks cold for 24 hours</span></div>
+    </div>
+  </div>
+</div>
+<div id="trio" data-block="trio">
+  <article><svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="16" fill="#468c86"/></svg><h2>Leak-proof lid</h2><p>A twist lid with a silicone seal that holds when the bottle tips over.</p></article>
+  <article><svg viewBox="0 0 40 40" aria-hidden="true"><rect x="6" y="6" width="28" height="28" rx="6" fill="#468c86"/></svg><h2>Fits a cup holder</h2><p>A 7 cm base that sits in most car and stroller cup holders.</p></article>
+  <article><svg viewBox="0 0 40 40" aria-hidden="true"><path d="M20 4 36 36H4Z" fill="#468c86"/></svg><h2>No metal taste</h2><p>Food-grade steel inside, with nothing painted on the inner wall.</p></article>
+</div>
+<div id="faq" data-block="faq">
+  <h2>Questions people ask</h2>
+  <details><summary>Is it dishwasher safe?</summary><p>Hand wash the lid; the bottle itself can go on the top rack.</p></details>
+  <details><summary>How much does it hold?</summary><p>It holds 600 ml, about two and a half cups.</p></details>
+</div>
+<div id="buy" data-block="buy">
+  <h2>One bottle for every day</h2>
+  <p class="price">$32</p>
+  <a class="btn btn--solid" href="https://checkout.example.test/cart?item=tidewell">Buy your Tidewell now</a>
+</div>
+<footer id="legal"><p>Tidewell is a fictional brand used as a test fixture.</p></footer>
+</body>
+</html>

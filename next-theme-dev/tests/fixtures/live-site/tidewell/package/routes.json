@@ -1,0 +1,21 @@
+{
+  "schema_version": "next-theme-dev/handoff-routes/v1",
+  "routes": [
+    {
+      "route_id": "home",
+      "source_url": "https://tidewell.example.test/",
+      "storefront_path": "/",
+      "theme_template": "templates/index.html",
+      "section_order": [
+        "strip",
+        "intro",
+        "trio",
+        "faq",
+        "buy",
+        "legal"
+      ],
+      "status": "ready",
+      "notes": "Synthetic one-page storefront."
+    }
+  ]
+}
