@@ -351,7 +351,7 @@ its HTML, or re-derive the design as a fallback, and never run the Figma
 `theme-figma.js` gate on a live-site package.
 
 A structurally valid package can still be not ready. The validator prints
-`READINESS` with one line per section. Build only sections marked `READY`.
+`READINESS` with an entry per section. Build only sections marked `READY`.
 Before building a section, surface to the operator the items the validator
 lists for it: `omit` and `unresolved` copy decisions, assets without a
 treatment or needing a replacement, and unresolved divergence-ledger entries.

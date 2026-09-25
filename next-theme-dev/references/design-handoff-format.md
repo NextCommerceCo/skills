@@ -32,10 +32,10 @@ passed. `validate` prints two results:
 - **STRUCTURE**: `VALID` or `INVALID`. Invalid means a file is missing, a field
   is malformed, or a provenance rule below is broken. Each error names the file
   and entry.
-- **READINESS**: `READY` or `NOT READY`, with one line per section. A
+- **READINESS**: `READY` or `NOT READY`, with an entry per section. A
   structurally valid package can still have blocked sections. Each blocked
-  section lists its blockers, and every section lists the items to surface to
-  the operator before building it.
+  section lists its blockers, and any section can list further items to
+  surface to the operator before building it, such as `omit` copy decisions.
 
 Exit codes: 0 valid (ready or not), 1 invalid, 2 usage error or a missing
 sibling skill, 3 valid but not ready when `--require-ready` is passed.

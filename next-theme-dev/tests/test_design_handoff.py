@@ -86,12 +86,13 @@ class CommittedFixturesTest(PackageCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("STRUCTURE: VALID", result.stdout)
         self.assertIn("READINESS: NOT READY (3 of 6 intended section(s) blocked)", result.stdout)
-        self.assertIn("BLOCKED home/strip: copy strip_text is unresolved", result.stdout)
+        self.assertIn("BLOCKED home/strip\n    blocker: copy strip_text is unresolved", result.stdout)
         self.assertIn("asset intro-wave has no stated treatment", result.stdout)
         self.assertIn("divergence cold-claim is unresolved", result.stdout)
-        self.assertIn("BLOCKED home/faq: gap faq-answers-hidden", result.stdout)
+        self.assertIn("BLOCKED home/faq\n    blocker: gap faq-answers-hidden", result.stdout)
         self.assertIn("READY   home/trio", result.stdout)
         self.assertIn("surface to operator: copy buy_price: omit", result.stdout)
+        self.assertNotIn("surface to operator: copy strip_text: unresolved", result.stdout)
         required = self.validate(BLOCKED, "--require-ready")
         self.assertEqual(required.returncode, 3)
 
@@ -395,14 +396,14 @@ class ReadinessTest(PackageCase):
         result = self.validate(package)
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertIn("NOT READY (1 of 7", result.stdout)
-        self.assertIn("BLOCKED home/offer: gap price-source (commerce)", result.stdout)
+        self.assertIn("BLOCKED home/offer\n    blocker: gap price-source (commerce)", result.stdout)
 
     def test_unresolved_divergence_blocks_the_sections_it_names(self):
         package = self.copy()
         self.edit(package, "platform-divergence-ledger.json", lambda body: body["entries"][0].update(
             {"decision": "needs-approval", "status": "open"}))
         result = self.validate(package)
-        self.assertIn("BLOCKED home/bar: divergence delivery-promise is unresolved (needs-approval/open)", result.stdout)
+        self.assertIn("blocker: divergence delivery-promise is unresolved (needs-approval/open)", result.stdout)
 
     def test_excluded_section_leaves_readiness(self):
         package = self.copy(BLOCKED)
