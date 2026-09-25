@@ -480,7 +480,13 @@
     if (!entry.found) continue;
     if (nodes.length === 1 && !((opts.targets || []).find((target) => target.key === key) || {}).all) {
       Object.assign(entry, describe(nodes[0]));
-      boxes[key] = entry.box;
+      // A hidden match (display none, zero size) has no layout at this width;
+      // leaving it out of boxes keeps a zero box out of the geometry.
+      if (entry.visible) {
+        boxes[key] = entry.box;
+      } else {
+        gaps.push(`target ${key}: matched an element that is hidden at this viewport`);
+      }
     } else {
       entry.matches = nodes.slice(0, 50).map(describe);
     }
