@@ -374,6 +374,20 @@ class ValidatorRuleTest(PackageCase):
             "capture_ids", ["home-desktop-static"]))
         self.assert_invalid(package, "extracted motion cites a capture taken while motion ran")
 
+    def test_empty_behavior_captures_give_one_error(self):
+        package = self.copy(BLOCKED)
+        self.edit(package, "behaviors.json", lambda body: body["behaviors"][0].__setitem__("capture_ids", []))
+        result = self.assert_invalid(package, "capture_ids must cite at least one capture")
+        self.assertNotIn("extracted motion cites a capture taken while motion ran", result.stdout)
+
+    def test_source_url_needs_a_scheme_and_host(self):
+        for url in ("https://", "http:// ", "ftp://example.test/", "example.test/page"):
+            with self.subTest(url=url):
+                package = self.copy()
+                self.edit(package, "design-handoff.json", lambda body: body["source"].__setitem__("urls", [url]))
+                self.assert_invalid(package, "must be an http:// or https:// URL with a host")
+                shutil.rmtree(package)
+
     def test_video_claim_needs_a_media_frame_capture_at_its_time(self):
         package = self.copy()
         self.edit(package, "behaviors.json", lambda body: body["behaviors"][3]["claims"][0].__setitem__("time_s", 1.0))
@@ -413,6 +427,28 @@ class ReadinessTest(PackageCase):
         result = self.validate(package, "--require-ready")
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertIn("EXCLUDED home/strip: Not in this build.", result.stdout)
+
+    def test_each_blocker_is_listed_once(self):
+        report_path = self.root / "report.json"
+        result = self.validate(BLOCKED, "--report", report_path)
+        self.assertEqual(result.stdout.count("strip_text"), 1, result.stdout)
+        self.assertEqual(result.stdout.count("intro-wave"), 1, result.stdout)
+        sections = {entry["section_id"]: entry for entry in
+                    json.loads(report_path.read_text(encoding="utf-8"))["readiness"]["sections"]}
+        for entry in sections.values():
+            for item in entry["surface"]:
+                self.assertFalse(any(item.split(":")[0] in blocker for blocker in entry["blockers"]), item)
+
+    def test_every_section_excluded_reports_no_in_scope_sections(self):
+        package = self.copy(BLOCKED)
+        self.edit(package, "sections.json", lambda body: [entry.update(
+            {"in_scope": False, "exclusion_reason": "Not in this build."}) for entry in body["sections"]])
+        report_path = self.root / "report.json"
+        result = self.validate(package, "--report", report_path)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("READINESS: NOT READY (no in-scope sections)", result.stdout)
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        self.assertEqual(report["readiness"]["reason"], "no in-scope sections")
 
     def test_intake_only_package_is_never_ready(self):
         package = self.root / "intake"
@@ -465,6 +501,16 @@ class ScaffolderTest(PackageCase):
         self.assertEqual(again.returncode, 2)
         self.assertIn("pass --force", again.stderr)
         self.assertEqual(run("new", "--out", package, "--project", "blank", "--force").returncode, 0)
+
+    def test_new_refuses_an_out_path_that_is_not_a_directory(self):
+        blocker = self.root / "a-file"
+        blocker.write_text("not a directory", encoding="utf-8")
+        for out in (blocker, blocker / "package"):
+            with self.subTest(out=out):
+                result = run("new", "--out", out, "--project", "p")
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertIn("design-handoff:", result.stderr)
 
     def test_stated_reuse_needs_the_statement(self):
         result = run("new", "--out", self.root / "p", "--project", "p", "--reuse", "reuse-allowed")
