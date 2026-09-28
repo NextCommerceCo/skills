@@ -408,6 +408,40 @@ class Recommendation(unittest.TestCase):
         self.assertEqual(landed["Buy 1"]["unit_after"], "24.95")
         self.assertEqual(plan["offers"][0]["benefit"]["price_rounding"], "0.95")
 
+    def assertRoundingRefused(self, *needles, **kw):
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.recommend(self.disc, ns(**kw))
+        msg = str(cm.exception)
+        for n in needles + ("not below", "--rounding"):
+            self.assertIn(n, msg)
+        return msg
+
+    def test_rounding_above_anchor_refused_tier(self):
+        # 20.50 at 1%: discount 0.21 -> 20.29, floored and pinned to 20.95
+        self.assertRoundingRefused("Buy 1", "20.29", "20.95", "20.50",
+                                   anchor_price="20.50", tiers="1,2,3", rounding="0.95", exit="0")
+
+    def test_rounding_equal_to_anchor_refused_tier(self):
+        self.assertRoundingRefused("Buy 1", "20.74", "20.95",
+                                   anchor_price="20.95", tiers="1,50,60", rounding="0.95", exit="0")
+
+    def test_rounding_refused_bxgy(self):
+        self.assertRoundingRefused("Buy 99 get 1 free", anchor_price="20.50", offer_type="bxgy",
+                                   paid_qty=99, free_qty=1, rounding="0.95", exit="0")
+
+    def test_rounding_refused_upsell(self):
+        self.assertRoundingRefused("upsell-16", "39.55", "39.95", hero=10, ctc="high",
+                                   anchor_price="189.95", upsell=["16:39.95:1"], rounding="0.95", exit="0")
+
+    def test_rounding_refused_exit_voucher(self):
+        self.assertRoundingRefused("Exit - 2% on Buy 1", "24.45", "24.95", rounding="0.95", exit="2")
+
+    def test_rounding_exit_checked_on_every_tier(self):
+        # Buy 1 at 24.99 -> 23.99 clears; Buy 2 at 22.99 -> 22.07 -> 22.99 does not.
+        msg = self.assertRoundingRefused("Exit - 4% on Buy 2", "22.07", "22.99", rounding="0.99", exit="4")
+        self.assertNotIn("on Buy 1", msg)
+        ca.recommend(self.disc, ns(rounding="0.99", exit="5"))
+
     def test_high_ctc_with_bumps_and_upsells(self):
         plan = ca.recommend(self.disc, ns(hero=10, ctc="high", anchor_price="189.95",
                                           bump=["7:9.95"], upsell=["16:39.95:50"]))

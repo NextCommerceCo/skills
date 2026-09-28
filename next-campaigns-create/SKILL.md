@@ -1,6 +1,6 @@
 ---
 name: next-campaigns-create
-version: 0.7.2
+version: 0.7.3
 description: |
   Provision a launch-ready Campaigns App campaign over the NEXT Admin API:
   read the store's catalogue, gateway groups and shipping methods, recommend a
@@ -535,6 +535,13 @@ for its upsell and exit codes), price rounding (`--rounding`: `0.00`, `0.95`, `0
 or `0.99`; never applied to a 100% gift offer), `--payment-methods`,
 `--express-methods` and `--statement-descriptor`.
 
+Rounding floors the discounted unit to the dollar and then adds the ending, so a
+small discount can round back up to the price it started from: $20.50 at 1% is
+$20.29, which `0.95` turns into $20.95. `recommend` refuses any tier,
+buy-X-get-Y, upsell or exit offer whose rounded unit is not below the price it
+discounts from (for the exit voucher, each tier price it stacks on). When that
+happens, pick another ending, a larger percentage, or no rounding.
+
 ---
 
 ## Phase 4: Recommend and plan review
@@ -749,6 +756,7 @@ need.
 | `upsell variant ... given twice` | the same variant passed to `--upsell` more than once | pass each upsell variant once; variants of one product at the same percentage already share one voucher |
 | `products ... both shorten to voucher code name ...` or `would both get voucher code ...` | two products on this campaign land on the same short name, or the same finished code | ask the operator for a short name and pass `--short-name <product_id>:<NAME>` for one of them; never add a suffix on your own |
 | `product title ... has no distinctive words for a voucher code` | the title is only generic words (Christmas, Ornament, Calendar) and numbers | ask the operator for a short name and pass `--short-name <product_id>:<NAME>` |
+| `... lands it at ..., not below ...` | `--rounding` floors the discounted unit to the dollar and adds the ending, so a small discount rounds back up to or past the price it discounts from | pass a different `--rounding` ending, a larger percentage, or omit `--rounding` |
 | `exit voucher code ... is also an upsell voucher code` | an upsell of the hero product at the exit percentage generates the same code | pass a short `--exit-code`, such as `SAVE10` |
 | launcher exits 2 with a Python message | no Python 3.9 or newer found | install Python 3.9 or newer, or set `NEXT_CAMPAIGNS_CREATE_PYTHON` |
 | `NOT APPLIED: pass --yes --plan-sha256` | the gate | re-run `plan`, copy the hash, pass it to `apply` |
