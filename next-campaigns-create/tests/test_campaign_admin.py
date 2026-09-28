@@ -3106,6 +3106,11 @@ class UpsellPackagesAndVouchers(unittest.TestCase):
         notes = [r for r in plan["rationale"] if "was not used" in r]
         self.assertEqual(len(notes), 1, notes)
         self.assertIn("18:FAMILY", notes[0])
+        # An explicit --exit-code replaces the hero's generated code, so the hero's
+        # short name contributes to no code and is reported as unused.
+        plan = ca.recommend(self.disc, ns(short_name=["22:BAND"], exit_code="SAVE10"))
+        self.assertEqual([o["code"] for o in plan["offers"] if o["offer_type"] == "voucher"], ["SAVE10"])
+        self.assertTrue(any("22:BAND was not used" in r for r in plan["rationale"]), plan["rationale"])
 
     def _preview(self, plan):
         with tempfile.TemporaryDirectory() as tmp:
