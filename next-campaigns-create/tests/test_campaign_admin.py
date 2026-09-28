@@ -528,7 +528,7 @@ class Recommendation(unittest.TestCase):
             with self.subTest(**kw):
                 deal, note = self._bxgy_2_1(**kw)
                 self.assertEqual(deal["order_total"], landed)
-                self.assertIn(f"lands at {landed}, not the {paid}", note)
+                self.assertIn(f"lands at {landed}, not the {paid} that paying for 2", note)
                 self.assertIn("Customer copy must quote the landed total", note)
                 self.assertNotIn("matches paying", note)
 

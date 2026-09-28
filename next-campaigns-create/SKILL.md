@@ -451,24 +451,29 @@ gift (different package keys). `--tiers` with `--offer-type bxgy` is an error.
   operator's anchor before asking. The discount is rounded to cents, then the
   unit price is floored to the dollar and the chosen cents added: 50% off
   $59.99 is $29.99 unrounded and $29.95 with .95. A rounded unit price can sit
-  up to $1 either side of the plain percentage.
+  up to $1 either side of the plain percentage, so on a small discount (under
+  about $1 a unit) it can land above the anchor. Check the landed table for
+  that before approval.
 
   > Should the discounted prices on this campaign be rounded to a price ending?
   > For example, 50% off {anchor} lands at {unrounded} as is, or {rounded}
   > ending in .95. It applies to every quantity, buy-X-get-Y, upsell and exit
-  > offer; never to a free gift or free shipping. For whole-dollar prices
-  > (.00), choose Other.
+  > offer; never to a free gift or free shipping.
   >
   > - A) No rounding
   > - B) End in .95
-  > - C) End in .99
-  > - D) End in .97
+  > - C) End in .97
+  > - D) End in .99
+  > - E) Whole dollars (.00)
 
-  A passes no flag. B, C, D and whole dollars pass `--rounding 0.95`, `0.99`,
-  `0.97` or `0.00`: one value for every offer in the run. Rounding pins the
+  A passes no flag. B to E pass `--rounding 0.95`, `0.97`, `0.99` or `0.00`:
+  one value for every offer in the run. If the question tool takes at most 4
+  options, drop E from the list and name whole dollars in the question text as
+  a typed answer; if typed answers are not possible either, ask a short
+  follow-up for whole dollars after the answer. Rounding pins the
   unit price, so some bundle totals become unreachable (see "Rounding and
   stacking" in `references/offer-doctrine.md`). On buy-X-get-Y, say in the
-  question that the `X+Y` total will no longer match paying for X; the plan's
+  question that the `X+Y` total will likely stop matching paying for X; the plan's
   landed table shows the real figure.
 - **Bumps and upsells**: each as an explicit variant id, package price and, for
   upsells, voucher percentage. Nothing is inferred from catalogue prices.
@@ -523,10 +528,10 @@ Tell the operator, before they approve:
   `X+Y` still get the same percentage; it does not repeat per extra set.
 - Which unit is free is not a choice. Mixed-price variants all take the same
   %. That is proportional-off-all, not cheapest-free.
-- Customer copy can say "3 for the price of 2" only when the landed `X+Y`
-  total equals X times the anchor. Otherwise quote the landed total, or say
-  "buy 2 get 1 free (~33.33% off when you take 3)". Never "the cheapest unit
-  is free". The cart shows a discounted unit on a consolidated line, not a $0
+- Customer copy can say "3 for the price of 2" or "buy 2 get 1 free" only
+  when the landed `X+Y` total equals X times the anchor. Otherwise quote the
+  landed total ("3 for $101.85"), never a free unit or a percentage the cart
+  does not deliver. Never "the cheapest unit is free". The cart shows a discounted unit on a consolidated line, not a $0
   FREE line.
 - A different product as the free item cannot be encoded. Stop and use gift
   with purchase if they want a separate SKU that is free whenever it is in
@@ -562,7 +567,7 @@ and the exit voucher (`--exit`) to 10 percent, both from
 others are `--exit-code`, `--short-name <product_id>:<NAME>` (the product's
 voucher code name, A-Z0-9, starting with a letter, at most 12 characters, used
 for its upsell and exit codes), `--payment-methods`, `--express-methods` and
-`--statement-descriptor`. Price rounding is not a default: it is asked under
+`--statement-descriptor`. Price rounding is not left to its default: it is asked under
 "Shared, every type".
 
 ---
