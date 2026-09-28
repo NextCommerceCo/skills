@@ -71,7 +71,9 @@ SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 DECIMAL_RE = re.compile(r"^\d{1,8}(?:\.\d{1,2})?$")
 CODE_RE = re.compile(r"^[A-Z0-9]{1,64}$")
 CODE_STEM_MAX = 12
-CODE_STEM_RE = re.compile(r"^[A-Z0-9]{1,%d}$" % CODE_STEM_MAX)
+# A short name starts with a letter: a leading number reads as a catalogue
+# number, which code_stem drops from generated names for the same reason.
+CODE_STEM_RE = re.compile(r"^[A-Z][A-Z0-9]{0,%d}$" % (CODE_STEM_MAX - 1))
 # Generic nouns that say nothing about which product a code belongs to. Extend
 # here and in references/offer-doctrine.md together.
 GENERIC_CODE_WORDS = frozenset({"ORNAMENT", "ORNAMENTS", "CHRISTMAS", "XMAS", "CALENDAR", "CALENDARS"})
@@ -959,7 +961,7 @@ def _parse_short_names(specs, products) -> dict:
         name = name.strip().upper()
         if not sep or pid is None or not CODE_STEM_RE.match(name):
             raise CampaignAdminError(
-                f"--short-name expects <product_id>:<NAME> with NAME A-Z0-9 and at most {CODE_STEM_MAX} "
+                f"--short-name expects <product_id>:<NAME> with NAME A-Z0-9, starting with a letter, at most {CODE_STEM_MAX} "
                 f"characters, got {spec!r}")
         if pid not in known:
             raise CampaignAdminError(f"--short-name product {pid} not found in discovery")
@@ -1601,6 +1603,9 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
         chosen = {sm["shipping_method"] for sm in shipping}
         countries = sorted({c for m in discovery["shipping_methods"] if m["code"] in chosen
                             for c in (m.get("countries") or []) if c})
+    for pid in sorted(set(short_names) - {v["product_id"] for v in voucher_codes if v["source"] == "short-name"}):
+        rationale.append(f"--short-name {pid}:{short_names[pid]} was not used: product {pid} gets no generated "
+                         "voucher code in this plan (not an upsell, or not the hero of a generated exit code).")
     return {
         "store_slug": discovery["store_slug"],
         "store_origin": discovery["store_origin"],
@@ -2987,7 +2992,7 @@ def main(argv=None) -> int:
     r.add_argument("--exit", help="exit-pop voucher percentage (default 10; 0 disables)")
     r.add_argument("--exit-code")
     r.add_argument("--short-name", action="append",
-                   help="<product_id>:<NAME>, repeatable; the product's voucher code name (A-Z0-9, at most 12)")
+                   help="<product_id>:<NAME>, repeatable; the product's voucher code name (A-Z0-9, starts with a letter, at most 12)")
     r.add_argument("--bump", action="append", help="<variant_id>:<price>, repeatable")
     r.add_argument("--upsell", action="append", help="<variant_id>:<price>:<pct>, repeatable")
     r.add_argument("--free-shipping", action="store_true", help="free shipping on every checkout order")

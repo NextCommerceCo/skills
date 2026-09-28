@@ -530,8 +530,8 @@ The quantity tier percentages (`--tiers`) default to 50,55,60 off the anchor
 and the exit voucher (`--exit`) to 10 percent, both from
 `references/offer-doctrine.md`. `--offer-type` defaults to `quantity`. The
 others are `--exit-code`, `--short-name <product_id>:<NAME>` (the product's
-voucher code name, A-Z0-9 and at most 12 characters, used for its upsell and
-exit codes), price rounding (`--rounding`: `0.00`, `0.95`, `0.97`
+voucher code name, A-Z0-9, starting with a letter, at most 12 characters, used
+for its upsell and exit codes), price rounding (`--rounding`: `0.00`, `0.95`, `0.97`
 or `0.99`; never applied to a 100% gift offer), `--payment-methods`,
 `--express-methods` and `--statement-descriptor`.
 

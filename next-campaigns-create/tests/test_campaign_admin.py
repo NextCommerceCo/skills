@@ -3095,11 +3095,17 @@ class UpsellPackagesAndVouchers(unittest.TestCase):
         self.assertIn("source exit-code", out)
 
     def test_short_name_flag_is_validated(self):
-        for bad in ("15:TOO-LONG", "15:ABCDEFGHIJKLM", "15:", "x:ABC", "999:ABC", "15"):
+        for bad in ("15:TOO-LONG", "15:ABCDEFGHIJKLM", "15:", "x:ABC", "999:ABC", "15", "15:1ALWAYS"):
             with self.assertRaises(ca.CampaignAdminError, msg=bad):
                 ca.recommend(self.disc, ns(upsell=["16:39.95:50"], short_name=[bad]))
         with self.assertRaises(ca.CampaignAdminError):
             ca.recommend(self.disc, ns(upsell=["16:39.95:50"], short_name=["15:A", "15:B"]))
+
+    def test_unused_short_name_is_disclosed(self):
+        plan = ca.recommend(self.disc, ns(upsell=["16:39.95:50"], short_name=["18:FAMILY", "15:MAGNET"]))
+        notes = [r for r in plan["rationale"] if "was not used" in r]
+        self.assertEqual(len(notes), 1, notes)
+        self.assertIn("18:FAMILY", notes[0])
 
     def _preview(self, plan):
         with tempfile.TemporaryDirectory() as tmp:
