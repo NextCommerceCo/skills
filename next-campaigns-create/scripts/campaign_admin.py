@@ -1244,11 +1244,21 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
             raise CampaignAdminError(
                 f"buy {paid_qty} get {free_qty} free at {money(pct)}% yields a non-positive unit price ({unit}); "
                 "lower the free quantity or raise the anchor")
+        landed_total = unit * total_qty
+        paid_total = anchor * paid_qty
+        if landed_total == paid_total:
+            match = (f"At exactly {total_qty} equal-priced units it lands at {money(landed_total)}, which "
+                     f"matches paying for the paid quantity; it is not Nth-unit-free.")
+        else:
+            match = (f"At exactly {total_qty} equal-priced units it lands at {money(landed_total)}, not the "
+                     f"{money(paid_total)} that {paid_qty} at the anchor would cost: the percentage is held to "
+                     "2 decimals, the discount is rounded to cents, and price_rounding (when set) moves the "
+                     "unit price. Customer copy must quote the landed total, not 'for the price of "
+                     f"{paid_qty}'. It is not Nth-unit-free.")
         rationale.append(
             f"Buy {paid_qty} get {free_qty} free is an approximation: the Campaigns App has no free-unit "
             f"benefit, so this is a count-{total_qty} automatic offer at {money(pct)}% off every in-scope unit "
-            f"(offer doctrine: Buy-X-get-Y approximation). At exactly {total_qty} equal-priced units it matches "
-            "paying for the paid quantity; it is not Nth-unit-free.")
+            f"(offer doctrine: Buy-X-get-Y approximation). " + match)
         rationale.append(
             "Which unit is free is not merchant-chosen: the engine applies the same percentage to every "
             "matching unit, including mixed-price variants (proportional-off-all, not cheapest-free or "

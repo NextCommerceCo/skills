@@ -507,6 +507,31 @@ class Recommendation(unittest.TestCase):
         deal = next(l for l in plan["landed_prices"] if l["qty"] == 5)
         self.assertEqual((deal["unit_after"], deal["order_total"]), ("29.97", "149.85"))
 
+    def _bxgy_2_1(self, **kw):
+        plan = ca.recommend(self.disc, ns(offer_type="bxgy", paid_qty=2, free_qty=1, **kw))
+        deal = next(l for l in plan["landed_prices"] if l["qty"] == 3)
+        note = next(r for r in plan["rationale"] if r.startswith("Buy 2 get 1 free is an approximation"))
+        return deal, note
+
+    def test_bxgy_rationale_says_match_only_when_totals_match(self):
+        deal, note = self._bxgy_2_1()
+        self.assertEqual(deal["order_total"], "99.90")
+        self.assertIn("lands at 99.90, which matches paying for the paid quantity", note)
+
+    def test_bxgy_rationale_states_landed_total_when_it_differs(self):
+        cases = [
+            (dict(rounding="0.95"), "101.85", "99.90"),          # charm cents
+            (dict(anchor_price="59.99"), "120.00", "119.98"),    # discount rounded to cents
+            (dict(anchor_price="300"), "600.03", "600.00"),      # 33.33% held to 2 decimals
+        ]
+        for kw, landed, paid in cases:
+            with self.subTest(**kw):
+                deal, note = self._bxgy_2_1(**kw)
+                self.assertEqual(deal["order_total"], landed)
+                self.assertIn(f"lands at {landed}, not the {paid}", note)
+                self.assertIn("Customer copy must quote the landed total", note)
+                self.assertNotIn("matches paying", note)
+
     def test_bxgy_refuses_tiers_high_ctc_and_missing_qty(self):
         with self.assertRaises(ca.CampaignAdminError) as cm:
             ca.recommend(self.disc, ns(offer_type="bxgy", paid_qty=2, free_qty=1, tiers="50,55,60"))

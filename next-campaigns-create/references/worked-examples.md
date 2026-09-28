@@ -33,7 +33,10 @@ Locked by `Recommendation.test_low_ctc_multi_variant`.
 `--offer-type bxgy --paid-qty 2 --free-qty 1 --ctc low --anchor-price 49.95`
 
 Encoded as one automatic offer: `count = 3`, `package_percentage = 33.33`.
-At exactly three equal-priced units the payable matches paying for two.
+At exactly three equal-priced units the payable matches paying for two. That
+holds for this anchor with `price_rounding` unset; leaving rounding off does not
+guarantee it in general (at 59.99 the same offer lands at 120.00, not 119.98).
+With `--rounding 0.95` this example lands at 33.95 a unit, 101.85 for three.
 
 | Row | Qty | % | Unit | Full retail | Payable | vs true repeating BOGO |
 |---|---|---|---|---|---|---|
