@@ -3131,6 +3131,9 @@ class UpsellPackagesAndVouchers(unittest.TestCase):
         self.assertEqual(ca.offer_body(up, {k: 1 for k in up["condition"]["package_keys"]})["code"], "MAGNET50")
         del plan["voucher_codes"]
         self.assertIn("source unknown", self._preview(plan))
+        for junk in (1, "x", {"a": 1}):
+            plan["voucher_codes"] = junk
+            self.assertIn("source unknown", self._preview(plan))
 
     def test_bump_and_upsell_flag_order_does_not_matter(self):
         # bumps and upsells are separate argparse lists; recommend builds every bump
@@ -3156,11 +3159,12 @@ class UpsellPackagesAndVouchers(unittest.TestCase):
                             ("American Legacy Coin Ornament", "LEGACYCOIN"),
                             ("2025 Always Near Ornament", "ALWAYSNEAR"),
                             ("#12 Snapshot Ornament", "SNAPSHOT"),
+                            ("Snapshot Ornament 2025", "SNAPSHOT"),
                             ("3D Photo Crystal", "PHOTOCRYSTAL"),
                             ("Music Photo Magnet", "PHOTOMAGNET"),
                             ("Supercalifragilistic Ornament", "SUPERCALIFRA")):
             self.assertEqual(ca.code_stem(title), stem, title)
-        for generic in ("Christmas Ornament", "2025 Christmas Calendar"):
+        for generic in ("Christmas Ornament", "2025 Christmas Calendar", "Christmas Ornament 2025"):
             with self.assertRaises(ca.CampaignAdminError, msg=generic):
                 ca.code_stem(generic)
 

@@ -748,7 +748,7 @@ need.
 | `bump variant ... is already package ...` or `both use variant` | a bump on a hero variant, or a hand-edited second package for one variant | choose a different variant for the bump; for a hand edit, reuse the one package and set the price with an offer |
 | `upsell variant ... given twice` | the same variant passed to `--upsell` more than once | pass each upsell variant once; variants of one product at the same percentage already share one voucher |
 | `products ... both shorten to voucher code name ...` or `would both get voucher code ...` | two products on this campaign land on the same short name, or the same finished code | ask the operator for a short name and pass `--short-name <product_id>:<NAME>` for one of them; never add a suffix on your own |
-| `product title ... has no distinctive words for a voucher code` | the title is only generic words (Christmas, Ornament, Calendar) or numbers | ask the operator for a short name and pass `--short-name <product_id>:<NAME>` |
+| `product title ... has no distinctive words for a voucher code` | the title is only generic words (Christmas, Ornament, Calendar) and numbers | ask the operator for a short name and pass `--short-name <product_id>:<NAME>` |
 | `exit voucher code ... is also an upsell voucher code` | an upsell of the hero product at the exit percentage generates the same code | pass a short `--exit-code`, such as `SAVE10` |
 | launcher exits 2 with a Python message | no Python 3.9 or newer found | install Python 3.9 or newer, or set `NEXT_CAMPAIGNS_CREATE_PYTHON` |
 | `NOT APPLIED: pass --yes --plan-sha256` | the gate | re-run `plan`, copy the hash, pass it to `apply` |

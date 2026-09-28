@@ -928,12 +928,11 @@ def short_name(title: str) -> str:
 
 def code_stem(title: str) -> str:
     """The short product name a voucher code starts with: the title's distinctive
-    words, without leading catalogue numbers or generic nouns, trimmed from the
-    front to CODE_STEM_MAX characters."""
-    words = [w for w in re.split(r"[^A-Z0-9]+", title.upper()) if w]
-    while words and words[0].isdigit():
-        words.pop(0)
-    words = [w for w in words if w not in GENERIC_CODE_WORDS]
+    words, without catalogue numbers, years or generic nouns, trimmed from the
+    front to CODE_STEM_MAX characters. A bare number would run into the
+    percentage suffix (SNAPSHOT2025 + 10), so number-only words never count."""
+    words = [w for w in re.split(r"[^A-Z0-9]+", title.upper())
+             if w and not w.isdigit() and w not in GENERIC_CODE_WORDS]
     if not words:
         raise CampaignAdminError(
             f"product title {title!r} has no distinctive words for a voucher code; "
@@ -1990,7 +1989,8 @@ def print_plan(plan: dict, plan_path: Path | None) -> None:
     vouchers = [o for o in plan.get("offers", []) if o.get("offer_type") == "voucher"]
     if vouchers:
         print("Voucher codes (override with --short-name <product_id>:<NAME> or --exit-code):")
-        prov = {v.get("offer_key"): v for v in plan.get("voucher_codes") or [] if isinstance(v, dict)}
+        raw = plan.get("voucher_codes")
+        prov = {v.get("offer_key"): v for v in (raw if isinstance(raw, list) else []) if isinstance(v, dict)}
         for o in vouchers:
             v = prov.get(o["key"])
             if v is None:

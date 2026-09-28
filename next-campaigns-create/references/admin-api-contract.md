@@ -315,8 +315,17 @@ otherwise.
    "shipping_key","anchor","pct","unit_after","order_total",
    "paid_qty","free_qty","total_qty","full_retail","payable","savings",
    "effective_pct","effective_unit","approximation","note"}],
+ "voucher_codes": [{"offer_key","product_id","title","short_name",
+   "generated_code","source":"generated|short-name|exit-code"}],
  "rationale": ["..."], "blockers": ["..."], "waivers": ["..."], "handoff": ["..."]}
 ```
+
+`voucher_codes` is written by `recommend` and read only by `plan`'s preview; it
+is never sent to the API and is optional for `validate_plan`. The code a voucher
+is created with is always `offers[].code`. When that differs from
+`generated_code` (a hand edit), the preview marks it `edited in plan`; a plan
+without `voucher_codes` shows each code with source `unknown`. `short_name` is
+null for an `--exit-code` exit voucher unless the hero has a `--short-name`.
 
 Several `landed_prices` rows may share one `offer_key`: a grouped upsell voucher
 has one `upsell` row per variant package, so `verify` probes each variant with

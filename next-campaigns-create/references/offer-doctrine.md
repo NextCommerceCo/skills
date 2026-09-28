@@ -260,8 +260,8 @@ Offer names:
 Voucher codes:
 
 - A code is `{SHORT NAME}{PCT}`, uppercase A-Z0-9 only.
-- The short name is the product's distinctive words. `recommend` drops leading
-  catalogue numbers and the generic nouns ORNAMENT(S), CHRISTMAS, XMAS and
+- The short name is the product's distinctive words. `recommend` drops
+  number-only words (catalogue numbers, years) and the generic nouns ORNAMENT(S), CHRISTMAS, XMAS and
   CALENDAR(S), then drops leading words until it is 12 characters or fewer (a
   single long word is cut at 12). Always Near Ornament is `ALWAYSNEAR`, Our
   Family Christmas Ornament is `OURFAMILY`, Snapshot Ornament is `SNAPSHOT`,
@@ -271,7 +271,7 @@ Voucher codes:
 - Two products on the campaign that land on the same short name, or the same
   finished code, stop `recommend`. The operator picks a short name for one of
   them with `--short-name <product_id>:<NAME>`; the tool never adds a suffix on
-  its own. A title made only of generic words stops the same way.
+  its own. A title made only of generic words and numbers stops the same way.
 - `plan` shows every voucher code before approval, with its product, short name
   and source, so the operator can override it.
 - A code is fixed when the voucher is created. Editing the offer's percentage
