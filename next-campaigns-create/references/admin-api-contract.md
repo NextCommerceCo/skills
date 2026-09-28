@@ -256,7 +256,7 @@ teardown later deletes it, as this run's.
 | Upsell/exit offers are `voucher` type (site offers don't fire post-purchase) | [Offer types and where they work](offer-doctrine.md#offer-types-and-where-they-work) |
 | One upsell voucher per product and percentage, scoped to every variant package; key `upsell-{product_id}-{pct}` | [Post-purchase upsells](offer-doctrine.md#post-purchase-upsells) |
 | One package per variant, one shipping method per store code; an upsell reuses its variant's package and the voucher sets its price; a bump must be an unpackaged variant | [Naming and scoping](offer-doctrine.md#naming-and-scoping) |
-| Voucher code `{PRODUCT}{PCT}`, uppercase alphanumeric | [Naming and scoping](offer-doctrine.md#naming-and-scoping) |
+| Voucher code `{SHORT NAME}{PCT}`: distinctive words, at most 12 characters, discount rounded down; a clash stops for `--short-name` | [Naming and scoping](offer-doctrine.md#naming-and-scoping) |
 | Package name `{Product}` or `{Product} - {Variant}`; never `2x Product` | [Naming and scoping](offer-doctrine.md#naming-and-scoping) |
 | Campaign name = hero product; gateway group must carry the currency | [Campaign settings](offer-doctrine.md#campaign-settings) |
 | Landed price is a forecast until confirmed against `carts/calculate` | [Rounding and stacking](offer-doctrine.md#rounding-and-stacking) |
@@ -315,8 +315,17 @@ otherwise.
    "shipping_key","anchor","pct","unit_after","order_total",
    "paid_qty","free_qty","total_qty","full_retail","payable","savings",
    "effective_pct","effective_unit","approximation","note"}],
+ "voucher_codes": [{"offer_key","product_id","title","short_name",
+   "generated_code","source":"generated|short-name|exit-code"}],
  "rationale": ["..."], "blockers": ["..."], "waivers": ["..."], "handoff": ["..."]}
 ```
+
+`voucher_codes` is written by `recommend` and read only by `plan`'s preview; it
+is never sent to the API and is optional for `validate_plan`. The code a voucher
+is created with is always `offers[].code`. When that differs from
+`generated_code` (a hand edit), the preview marks it `edited in plan`; a plan
+without `voucher_codes` shows each code with source `unknown`. `short_name` is
+null for an `--exit-code` exit voucher unless the hero has a `--short-name`.
 
 Several `landed_prices` rows may share one `offer_key`: a grouped upsell voucher
 has one `upsell` row per variant package, so `verify` probes each variant with

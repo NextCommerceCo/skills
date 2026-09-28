@@ -88,7 +88,7 @@ def ns(**kw):
                 gateway_group=None, payment_methods=None, express_methods=None, currency=None,
                 language=None, countries=None, offer_type="quantity", paid_qty=None, free_qty=None,
                 gift=None, gift_mode="auto", tiers=None, exit=None, exit_code=None, bump=None,
-                upsell=None, free_shipping=False, free_shipping_min_qty=None, rounding=None,
+                upsell=None, short_name=None, free_shipping=False, free_shipping_min_qty=None, rounding=None,
                 statement_descriptor=None)
     base.update(kw)
     return argparse.Namespace(**base)
@@ -416,7 +416,7 @@ class Recommendation(unittest.TestCase):
         roles = sorted(p["role"] for p in plan["packages"])
         self.assertEqual(roles, ["bump", "hero", "hero", "hero", "hero", "upsell"])
         up = next(o for o in plan["offers"] if o["key"].startswith("upsell-"))
-        self.assertEqual((up["offer_type"], up["code"], up["condition"]["package_keys"]), ("voucher", "MUSICPHOTOMAGNET50", ["upsell-16"]))
+        self.assertEqual((up["offer_type"], up["code"], up["condition"]["package_keys"]), ("voucher", "PHOTOMAGNET50", ["upsell-16"]))
         self.assertTrue(any(o["key"] == "exit-pop" for o in plan["offers"]))
 
     def test_inputs_never_inferred(self):
@@ -1576,7 +1576,7 @@ class StructuredLandedPrices(unittest.TestCase):
         cases = ca._cart_cases_from_plan(plan2, ids2)
         up = [c for c in cases if c[0].endswith("voucher") and "Upsell" in c[0]]
         self.assertEqual(len(up), 1)
-        self.assertEqual(up[0][2], ["MUSICPHOTOMAGNET50"])
+        self.assertEqual(up[0][2], ["PHOTOMAGNET50"])
 
     def test_reconcile_skips_pagination_when_nothing_pending(self):
         plan = ca.recommend(self.disc, ns(name="B", exit_code="B10"))
@@ -2333,7 +2333,7 @@ class FreeShippingPerCase(unittest.TestCase):
         self.assertIsNone(up["expected_shipping"])
         self.assertEqual(up["shipping"], "none")
         for _, path, body, _ in tt.calls:
-            upsell = body.get("vouchers") == ["MUSICPHOTOMAGNET50"]
+            upsell = body.get("vouchers") == ["PHOTOMAGNET50"]
             self.assertEqual(path.endswith("?upsell=true"), upsell, path)
             self.assertEqual("shipping_method" in body, not upsell, body)
 
@@ -2973,7 +2973,7 @@ class UpsellPackagesAndVouchers(unittest.TestCase):
         self.assertEqual(ca.validate_plan(plan), [])
         (up,) = self._upsell_offers(plan)
         self.assertEqual((up["key"], up["name"], up["code"], up["condition"]["package_keys"]),
-                         ("upsell-15-50", "Music Photo Magnet - 50%", "MUSICPHOTOMAGNET50",
+                         ("upsell-15-50", "Music Photo Magnet - 50%", "PHOTOMAGNET50",
                           ["upsell-16", "upsell-17"]))
         rows = [l for l in plan["landed_prices"] if l["kind"] == "upsell"]
         self.assertEqual(len(rows), 2)
@@ -2982,14 +2982,14 @@ class UpsellPackagesAndVouchers(unittest.TestCase):
         ids = {p["key"]: 300 + i for i, p in enumerate(plan["packages"])}
         cases = [c for c in ca._cart_cases_from_plan(plan, ids) if c[0].startswith("Upsell")]
         self.assertEqual(len(cases), 2)
-        self.assertTrue(all(c[2] == ["MUSICPHOTOMAGNET50"] for c in cases))
+        self.assertTrue(all(c[2] == ["PHOTOMAGNET50"] for c in cases))
 
     def test_same_product_two_percentages_two_vouchers(self):
         plan = ca.recommend(self.disc, ns(hero=10, ctc="high", anchor_price="189.95",
                                           upsell=["16:39.95:50", "17:39.95:40"]))
         self.assertEqual(ca.validate_plan(plan), [])
         self.assertEqual(sorted(o["code"] for o in self._upsell_offers(plan)),
-                         ["MUSICPHOTOMAGNET40", "MUSICPHOTOMAGNET50"])
+                         ["PHOTOMAGNET40", "PHOTOMAGNET50"])
         tiers = [l["tier"] for l in plan["landed_prices"] if l["kind"] == "upsell"]
         self.assertEqual(len(set(tiers)), 2, tiers)
 
@@ -3008,19 +3008,143 @@ class UpsellPackagesAndVouchers(unittest.TestCase):
         twin = next(p for p in d["products"] if p["id"] == 18)
         twin["title"] = "Music Photo Magnet"
         plan = ca.recommend(d, ns(hero=10, ctc="high", anchor_price="189.95", exit_code="SAVE10",
-                                  upsell=["16:39.95:50", "19:29.95:40"]))
+                                  upsell=["16:39.95:50", "19:29.95:40"], short_name=["18:BIGMAGNET"]))
         tiers = [l["tier"] for l in plan["landed_prices"] if l["kind"] == "upsell"]
         self.assertEqual(len(set(tiers)), 2, tiers)
 
-    def test_two_products_with_one_title_same_pct_get_distinct_codes(self):
+    def test_two_products_with_one_title_stop_and_ask(self):
         d = json.loads(json.dumps(self.disc))
         next(p for p in d["products"] if p["id"] == 18)["title"] = "Music Photo Magnet"
+        kw = dict(hero=10, ctc="high", anchor_price="189.95", upsell=["16:39.95:50", "19:29.95:50"])
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.recommend(d, ns(**kw))
+        self.assertIn("PHOTOMAGNET", str(cm.exception))
+        self.assertIn("--short-name", str(cm.exception))
+        plan = ca.recommend(d, ns(short_name=["18:bigmagnet"], **kw))
+        self.assertEqual(ca.validate_plan(plan), [])
+        ups = self._upsell_offers(plan)
+        self.assertEqual(sorted(o["code"] for o in ups), ["BIGMAGNET50", "PHOTOMAGNET50"])
+        self.assertEqual(len({o["name"] for o in ups}), 2)
+
+    def test_titles_that_share_a_code_stem_stop_and_ask(self):
+        d = json.loads(json.dumps(self.disc))
+        next(p for p in d["products"] if p["id"] == 18)["title"] = "Music-Photo Magnet!"
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.recommend(d, ns(hero=10, ctc="high", anchor_price="189.95",
+                               upsell=["16:39.95:50", "19:29.95:50"]))
+        self.assertIn("--short-name", str(cm.exception))
+
+    def test_distinct_stems_that_complete_to_one_code_stop_and_ask(self):
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.recommend(self.disc, ns(hero=10, ctc="high", anchor_price="189.95",
+                                       upsell=["16:39.95:5", "19:29.95:15"],
+                                       short_name=["15:MODEL1", "18:MODEL"]))
+        self.assertIn("MODEL15", str(cm.exception))
+        self.assertIn("--short-name", str(cm.exception))
+
+    def test_long_titles_shorten_from_the_front(self):
+        d = json.loads(json.dumps(self.disc))
+        long = "Personalized Music Photo Magnet With Custom Song Lyrics"
+        for pid, suffix in ((15, " Small"), (18, " Large")):
+            next(p for p in d["products"] if p["id"] == pid)["title"] = long + suffix
         plan = ca.recommend(d, ns(hero=10, ctc="high", anchor_price="189.95",
                                   upsell=["16:39.95:50", "19:29.95:50"]))
         self.assertEqual(ca.validate_plan(plan), [])
-        ups = self._upsell_offers(plan)
-        self.assertEqual(sorted(o["code"] for o in ups), ["MUSICPHOTOMAGNET1550", "MUSICPHOTOMAGNET1850"])
-        self.assertEqual(len({o["name"] for o in ups}), 2)
+        self.assertEqual(sorted(o["code"] for o in self._upsell_offers(plan)),
+                         ["LYRICSLARGE50", "LYRICSSMALL50"])
+
+    def test_generic_upsell_title_without_offers_needs_no_code(self):
+        d = json.loads(json.dumps(self.disc))
+        d["offers_supported"] = False
+        next(p for p in d["products"] if p["id"] == 15)["title"] = "Christmas Ornament"
+        plan = ca.recommend(d, ns(hero=10, ctc="high", anchor_price="189.95", upsell=["16:39.95:50"]))
+        self.assertEqual(plan["voucher_codes"], [])
+        self.assertFalse(any("None" in r for r in plan["rationale"] + plan["handoff"]))
+
+    def test_generic_hero_title_is_fine_when_no_exit_code_is_generated(self):
+        def generic_hero(offers=True):
+            d = json.loads(json.dumps(self.disc))
+            next(p for p in d["products"] if p["id"] == 22)["title"] = "Christmas Ornament"
+            if not offers:
+                d["offers_supported"] = False
+            return d
+        self.assertEqual(ca.recommend(generic_hero(), ns(exit="0"))["voucher_codes"], [])
+        self.assertEqual(ca.recommend(generic_hero(offers=False), ns())["voucher_codes"], [])
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.recommend(generic_hero(), ns())
+        self.assertIn("--short-name", str(cm.exception))
+
+    def test_hero_and_upsell_sharing_a_stem_without_exit_do_not_collide(self):
+        d = json.loads(json.dumps(self.disc))
+        next(p for p in d["products"] if p["id"] == 15)["title"] = "Photo Bracelet Charm Bracelet"
+        next(p for p in d["products"] if p["id"] == 22)["title"] = "Bracelet"
+        plan = ca.recommend(d, ns(exit="0", upsell=["16:39.95:50"]))
+        self.assertEqual([o["code"] for o in self._upsell_offers(plan)], ["BRACELET50"])
+        with self.assertRaises(ca.CampaignAdminError):
+            ca.recommend(d, ns(upsell=["16:39.95:50"]))
+
+    def test_explicit_exit_code_on_a_generic_hero(self):
+        d = json.loads(json.dumps(self.disc))
+        next(p for p in d["products"] if p["id"] == 22)["title"] = "Christmas Ornament"
+        plan = ca.recommend(d, ns(exit_code="SAVE10"))
+        (v,) = plan["voucher_codes"]
+        self.assertEqual((v["offer_key"], v["short_name"], v["generated_code"], v["source"]),
+                         ("exit-pop", None, "SAVE10", "exit-code"))
+        out = self._preview(plan)
+        self.assertIn("SAVE10", out)
+        self.assertIn("source exit-code", out)
+
+    def test_short_name_flag_is_validated(self):
+        for bad in ("15:TOO-LONG", "15:ABCDEFGHIJKLM", "15:", "x:ABC", "999:ABC", "15", "15:1ALWAYS"):
+            with self.assertRaises(ca.CampaignAdminError, msg=bad):
+                ca.recommend(self.disc, ns(upsell=["16:39.95:50"], short_name=[bad]))
+        with self.assertRaises(ca.CampaignAdminError):
+            ca.recommend(self.disc, ns(upsell=["16:39.95:50"], short_name=["15:A", "15:B"]))
+
+    def test_unused_short_name_is_disclosed(self):
+        plan = ca.recommend(self.disc, ns(upsell=["16:39.95:50"], short_name=["18:FAMILY", "15:MAGNET"]))
+        notes = [r for r in plan["rationale"] if "was not used" in r]
+        self.assertEqual(len(notes), 1, notes)
+        self.assertIn("18:FAMILY", notes[0])
+        # An explicit --exit-code replaces the hero's generated code, so the hero's
+        # short name contributes to no code and is reported as unused.
+        plan = ca.recommend(self.disc, ns(short_name=["22:BAND"], exit_code="SAVE10"))
+        self.assertEqual([o["code"] for o in plan["offers"] if o["offer_type"] == "voucher"], ["SAVE10"])
+        self.assertTrue(any("22:BAND was not used" in r for r in plan["rationale"]), plan["rationale"])
+
+    def _preview(self, plan):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "plan.json"
+            path.write_text(json.dumps(plan))
+            reloaded = json.loads(path.read_text())
+            out, old = [], ca.print
+            ca.print = lambda *a, **k: out.append(" ".join(str(x) for x in a))
+            try:
+                ca.print_plan(reloaded, path)
+            finally:
+                ca.print = old
+            return "\n".join(out)
+
+    def test_preview_lists_voucher_codes_after_a_round_trip(self):
+        plan = ca.recommend(self.disc, ns(upsell=["16:39.95:50"], short_name=["22:BAND"]))
+        out = self._preview(plan)
+        self.assertIn("Voucher codes (override with --short-name", out)
+        self.assertRegex(out, r"upsell-15-50\s+PHOTOMAGNET50  Music Photo Magnet \(15\)  short name PHOTOMAGNET  source generated")
+        self.assertRegex(out, r"exit-pop\s+BAND10  Photo Bracelet \(22\)  short name BAND  source short-name")
+
+    def test_preview_shows_the_code_that_will_be_sent(self):
+        plan = json.loads(json.dumps(ca.recommend(self.disc, ns(upsell=["16:39.95:50"]))))
+        up = next(o for o in plan["offers"] if o["key"] == "upsell-15-50")
+        up["code"] = "MAGNET50"
+        out = self._preview(plan)
+        self.assertIn("MAGNET50", out)
+        self.assertIn("source edited in plan", out)
+        self.assertEqual(ca.offer_body(up, {k: 1 for k in up["condition"]["package_keys"]})["code"], "MAGNET50")
+        del plan["voucher_codes"]
+        self.assertIn("source unknown", self._preview(plan))
+        for junk in (1, "x", {"a": 1}):
+            plan["voucher_codes"] = junk
+            self.assertIn("source unknown", self._preview(plan))
 
     def test_bump_and_upsell_flag_order_does_not_matter(self):
         # bumps and upsells are separate argparse lists; recommend builds every bump
@@ -3039,25 +3163,25 @@ class UpsellPackagesAndVouchers(unittest.TestCase):
             with self.assertRaises(ca.CampaignAdminError, msg=bad):
                 ca.recommend(self.disc, ns(upsell=[f"23:49.95:{bad}"]))
 
-    def test_titles_that_share_a_code_stem_get_distinct_codes(self):
-        d = json.loads(json.dumps(self.disc))
-        next(p for p in d["products"] if p["id"] == 18)["title"] = "Music-Photo Magnet!"
-        plan = ca.recommend(d, ns(hero=10, ctc="high", anchor_price="189.95",
-                                  upsell=["16:39.95:50", "19:29.95:50"]))
-        self.assertEqual(ca.validate_plan(plan), [])
-        self.assertEqual(sorted(o["code"] for o in self._upsell_offers(plan)),
-                         ["MUSICPHOTOMAGNET1550", "MUSICPHOTOMAGNET1850"])
+    def test_code_stem_examples(self):
+        for title, stem in (("Always Near Ornament", "ALWAYSNEAR"),
+                            ("Our Family Christmas Ornament", "OURFAMILY"),
+                            ("Snapshot Ornament", "SNAPSHOT"),
+                            ("American Legacy Coin Ornament", "LEGACYCOIN"),
+                            ("2025 Always Near Ornament", "ALWAYSNEAR"),
+                            ("#12 Snapshot Ornament", "SNAPSHOT"),
+                            ("Snapshot Ornament 2025", "SNAPSHOT"),
+                            ("3D Photo Crystal", "PHOTOCRYSTAL"),
+                            ("Music Photo Magnet", "PHOTOMAGNET"),
+                            ("Supercalifragilistic Ornament", "SUPERCALIFRA")):
+            self.assertEqual(ca.code_stem(title), stem, title)
+        for generic in ("Christmas Ornament", "2025 Christmas Calendar", "Christmas Ornament 2025"):
+            with self.assertRaises(ca.CampaignAdminError, msg=generic):
+                ca.code_stem(generic)
 
-    def test_long_titles_keep_the_product_id_in_the_code(self):
-        d = json.loads(json.dumps(self.disc))
-        long = "Personalized Music Photo Magnet With Custom Song Lyrics"
-        for pid, suffix in ((15, " Small"), (18, " Large")):
-            next(p for p in d["products"] if p["id"] == pid)["title"] = long + suffix
-        plan = ca.recommend(d, ns(hero=10, ctc="high", anchor_price="189.95",
-                                  upsell=["16:39.95:50", "19:29.95:50"]))
-        self.assertEqual(ca.validate_plan(plan), [])
-        codes = sorted(o["code"] for o in self._upsell_offers(plan))
-        self.assertEqual([c[-4:] for c in codes], ["1550", "1850"])
+    def test_code_from_rounds_the_percentage_down(self):
+        self.assertEqual(ca.code_from("ALWAYSNEAR", "57.5"), "ALWAYSNEAR57")
+        self.assertEqual(ca.code_from("ALWAYSNEAR", 10), "ALWAYSNEAR10")
 
     def test_exit_code_collision_needs_exit_code(self):
         with self.assertRaises(ca.CampaignAdminError) as cm:
@@ -3084,7 +3208,7 @@ class UpsellVoucherVerify(unittest.TestCase):
         self.assertEqual(report["result"], "PASS", json.dumps(report, indent=1))
         case = self._cases(report)["Upsell Photo Bracelet voucher"]
         self.assertEqual(case["got_total"], "24.97")
-        self.assertTrue(any(p.endswith("?upsell=true") and b.get("vouchers") == ["PHOTOBRACELET50"]
+        self.assertTrue(any(p.endswith("?upsell=true") and b.get("vouchers") == ["BRACELET50"]
                             for _, p, b, _ in tt.calls))
 
     def test_hero_reuse_voucher_stacks_at_checkout(self):
@@ -3094,9 +3218,9 @@ class UpsellVoucherVerify(unittest.TestCase):
         ids = {p["key"]: 400 + i for i, p in enumerate(plan["packages"])}
         calc = self._engine(plan, ids)
         _, upsell_page = calc("/api/v1/carts/calculate/?upsell=true",
-                              {"lines": [{"package_id": ids["hero-23"], "quantity": 1}], "vouchers": ["PHOTOBRACELET50"]})
+                              {"lines": [{"package_id": ids["hero-23"], "quantity": 1}], "vouchers": ["BRACELET50"]})
         _, checkout = calc("/api/v1/carts/calculate/",
-                           {"lines": [{"package_id": ids["hero-23"], "quantity": 1}], "vouchers": ["PHOTOBRACELET50"]})
+                           {"lines": [{"package_id": ids["hero-23"], "quantity": 1}], "vouchers": ["BRACELET50"]})
         self.assertEqual((upsell_page["total"], checkout["total"]), ("24.97", "12.48"))
 
     def test_bump_reuse_voucher_verifies_in_upsell_mode(self):
