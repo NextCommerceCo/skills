@@ -1,6 +1,6 @@
 ---
 name: next-campaigns-create
-version: 0.7.1
+version: 0.7.2
 description: |
   Provision a launch-ready Campaigns App campaign over the NEXT Admin API:
   read the store's catalogue, gateway groups and shipping methods, recommend a
@@ -224,7 +224,7 @@ next-campaigns-create.sh --version
 next-campaigns-create.sh check-update [--no-cache] [--json]
 next-campaigns-create.sh discover  --store <subdomain> [--out <dir>]
 next-campaigns-create.sh metadata  --store <subdomain> [--apply]
-next-campaigns-create.sh recommend --discovery <dir>/discovery.json --hero <product_id> --ctc low|high --anchor-price <decimal> --shipping <code>:<price>[:<key>] [--shipping ...] [--offer-type quantity|bxgy|gwp] [--paid-qty <n> --free-qty <n>] [--gift <variant_id>:<price>[:<qty>]] [--gift-mode auto|select] [--name <campaign name>] [--gateway-group <id>] [--payment-methods a,b] [--express-methods a,b] [--currency USD] [--language en] [--countries US,CA] [--tiers 50,55,60] [--exit 10] [--exit-code CODE] [--bump <variant_id>:<price>] [--upsell <variant_id>:<price>:<pct>] [--free-shipping | --free-shipping-min-qty <n>] [--rounding 0.95] [--statement-descriptor <text>] [--out <dir>]
+next-campaigns-create.sh recommend --discovery <dir>/discovery.json --hero <product_id> --ctc low|high --anchor-price <decimal> --shipping <code>:<price>[:<key>] [--shipping ...] [--offer-type quantity|bxgy|gwp] [--paid-qty <n> --free-qty <n>] [--gift <variant_id>:<price>[:<qty>]] [--gift-mode auto|select] [--name <campaign name>] [--gateway-group <id>] [--payment-methods a,b] [--express-methods a,b] [--currency USD] [--language en] [--countries US,CA] [--tiers 50,55,60] [--exit 10] [--exit-code CODE] [--short-name <product_id>:<NAME>] [--bump <variant_id>:<price>] [--upsell <variant_id>:<price>:<pct>] [--free-shipping | --free-shipping-min-qty <n>] [--rounding 0.95] [--statement-descriptor <text>] [--out <dir>]
 next-campaigns-create.sh plan      --plan <dir>/campaign-plan.json [--check-store]
 next-campaigns-create.sh apply     --plan <dir>/campaign-plan.json --yes --plan-sha256 <plan-sha256> [--resume <dir>/run-manifest.json] [--out <dir>]
 next-campaigns-create.sh verify    --manifest <dir>/run-manifest.json --plan <dir>/campaign-plan.json [--out <dir>]
@@ -529,7 +529,9 @@ The remaining flags have defaults; override them only when the operator asks.
 The quantity tier percentages (`--tiers`) default to 50,55,60 off the anchor
 and the exit voucher (`--exit`) to 10 percent, both from
 `references/offer-doctrine.md`. `--offer-type` defaults to `quantity`. The
-others are `--exit-code`, price rounding (`--rounding`: `0.00`, `0.95`, `0.97`
+others are `--exit-code`, `--short-name <product_id>:<NAME>` (the product's
+voucher code name, A-Z0-9 and at most 12 characters, used for its upsell and
+exit codes), price rounding (`--rounding`: `0.00`, `0.95`, `0.97`
 or `0.99`; never applied to a 100% gift offer), `--payment-methods`,
 `--express-methods` and `--statement-descriptor`.
 
@@ -568,8 +570,8 @@ bash <skill-dir>/next-campaigns-create.sh plan \
 ```
 
 `--check-store` also asks the store whether a campaign with the same name
-already exists. `plan` prints the ordered request list, the landed prices table,
-the rationale, any blockers, and the plan's SHA-256. Each landed row ends with
+already exists. `plan` prints the ordered request list, the voucher codes, the landed prices
+table, the rationale, any blockers, and the plan's SHA-256. Each landed row ends with
 one of five shipping labels:
 
 | Label | Meaning |
@@ -583,8 +585,11 @@ one of five shipping labels:
 If there are blockers, stop and clear them (see Failure modes), then re-run
 `recommend` and `plan`. The engine will not apply a plan with blockers.
 
-Otherwise show the operator the request list and the landed prices, and get an
-explicit go/no-go with `AskUserQuestion`:
+Otherwise show the operator the request list, the voucher codes and the landed
+prices, and get an explicit go/no-go with `AskUserQuestion`. Voucher codes are
+`{SHORT NAME}{PCT}` (for example `ALWAYSNEAR10`, `SNAPSHOT60`); the operator can
+override a product's short name with `--short-name <product_id>:<NAME>` or the
+whole exit code with `--exit-code`, then re-run `recommend` and `plan`:
 
 > Ready to create campaign "{name}" on {subdomain}.29next.store: {N} requests
 > ({P} packages, {S} shipping methods, {O} offers). The request list and the
@@ -742,6 +747,8 @@ need.
 | `upsell variant ... is already package ...` | an upsell at a different price from the package that variant already has | pass the variant at its package price and the percentage the error suggests |
 | `bump variant ... is already package ...` or `both use variant` | a bump on a hero variant, or a hand-edited second package for one variant | choose a different variant for the bump; for a hand edit, reuse the one package and set the price with an offer |
 | `upsell variant ... given twice` | the same variant passed to `--upsell` more than once | pass each upsell variant once; variants of one product at the same percentage already share one voucher |
+| `products ... both shorten to voucher code name ...` or `would both get voucher code ...` | two products on this campaign land on the same short name, or the same finished code | ask the operator for a short name and pass `--short-name <product_id>:<NAME>` for one of them; never add a suffix on your own |
+| `product title ... has no distinctive words for a voucher code` | the title is only generic words (Christmas, Ornament, Calendar) or numbers | ask the operator for a short name and pass `--short-name <product_id>:<NAME>` |
 | `exit voucher code ... is also an upsell voucher code` | an upsell of the hero product at the exit percentage generates the same code | pass a short `--exit-code`, such as `SAVE10` |
 | launcher exits 2 with a Python message | no Python 3.9 or newer found | install Python 3.9 or newer, or set `NEXT_CAMPAIGNS_CREATE_PYTHON` |
 | `NOT APPLIED: pass --yes --plan-sha256` | the gate | re-run `plan`, copy the hash, pass it to `apply` |

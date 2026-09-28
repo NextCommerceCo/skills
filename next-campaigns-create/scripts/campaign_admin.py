@@ -55,7 +55,7 @@ import urllib.request
 import uuid
 from collections import namedtuple
 from datetime import datetime, timezone
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 
 API_VERSION = "2024-04-01"
@@ -70,6 +70,11 @@ CART_API_ORIGIN = "https://campaigns.apps.29next.com"
 SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 DECIMAL_RE = re.compile(r"^\d{1,8}(?:\.\d{1,2})?$")
 CODE_RE = re.compile(r"^[A-Z0-9]{1,64}$")
+CODE_STEM_MAX = 12
+CODE_STEM_RE = re.compile(r"^[A-Z0-9]{1,%d}$" % CODE_STEM_MAX)
+# Generic nouns that say nothing about which product a code belongs to. Extend
+# here and in references/offer-doctrine.md together.
+GENERIC_CODE_WORDS = frozenset({"ORNAMENT", "ORNAMENTS", "CHRISTMAS", "XMAS", "CALENDAR", "CALENDARS"})
 PRICE_ROUNDINGS = (None, "0.00", "0.95", "0.97", "0.99")
 BENEFIT_TYPES = ("package_percentage", "shipping_percentage", "order_percentage")
 CONDITION_TYPES = ("any", "count")
@@ -921,10 +926,48 @@ def short_name(title: str) -> str:
     return re.sub(r"\s+", " ", title).strip()
 
 
-def code_from(title: str, pct, tag: str = "") -> str:
-    """{STEM}{TAG}{PCT}: the tag goes after the 40-character cut so it always survives."""
-    stem = re.sub(r"[^A-Z0-9]", "", title.upper())[:40] or "OFFER"
-    return f"{stem}{tag}{int(pct)}"
+def code_stem(title: str) -> str:
+    """The short product name a voucher code starts with: the title's distinctive
+    words, without leading catalogue numbers or generic nouns, trimmed from the
+    front to CODE_STEM_MAX characters."""
+    words = [w for w in re.split(r"[^A-Z0-9]+", title.upper()) if w]
+    while words and words[0].isdigit():
+        words.pop(0)
+    words = [w for w in words if w not in GENERIC_CODE_WORDS]
+    if not words:
+        raise CampaignAdminError(
+            f"product title {title!r} has no distinctive words for a voucher code; "
+            f"pass --short-name <product_id>:<NAME> (A-Z0-9, at most {CODE_STEM_MAX} characters)")
+    while len("".join(words)) > CODE_STEM_MAX and len(words) > 1:
+        words.pop(0)
+    return "".join(words)[:CODE_STEM_MAX]
+
+
+def code_from(stem: str, pct) -> str:
+    """{STEM}{PCT}, the percentage as a whole number rounded down (57.5 -> 57)."""
+    return f"{stem}{int(Decimal(str(pct)).to_integral_value(ROUND_FLOOR))}"
+
+
+def _parse_short_names(specs, products) -> dict:
+    known = {p["id"] for p in products}
+    out = {}
+    for spec in specs or []:
+        pid_s, sep, name = spec.partition(":")
+        try:
+            pid = int(pid_s)
+        except ValueError:
+            pid = None
+        name = name.strip().upper()
+        if not sep or pid is None or not CODE_STEM_RE.match(name):
+            raise CampaignAdminError(
+                f"--short-name expects <product_id>:<NAME> with NAME A-Z0-9 and at most {CODE_STEM_MAX} "
+                f"characters, got {spec!r}")
+        if pid not in known:
+            raise CampaignAdminError(f"--short-name product {pid} not found in discovery")
+        if pid in out:
+            raise CampaignAdminError(f"--short-name product {pid} given twice")
+        out[pid] = name
+    return out
 
 
 def _parse_kv(spec: str, parts: int, label: str) -> list:
@@ -989,6 +1032,7 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
     if not variants:
         raise CampaignAdminError(f"hero product {a.hero} has no purchasable variants")
     hero_title = short_name(hero["title"])
+    short_names = _parse_short_names(getattr(a, "short_name", None), discovery["products"])
     # The API appends " - {variant}" to the package name for variant packages,
     # so the plan sends the bare product name and records the variant separately.
     packages, keys_by_variant = [], {}
@@ -1289,22 +1333,55 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
     groups_per_product = {}
     for (pid, _), g in groups.items():
         groups_per_product[pid] = groups_per_product.get(pid, 0) + 1
-    products_per_title, products_per_stem = {}, {}
+    products_per_title = {}
     for (pid, _), g in groups.items():
         products_per_title.setdefault(g["title"], set()).add(pid)
-        # code_from strips punctuation and truncates, so different titles can still
-        # share a code stem; collisions are decided on the stem, not the raw title.
-        products_per_stem.setdefault(code_from(g["title"], 0), set()).add(pid)
+
+    # Voucher codes are {SHORT NAME}{PCT}. A stem is resolved only for a product
+    # whose voucher is actually generated, so an unused hero or an offers-less
+    # store never trips the empty-stem error. Two products that land on the same
+    # stem or the same code stop the run: the operator picks a --short-name.
+    stem_owner, code_owner, stems, voucher_codes = {}, {}, {}, []
+
+    def stem_for(pid, title):
+        if pid not in stems:
+            source = "short-name" if pid in short_names else "generated"
+            stem = short_names.get(pid) or code_stem(title)
+            prev = stem_owner.get(stem)
+            if prev is not None and prev[0] != pid:
+                raise CampaignAdminError(
+                    f"products {prev[0]} ({prev[1]!r}) and {pid} ({title!r}) both shorten to voucher code "
+                    f"name {stem}; pass --short-name <product_id>:<NAME> for one of them")
+            stem_owner[stem] = (pid, title)
+            stems[pid] = (stem, source)
+            rationale.append(f"Voucher code name {stem} for {title}" +
+                             (" (--short-name)." if source == "short-name" else "."))
+        return stems[pid]
+
+    def claim_code(pid, title, code):
+        prev = code_owner.get(code)
+        if prev is not None and prev[0] != pid:
+            raise CampaignAdminError(
+                f"products {prev[0]} ({prev[1]!r}) and {pid} ({title!r}) would both get voucher code {code}; "
+                "pass --short-name <product_id>:<NAME> for one of them")
+        code_owner[code] = (pid, title)
+
     upsell_codes = set()
     for (pid, pct), g in groups.items():
         title, items = g["title"], g["items"]
         key = f"upsell-{pid}-{pct}"
-        # Two upsold products can share a title; fold the product id into the name
-        # and code only then, so the usual {PRODUCT}{PCT} code stays short.
-        twin = len(products_per_stem[code_from(title, 0)]) > 1
-        code = code_from(title, pct, tag=str(pid) if twin else "")
+        # Two upsold products can share a title; fold the product id into the
+        # offer name only then, so names stay unique in the campaign.
+        twin = len(products_per_title[title]) > 1
         offer_name = f"{title} ({pid}) - {pct}%" if twin else f"{title} - {pct}%"
-        upsell_codes.add(code)
+        code = None
+        if offers_supported is not False:
+            stem, source = stem_for(pid, title)
+            code = code_from(stem, pct)
+            claim_code(pid, title, code)
+            upsell_codes.add(code)
+            voucher_codes.append({"offer_key": key, "product_id": pid, "title": title,
+                                  "short_name": stem, "generated_code": code, "source": source})
         solo = (groups_per_product[pid] == 1 and len(items) == 1
                 and len(products_per_title[title]) == 1)
         who = f"{title} ({pid})" if twin else title
@@ -1327,10 +1404,11 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
                 "condition": {"type": "any", "value": None, "package_keys": keys},
                 "benefit": {"type": "package_percentage", "value": money(D(pct)), "price_rounding": rounding},
             })
-        rationale.append(f"Upsell {who}: one voucher {code} scoped to {len(keys)} variant package(s) {keys}; "
+        voucher = f"one voucher {code}" if code else "one voucher (not created: offers unavailable)"
+        rationale.append(f"Upsell {who}: {voucher} scoped to {len(keys)} variant package(s) {keys}; "
                          "variants at one percentage share one voucher (site offers do not apply post-purchase).")
         shared = [pkg["key"] for pkg, reused in items if reused]
-        if shared:
+        if shared and code:
             handoff.append(
                 f"Upsell voucher {code} is scoped to {shared}, which are also sold on the checkout page. "
                 "A voucher works on every page, so the code also applies at checkout if a shopper enters "
@@ -1439,11 +1517,18 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
             return False
     exit_pct = DEFAULT_EXIT_PCT if a.exit is None else (0 if _is_zero(a.exit) else whole_pct(a.exit, "exit"))
     if exit_pct and offers_supported is not False:
-        exit_code = a.exit_code or code_from(hero_title, exit_pct)
+        if a.exit_code:
+            exit_code, exit_stem, exit_source = a.exit_code, short_names.get(hero["id"]), "exit-code"
+        else:
+            exit_stem, exit_source = stem_for(hero["id"], hero_title)
+            exit_code = code_from(exit_stem, exit_pct)
         if exit_code in upsell_codes:
             raise CampaignAdminError(
                 f"the exit voucher code {exit_code} is also an upsell voucher code (an upsell of the hero "
                 f"product at {exit_pct}%); pass a short --exit-code such as SAVE{exit_pct}")
+        claim_code(hero["id"], hero_title, exit_code)
+        voucher_codes.append({"offer_key": "exit-pop", "product_id": hero["id"], "title": hero_title,
+                              "short_name": exit_stem, "generated_code": exit_code, "source": exit_source})
         offers.append({
             "key": "exit-pop", "name": f"{hero_title} - Exit - {exit_pct}%",
             "offer_type": "voucher", "code": exit_code,
@@ -1536,6 +1621,7 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
         "packages": packages,
         "shipping_methods": shipping,
         "offers": offers,
+        "voucher_codes": voucher_codes,
         "landed_prices": landed,
         "rationale": rationale,
         "blockers": blockers,
@@ -1901,6 +1987,19 @@ def print_plan(plan: dict, plan_path: Path | None) -> None:
         crit = f"qty>={cond['value']}" if cond["type"] == "count" else "any"
         code = f" code={o['code']}" if o.get("offer_type") == "voucher" else ""
         print(f"  {o['key']:<14} {o.get('offer_type','offer'):<7} {o['name']}  {crit} on {cond['package_keys']}  {o['benefit']['type']} {o['benefit']['value']}%{code}")
+    vouchers = [o for o in plan.get("offers", []) if o.get("offer_type") == "voucher"]
+    if vouchers:
+        print("Voucher codes (override with --short-name <product_id>:<NAME> or --exit-code):")
+        prov = {v.get("offer_key"): v for v in plan.get("voucher_codes") or [] if isinstance(v, dict)}
+        for o in vouchers:
+            v = prov.get(o["key"])
+            if v is None:
+                print(f"  {o['key']:<14} {o.get('code')}  source unknown")
+                continue
+            source = v.get("source") if v.get("generated_code") == o.get("code") else "edited in plan"
+            name = v.get("short_name") or "-"
+            print(f"  {o['key']:<14} {o.get('code')}  {v.get('title')} ({v.get('product_id')})  "
+                  f"short name {name}  source {source}")
     print("Landed prices (confirm these):")
     for l in plan["landed_prices"]:
         extra = ""
@@ -2887,6 +2986,8 @@ def main(argv=None) -> int:
     r.add_argument("--tiers", help="comma-separated percentages for Buy 1/2/3 (default 50,55,60; quantity only)")
     r.add_argument("--exit", help="exit-pop voucher percentage (default 10; 0 disables)")
     r.add_argument("--exit-code")
+    r.add_argument("--short-name", action="append",
+                   help="<product_id>:<NAME>, repeatable; the product's voucher code name (A-Z0-9, at most 12)")
     r.add_argument("--bump", action="append", help="<variant_id>:<price>, repeatable")
     r.add_argument("--upsell", action="append", help="<variant_id>:<price>:<pct>, repeatable")
     r.add_argument("--free-shipping", action="store_true", help="free shipping on every checkout order")

@@ -254,8 +254,30 @@ Offer names:
 | Checkout tier (site offer) | `{Product} - Buy {n} - {pct}%` | none |
 | Buy-X-get-Y (site offer, labeled approximation) | `{Product} - Buy {x} get {y} free (~{pct}%)` | none |
 | Gift free (site offer, gift packages only) | `{Product} - Gift free` | none |
-| Upsell voucher (one per product and percentage, never per variant) | `{Product} - {pct}%` | `{PRODUCT}{PCT}`, uppercase alphanumeric, for example `TRAVELMUG50` |
-| Exit voucher | `{Product} - Exit - {pct}%` | `--exit-code` when given, else `{PRODUCT}{PCT}`; keep it short, for example `SAVE10` |
+| Upsell voucher (one per product and percentage, never per variant) | `{Product} - {pct}%` | `{SHORT NAME}{PCT}`, for example `ALWAYSNEAR57` |
+| Exit voucher | `{Product} - Exit - {pct}%` | `--exit-code` when given, else `{SHORT NAME}{PCT}`, for example `ALWAYSNEAR10` |
+
+Voucher codes:
+
+- A code is `{SHORT NAME}{PCT}`, uppercase A-Z0-9 only.
+- The short name is the product's distinctive words. `recommend` drops leading
+  catalogue numbers and the generic nouns ORNAMENT(S), CHRISTMAS, XMAS and
+  CALENDAR(S), then drops leading words until it is 12 characters or fewer (a
+  single long word is cut at 12). Always Near Ornament is `ALWAYSNEAR`, Our
+  Family Christmas Ornament is `OURFAMILY`, Snapshot Ornament is `SNAPSHOT`,
+  American Legacy Coin Ornament is `LEGACYCOIN`.
+- The percentage is the offer's discount as a whole number, rounded down: 57.5
+  percent is `57`.
+- Two products on the campaign that land on the same short name, or the same
+  finished code, stop `recommend`. The operator picks a short name for one of
+  them with `--short-name <product_id>:<NAME>`; the tool never adds a suffix on
+  its own. A title made only of generic words stops the same way.
+- `plan` shows every voucher code before approval, with its product, short name
+  and source, so the operator can override it.
+- A code is fixed when the voucher is created. Editing the offer's percentage
+  later in the Campaigns App does not rename the code, so re-create or rename it
+  there if the number must match. This rule applies to new campaigns only; it
+  does not rename vouchers that already exist.
 
 Scoping rules:
 
@@ -274,8 +296,9 @@ Scoping rules:
   Campaigns App requires them to be unique within a campaign. The names
   `recommend` generates are readable as they stand. If you rename one in the plan,
   keep it customer-facing and never use an internal code.
-- Exit codes appear in a popup, so a short code such as `SAVE10` (passed with
-  `--exit-code`) reads better than the generated product-based one.
+- Exit codes appear in a popup, so they must be short and easy to type. The
+  generated `{SHORT NAME}{PCT}` code is meant for that; pass `--exit-code` only
+  when the operator wants something else, such as `SAVE10`.
 
 ## Rounding and stacking
 

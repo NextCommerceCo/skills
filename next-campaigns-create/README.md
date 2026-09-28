@@ -98,7 +98,8 @@ It then walks you through, step by step:
    carts to the cent, including each tier, a cart with mixed variants, the exit
    voucher and shipping.
 7. **Hand-off**: tells you where the campaign key is saved, lists the package
-   IDs and offer codes your funnel needs, and lists the dashboard steps left to
+   IDs and offer codes your funnel needs (short codes such as `ALWAYSNEAR10`:
+   the product's distinctive name plus the discount), and lists the dashboard steps left to
    do: allowed domains, PayPal account linking and the Map Builder.
 
 ### Example prices
