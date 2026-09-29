@@ -876,9 +876,9 @@ def check_rounding_discount(offer: str, before: Decimal, pct: Decimal, rounding:
     if rounding and unit >= before:
         raw = landed_unit(before, pct, None)
         raise CampaignAdminError(
-            f"{offer}: {money(pct)}% off {money(before)} is {money(raw)} unrounded, but price_rounding "
+            f"{offer}: {_pct_for_landed(pct)}% off {money(before)} is {money(raw)} unrounded, but price_rounding "
             f"{rounding} lands it at {money(unit)}, not below {money(before)}; pass a different "
-            "--rounding ending (0.00, 0.95, 0.97, 0.99) or omit --rounding")
+            f"--rounding ending ({', '.join(PRICE_ROUNDINGS[1:])}) or omit --rounding")
     return unit
 
 
