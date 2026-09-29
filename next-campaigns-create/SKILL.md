@@ -1,6 +1,6 @@
 ---
 name: next-campaigns-create
-version: 0.7.3
+version: 0.7.4
 description: |
   Provision a launch-ready Campaigns App campaign over the NEXT Admin API:
   read the store's catalogue, gateway groups and shipping methods, recommend a
@@ -452,8 +452,12 @@ gift (different package keys). `--tiers` with `--offer-type bxgy` is an error.
   unit price is floored to the dollar and the chosen cents added: 50% off
   $59.99 is $29.99 unrounded and $29.95 with .95. A rounded unit price can sit
   up to $1 either side of the plain percentage, so on a small discount (under
-  about $1 a unit) it can land above the anchor. Check the landed table for
-  that before approval.
+  about $1 a unit) it can land at or above the price it discounts from:
+  $20.50 at 1% is $20.29, which .95 turns into $20.95. `recommend` refuses any
+  quantity, buy-X-get-Y, upsell or exit offer whose rounded unit is not below
+  that price (for the exit voucher, each tier price it stacks on), naming the
+  offer and both prices. Then ask for another ending, a larger percentage, or
+  no rounding.
 
   > Should the discounted prices on this campaign be rounded to a price ending?
   > For example, 50% off {anchor} lands at {unrounded} as is, or {rounded}
@@ -569,13 +573,6 @@ voucher code name, A-Z0-9, starting with a letter, at most 12 characters, used
 for its upsell and exit codes), `--payment-methods`, `--express-methods` and
 `--statement-descriptor`. Price rounding is not left to its default: it is asked under
 "Shared, every type".
-
-Rounding floors the discounted unit to the dollar and then adds the ending, so a
-small discount can round back up to the price it started from: $20.50 at 1% is
-$20.29, which `0.95` turns into $20.95. `recommend` refuses any tier,
-buy-X-get-Y, upsell or exit offer whose rounded unit is not below the price it
-discounts from (for the exit voucher, each tier price it stacks on). When that
-happens, pick another ending, a larger percentage, or no rounding.
 
 ---
 

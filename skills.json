@@ -313,7 +313,7 @@
     {
       "id": "next-campaigns-create",
       "name": "Campaign Provisioning",
-      "version": "0.7.3",
+      "version": "0.7.4",
       "path": "next-campaigns-create/SKILL.md",
       "domain": "campaigns",
       "description": "Create a launch-ready Campaigns App campaign over the Admin API: packages, shipping, quantity Buy 1/2/3, buy-X-get-Y as a labeled percentage, and gift-with-purchase, behind a plan-hash approval gate.",
