@@ -456,7 +456,7 @@ gift (different package keys). `--tiers` with `--offer-type bxgy` is an error.
   $20.50 at 1% is $20.29, which .95 turns into $20.95. `recommend` refuses any
   quantity, buy-X-get-Y, upsell or exit offer whose rounded unit is not below
   that price (for the exit voucher, each tier price it stacks on), naming the
-  offer and both prices. Then ask for another ending, a larger percentage, or
+  offer, the unrounded and rounded prices, and the price it discounts from. Then ask for another ending, a larger percentage, or
   no rounding.
 
   > Should the discounted prices on this campaign be rounded to a price ending?
