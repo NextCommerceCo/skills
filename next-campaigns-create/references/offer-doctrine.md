@@ -70,8 +70,12 @@ automatic offer:
   places)
 - scoped to the hero packages, same as a quantity tier
 
-At exactly `X + Y` equal-priced units this matches paying for X. It is not
-Nth-unit-free: every matching unit gets that percentage, including mixed-price
+At exactly `X + Y` equal-priced units the total is close to paying for X, and
+exact only for some anchors. The percentage is held to two decimals, the
+discount is rounded to cents, and `price_rounding` moves the unit price, so the
+landed total can differ: buy 2 get 1 at 59.99 lands at 120.00, not 119.98, and
+at 49.95 with `0.95` rounding it lands at 101.85, not 99.90. The plan's landed
+table and rationale state the real total. It is not Nth-unit-free: every matching unit gets that percentage, including mixed-price
 variants. Which unit is "free" is not a merchant choice. Cheapest-free would
 save `min(prices)`; this saves `% × sum(prices)`.
 
@@ -97,8 +101,10 @@ is in the cart, not when the hero qualifies.
 
 `--ctc high` refuses BXGY. It is a quantity structure.
 
-Customer copy: say "3 for the price of 2" or "buy 2 get 1 free (~33.33% off
-when you take 3)" rather than promising one specific unit free. Strike-through
+Customer copy: say "3 for the price of 2" or "buy 2 get 1 free" only when the
+landed `X + Y` total equals X times the anchor. Otherwise quote the landed
+total, never a free unit or a percentage the cart does not deliver. Never
+promise one specific unit free. Strike-through
 on every unit at the effective price is what the cart actually shows.
 
 ## Gift with purchase
@@ -319,7 +325,9 @@ Unit-price rounding:
   are still exact.
 
 The offer's `price_rounding` setting pins the cents of the discounted unit price.
-It changes the target, not the line structure. The API accepts these values:
+It changes the target, not the line structure. The skill asks the operator for
+it on every run (SKILL.md, Phase 3 "Price rounding"); the engine treats an
+omitted `--rounding` as no rounding. The API accepts these values:
 
 - `null` (no rounding)
 - `"0.00"`

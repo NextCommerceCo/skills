@@ -917,9 +917,8 @@ def _pct_for_landed(pct: Decimal):
     return money(pct)
 
 
-def _bxgy_landed_row(tier, kind, qty, offer_key, hero_keys, anchor, pct, rounding,
+def _bxgy_landed_row(tier, kind, qty, offer_key, hero_keys, anchor, pct, unit,
                      paid, free, note=None) -> dict:
-    unit = landed_unit(anchor, pct, rounding)
     full = anchor * qty
     payable = unit * qty
     savings = full - payable
@@ -1260,17 +1259,27 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
             raise CampaignAdminError(
                 f"buy {paid_qty} get {free_qty} free at {money(pct)}% yields a non-positive unit price ({unit}); "
                 "lower the free quantity or raise the anchor")
+        landed_total = unit * total_qty
+        paid_total = anchor * paid_qty
+        if landed_total == paid_total:
+            match = (f"At exactly {total_qty} equal-priced units it lands at {money(landed_total)}, which "
+                     f"matches paying for the paid quantity; it is not Nth-unit-free.")
+        else:
+            match = (f"At exactly {total_qty} equal-priced units it lands at {money(landed_total)}, not the "
+                     f"{money(paid_total)} that paying for {paid_qty} at the anchor would cost: the percentage is held to "
+                     "2 decimals, the discount is rounded to cents, and price_rounding (when set) moves the "
+                     "unit price. Customer copy must quote the landed total, not 'for the price of "
+                     f"{paid_qty}'. It is not Nth-unit-free.")
         rationale.append(
             f"Buy {paid_qty} get {free_qty} free is an approximation: the Campaigns App has no free-unit "
             f"benefit, so this is a count-{total_qty} automatic offer at {money(pct)}% off every in-scope unit "
-            f"(offer doctrine: Buy-X-get-Y approximation). At exactly {total_qty} equal-priced units it matches "
-            "paying for the paid quantity; it is not Nth-unit-free.")
+            f"(offer doctrine: Buy-X-get-Y approximation). " + match)
         rationale.append(
             "Which unit is free is not merchant-chosen: the engine applies the same percentage to every "
             "matching unit, including mixed-price variants (proportional-off-all, not cheapest-free or "
             "most-expensive-free).")
         extra_qty = total_qty + 1
-        extra_engine = landed_unit(anchor, pct, rounding) * extra_qty
+        extra_engine = unit * extra_qty
         extra_true = true_bxgy_payable(anchor, paid_qty, free_qty, extra_qty)
         rationale.append(
             f"The offer does not repeat per extra qualifying set. Qty {extra_qty} still gets {money(pct)}% off "
@@ -1285,10 +1294,10 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
         offer_key = f"bxgy-{paid_qty}-{free_qty}" if offers_supported is not False else None
         landed.append(_bxgy_landed_row(
             f"Buy {paid_qty} get {free_qty} free", "tier", total_qty, offer_key,
-            hero_keys, anchor, pct, rounding, paid_qty, free_qty))
+            hero_keys, anchor, pct, unit, paid_qty, free_qty))
         landed.append(_bxgy_landed_row(
             f"Buy {extra_qty} (engine; not true repeat)", "tier", extra_qty, offer_key,
-            hero_keys, anchor, pct, rounding, paid_qty, free_qty,
+            hero_keys, anchor, pct, unit, paid_qty, free_qty,
             note=f"engine applies {money(pct)}% to all units once count {total_qty} is met"))
         if offers_supported is not False:
             offers.append({

@@ -45,6 +45,7 @@ never guesses. It works out the rest from your answers.
 | For buy-X-get-Y: paid and free quantities | The single count threshold and percentage (labeled as an approximation) |
 | For a gift: which variant, its price, silent-add vs customer pick | The gift package and the 100% offer scoped only to it; funnel auto-add is a later handoff |
 | Shipping price and countries | The campaign settings |
+| Whether discounted prices end in .95, .97, .99 or whole dollars, or are left unrounded | Applying it to every discount offer except the free gift and free shipping |
 | Any add-on or upsell products, and their prices | One upsell discount per product covering all its variants, and the order the requests go in |
 
 Cost-to-consumer is what your customer pays, not what the product costs you.
@@ -104,8 +105,8 @@ It then walks you through, step by step:
 
 ### Example prices
 
-With a 49.95 anchor price and the standard tiers, the product price before
-shipping comes out like this:
+With a 49.95 anchor price, the standard tiers and no price rounding, the
+product price before shipping comes out like this:
 
 | Offer | Units | Discount off 49.95 | Price each | Total |
 |-------|-------|--------------------|------------|-------|
@@ -118,7 +119,9 @@ The 6.95 shipping charge is added at checkout. The exit voucher takes a further
 
 Buy 2 get 1 free is not a free unit. The Campaigns App only has percentages, so
 that deal is one offer at 33.33% off every unit once the cart has 3. At 3 units
-of 49.95 the payable is 99.90 (pay for two). A fourth unit still gets 33.33%
+of 49.95 the payable is 99.90 (pay for two). That match holds for this price
+with no rounding; other prices can land a few cents off, and rounding to .95
+would make it 101.85. A fourth unit still gets 33.33%
 off, which is more discount than a repeating BOGO. A gift with purchase is a
 separate gift package with a 100% offer that applies whenever that package is
 in the cart, not when the hero quantity or spend is met. The assistant will
