@@ -1,6 +1,6 @@
 ---
 name: next-campaigns-create
-version: 0.7.3
+version: 0.7.4
 description: |
   Provision a launch-ready Campaigns App campaign over the NEXT Admin API:
   read the store's catalogue, gateway groups and shipping methods, recommend a
@@ -452,8 +452,12 @@ gift (different package keys). `--tiers` with `--offer-type bxgy` is an error.
   unit price is floored to the dollar and the chosen cents added: 50% off
   $59.99 is $29.99 unrounded and $29.95 with .95. A rounded unit price can sit
   up to $1 either side of the plain percentage, so on a small discount (under
-  about $1 a unit) it can land above the anchor. Check the landed table for
-  that before approval.
+  about $1 a unit) it can land at or above the price it discounts from:
+  $20.50 at 1% is $20.29, which .95 turns into $20.95. `recommend` refuses any
+  quantity, buy-X-get-Y, upsell or exit offer whose rounded unit is not below
+  that price (for the exit voucher, each tier price it stacks on), naming the
+  offer, the unrounded and rounded prices, and the price it discounts from. Then ask for another ending, a larger percentage, or
+  no rounding.
 
   > Should the discounted prices on this campaign be rounded to a price ending?
   > For example, 50% off {anchor} lands at {unrounded} as is, or {rounded}
@@ -785,6 +789,7 @@ need.
 | `upsell variant ... given twice` | the same variant passed to `--upsell` more than once | pass each upsell variant once; variants of one product at the same percentage already share one voucher |
 | `products ... both shorten to voucher code name ...` or `would both get voucher code ...` | two products on this campaign land on the same short name, or the same finished code | ask the operator for a short name and pass `--short-name <product_id>:<NAME>` for one of them; never add a suffix on your own |
 | `product title ... has no distinctive words for a voucher code` | the title is only generic words (Christmas, Ornament, Calendar) and numbers | ask the operator for a short name and pass `--short-name <product_id>:<NAME>` |
+| `... lands it at ..., not below ...` | `--rounding` floors the discounted unit to the dollar and adds the ending, so a small discount rounds back up to or past the price it discounts from | pass a different `--rounding` ending, a larger percentage, or omit `--rounding` |
 | `exit voucher code ... is also an upsell voucher code` | an upsell of the hero product at the exit percentage generates the same code | pass a short `--exit-code`, such as `SAVE10` |
 | launcher exits 2 with a Python message | no Python 3.9 or newer found | install Python 3.9 or newer, or set `NEXT_CAMPAIGNS_CREATE_PYTHON` |
 | `NOT APPLIED: pass --yes --plan-sha256` | the gate | re-run `plan`, copy the hash, pass it to `apply` |

@@ -867,6 +867,21 @@ def landed_unit(anchor: Decimal, pct: Decimal, rounding: str | None) -> Decimal:
     return unit
 
 
+def check_rounding_discount(offer: str, before: Decimal, pct: Decimal, rounding: str | None) -> Decimal:
+    """Return landed_unit(before, pct, rounding); raise when price_rounding lifts
+    the discounted unit to or above the price it discounts from. The floor-then-add
+    step can undo a small discount (20.50 at 1% is 20.29, pinned to 20.95), and the
+    offer would still be named and sold as a discount."""
+    unit = landed_unit(before, pct, rounding)
+    if rounding and unit >= before:
+        raw = landed_unit(before, pct, None)
+        raise CampaignAdminError(
+            f"{offer}: {_pct_for_landed(pct)}% off {money(before)} is {money(raw)} unrounded, but price_rounding "
+            f"{rounding} lands it at {money(unit)}, not below {money(before)}; pass a different "
+            f"--rounding ending ({', '.join(PRICE_ROUNDINGS[1:])}) or omit --rounding")
+    return unit
+
+
 BXGY_QTY_MAX = 99
 
 
@@ -1212,7 +1227,7 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
                              "(offer doctrine: Cost-to-consumer). Tiers are offers, never quantity packages "
                              "(offer doctrine: Naming and scoping).")
             for qty, pct in enumerate(tiers, start=1):
-                unit = landed_unit(anchor, D(pct), rounding)
+                unit = check_rounding_discount(f"{hero_title} - Buy {qty} - {pct}%", anchor, D(pct), rounding)
                 if unit <= 0:
                     raise CampaignAdminError(f"Buy {qty} tier at {pct}% yields a non-positive unit price ({unit}); "
                                              "lower the discount or raise the anchor")
@@ -1238,7 +1253,8 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
     elif offer_kind == "bxgy":
         pct = D(money(bxgy_percentage(paid_qty, free_qty)))
         total_qty = paid_qty + free_qty
-        unit = landed_unit(anchor, pct, rounding)
+        unit = check_rounding_discount(
+            f"{hero_title} - Buy {paid_qty} get {free_qty} free (~{money(pct)}%)", anchor, pct, rounding)
         if unit <= 0:
             raise CampaignAdminError(
                 f"buy {paid_qty} get {free_qty} free at {money(pct)}% yields a non-positive unit price ({unit}); "
@@ -1396,7 +1412,7 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
                 and len(products_per_title[title]) == 1)
         who = f"{title} ({pid})" if twin else title
         for pkg, _ in items:
-            unit = landed_unit(D(pkg["price"]), Decimal(pct), rounding)
+            unit = check_rounding_discount(f"{offer_name} ({pkg['key']})", D(pkg["price"]), Decimal(pct), rounding)
             # Labels become verify case names, so they must be unique: the bare product
             # name only when this product has exactly one upsell package in the plan.
             label = (f"Upsell {title}" if solo else
@@ -1545,6 +1561,12 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
             "condition": {"type": "any", "value": None, "package_keys": list(hero_keys)},
             "benefit": {"type": "package_percentage", "value": money(D(exit_pct)), "price_rounding": rounding},
         })
+        # The exit voucher stacks on the tier price, so every hero row it can meet
+        # must still come out below that row's price. Gift rows are out of scope.
+        for row in landed:
+            if row["kind"] in ("tier", "single") and set(row["package_keys"]) <= set(hero_keys):
+                check_rounding_discount(f"{hero_title} - Exit - {exit_pct}% on {row['tier']}",
+                                        D(row["unit_after"]), D(exit_pct), rounding)
         rationale.append(f"Exit-pop voucher for an additional {exit_pct}% applies on top of the tier price "
                          "(offer doctrine: Rounding and stacking).")
     if free_ship:
