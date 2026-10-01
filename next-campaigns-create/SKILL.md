@@ -131,18 +131,17 @@ https://developers.nextcommerce.com/docs/admin-api/permissions
 ## Platform uniqueness rules
 
 A campaign takes **one package per variant** and **one campaign shipping
-method per store code**: each of the store's shipping methods can be used once.
+method per store code**.
 A different price for the same product or the same shipping method is an offer
 or voucher, never a second package or method. The engine applies both rules in
 `recommend`, `plan` and `apply` on every store, so a plan that breaks them fails
 before any request. `verify` and `teardown` do not apply them, so a run created
 before the rules can still be read back, priced and removed.
 
-The platform enforces the same rules. The dashboard's campaign form lists each
-store shipping method as a single row. Campaigns App releases that validate
-duplicates answer a repeated code with a 400 that says to use an offer to charge
-a different price; an older release may still accept the create. The engine's
-check does not depend on which release the store runs.
+The platform enforces the same rules in its dashboard and, on newer releases,
+in the API. The engine's check does not depend on which release the store runs.
+The details are in
+[the Admin API contract](references/admin-api-contract.md#field-notes-and-live-gotchas).
 
 ## Write inventory
 
@@ -778,7 +777,8 @@ or FAIL, with the failing checks. Then hand off:
   sends the id of the method each bundle should charge. Use the ids from this
   run's manifest and no others: the campaign SDK checks a page's shipping id
   against the methods the campaign serves and does not apply one it cannot
-  find, so the order may be charged another method's price. Deleting a method
+  find, so the order may be charged another method's price (read from the
+  SDK source, not proven on a live checkout). Deleting a method
   and creating it again gives it a new id, so every page that named the old id
   has to be repointed.
 - Offer codes for the funnel's voucher wiring.
@@ -802,7 +802,7 @@ need.
 | `credential missing` | no token found for this store in the environment, `.env` or `NEXT_ADMIN_API_TOKEN` | add the `{SUBDOMAIN}_NEXT_ADMIN_API_TOKEN` line to `.env` (Phase 1); never paste it in chat |
 | `still holds a placeholder` | the token value is a placeholder such as `<paste-token-here>` | have the user paste the real token over it in a text editor |
 | 401 or 403 from the store | key rejected, or missing one of the seven permissions; the message names the permission the request needed (`store:read` on the first `discover` request is the usual one) | re-create the key with all seven under Dashboard > Settings > API Access; retrying does not help, and full access is not needed |
-| `shipping code ... given twice` or `both use store code`; or a 400 from the store saying the shipping method code `already exists on this campaign` | the same store code at two prices | one campaign shipping method per code: use free shipping from a quantity, else a shipping offer on the one method, else a different store shipping method per price (Phase 3, Shipping) |
+| `shipping code ... given twice` or `both use store code`; or a 400 from the store on a shipping create that names the `shipping_method` field as already on the campaign (the wording may vary by release) | the same store code at two prices | one campaign shipping method per code: use free shipping from a quantity, else a shipping offer on the one method, else a different store shipping method per price (Phase 3, Shipping) |
 | `upsell variant ... is already package ...` | an upsell at a different price from the package that variant already has | pass the variant at its package price and the percentage the error suggests |
 | `bump variant ... is already package ...` or `both use variant` | a bump on a hero variant, or a hand-edited second package for one variant | choose a different variant for the bump; for a hand edit, reuse the one package and set the price with an offer |
 | `upsell variant ... given twice` | the same variant passed to `--upsell` more than once | pass each upsell variant once; variants of one product at the same percentage already share one voucher |
@@ -846,8 +846,9 @@ need.
   or an Offers API auto-add. Those are platform gaps; say so in the handoff.
 - Never infer CTC or the anchor price; both come from the operator.
 - One package per variant and one campaign shipping method per store code.
-  A price difference is an offer or voucher, shipping included. An upsell reuses the package its
-  variant already has; a bump must be a variant no other package uses.
+  A price difference is an offer or voucher, shipping included. An upsell
+  reuses the package its variant already has; a bump must be a variant no other
+  package uses.
 - One voucher per upsell product and percentage, scoped to every variant
   package of that product.
 - Never touch a campaign the run manifest does not own. Teardown deletes only

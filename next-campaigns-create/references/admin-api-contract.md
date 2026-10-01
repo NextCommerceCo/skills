@@ -147,12 +147,18 @@ token that has been pasted into a chat or a ticket once the work is done.
     back from an update that sends `shipping_method` with a code another method
     on the campaign uses; an update that sends only prices is not checked. An
     older release may accept the duplicate create with a 201, and does not
-    check the update.
+    check the update. Unverified against a live store: the status and wording
+    are as the platform documents them, so match on the 400 and the
+    `shipping_method` field, not on the exact sentence.
   - A deleted method no longer counts, so its code can be used again. The new
     method gets a new id.
   - Older campaigns that still hold several methods on one code may have only
     one of them served to the storefront. A page that names one of the others
-    cannot select it.
+    cannot select it: the campaign SDK looks a page's shipping id up in the
+    methods the campaign serves and does not apply one it cannot find, so the
+    order may be charged another method's price. This is read from the SDK
+    source and unverified on a live checkout. `carts/calculate`, which `verify`
+    calls, takes the id directly and is not subject to that lookup.
 - A different shipping price per bundle, in order of preference: free shipping
   from a quantity, then a `shipping_percentage` offer below 100 on the one
   method (see the partial shipping note below), then several campaign shipping
