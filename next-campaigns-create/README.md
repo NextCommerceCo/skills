@@ -60,6 +60,8 @@ shipping methods once. If you want the same product or the same shipping
 method at a different price, that difference comes from a discount, not from a
 second copy. For example, offering your main product again after the order at
 a lower price is done with a discount code on the package you already have.
+Shipping works the same way: cheaper or free shipping on bigger orders is a
+shipping discount on the one method, not a second version of it.
 
 > [!IMPORTANT]
 > The first campaign on a store needs eleven metadata definitions, created

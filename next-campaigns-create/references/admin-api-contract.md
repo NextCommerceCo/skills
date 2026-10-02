@@ -132,13 +132,38 @@ token that has been pasted into a chat or a ticket once the work is done.
 - Shipping create takes the store `shipping_method` code and a `price` in the
   campaign's default currency; other currencies are filled by forex.
 - Uniqueness: a campaign takes one package per variant and one campaign shipping
-  method per store code; create and update reject a duplicate.
-  `validate_plan` applies both for `recommend`, `plan` and `apply`, and skips
-  them for `verify` (`for_create=False`) so a run created earlier stays
-  verifiable. Before the rule, one code could carry several campaign methods at
-  different prices (a paid-shipping ladder); new plans cannot.
-- Several campaign shipping methods on different store codes: each create
-  returns its own id, and `carts/calculate` charges the price of the id the cart
+  method per store code.
+  - The skill enforces both itself. `validate_plan` applies them for
+    `recommend`, `plan` and `apply`, and skips them for `verify`
+    (`for_create=False`) so a run created earlier stays verifiable. Before the
+    rule, one code could carry several campaign methods at different prices (a
+    paid-shipping ladder); new plans cannot.
+  - The dashboard's campaign form lists each store shipping method as one row
+    with a campaign price, so a second row on a code cannot be added there.
+  - Campaigns App releases that validate duplicates answer a shipping create on
+    a code the campaign already uses with a 400:
+    `{"shipping_method": ["Shipping method code '<code>' already exists on this
+    campaign. Use an offer to charge a different price."]}`. The same 400 comes
+    back from an update that sends `shipping_method` with a code another method
+    on the campaign uses; an update that sends only prices is not checked. An
+    older release may accept the duplicate create with a 201, and does not
+    check the update. Unverified against a live store: the status and wording
+    are as the platform documents them, so match on the 400 and the
+    `shipping_method` field, not on the exact sentence.
+  - A deleted method no longer counts, so its code can be used again. The new
+    method gets a new id.
+  - Older campaigns that still hold several methods on one code may have only
+    one of them served to the storefront. A page that names one of the others
+    cannot select it: the campaign SDK looks a page's shipping id up in the
+    methods the campaign serves and does not apply one it cannot find, so the
+    order may be charged another method's price. This is read from the SDK
+    source and unverified on a live checkout. `carts/calculate`, which `verify`
+    calls, takes the id directly and is not subject to that lookup.
+- A different shipping price per bundle, in order of preference: free shipping
+  from a quantity, then a `shipping_percentage` offer below 100 on the one
+  method (see the partial shipping note below), then several campaign shipping
+  methods on different store codes. When a plan uses several methods, each
+  create returns its own id, and `carts/calculate` charges the price of the id the cart
   names. In the plan:
   - Each `shipping_methods[]` entry may carry a `key`. It defaults to the code and
     is the entry's identity in the manifest. Keys must be unique.

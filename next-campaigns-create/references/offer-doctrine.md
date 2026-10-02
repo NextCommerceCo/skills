@@ -244,9 +244,11 @@ Package names:
 Package reuse:
 
 - One package per variant, and one campaign shipping method per store code.
-  The Campaigns API rejects a second package for the same variant and a second
-  shipping method on the same code. A different price for the same product or
-  shipping method is an offer or voucher.
+  The skill refuses a second package for the same variant and a second shipping
+  method on the same code; how the platform enforces it is in
+  [the Admin API contract](admin-api-contract.md#field-notes-and-live-gotchas). A
+  different price for the same product or shipping method is an offer or
+  voucher.
 - An upsell of an already packaged variant reuses that package, and its voucher
   percentage sets the upsell price.
 - A bump must be a variant no other package uses. A bump line on a hero package

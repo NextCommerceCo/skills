@@ -1813,9 +1813,10 @@ def _validate_plan(plan: dict) -> list:
 
     if not plan.get("shipping_methods"):
         errs.append("at least one shipping method is required")
-    # A campaign may carry several shipping methods on one store code at different
-    # prices. The plan-level key (default: the code) is the identity; the store
-    # returns no key, so a repeated code needs its own key and its own price.
+    # The plan-level key (default: the code) is the identity; the store returns no
+    # key. Keys are deduped here on every path, so a plan from before the
+    # one-method-per-code rule that repeats a code only validates because each
+    # entry carries its own key and its own price.
     ship_keys, ship_code_prices = {}, set()
     for s in plan.get("shipping_methods", []):
         code = s.get("shipping_method")
