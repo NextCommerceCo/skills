@@ -1814,8 +1814,9 @@ def _validate_plan(plan: dict) -> list:
     if not plan.get("shipping_methods"):
         errs.append("at least one shipping method is required")
     # The plan-level key (default: the code) is the identity; the store returns no
-    # key. A run created before the one-method-per-code rule may repeat a code, and
-    # verify still reads it, so a repeated code needs its own key and its own price.
+    # key. Keys are deduped here on every path, so a plan from before the
+    # one-method-per-code rule that repeats a code only validates because each
+    # entry carries its own key and its own price.
     ship_keys, ship_code_prices = {}, set()
     for s in plan.get("shipping_methods", []):
         code = s.get("shipping_method")

@@ -162,8 +162,8 @@ token that has been pasted into a chat or a ticket once the work is done.
 - A different shipping price per bundle, in order of preference: free shipping
   from a quantity, then a `shipping_percentage` offer below 100 on the one
   method (see the partial shipping note below), then several campaign shipping
-  methods on different store codes. For the last, each create
-  returns its own id, and `carts/calculate` charges the price of the id the cart
+  methods on different store codes. When a plan uses several methods, each
+  create returns its own id, and `carts/calculate` charges the price of the id the cart
   names. In the plan:
   - Each `shipping_methods[]` entry may carry a `key`. It defaults to the code and
     is the entry's identity in the manifest. Keys must be unique.
