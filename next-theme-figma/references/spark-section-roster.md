@@ -7,6 +7,7 @@ The JSON roster is canonical; this file is generated. Regenerate it with `node <
 | hero | section_hero | shipped | 0 | semantic-rebuild |  |  |
 | promo | section_promo_banner | shipped | 0 | semantic-rebuild |  |  |
 | sticky | section_promo_banner | shipped | 0 | semantic-rebuild |  | sticky bar |
+| text | section_text_block | shipped | 0 | semantic-rebuild |  | standalone heading and rich-text body |
 | features | section_value_props | unshipped | 1 | semantic-rebuild | section_benefit_grid |  |
 | benefits | section_value_props | unshipped | 1 | semantic-rebuild | section_benefit_grid |  |
 | icons | section_value_props | unshipped | 1 | semantic-rebuild | section_benefit_grid |  |
@@ -19,11 +20,11 @@ The JSON roster is canonical; this file is generated. Regenerate it with `node <
 | media | section_press_logos | unshipped | 1 | composed-asset |  | press/logo strips; semantic-rebuild when logos are live links |
 | guarantee | section_cta_band | unshipped | 1 | semantic-rebuild |  | Spark's roster has no guarantee banner; cta_band is the nearest roster entry |
 | bottomcta | section_cta_band | unshipped | 1 | semantic-rebuild |  |  |
-| results | section_image_text | unshipped | 1 | semantic-rebuild |  |  |
-| beforeafter | section_image_text | unshipped | 1 | composed-asset |  | before/after pairs usually export as one composed asset |
-| science | section_image_text | unshipped | 1 | semantic-rebuild |  |  |
-| ingredients | section_image_text | unshipped | 1 | semantic-rebuild |  |  |
-| problemsolution | section_image_text | unshipped | 1 | semantic-rebuild |  |  |
+| results | section_image_text | shipped | 0 | semantic-rebuild |  |  |
+| beforeafter | section_image_text | shipped | 0 | composed-asset |  | before/after pairs usually export as one composed asset |
+| science | section_image_text | shipped | 0 | semantic-rebuild |  |  |
+| ingredients | section_image_text | shipped | 0 | semantic-rebuild |  |  |
+| problemsolution | section_image_text | shipped | 0 | semantic-rebuild |  |  |
 | nav | header | chrome | 0 | live-commerce-component |  |  |
 | footer | footer | chrome | 0 | live-commerce-component |  |  |
 | featured | section_featured_products | shipped | 0 | live-commerce-component | section_featured_product, section_featured_categories, section_on_sale |  |

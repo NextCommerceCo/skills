@@ -17,16 +17,17 @@ FAMILIES = {
     "hero", "promo", "sticky", "features", "benefits", "icons", "howto",
     "compare", "faq", "reviews", "testimonials", "ugc", "media", "guarantee",
     "bottomcta", "results", "beforeafter", "science", "ingredients",
-    "problemsolution", "nav", "footer", "featured",
+    "problemsolution", "nav", "footer", "featured", "text",
 }
 SHIPPED = {
     "section_hero", "section_featured_product", "section_featured_products",
     "section_featured_categories", "section_on_sale", "section_promo_banner",
+    "section_image_text", "section_text_block",
 }
 TIER_ONE = {
     "section_value_props", "section_process_steps", "section_comparison_table",
     "section_benefit_grid", "section_press_logos", "section_faq",
-    "section_image_text", "section_cta_band", "section_testimonials",
+    "section_cta_band", "section_testimonials",
 }
 CLASSIFICATIONS = {
     "semantic-rebuild", "composed-asset", "background-asset",
@@ -74,9 +75,9 @@ class SectionRosterTest(unittest.TestCase):
         )
         self.assertEqual({field: actual[field] for field in legacy_fields}, expected)
 
-    def test_roster_has_exactly_the_unique_23_families(self):
+    def test_roster_has_exactly_the_unique_24_families(self):
         families = [entry["family"] for entry in self.roster["entries"]]
-        self.assertEqual(len(families), 23)
+        self.assertEqual(len(families), 24)
         self.assertEqual(len(families), len(set(families)))
         self.assertEqual(set(families), FAMILIES)
 
@@ -86,7 +87,7 @@ class SectionRosterTest(unittest.TestCase):
         for entry in self.roster["entries"]:
             self.assertIn(entry["status"], statuses)
 
-    def test_shipped_sections_are_exactly_the_six_known_names(self):
+    def test_shipped_sections_are_exactly_the_eight_known_names(self):
         shipped = set()
         for entry in self.roster["entries"]:
             if entry["status"] == "shipped":
