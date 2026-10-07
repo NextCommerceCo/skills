@@ -1,6 +1,6 @@
 ---
 name: next-campaigns-create
-version: 0.7.5
+version: 0.8.0
 description: |
   Provision a launch-ready Campaigns App campaign over the NEXT Admin API:
   read the store's catalogue, gateway groups and shipping methods, recommend a
@@ -15,8 +15,10 @@ description: |
   Campaigns App", "provision a campaign over the API", "recommend a campaign
   structure", "build the offers for {product}", "buy X get Y", "BOGO",
   "gift with purchase", or when a new campaign needs to exist on a store
-  before funnel work starts. Creating a NEW campaign only; editing a campaign
-  that already exists is out of scope.
+  before funnel work starts. Also: "change the price", "change the tier
+  percentages", "pause that offer", "add an offer" on a campaign this skill
+  created, which it edits in place from that run's manifest. A campaign it did
+  not create is out of scope.
 allowed-tools:
   - Bash
   - Read
@@ -58,10 +60,18 @@ and gift-with-purchase are in `references/worked-examples.md`.
 
 ## Scope
 
-This skill creates a NEW campaign. Editing a campaign that already exists is out
-of scope: the engine never changes a campaign the run manifest does not own, and
-teardown removes only what that manifest records. Changes to a live campaign are
-made in the Campaigns App dashboard.
+This skill creates a NEW campaign, and can then change that campaign in place.
+The run manifest is the boundary for both: the engine never writes to a campaign,
+package, shipping method or offer the manifest does not record. `edit` changes
+only objects in it, `teardown` removes only objects in it, and an offer someone
+added in the dashboard is listed and left alone. A campaign this skill did not
+create, or one whose run directory is gone, is changed in the Campaigns App
+dashboard.
+
+When the operator asks for a change to a campaign this skill created, plan it as
+an in-place edit (Phase 7). Teardown and recreate is the fallback for the few
+fields that cannot be edited, never the first offer: it mints a new campaign id
+and api_key and removes offers this run does not own.
 
 Boundary with other campaign skills:
 - Use this skill to make the campaign exist on the store: the campaign, its
@@ -160,14 +170,24 @@ confirmation that covers it:
 | 11 | local JSON under the run directory (discovery, plan, manifest, verify report) | no gate |
 | 12 | `POST /api/v1/carts/calculate/` on the Cart API in `verify` | none: creates nothing, reads pricing back |
 | 13 | `GET` of the public `skills.json` on GitHub, cached in `${XDG_CACHE_HOME:-~/.cache}/next-skills/catalog.json`, in `check-update` | none: read-only, no credentials, skipped with `NEXT_SKILLS_NO_UPDATE_CHECK=1` |
+| 14 | `PATCH /api/admin/campaigns/{id}/packages/{id}/` (the `prices[]` rows, on a package this run created) | Phase 7 edit preview + `edit --yes --edit-sha256 --live-traffic` |
+| 15 | `PATCH /api/admin/campaigns/{id}/offers/{id}/` (benefit value and rounding, the condition, `available`, on an offer this run created) | same |
+| 16 | `POST /api/admin/campaigns/{id}/offers/` (an offer added to a campaign this run created) | same |
 
 The engine refuses the writes in rows 1 to 5 unless `apply` receives `--yes` and
 a `--plan-sha256` equal to the hash of the plan file it is about to send. The
 deletes in rows 6 to 9 are gated differently: `teardown` takes
 `--manifest --plan --yes` and no hash argument, computing the plan's hash itself
-and refusing if it does not match the manifest. There is no `PUT` or `DELETE` on
-a package this run did not create, and no write that edits an existing metadata
-definition.
+and refusing if it does not match the manifest. The edits in rows 14 to 16 are
+refused unless `edit` receives `--yes`, an `--edit-sha256` equal to the hash its
+own preview prints, and `--live-traffic yes` or `no`. That hash covers the plan,
+the edit file and the live state of every object the edit will write, so a
+change to any of them needs a fresh preview and a fresh approval. Row 11 also
+covers the edit receipts, which hold before-images and no secret.
+
+There is no `PUT`, `PATCH` or `DELETE` on anything this run did not create, no
+`PATCH` on the campaign itself or on a shipping method, and no write that edits
+an existing metadata definition.
 
 ---
 
@@ -233,6 +253,8 @@ next-campaigns-create.sh recommend --discovery <dir>/discovery.json --hero <prod
 next-campaigns-create.sh plan      --plan <dir>/campaign-plan.json [--check-store]
 next-campaigns-create.sh apply     --plan <dir>/campaign-plan.json --yes --plan-sha256 <plan-sha256> [--resume <dir>/run-manifest.json] [--out <dir>]
 next-campaigns-create.sh verify    --manifest <dir>/run-manifest.json --plan <dir>/campaign-plan.json [--out <dir>]
+next-campaigns-create.sh edit      --manifest <dir>/run-manifest.json --plan <dir>/campaign-plan.json --changes <dir>/campaign-edit.json [--yes --edit-sha256 <edit-sha256> --live-traffic yes|no]
+next-campaigns-create.sh edit      --manifest <dir>/run-manifest.json --plan <dir>/campaign-plan.json --undo <dir>/edit-<n>-receipt.json [--yes --edit-sha256 <edit-sha256> --live-traffic yes|no]
 next-campaigns-create.sh teardown  --manifest <dir>/run-manifest.json --plan <dir>/campaign-plan.json --yes
 ```
 
@@ -244,9 +266,10 @@ Exit codes, for every subcommand:
 |---|---|
 | 0 | success; `check-update` always exits 0 |
 | 1 | refused or failed: invalid input, credential missing, a store error, or a verify FAIL |
-| 2 | the argument parser rejected the command, the apply gate printed `NOT APPLIED`, or a launcher precondition failed |
+| 2 | the argument parser rejected the command, the apply or edit gate printed `NOT APPLIED`, or a launcher precondition failed |
 
-Every exit 2 means nothing was sent to the store.
+Every exit 2 means nothing was written to the store. The edit gate is the one
+that reads from it first: its preview shows live values, so it needs the token.
 
 ---
 
@@ -557,8 +580,8 @@ Tell the operator, before they approve:
 `--tiers` with bxgy is an error (Buy 1 % would mask a lower BXGY rate).
 Optional `--gift` is allowed; the gift uses different package keys.
 
-Per-customer limits and date ranges are not offer-create fields. PATCH
-`available` on/off is out of this skill's create path.
+Per-customer limits and date ranges are not offer-create fields. An offer is
+always created live; pausing one is an edit after the campaign exists (Phase 7).
 
 ### Gift with purchase (C)
 
@@ -794,6 +817,168 @@ need.
 
 ---
 
+## Phase 7: Change the campaign in place
+
+Use this when the operator asks to change a campaign this skill created and the
+run directory is on hand: the plan and the `run-manifest.json` that `apply`
+wrote. Plan the request as an edit first. Offer teardown only when the engine
+refuses the change, and tell the operator which field forced it. Teardown mints
+a new campaign id and api_key and removes every offer on the campaign, including
+ones the operator added in the dashboard, so it is never the first answer.
+
+Without that run's plan and manifest there is nothing to edit from: the change
+is made in the dashboard.
+
+What an edit can change, one operation each in an edit file:
+
+| The operator asks to | Operation | Fields |
+|---|---|---|
+| change a package price | `set_package_price` | `package_keys`, `price` |
+| change an offer's percentage or its price rounding | `set_offer_benefit` | `offer_key`, `value`, `price_rounding` |
+| change the quantity an offer starts at, or between `any` and `count` | `set_offer_condition` | `offer_key`, `type`, `value` |
+| change which packages an offer covers | `set_offer_scope` | `offer_key`, `package_keys` |
+| pause or resume an offer | `set_offer_available` | `offer_key`, `available` |
+| add an offer | `add_offer` | `offer` (shaped like a plan offer), optional `available` |
+
+What it cannot change. Each is refused with `cannot be edited in place: <field>`
+and needs teardown and recreate, or the dashboard:
+
+- The campaign's currency, language or gateway group.
+- The product or variant behind a package, and a package image.
+- An offer's type, its voucher code, its benefit type, and `all_packages`.
+- A shipping method's price.
+- Deleting anything. An offer is paused, never deleted.
+- The percentage or condition of a buy-X-get-Y offer: both come from its paid
+  and free quantities.
+- Pausing a voucher a landed row depends on (the exit voucher, an upsell
+  voucher): how the cart treats a paused code is unobserved, so the price could
+  not be proven.
+
+Three shapes are also refused, because the plan's landed prices could not
+describe them. Each needs a fresh `recommend`, which means teardown and
+recreate:
+
+- Packages that share a landed row repriced to different prices. Reprice every
+  variant of the product together.
+- An offer scope that covers some of a row's packages and not others.
+- Two live offers on the same packages at the same percentage.
+
+Write the edit file next to the plan as `campaign-edit.json`. This one doubles
+the hero price and resets a four-tier ladder:
+
+```json
+{"operations": [
+  {"op": "set_package_price", "package_keys": ["hero-23", "hero-24"], "price": "99.98"},
+  {"op": "set_offer_benefit", "offer_key": "tier-1", "value": "50"},
+  {"op": "set_offer_benefit", "offer_key": "tier-2", "value": "55"},
+  {"op": "set_offer_benefit", "offer_key": "tier-3", "value": "60"},
+  {"op": "set_offer_benefit", "offer_key": "tier-4", "value": "65"}
+]}
+```
+
+Package and offer keys are the ones in the plan. Run `verify` first, so the
+totals before the change are on record, then preview:
+
+```bash
+bash <skill-dir>/next-campaigns-create.sh edit \
+  --manifest ./next-campaigns-create-runs/<subdomain>/run-manifest.json \
+  --plan ./next-campaigns-create-runs/<subdomain>/campaign-plan.json \
+  --changes ./next-campaigns-create-runs/<subdomain>/campaign-edit.json
+```
+
+The preview reads the campaign and every object it will change, writes nothing,
+and exits 2. It prints each field as old value and new value, the landed prices
+before and after for every row, the exact requests, any live offer this run does
+not own, and an `Edit SHA-256`. Read all of it to the operator. This is the gate,
+and it needs two answers. Ask with `AskUserQuestion`:
+
+> This changes campaign {id} on {subdomain} in place: {each field, old to new}.
+> Landed prices move like this: {each row that changes, before and after}.
+> {Offers this run does not own, if any: they are left exactly as they are.}
+> Nothing is deleted and the campaign keeps its id and api_key.
+>
+> Is a funnel sending shoppers to this campaign right now?
+>
+> - A) Apply it, and no funnel is live on it yet
+> - B) Apply it, and yes, shoppers are reaching it now (they see the new prices
+>   the moment each request lands)
+> - C) Change something first
+> - D) Do not apply
+
+On A or B, pass the hash the preview printed and the operator's answer:
+
+```bash
+bash <skill-dir>/next-campaigns-create.sh edit \
+  --manifest ./next-campaigns-create-runs/<subdomain>/run-manifest.json \
+  --plan ./next-campaigns-create-runs/<subdomain>/campaign-plan.json \
+  --changes ./next-campaigns-create-runs/<subdomain>/campaign-edit.json \
+  --yes --edit-sha256 <edit-sha256> --live-traffic <yes|no>
+```
+
+The hash covers the plan, the edit file and what the store held when the preview
+read it. If any of those moved, the run prints a new preview and exits 2: show
+the operator the new one and ask again. Never reuse a hash from an earlier
+preview.
+
+What the engine does, in order:
+
+1. Checks the manifest belongs to this plan and store, that teardown has not
+   touched the run, and that the live campaign is the one this run created.
+2. Reads back every object it will change and checks its identity, as teardown
+   does. An object the manifest does not record is refused. A live value that
+   differs from the plan (someone changed it in the dashboard) is refused too.
+3. Saves each object's before-image to `edit-<n>-receipt.json` next to the
+   manifest, then journals the edit in the manifest, before the first write.
+4. Sends one request per object. It re-reads the object just before the write
+   and stops if it changed, and reads it again after and stops if the result is
+   not what was intended. An answer of 200 is not taken as proof. A write is
+   never retried.
+5. Rewrites `campaign-plan.json` with the new values and recomputed landed
+   prices, and records the new plan hash in the manifest, so `verify`, `--resume`
+   and `teardown` work against the edited campaign.
+
+A new offer is live the moment it is created. `add_offer` with
+`"available": false` creates it and pauses it straight after, and says so if the
+pause fails, because the offer is live until it lands.
+
+Then run `verify` again (Phase 6) and report it. If the campaign carries an offer
+this run does not own, `verify` still fails on `campaign offers match the plan`,
+exactly as it did before the edit: it cannot attribute cart totals to the plan
+while that offer is live. The report says so and shows the fields this run owns
+separately. In that case the edit's own read-back of each object is the proof
+that the change landed, and the operator checks the cart totals by hand.
+
+**If it stops partway.** Nothing is retried on its own. The manifest records how
+far the edit got, and `verify` and `apply --resume` refuse until it is settled.
+Give the operator both ways out:
+
+- Finish it: run the same `edit` command again. It prints the progress and the
+  edit's hash, and continues with `--yes --edit-sha256 <that hash>`. Each object
+  is classified by what the store shows: the intended result is done, the saved
+  before-image is written, anything else stops.
+- Roll it back: `edit --undo <dir>/edit-<n>-receipt.json`, previewed and gated the
+  same way. It restores only what the edit wrote and leaves alone anything it
+  never reached.
+
+`teardown` still works while an edit is unfinished. It reads the receipt to
+identify an offer the edit created.
+
+**Undo.** After a finished edit:
+
+```bash
+bash <skill-dir>/next-campaigns-create.sh edit \
+  --manifest ./next-campaigns-create-runs/<subdomain>/run-manifest.json \
+  --plan ./next-campaigns-create-runs/<subdomain>/campaign-plan.json \
+  --undo ./next-campaigns-create-runs/<subdomain>/edit-<n>-receipt.json
+```
+
+It previews the reverse change and takes the same approval. Fields go back to
+their saved values. An offer the edit added is paused and kept, because edit
+never deletes; `teardown` removes it with everything else. Undo works backwards
+from the most recent edit.
+
+---
+
 ## Failure modes
 
 | Symptom | Cause | Fix |
@@ -824,7 +1009,17 @@ need.
 | image PUT rejected (`image_status: failed`) | bad `src`, unreachable URL, wrong type, over 10 MB or 25 MP | terminal: `--resume` cannot help, the hash pins the `src`; fix in the dashboard, or teardown and recreate |
 | `verify` fails `package ... image` | the catalogue image fetch failed silently at create | add an `image.src` override and recreate, or set it in the dashboard and accept the row |
 | checkout `calculate` rows off by exactly the shipping price | the live free-shipping offer's condition or scope does not match the plan; or, on a store without the Offers API, the free-shipping offer was built in the dashboard as the handoff said, and the plan (which verify checks) has none | check the offer in the dashboard; the plan's condition is what verify expects. On a store without the Offers API this row is expected: prove the dashboard offer with your own `calculate` probes at the threshold and one below it |
-| `campaign offers match the plan` fails | an offer was added to the campaign outside this run, usually in the dashboard | remove it, or treat the pricing as unproven: verify cannot isolate the plan's offers while it exists |
+| `campaign offers match the plan` fails | an offer was added to the campaign outside this run, usually in the dashboard | remove it, or treat the pricing as unproven: verify cannot isolate the plan's offers while it exists. The report's `sections` show the fields this run owns separately |
+| `NOT APPLIED: nothing was written` from `edit` | the edit gate: no `--yes`, a hash that is not the one this preview printed, or no `--live-traffic` | show the operator the preview, ask, then pass the hash it printed with `--live-traffic yes` or `no` |
+| `cannot be edited in place: <field>` | the request has no in-place route | tell the operator which field it is; teardown and recreate, or the dashboard |
+| `would no longer share one price`, `would cover only some of its packages`, or `both apply at N%` | the edit leaves a shape the plan's landed prices cannot describe | reprice a product's variants together, scope an offer to the whole row, or give the offers different percentages; otherwise a fresh `recommend`, which means teardown and recreate |
+| `is ... live, ... in the plan` on `edit` | the object was changed outside this skill, usually in the dashboard | put the value back, or teardown and recreate; edit will not overwrite a change it cannot account for |
+| `does not carry its full condition` or `does not carry available` | this store's read of the offer omits a field the write depends on | the change cannot be proven here; make it in the dashboard |
+| `is not something this run created` or `did not create` on `edit` | the edit names a package or offer the manifest does not own | edit never touches it; change it in the dashboard |
+| `changed since it was read`, `returned <status>; not retried`, or `not the intended state` during an edit | the edit stopped partway; it never retries a write | read the message to the operator, then either re-run the same `edit` to finish or `edit --undo <receipt>` to roll back (Phase 7) |
+| `an in-place edit of this run is unfinished` | `verify`, `--resume` or a second edit while one is half done | finish or undo that edit first |
+| `neither its saved before-image nor this edit's result` on `--undo` | someone changed the object after the edit stopped | rollback will not guess: set it by hand to one or the other in the dashboard, then re-run the undo |
+| `its receipt cannot be read` | the `edit-<n>-receipt.json` of an unfinished edit is missing | restore the file to the run directory; it holds the before-images and the identity of anything the edit created |
 | `offer ... journalled` fails | apply stopped partway through the offers, so later ones were never created | `apply ... --resume <manifest>` |
 | `offer ... free-shipping coverage` fails | no landed row sits at the threshold or just below it, another free-shipping offer would free those carts anyway, or the shipping price is too small for calculate to tell free from paid | add the missing landed row, drop the overlapping offer, or prove the threshold with your own calculate probes |
 | apply stopped mid-run | any non-2xx | `apply ... --resume <manifest>` after fixing, or `teardown` |
@@ -851,8 +1046,17 @@ need.
   package uses.
 - One voucher per upsell product and percentage, scoped to every variant
   package of that product.
-- Never touch a campaign the run manifest does not own. Teardown deletes only
-  what this run created, after reading each object back.
+- Never touch a campaign the run manifest does not own, under any flag. Edit
+  changes and teardown deletes only what this run created, after reading each
+  object back and checking its identity. An offer the manifest does not record
+  is listed to the operator and left alone.
+- Offer an in-place edit before teardown for any change to a campaign this skill
+  created. Offer teardown only for a field edit refuses, and name the field.
+- Never apply an edit without showing the operator its preview and asking
+  whether shoppers are on the campaign. Never reuse an edit hash.
+- Never retry an edit write, and never delete as part of an edit. An offer is
+  paused.
+- Keep every `edit-<n>-receipt.json`. It is the before-image an undo replays.
 - Never PUT an image on a package this run did not create, and never use the
   DELETE image route. Both are outside what this skill does.
 - Never put base64 in a plan. A package image is an https URL, and it should be a
@@ -869,7 +1073,8 @@ need.
 
 `discover` writes to `./next-campaigns-create-runs/<subdomain>/` under the current
 working directory. `recommend` writes next to the discovery file it reads;
-`apply` and `verify` write next to the plan file. `--out` overrides each.
+`apply` and `verify` write next to the plan file. `--out` overrides each. `edit`
+rewrites the plan file in place and writes its receipts next to the manifest.
 
 | File | Written by | Holds |
 |---|---|---|
@@ -877,6 +1082,9 @@ working directory. `recommend` writes next to the discovery file it reads;
 | `campaign-plan.json` | `recommend` | the campaign, packages, shipping methods and offers `apply` will create, plus the rationale and blockers |
 | `run-manifest.json` | `apply` | every id the run created and its status, plus the campaign api_key |
 | `verify-report.json` | `verify` | every read-back and cart check, with PASS or FAIL |
+| `campaign-edit.json` | you, in Phase 7 | the operations of one in-place edit |
+| `edit-<n>-receipt.json` | `edit` | the before-image of every object the edit wrote, the plan before and after, and the approval it ran under; what `--undo` replays |
+| `edit-<n>-rollback.json` | `edit --undo` on an unfinished edit | what the rollback did and the plan it left |
 
 One directory per campaign run. `recommend` refuses a directory that already
 holds a `run-manifest.json` (pass `--out <new dir>` for a second campaign on the
@@ -946,6 +1154,7 @@ holding a live secret.
 | `metadata --apply` | POST | `/api/admin/metadata/` |
 | `apply` | POST, PUT | rows 1 to 5 of the write inventory |
 | `verify` | GET, POST | campaign read-back, then `/api/v1/carts/calculate/` on the Cart API |
+| `edit` | GET, PATCH, POST | read-back, then rows 14 to 16 of the write inventory |
 | `teardown` | GET, DELETE | read-back, then rows 6 to 9 of the write inventory |
 
 API version: `2024-04-01`. The metadata POST is the one request sent without the

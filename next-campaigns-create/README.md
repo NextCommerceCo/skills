@@ -8,8 +8,10 @@ Nothing is created until you say go. At the end you get the campaign key and
 the package IDs your funnel pages need.
 
 Use it when a new product or offer needs a campaign to exist on your store
-before the funnel is built. It only creates new campaigns. Changes to a
-campaign you already have are made in the Campaigns App dashboard.
+before the funnel is built. Afterwards it can also change that campaign for
+you: a price, an offer's percentage, which products an offer covers, pausing an
+offer or adding one. It only changes campaigns it created itself. Any other
+campaign is changed in the Campaigns App dashboard.
 
 ## What You Need
 
@@ -138,8 +140,17 @@ say so before you approve.
 
 - **Nothing is created until you approve the exact plan.** The approval is tied
   to the plan file's fingerprint, so a changed plan needs a new approval.
-- **It only ever creates a new campaign.** It never edits a campaign that
-  already exists.
+- **It only touches what it created.** It never changes or removes a campaign,
+  package or offer it did not create. An offer you added yourself in the
+  dashboard is left exactly as it is.
+- **Changes are approved the same way.** Before changing a campaign it shows
+  each value before and after, and the prices your customers will pay before
+  and after. It keeps a record of the old values so the change can be undone.
+- **It changes a campaign in place when it can.** The campaign keeps its key
+  and its IDs, so your funnel pages keep working. A few things cannot be
+  changed this way, such as the currency or which product a package sells. For
+  those it tells you which one, and that the campaign would have to be removed
+  and created again.
 - **An interrupted run can be recovered.** It can pick up where it left off
   without creating anything twice, or remove only what it created.
 - It paces its requests to stay within your store's request limit.

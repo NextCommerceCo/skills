@@ -21,7 +21,7 @@ Cursor, GitHub Copilot, and any other agent that reads markdown.
 | [**Bulk Subscription Actions**](next-bulk-subscription/) | Operations | Pause, cancel, or update subscriptions in bulk from a CSV/XLSX of subscription IDs, with dry-run and verification. |
 | [**Daily Ops Risk Scan**](next-ops-scan/) | Operations | Read-only daily risk scan for one store: Incomplete and Rejected orders, delivery-tracking failures, and stale shipments. |
 | [**New Campaign Setup**](next-campaigns-setup/) | Campaigns | Scaffold and configure a new campaign-page-kit campaign end to end: project, starter template, config, and analytics. |
-| [**Campaign Provisioning**](next-campaigns-create/) | Campaigns | Create a launch-ready Campaigns App campaign over the Admin API: packages, shipping, quantity Buy 1/2/3, buy-X-get-Y as a labeled percentage, and gift-with-purchase, behind a plan-hash approval gate. |
+| [**Campaign Provisioning**](next-campaigns-create/) | Campaigns | Create a launch-ready Campaigns App campaign over the Admin API: packages, shipping, quantity Buy 1/2/3, buy-X-get-Y as a labeled percentage, and gift-with-purchase, behind a plan-hash approval gate. Then change that campaign in place: prices, offer percentages, conditions and scope, pausing or adding an offer. |
 <!-- END GENERATED SKILLS TABLE -->
 
 Each skill directory holds a `README.md` for the person running it (what it
