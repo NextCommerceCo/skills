@@ -766,6 +766,96 @@ class PlanValidation(unittest.TestCase):
             self.assertTrue([e for e in self._errs(mutate) if "image.src" in e], src)
 
 
+CODE_LIST_FIELDS = ("available_payment_methods", "available_express_payment_methods",
+                    "available_shipping_countries")
+
+
+def _offer_conflict(state, cid, body, exclude_id=None):
+    """(status, body) when an offer write would duplicate a name or voucher code on
+    this campaign, else None. The live API keeps both unique per campaign, which is
+    what makes an offer rename sequence (a swap of two names) fail mid-run."""
+    for other in state["offers"].get(cid, {}).values():
+        if other.get("id") == exclude_id:
+            continue
+        if body.get("name") is not None and other.get("name") == body["name"]:
+            return 400, {"name": [f"Offer with name '{body['name']}' already exists on this campaign."]}
+        if body.get("code") and other.get("code") == body["code"]:
+            return 400, {"code": [f"Offer with code '{body['code']}' already exists on this campaign."]}
+    return None
+
+
+def _offers_referencing(state, cid, pid):
+    """Ids of the live offers whose scope names package `pid`."""
+    return [o["id"] for o in state["offers"].get(cid, {}).values()
+            if any(p.get("id") == pid for p in (o.get("condition") or {}).get("packages") or [])]
+
+
+def offer_condition(state, cond):
+    """An offer condition in the shape the live API returns it: package ids as
+    objects, the `count` threshold as a decimal string ("2.00"), null on an `any`
+    offer. A store whose read-back omits the threshold is
+    state["offer_value_readable"] = False."""
+    out = {"type": cond["type"], "all_packages": bool(cond.get("all_packages")),
+           "packages": [{"id": i} for i in cond.get("package_ids") or []],
+           "description": ""}
+    if cond["type"] != "count":
+        out["value"] = None
+    elif state.get("offer_value_readable", True):
+        out["value"] = "%.2f" % float(cond["value"])
+    return out
+
+
+def offer_benefit(benefit):
+    """An offer benefit as the live API returns it: `price_rounding` is always a
+    key, `description` is ignored by everything that reads it."""
+    return {"type": benefit["type"], "value": benefit["value"],
+            "price_rounding": benefit.get("price_rounding"), "description": ""}
+
+
+def _live_name(state, bare, item):
+    """A package name as the API stores it: the sent name with the variant suffix
+    appended, unless the store is one that leaves it alone."""
+    if not state.get("patch_appends_suffix", True):
+        return bare
+    suffix = item.get("product_variant_name") or ("v" + str(item.get("product_variant_id")))
+    return f"{bare} - {suffix}"
+
+
+def _recurring_fields(item, body):
+    """The recurring trio as a package read-back carries it: `interval` is "" and
+    `interval_count` null on a one-off package."""
+    price_recurring = next((x.get("price_recurring") for x in item.get("prices") or []
+                            if x.get("currency") == "USD"), None)
+    item["is_recurring"] = bool(price_recurring)
+    item["interval"] = body.get("interval", item.get("interval", "")) or ""
+    item["interval_count"] = body.get("interval_count", item.get("interval_count"))
+    if not price_recurring:
+        item["interval"], item["interval_count"] = "", None
+
+
+def _package_prices(body, previous=None):
+    """A package `prices` list in the read-back shape, from a create or PATCH body.
+    Create sends `price` (plus `price_recurring` on a subscription package); PATCH
+    sends the whole `prices` list."""
+    if "prices" in body:
+        return [{"currency": x.get("currency", "USD"), "price": x.get("price"),
+                 "price_recurring": x.get("price_recurring")} for x in body["prices"] or []]
+    if "price" in body:
+        return [{"currency": "USD", "price": body["price"],
+                 "price_recurring": body.get("price_recurring")}]
+    return previous or []
+
+
+def _shipping_prices(body, previous=None):
+    """A campaign shipping method's `prices` list in the read-back shape."""
+    if "prices" in body:
+        return [{"currency": x.get("currency", "USD"), "price": x.get("price")}
+                for x in body["prices"] or []]
+    if "price" in body:
+        return [{"currency": "USD", "price": body["price"]}]
+    return previous or []
+
+
 def store_routes(disc, state):
     """A tiny fake Admin API backed by `state` dict; enough for apply/teardown/verify."""
     def list_campaigns(path, body):
@@ -785,23 +875,30 @@ def store_routes(disc, state):
     def child_create(kind):
         def h(path, body):
             cid = int(path.split("/")[4])
+            if kind == "offers":
+                clash = _offer_conflict(state, cid, body)
+                if clash:
+                    return clash
             state["seq"] += 1
             item = dict(body, id=state["seq"])
             if kind == "packages":
                 item["product_variant_id"] = body["product_variant_ids"][0]
-                item["name"] = body["name"] + " - v" + str(item["product_variant_id"])  # API appends the variant
-                item["prices"] = [{"currency": "USD", "price": body["price"], "price_recurring": None}]
+                item["product_variant_name"] = "v" + str(item["product_variant_id"])
+                item["name"] = _live_name(state, body["name"], item)  # API appends the variant
+                item["prices"] = _package_prices(body)
+                _recurring_fields(item, body)
                 item["product_purchase_availability"] = "available"
                 # The real PackageCreateSerializer fetches the catalogue product/variant
                 # image and attaches it at create time, so a created package normally
                 # already carries one. Mirror that, or every verify PASS assertion breaks.
                 item["image"] = state.get("catalogue_image", CATALOGUE_IMAGE)
             if kind == "offers":
-                item["condition"] = {"type": body["condition"]["type"], "all_packages": False,
-                                     "packages": [{"id": i} for i in body["condition"]["package_ids"]]}
-                item["benefit"] = dict(body["benefit"])
+                item["condition"] = offer_condition(state, body["condition"])
+                item["benefit"] = offer_benefit(body["benefit"])
+                item["available"] = body.get("available", True)
+                item["code"] = body.get("code")
             if kind == "shipping-methods":
-                item["prices"] = [{"currency": "USD", "price": body["price"]}]
+                item["prices"] = _shipping_prices(body)
             state[kind].setdefault(cid, {})[item["id"]] = item
             return 201, item
         return h
@@ -822,6 +919,46 @@ class DynamicTransport(FakeTransport):
         self.fail_on = fail_on or {}
         self.image_url = image_url
         self.routes, self.child_create, self.child_list = store_routes(disc, state)
+
+    def _patch(self, cid, kind, item, body):
+        """PATCH semantics per section, as the Admin API documents them: a package
+        takes a whole `prices` list and re-suffixes a sent name, a shipping method
+        takes prices (and refuses a code another method on the campaign uses), and
+        an offer's `condition` and `benefit` are replaced wholly."""
+        if kind == "packages":
+            item["prices"] = _package_prices(body, item.get("prices"))
+            if "name" in body:
+                item["name"] = _live_name(self.state, body["name"], item)
+            for f, v in body.items():
+                if f not in ("prices", "price", "price_recurring", "name", "interval", "interval_count"):
+                    item[f] = v
+            _recurring_fields(item, body)
+            return 200, {}, json.dumps(item)
+        if kind == "shipping-methods":
+            code = body.get("shipping_method")
+            if code and any(x.get("shipping_method") == code and x.get("id") != item["id"]
+                            for x in self.state[kind].get(cid, {}).values()):
+                return 400, {}, json.dumps({"shipping_method": [
+                    f"Shipping method code '{code}' already exists on this campaign. "
+                    "Use an offer to charge a different price."]})
+            item["prices"] = _shipping_prices(body, item.get("prices"))
+            for f, v in body.items():
+                if f not in ("prices", "price"):
+                    item[f] = v
+            return 200, {}, json.dumps(item)
+        if kind == "offers":
+            clash = _offer_conflict(self.state, cid, body, exclude_id=item["id"])
+            if clash:
+                return clash[0], {}, json.dumps(clash[1])
+            for f, v in body.items():
+                if f == "condition":
+                    item["condition"] = offer_condition(self.state, v)
+                elif f == "benefit":
+                    item["benefit"] = offer_benefit(v)
+                else:
+                    item[f] = v
+            return 200, {}, json.dumps(item)
+        return 405, {}, json.dumps({"detail": f"PATCH not supported on {kind}"})
 
     def __call__(self, req, timeout):
         method = req.get_method()
@@ -851,6 +988,15 @@ class DynamicTransport(FakeTransport):
                         except ValueError:
                             pass
                     return (200, {}, json.dumps(c)) if c else (404, {}, "{}")
+                if method == "PATCH":
+                    c = self.state["campaigns"].get(cid)
+                    if c is None:
+                        return 404, {}, "{}"
+                    for f, v in (body or {}).items():
+                        # the code lists go back out expanded, exactly as a GET returns
+                        # them, and a clearing null is stored as sent
+                        c[f] = [{"code": x} for x in v or []] if f in CODE_LIST_FIELDS else v
+                    return 200, {}, json.dumps(c)
                 if method == "DELETE":
                     self.state["campaigns"].pop(cid, None)
                     return 204, {}, ""
@@ -869,7 +1015,19 @@ class DynamicTransport(FakeTransport):
                 item = self.state[kind].get(cid, {}).get(iid)
                 if method == "GET":
                     return (200, {}, json.dumps(item)) if item else (404, {}, "{}")
+                if method == "PATCH":
+                    if item is None:
+                        return 404, {}, "{}"
+                    return self._patch(cid, kind, item, body or {})
                 if method == "DELETE":
+                    if kind == "packages" and not self.state.get("cascade_on_package_delete"):
+                        # A campaign offer scoping a package pins it: the live API
+                        # refuses the delete rather than silently narrowing the offer.
+                        refs = _offers_referencing(self.state, cid, iid)
+                        if refs:
+                            return 400, {}, json.dumps(
+                                {"detail": f"package {iid} is referenced by offer(s) {refs}; "
+                                           "remove it from the offer first"})
                     self.state[kind].get(cid, {}).pop(iid, None)
                     return 204, {}, ""
             if len(parts) == 7 and kind == "packages" and parts[6] == "image" and method == "PUT":
@@ -884,7 +1042,231 @@ class DynamicTransport(FakeTransport):
 
 
 def fresh_state():
+    """The fake store's state. Optional keys change how it behaves:
+    `catalogue_image` (image a package create inherits), `offer_value_readable`
+    (False hides a count offer's threshold on read-back, default True),
+    `patch_appends_suffix` (False leaves a sent package name bare, default True),
+    `cascade_on_package_delete` (True lets a package an offer scopes be deleted,
+    default False: the live API answers 400)."""
     return {"seq": 100, "campaigns": {}, "packages": {}, "shipping-methods": {}, "offers": {}}
+
+
+def seed_live_campaign(state, *, all_packages=False, value_readable=True, recurring=False):
+    """Seed a campaign nobody's run created: 2 packages, 1 shipping method, and 2
+    offers (a count discount on the hero and free shipping), written straight into
+    `state` in the shapes the live API reads back. Returns the campaign id."""
+    state["offer_value_readable"] = value_readable
+    state["seq"] += 1
+    cid = state["seq"]
+    state["campaigns"][cid] = {
+        "id": cid, "name": "Dashboard Bracelet", "currency": "USD", "language": "en",
+        "payment_gateway_group_id": 1, "api_key": "KEY-" + "x" * 20 + "9999",
+        "created_at": "2026-08-01T09:00:00+00:00", "statement_descriptor": "",
+        "paypal_account_id": None, "additional_currencies": [],
+        "available_payment_methods": [{"code": "card"}],
+        "available_express_payment_methods": [],
+        "available_shipping_countries": [{"code": "US"}],
+    }
+    pkg_ids = []
+    for title, vid, price in (("Photo Bracelet", 801, "24.95"), ("Charm Add-on", 802, "12.95")):
+        state["seq"] += 1
+        recurs = recurring and not pkg_ids  # the hero only, so one of each shape is seeded
+        item = {"id": state["seq"], "product_id": 22, "product_variant_id": vid,
+                "product_variant_name": "v" + str(vid), "name": f"{title} - v{vid}",
+                "prices": [{"currency": "USD", "price": price,
+                            "price_recurring": price if recurs else None}],
+                "is_recurring": recurs, "interval": "month" if recurs else "",
+                "interval_count": 1 if recurs else None,
+                "product_purchase_availability": "available",
+                "image": state.get("catalogue_image", CATALOGUE_IMAGE)}
+        state["packages"].setdefault(cid, {})[item["id"]] = item
+        pkg_ids.append(item["id"])
+    state["seq"] += 1
+    state["shipping-methods"].setdefault(cid, {})[state["seq"]] = {
+        "id": state["seq"], "shipping_method": "standard",
+        "prices": [{"currency": "USD", "price": "6.95"}]}
+    for name, cond, ben in (
+            ("Dashboard Bracelet - Buy 2",
+             {"type": "count", "value": 2, "package_ids": [] if all_packages else [pkg_ids[0]],
+              "all_packages": all_packages},
+             {"type": "package_percentage", "value": "55.00", "price_rounding": None}),
+            ("Dashboard Bracelet - Free Shipping",
+             {"type": "any", "package_ids": [pkg_ids[0]]},
+             {"type": "shipping_percentage", "value": "100.00", "price_rounding": None})):
+        state["seq"] += 1
+        state["offers"].setdefault(cid, {})[state["seq"]] = {
+            "id": state["seq"], "name": name, "offer_type": "offer", "code": None,
+            "available": True, "condition": offer_condition(state, cond),
+            "benefit": offer_benefit(ben)}
+    return cid
+
+
+class FakeApiContract(unittest.TestCase):
+    """The fake store answers the way the live Admin API does. Every refusal the
+    update path has to survive (a rejected name, a pinned package) is here, so a
+    test that passes against the fake means something."""
+
+    def setUp(self):
+        self.disc = load_fixture("discovery.json")
+        self.state = fresh_state()
+        self.t = DynamicTransport(self.disc, self.state)
+        self.client = make_client(self.t)
+
+    def seed(self, **kw):
+        cid = seed_live_campaign(self.state, **kw)
+        return cid, list(self.state["packages"][cid]), list(self.state["offers"][cid]), \
+            list(self.state["shipping-methods"][cid])
+
+    def test_seeded_campaign_reads_back_live_shaped(self):
+        cid, pids, oids, sids = self.seed()
+        camp = self.client.get_ok(f"/api/admin/campaigns/{cid}/")
+        self.assertEqual((camp["statement_descriptor"], camp["paypal_account_id"],
+                          camp["additional_currencies"]), ("", None, []))
+        self.assertEqual([m["code"] for m in camp["available_shipping_countries"]], ["US"])
+        pkg = self.client.get_ok(f"/api/admin/campaigns/{cid}/packages/{pids[0]}/")
+        self.assertEqual((pkg["product_id"], pkg["product_variant_id"], pkg["product_variant_name"]),
+                         (22, 801, "v801"))
+        self.assertEqual(pkg["name"], "Photo Bracelet - v801")
+        self.assertEqual((pkg["is_recurring"], pkg["interval"], pkg["interval_count"]), (False, "", None))
+        self.assertEqual(pkg["prices"][0], {"currency": "USD", "price": "24.95", "price_recurring": None})
+        ship = self.client.get_ok(f"/api/admin/campaigns/{cid}/shipping-methods/{sids[0]}/")
+        self.assertEqual((ship["shipping_method"], ship["prices"][0]["price"]), ("standard", "6.95"))
+        count, free = (self.client.get_ok(f"/api/admin/campaigns/{cid}/offers/{i}/") for i in oids)
+        self.assertEqual(count["condition"]["value"], "2.00")  # a string, as the API returns it
+        self.assertEqual(count["condition"]["packages"], [{"id": pids[0]}])
+        self.assertFalse(count["condition"]["all_packages"])
+        self.assertEqual((count["available"], count["code"]), (True, None))
+        self.assertIsNone(free["condition"]["value"])
+        self.assertIsNone(free["benefit"]["price_rounding"])
+
+    def test_seed_toggles_hide_the_threshold_and_make_the_hero_recurring(self):
+        cid, pids, oids, _ = self.seed(value_readable=False, recurring=True, all_packages=True)
+        count = self.client.get_ok(f"/api/admin/campaigns/{cid}/offers/{oids[0]}/")
+        self.assertNotIn("value", count["condition"])
+        self.assertTrue(count["condition"]["all_packages"])
+        self.assertEqual(count["condition"]["packages"], [])
+        hero = self.client.get_ok(f"/api/admin/campaigns/{cid}/packages/{pids[0]}/")
+        self.assertEqual((hero["is_recurring"], hero["interval"], hero["interval_count"]),
+                         (True, "month", 1))
+        self.assertEqual(hero["prices"][0]["price_recurring"], "24.95")
+        bump = self.client.get_ok(f"/api/admin/campaigns/{cid}/packages/{pids[1]}/")
+        self.assertEqual((bump["is_recurring"], bump["interval"], bump["interval_count"]),
+                         (False, "", None))
+
+    def test_created_package_and_offer_read_back_live_shaped(self):
+        _, camp = self.client.request("POST", "/api/admin/campaigns/",
+                                      {"name": "Created", "currency": "USD", "language": "en",
+                                       "payment_gateway_group_id": 1})
+        cid = camp["id"]
+        st, resp = self.client.request("POST", f"/api/admin/campaigns/{cid}/packages/",
+                                       {"name": "Sub", "product_id": 22, "price": "19.95",
+                                        "product_variant_ids": [901], "price_recurring": "17.95",
+                                        "interval": "month", "interval_count": 1})
+        pkg = resp[0]
+        self.assertEqual((st, pkg["name"], pkg["product_variant_name"]), (201, "Sub - v901", "v901"))
+        self.assertEqual((pkg["is_recurring"], pkg["interval"], pkg["interval_count"]), (True, "month", 1))
+        self.assertEqual(pkg["prices"][0]["price_recurring"], "17.95")
+        st, offer = self.client.request("POST", f"/api/admin/campaigns/{cid}/offers/",
+                                        {"name": "Buy 2", "offer_type": "offer", "available": False,
+                                         "condition": {"type": "count", "value": 2, "all_packages": False,
+                                                       "package_ids": [pkg["id"]]},
+                                         "benefit": {"type": "package_percentage", "value": "55.00"}})
+        self.assertEqual((st, offer["available"], offer["condition"]["value"]), (201, False, "2.00"))
+        self.assertIsNone(offer["benefit"]["price_rounding"])
+
+    def test_campaign_patch_merges_and_re_expands_the_code_lists(self):
+        cid, _, _, _ = self.seed()
+        st, resp = self.client.request("PATCH", f"/api/admin/campaigns/{cid}/",
+                                       {"name": "Renamed", "available_shipping_countries": ["US", "CA"],
+                                        "available_payment_methods": [],
+                                        "additional_currencies": None, "statement_descriptor": None})
+        self.assertEqual(st, 200)
+        live = self.client.get_ok(f"/api/admin/campaigns/{cid}/")
+        self.assertEqual(live["name"], "Renamed")
+        self.assertEqual([x["code"] for x in live["available_shipping_countries"]], ["US", "CA"])
+        self.assertEqual(live["available_payment_methods"], [])
+        self.assertIsNone(live["additional_currencies"])
+        self.assertIsNone(live["statement_descriptor"])
+        self.assertEqual(live["currency"], "USD")  # untouched fields survive the merge
+
+    def test_package_patch_takes_a_prices_list_and_re_suffixes_the_name(self):
+        cid, pids, _, _ = self.seed()
+        body = {"name": "Photo Bracelet XL",
+                "prices": [{"currency": "USD", "price": "29.95", "price_recurring": None}]}
+        st, resp = self.client.request("PATCH", f"/api/admin/campaigns/{cid}/packages/{pids[0]}/", body)
+        self.assertEqual((st, resp["name"]), (200, "Photo Bracelet XL - v801"))
+        self.assertEqual(resp["prices"], [{"currency": "USD", "price": "29.95", "price_recurring": None}])
+        self.state["patch_appends_suffix"] = False
+        st, resp = self.client.request("PATCH", f"/api/admin/campaigns/{cid}/packages/{pids[0]}/",
+                                       {"name": "Bare"})
+        self.assertEqual((st, resp["name"]), (200, "Bare"))
+        self.assertEqual(resp["prices"][0]["price"], "29.95")  # a name-only PATCH keeps the price
+
+    def test_shipping_patch_sets_prices_and_refuses_another_methods_code(self):
+        cid, _, _, sids = self.seed()
+        st, resp = self.client.request("PATCH", f"/api/admin/campaigns/{cid}/shipping-methods/{sids[0]}/",
+                                       {"prices": [{"currency": "USD", "price": "9.95"}]})
+        self.assertEqual((st, resp["prices"][0]["price"]), (200, "9.95"))
+        _, second = self.client.request("POST", f"/api/admin/campaigns/{cid}/shipping-methods/",
+                                        {"shipping_method": "express", "price": "14.95"})
+        st, resp = self.client.request("PATCH", f"/api/admin/campaigns/{cid}/shipping-methods/{second['id']}/",
+                                       {"shipping_method": "standard"})
+        self.assertEqual(st, 400)
+        self.assertIn("shipping_method", resp)
+
+    def test_offer_patch_replaces_condition_and_benefit_wholly(self):
+        cid, pids, oids, _ = self.seed()
+        st, resp = self.client.request("PATCH", f"/api/admin/campaigns/{cid}/offers/{oids[0]}/",
+                                       {"available": False,
+                                        "condition": {"type": "any", "all_packages": False,
+                                                      "package_ids": pids},
+                                        "benefit": {"type": "package_percentage", "value": "60.00",
+                                                    "price_rounding": "0.95"}})
+        self.assertEqual(st, 200)
+        live = self.client.get_ok(f"/api/admin/campaigns/{cid}/offers/{oids[0]}/")
+        self.assertFalse(live["available"])
+        self.assertIsNone(live["condition"]["value"])  # the count threshold is gone, not merged
+        self.assertEqual([p["id"] for p in live["condition"]["packages"]], pids)
+        self.assertEqual(live["benefit"], {"type": "package_percentage", "value": "60.00",
+                                           "price_rounding": "0.95", "description": ""})
+
+    def test_duplicate_offer_name_and_voucher_code_are_400s(self):
+        cid, pids, oids, _ = self.seed()
+        scope = {"type": "any", "all_packages": False, "package_ids": [pids[0]]}
+        ben = {"type": "package_percentage", "value": "10.00"}
+        st, resp = self.client.request("POST", f"/api/admin/campaigns/{cid}/offers/",
+                                       {"name": "Dashboard Bracelet - Buy 2", "offer_type": "offer",
+                                        "condition": scope, "benefit": ben})
+        self.assertEqual(st, 400)
+        self.assertIn("name", resp)
+        st, _ = self.client.request("POST", f"/api/admin/campaigns/{cid}/offers/",
+                                    {"name": "Exit", "offer_type": "voucher", "code": "SAVE10",
+                                     "condition": scope, "benefit": ben})
+        self.assertEqual(st, 201)
+        st, resp = self.client.request("POST", f"/api/admin/campaigns/{cid}/offers/",
+                                       {"name": "Exit again", "offer_type": "voucher", "code": "SAVE10",
+                                        "condition": scope, "benefit": ben})
+        self.assertEqual(st, 400)
+        self.assertIn("code", resp)
+        # the same rule on a rename: a swap of two live names cannot be done in one PATCH each
+        st, resp = self.client.request("PATCH", f"/api/admin/campaigns/{cid}/offers/{oids[1]}/",
+                                       {"name": "Dashboard Bracelet - Buy 2"})
+        self.assertEqual(st, 400)
+        st, resp = self.client.request("PATCH", f"/api/admin/campaigns/{cid}/offers/{oids[1]}/",
+                                       {"name": "Dashboard Bracelet - Free Shipping"})
+        self.assertEqual(st, 200)  # its own name is not a conflict
+
+    def test_package_delete_is_refused_while_an_offer_scopes_it(self):
+        cid, pids, oids, _ = self.seed()
+        st, resp = self.client.request("DELETE", f"/api/admin/campaigns/{cid}/packages/{pids[0]}/")
+        self.assertEqual(st, 400)
+        self.assertIn(str(oids[0]), str(resp))
+        self.assertIn(pids[0], self.state["packages"][cid])
+        st, _ = self.client.request("DELETE", f"/api/admin/campaigns/{cid}/packages/{pids[1]}/")
+        self.assertEqual(st, 204)  # nothing scopes the second package
+        self.state["cascade_on_package_delete"] = True
+        st, _ = self.client.request("DELETE", f"/api/admin/campaigns/{cid}/packages/{pids[0]}/")
+        self.assertEqual((st, pids[0] in self.state["packages"][cid]), (204, False))
 
 
 class ApplyJournal(unittest.TestCase):
@@ -2041,8 +2423,10 @@ class FreeShippingPerCase(unittest.TestCase):
             return 200, {"total": str(total), "lines": []}
         return calc
 
-    def _run(self, plan, after_apply=None, during_probes=None, ship_override=None, **engine):
+    def _run(self, plan, after_apply=None, during_probes=None, ship_override=None,
+             before_apply=None, **engine):
         """apply the plan to a fake store, then verify it against _engine.
+        before_apply(state) sets the store's behaviour before anything is created;
         after_apply(state, man, campaign_id, transport) can change the store or the
         journal in between, the way a dashboard edit or an interrupted run would;
         during_probes(state, campaign_id) runs on every calculate call. The engine
@@ -2051,6 +2435,8 @@ class FreeShippingPerCase(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             pp = Path(d) / "plan.json"; ca.atomic_write_json(pp, plan); sha = ca.sha256_file(pp)
             state = fresh_state()
+            if before_apply:
+                before_apply(state)
             t = DynamicTransport(self.disc, state)
             man = ca.apply(make_client(t), plan, sha, Path(d) / "run-manifest.json", None)
             cid = man.data["campaign"]["id"]
@@ -3302,6 +3688,501 @@ class UpsellVoucherVerify(unittest.TestCase):
         report2, _ = self._run(plan2)
         self.assertEqual(report2["result"], "PASS", json.dumps(report2, indent=1))
         self.assertEqual(len([k for k in self._cases(report2) if k.startswith("Upsell")]), 2)
+
+
+class SchemaAdditions(unittest.TestCase):
+    """The two additive fields: an offer's `available` and the plan's `origin`."""
+
+    def setUp(self):
+        self.disc = load_fixture("discovery.json")
+        self.plan = ca.recommend(self.disc, ns())
+
+    def _errs(self, mutate):
+        plan = json.loads(json.dumps(self.plan))
+        mutate(plan)
+        return ca.validate_plan(plan)
+
+    def test_available_accepted_as_a_bool_only(self):
+        for value in (True, False):
+            def mutate(p, v=value): p["offers"][0]["available"] = v
+            self.assertEqual(self._errs(mutate), [], repr(value))
+        for bad in ("yes", 1, 0, None, []):
+            def mutate(p, v=bad): p["offers"][0]["available"] = v
+            errs = self._errs(mutate)
+            self.assertTrue(any("available must be true or false" in e for e in errs), repr(bad))
+
+    def test_origin_accepted_for_created_and_adopted_only(self):
+        for value in ("created", "adopted"):
+            def mutate(p, v=value): p["origin"] = v
+            self.assertEqual(self._errs(mutate), [], value)
+        for bad in ("stolen", "", None, 1):
+            def mutate(p, v=bad): p["origin"] = v
+            errs = self._errs(mutate)
+            self.assertTrue(any("plan origin" in e and "invalid" in e for e in errs), repr(bad))
+
+    def test_a_plan_without_origin_is_still_valid(self):
+        self.assertNotIn("origin", self.plan)
+        self.assertEqual(ca.validate_plan(self.plan), [])
+
+    def test_offer_body_sends_available_only_when_the_plan_carries_it(self):
+        o = self.plan["offers"][0]
+        ids = {k: 500 for k in o["condition"]["package_keys"]}
+        self.assertNotIn("available", ca.offer_body(o, ids))
+        o["available"] = False
+        self.assertIs(ca.offer_body(o, ids)["available"], False)
+        o["available"] = True
+        self.assertIs(ca.offer_body(o, ids)["available"], True)
+
+    def test_an_unavailable_offer_is_still_created_and_journalled(self):
+        plan = ca.recommend(self.disc, ns(free_shipping=True))
+        fs = next(o for o in plan["offers"] if o["key"] == "free-shipping")
+        fs["available"] = False
+        with tempfile.TemporaryDirectory() as d:
+            pp = Path(d) / "campaign-plan.json"
+            ca.atomic_write_json(pp, plan)
+            state = fresh_state()
+            t = DynamicTransport(self.disc, state)
+            man = ca.apply(make_client(t), plan, ca.sha256_file(pp), Path(d) / "run-manifest.json", None)
+            cid = man.data["campaign"]["id"]
+            oid = next(e["id"] for e in man.data["offers"] if e["key"] == "free-shipping")
+            self.assertIs(state["offers"][cid][oid]["available"], False)
+
+
+class AvailableFilter(unittest.TestCase):
+    """An offer switched off fires on no cart, so every pricing gate skips it while
+    the read-back still owns it."""
+
+    def setUp(self):
+        self.disc = load_fixture("discovery.json")
+
+    def test_free_shipping_offer_switched_off_is_not_a_free_shipping_offer(self):
+        plan = ca.recommend(self.disc, ns(free_shipping=True))
+        fs = next(o for o in plan["offers"] if o["key"] == "free-shipping")
+        self.assertEqual(len(ca._free_shipping_offers(plan)), 1)
+        fs["available"] = False
+        self.assertEqual(ca._free_shipping_offers(plan), [])
+        ids = {p["key"]: 300 + i for i, p in enumerate(plan["packages"])}
+        self.assertTrue(all(c.ship == "paid" for c in ca._cart_cases_from_plan(plan, ids)
+                            if c.ship != "none"))
+
+    def test_partial_shipping_offer_switched_off_is_not_flagged(self):
+        plan = ca.recommend(self.disc, ns())
+        plan["offers"].append({
+            "key": "half-ship", "name": "Half off shipping", "offer_type": "offer",
+            "condition": {"type": "any", "package_keys": list(HERO)},
+            "benefit": {"type": "shipping_percentage", "value": "50.00", "price_rounding": None}})
+        self.assertEqual(len(ca._partial_shipping_offers(plan)), 1)
+        plan["offers"][-1]["available"] = False
+        self.assertEqual(ca._partial_shipping_offers(plan), [])
+
+    def test_exit_voucher_switched_off_builds_no_cart_case(self):
+        plan = ca.recommend(self.disc, ns(exit_code="BRACELET10"))
+        ids = {p["key"]: 300 + i for i, p in enumerate(plan["packages"])}
+        self.assertTrue(any("exit voucher" in c.name for c in ca._cart_cases_from_plan(plan, ids)))
+        next(o for o in plan["offers"] if o["key"] == "exit-pop")["available"] = False
+        self.assertFalse(any("exit voucher" in c.name for c in ca._cart_cases_from_plan(plan, ids)))
+
+
+class ApplyRecordsImageSrc(unittest.TestCase):
+    """What apply writes into the journal for a later diff to compare against."""
+
+    def setUp(self):
+        self.disc = load_fixture("discovery.json")
+        self.plan = ca.recommend(self.disc, ns())
+        self.key = self.plan["packages"][0]["key"]
+        self.plan["packages"][0]["image"] = {"src": "https://cdn.example/hero.png",
+                                             "file_name": "hero.png"}
+        self.tmp = tempfile.TemporaryDirectory()
+        self.plan_path = Path(self.tmp.name) / "campaign-plan.json"
+        ca.atomic_write_json(self.plan_path, self.plan)
+        self.sha = ca.sha256_file(self.plan_path)
+        self.state = fresh_state()
+        self.t = DynamicTransport(self.disc, self.state)
+        self.man = ca.apply(make_client(self.t), self.plan, self.sha,
+                            Path(self.tmp.name) / "run-manifest.json", None)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_image_src_recorded_beside_the_thumbnail_receipt(self):
+        e = next(x for x in self.man.data["packages"] if x["key"] == self.key)
+        self.assertEqual(e["image_status"], "set")
+        self.assertEqual(e["image_src"], "https://cdn.example/hero.png")
+        self.assertEqual(e["image"], OVERRIDE_IMAGE)  # the server-built thumbnail, not the src
+        other = next(x for x in self.man.data["packages"] if x["key"] != self.key)
+        self.assertNotIn("image_src", other)
+
+    def test_shipping_entry_records_its_store_code(self):
+        e = self.man.data["shipping_methods"][0]
+        self.assertEqual((e["key"], e["shipping_method"]), ("standard", "standard"))
+
+    def test_a_new_manifest_records_a_created_origin(self):
+        self.assertEqual(self.man.data["origin"], "created")
+        self.assertEqual(ca.manifest_origin(self.man), "created")
+
+    def test_a_manifest_without_origin_reads_as_created(self):
+        man = ca.Manifest(self.man.path, load_fixture("manifest-0.7.5.json"))
+        self.assertNotIn("origin", man.data)
+        self.assertEqual(ca.manifest_origin(man), "created")
+
+    def test_reconcile_records_the_code_on_a_claimed_shipping_entry(self):
+        self.man.mark("shipping_methods", "standard", status="pending",
+                      shipping_method=None, id=None)
+        ca.reconcile(make_client(self.t), self.man, self.plan)
+        e = self.man.data["shipping_methods"][0]
+        self.assertEqual((e["status"], e["shipping_method"]), ("created", "standard"))
+
+
+class TeardownRefusesAdopted(unittest.TestCase):
+    """An adopted campaign was not built by a run of this skill, so neither
+    teardown nor a resume may treat it as this run's to delete or finish."""
+
+    def setUp(self):
+        self.disc = load_fixture("discovery.json")
+        self.plan = ca.recommend(self.disc, ns())
+        self.tmp = tempfile.TemporaryDirectory()
+        self.plan_path = Path(self.tmp.name) / "campaign-plan.json"
+        ca.atomic_write_json(self.plan_path, self.plan)
+        self.sha = ca.sha256_file(self.plan_path)
+        self.manifest = Path(self.tmp.name) / "run-manifest.json"
+        self.state = fresh_state()
+        self.t = DynamicTransport(self.disc, self.state)
+        self.man = ca.apply(make_client(self.t), self.plan, self.sha, self.manifest, None)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_teardown_refuses_an_adopted_manifest_before_any_read(self):
+        self.man.data["origin"] = "adopted"
+        self.man.save()
+        before = len(self.t.calls)
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.teardown(make_client(self.t), self.man, self.plan, self.sha, lambda: True)
+        self.assertIn("update --allow-delete", str(cm.exception))
+        self.assertEqual(len(self.t.calls), before)
+
+    def test_teardown_still_runs_on_a_created_manifest(self):
+        ca.teardown(make_client(self.t), self.man, self.plan, self.sha, lambda: True)
+        self.assertEqual(self.man.data["campaign"]["status"], "deleted")
+
+    def test_teardown_runs_on_a_manifest_with_no_origin(self):
+        del self.man.data["origin"]
+        self.man.save()
+        ca.teardown(make_client(self.t), self.man, self.plan, self.sha, lambda: True)
+        self.assertEqual(self.man.data["campaign"]["status"], "deleted")
+
+    def test_resume_refuses_an_adopted_manifest(self):
+        self.man.data["origin"] = "adopted"
+        self.man.save()
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.apply(make_client(self.t), self.plan, self.sha, self.manifest, self.manifest)
+        self.assertIn("adopted", str(cm.exception))
+        self.assertIn("diff and update", str(cm.exception))
+
+
+class VerifyReadBackAdditions(unittest.TestCase):
+    """Verify reads back every field the updater can change, and says INFO or
+    UNVERIFIED where it cannot prove one instead of failing the run."""
+    _engine = staticmethod(FreeShippingPerCase._engine)
+    _run = FreeShippingPerCase._run
+    _cases = staticmethod(FreeShippingPerCase._cases)
+    _checks = staticmethod(FreeShippingPerCase._checks)
+
+    def setUp(self):
+        self.disc = load_fixture("discovery.json")
+
+    def test_a_created_campaign_passes_every_new_row(self):
+        plan = ca.recommend(self.disc, ns(name="Bracelet - test", exit_code="BRACELET10"))
+        report, _ = self._run(plan)
+        self.assertEqual(report["result"], "PASS", json.dumps(report, indent=1))
+        rows = self._checks(report)
+        key, okey = plan["packages"][0]["key"], plan["offers"][0]["key"]
+        for name in ("campaign.name", "campaign.paypal_account_id", f"package {key} name",
+                     f"offer {okey} name", f"offer {okey} available", f"offer {okey} condition.type",
+                     f"offer {okey} benefit.type", f"offer {okey} benefit.price_rounding"):
+            self.assertEqual(rows[name]["result"], "PASS", name)
+        counted = [o["key"] for o in plan["offers"] if o["condition"]["type"] == "count"]
+        self.assertTrue(counted)
+        for k in counted:
+            self.assertEqual(rows[f"offer {k} condition.value"]["result"], "PASS", k)
+        self.assertNotIn("pricing coverage unproven: no landed rows", rows)
+
+    def test_a_dashboard_rename_and_a_paypal_id_are_caught(self):
+        plan = ca.recommend(self.disc, ns())
+
+        def edit(state, man, cid, t):
+            state["campaigns"][cid]["name"] = "Renamed in the dashboard"
+            state["campaigns"][cid]["paypal_account_id"] = "PP-99"
+
+        report, _ = self._run(plan, after_apply=edit)
+        rows = self._checks(report)
+        self.assertEqual(rows["campaign.name"]["result"], "FAIL")
+        self.assertEqual(rows["campaign.paypal_account_id"]["result"], "FAIL")
+        self.assertEqual(report["result"], "FAIL")
+
+    def test_null_additional_currencies_read_as_empty(self):
+        plan = ca.recommend(self.disc, ns())
+
+        def clear(state, man, cid, t):
+            state["campaigns"][cid]["additional_currencies"] = None
+
+        report, _ = self._run(plan, after_apply=clear)
+        self.assertEqual(self._checks(report)["campaign.additional_currencies"]["result"], "PASS")
+
+    def test_a_package_rename_is_caught_and_the_api_suffix_is_not(self):
+        plan = ca.recommend(self.disc, ns())
+        key = plan["packages"][0]["key"]
+        report, _ = self._run(plan)
+        self.assertEqual(self._checks(report)[f"package {key} name"]["result"], "PASS")
+
+        def rename(state, man, cid, t):
+            pid = next(e["id"] for e in man.data["packages"] if e["key"] == key)
+            state["packages"][cid][pid]["name"] = "Something else entirely"
+
+        report, _ = self._run(plan, after_apply=rename)
+        row = self._checks(report)[f"package {key} name"]
+        self.assertEqual(row["result"], "FAIL")
+        self.assertIn("Something else entirely", row["detail"])
+
+    def test_recurring_rows_appear_only_when_the_plan_sets_price_recurring(self):
+        plan = ca.recommend(self.disc, ns())
+        key = plan["packages"][0]["key"]
+        self.assertNotIn(f"package {key} price_recurring", self._checks(self._run(plan)[0]))
+        plan["packages"][0].update(price_recurring="19.95", interval="month", interval_count=1)
+        report, _ = self._run(plan)
+        rows = self._checks(report)
+        for field in ("price_recurring", "interval", "interval_count"):
+            self.assertEqual(rows[f"package {key} {field}"]["result"], "PASS", field)
+
+        def drop(state, man, cid, t):
+            pid = next(e["id"] for e in man.data["packages"] if e["key"] == key)
+            state["packages"][cid][pid]["interval_count"] = 3
+
+        report, _ = self._run(plan, after_apply=drop)
+        self.assertEqual(self._checks(report)[f"package {key} interval_count"]["result"], "FAIL")
+
+    def test_same_percentage_shipping_instead_of_package_discount_is_caught(self):
+        """The benefit value row alone passes this: 50% is 50%. Only the type row
+        sees that the discount moved from the product to the shipping."""
+        plan = ca.recommend(self.disc, ns())
+        okey = plan["offers"][0]["key"]
+
+        def swap(state, man, cid, t):
+            oid = next(e["id"] for e in man.data["offers"] if e["key"] == okey)
+            state["offers"][cid][oid]["benefit"]["type"] = "shipping_percentage"
+
+        report, _ = self._run(plan, after_apply=swap)
+        rows = self._checks(report)
+        self.assertEqual(rows[f"offer {okey} benefit"]["result"], "PASS")
+        self.assertEqual(rows[f"offer {okey} benefit.type"]["result"], "FAIL")
+        self.assertEqual(report["result"], "FAIL")
+
+    def test_price_rounding_treats_empty_string_and_null_as_the_same(self):
+        plan = ca.recommend(self.disc, ns())
+        okey = plan["offers"][0]["key"]
+
+        def blank(state, man, cid, t):
+            oid = next(e["id"] for e in man.data["offers"] if e["key"] == okey)
+            state["offers"][cid][oid]["benefit"]["price_rounding"] = ""
+
+        report, _ = self._run(plan, after_apply=blank)
+        self.assertEqual(self._checks(report)[f"offer {okey} benefit.price_rounding"]["result"], "PASS")
+
+    def test_a_count_threshold_the_store_hides_is_unverified_not_failed(self):
+        plan = ca.recommend(self.disc, ns(free_shipping_min_qty=2))
+        report, _ = self._run(plan, before_apply=lambda state: state.update(offer_value_readable=False),
+                              free_from=2)
+        row = self._checks(report)["offer free-shipping condition.value"]
+        self.assertEqual(row["result"], "UNVERIFIED")
+        self.assertIn("no threshold", row["detail"])
+        self.assertEqual(report["result"], "PASS", json.dumps(report, indent=1))
+
+    def test_a_wrong_count_threshold_fails(self):
+        plan = ca.recommend(self.disc, ns(free_shipping_min_qty=2))
+
+        def bump(state, man, cid, t):
+            oid = next(e["id"] for e in man.data["offers"] if e["key"] == "free-shipping")
+            state["offers"][cid][oid]["condition"]["value"] = "3.00"
+
+        report, _ = self._run(plan, after_apply=bump, free_from=2)
+        row = self._checks(report)["offer free-shipping condition.value"]
+        self.assertEqual((row["result"], report["result"]), ("FAIL", "FAIL"))
+
+    def test_an_offer_switched_off_in_the_dashboard_is_caught(self):
+        plan = ca.recommend(self.disc, ns())
+        okey = plan["offers"][0]["key"]
+
+        def off(state, man, cid, t):
+            oid = next(e["id"] for e in man.data["offers"] if e["key"] == okey)
+            state["offers"][cid][oid]["available"] = False
+
+        report, _ = self._run(plan, after_apply=off)
+        self.assertEqual(self._checks(report)[f"offer {okey} available"]["result"], "FAIL")
+
+    def test_the_hero_row_only_appears_when_the_plan_declares_a_hero(self):
+        plan = ca.recommend(self.disc, ns())
+        for p in plan["packages"]:
+            p["role"] = "bump"
+        report, _ = self._run(plan)
+        self.assertNotIn("hero packages present", self._checks(report))
+        self.assertEqual(report["result"], "PASS", json.dumps(report, indent=1))
+
+        plan = ca.recommend(self.disc, ns())
+
+        def forget(state, man, cid, t):
+            heroes = {p["key"] for p in plan["packages"] if p["role"] == "hero"}
+            man.data["packages"] = [e for e in man.data["packages"] if e["key"] not in heroes]
+
+        report, _ = self._run(plan, after_apply=forget)
+        self.assertEqual(self._checks(report)["hero packages present"]["result"], "FAIL")
+
+    def test_no_landed_rows_yields_one_information_row_not_a_coverage_failure(self):
+        """An adopted campaign: a count discount on the hero plus free shipping, and
+        no landed rows to prove either with. The read-back rows still run."""
+        plan = ca.recommend(self.disc, ns(free_shipping_min_qty=2))
+        plan["landed_prices"] = []
+        report, tt = self._run(plan)
+        rows = self._checks(report)
+        self.assertEqual(rows["pricing coverage unproven: no landed rows"]["result"], "INFO")
+        self.assertFalse([k for k in rows if k.endswith("free-shipping coverage")])
+        self.assertEqual(report["calculate_cases"], [])
+        self.assertEqual(rows["offer free-shipping condition.value"]["result"], "PASS")
+        self.assertEqual(report["result"], "PASS", json.dumps(report, indent=1))
+        self.assertFalse(tt.calls)  # no cart was probed
+
+    def test_manifest_entries_that_are_not_in_the_plan_are_fail_rows(self):
+        plan = ca.recommend(self.disc, ns())
+
+        def ghosts(state, man, cid, t):
+            man.data["packages"].append({"key": "ghost-pkg", "status": "created", "id": 90001})
+            man.data["offers"].append({"key": "ghost-offer", "status": "created", "id": 90002})
+
+        report, _ = self._run(plan, after_apply=ghosts)
+        rows = self._checks(report)
+        self.assertEqual(rows["package ghost-pkg"], {"check": "package ghost-pkg", "result": "FAIL",
+                                                     "detail": "manifest entry not in plan"})
+        self.assertEqual(rows["offer ghost-offer"]["detail"], "manifest entry not in plan")
+        self.assertEqual(report["result"], "FAIL")
+
+    def test_print_verify_prints_the_unproven_rows_and_the_count(self):
+        report = {"result": "PASS",
+                  "admin_checks": [{"check": "a", "result": "INFO", "detail": "no landed rows"},
+                                   {"check": "b", "result": "UNVERIFIED", "detail": "no threshold"},
+                                   {"check": "c", "result": "PASS", "detail": ""}],
+                  "calculate_cases": []}
+        out, old = [], ca.print
+        ca.print = lambda *a, **k: out.append(" ".join(str(x) for x in a))
+        try:
+            ca.print_verify(report)
+        finally:
+            ca.print = old
+        self.assertIn("  INFO  a  no landed rows", out)
+        self.assertIn("  UNVERIFIED  b  no threshold", out)
+        self.assertEqual(out[-1], "VERIFY: PASS  (2 row(s) not proven: INFO, UNVERIFIED)")
+
+
+class LegacyManifest(unittest.TestCase):
+    """A run directory written by 0.7.5: no `origin`, no `shipping_method` on the
+    shipping entry, no `image_src`. Both commands that read a manifest have to work
+    on it unchanged, through the CLI."""
+
+    def setUp(self):
+        self.disc = load_fixture("discovery.json")
+        self.tmp = tempfile.TemporaryDirectory()
+        d = Path(self.tmp.name)
+        self.plan_path = d / "campaign-plan.json"
+        self.plan_path.write_bytes((FIXTURES / "plan-0.7.5.json").read_bytes())
+        self.plan = json.loads(self.plan_path.read_text())
+        man = load_fixture("manifest-0.7.5.json")
+        # The fixture carries a placeholder digest: a real one is a 64-character
+        # high-entropy token, which the public-safety scanner flags on sight.
+        man["plan_sha256"] = ca.sha256_file(self.plan_path)
+        self.manifest_path = d / "run-manifest.json"
+        ca.atomic_write_json(self.manifest_path, man)
+        self.man = man
+        self.state = self._live_state()
+        self.t = DynamicTransport(self.disc, self.state)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    @staticmethod
+    def _live_state():
+        """The live campaign that fixture manifest owns."""
+        state = fresh_state()
+        state["campaigns"][2001] = {
+            "id": 2001, "name": "Legacy Bracelet", "currency": "USD", "language": "en",
+            "payment_gateway_group_id": 1, "api_key": "test-key",
+            "created_at": "2026-09-02T12:00:05+00:00", "statement_descriptor": "LEGACY",
+            "paypal_account_id": None, "additional_currencies": [],
+            "available_payment_methods": [{"code": "card"}],
+            "available_express_payment_methods": [],
+            "available_shipping_countries": [{"code": "US"}]}
+        state["packages"][2001] = {2002: {
+            "id": 2002, "product_id": 22, "product_variant_id": 801,
+            "product_variant_name": "One size", "name": "Legacy Bracelet - One size",
+            "prices": [{"currency": "USD", "price": "24.95", "price_recurring": None}],
+            "is_recurring": False, "interval": "", "interval_count": None,
+            "product_purchase_availability": "available", "image": CATALOGUE_IMAGE}}
+        state["shipping-methods"][2001] = {2003: {
+            "id": 2003, "shipping_method": "standard",
+            "prices": [{"currency": "USD", "price": "6.95"}]}}
+        state["offers"][2001] = {2004: {
+            "id": 2004, "name": "Legacy Bracelet - Buy 2", "offer_type": "offer", "code": None,
+            "available": True,
+            "condition": offer_condition(state, {"type": "count", "value": 2, "package_ids": [2002]}),
+            "benefit": offer_benefit({"type": "package_percentage", "value": "10.00",
+                                      "price_rounding": None})}}
+        return state
+
+    def _cart(self):
+        def calc(path, body):
+            # the fixture's one landed row: 24.95 plus the 6.95 method the row carries
+            return 200, {"total": "31.90", "lines": []}
+        t = FakeTransport({("POST", "/api/v1/carts/calculate/"): calc})
+        return t, ca.Client(ca.CART_API_ORIGIN, "test-key", auth_scheme="raw",
+                            send_version_header=False, transport=t, clock=FakeClock(),
+                            sleep=lambda s: None)
+
+    def _main(self, argv, cart=None):
+        # the admin client is built before ca.Client is replaced: the patch is only
+        # there so _dispatch's cart client is the fake one
+        admin = make_client(self.t)
+        with mock.patch.object(ca, "_client_for", lambda slug: admin):
+            if cart is None:
+                return ca.main(argv)
+            with mock.patch.object(ca, "Client", lambda *a, **k: cart):
+                return ca.main(argv)
+
+    def test_verify_reads_the_legacy_run_back(self):
+        cart_t, cart = self._cart()
+        rc = self._main(["verify", "--manifest", str(self.manifest_path),
+                         "--plan", str(self.plan_path)], cart=cart)
+        report = json.loads((Path(self.tmp.name) / "verify-report.json").read_text())
+        self.assertEqual((rc, report["result"]), (0, "PASS"), json.dumps(report, indent=1))
+        rows = {x["check"]: x for x in report["admin_checks"]}
+        # the shipping code came from the plan: the entry does not carry one
+        self.assertNotIn("shipping_method", self.man["shipping_methods"][0])
+        self.assertEqual(rows["shipping standard code"]["result"], "PASS")
+        self.assertEqual(rows["package hero-801 name"]["result"], "PASS")
+        self.assertEqual(rows["offer tier-2 condition.value"]["result"], "PASS")
+        self.assertEqual([c["case"] for c in report["calculate_cases"]], ["Buy 1 single variant"])
+        self.assertEqual(cart_t.calls[0][2]["shipping_method"], 2003)
+
+    def test_teardown_deletes_the_legacy_run(self):
+        rc = self._main(["teardown", "--manifest", str(self.manifest_path),
+                         "--plan", str(self.plan_path), "--yes"])
+        self.assertEqual(rc, 0)
+        deletes = [c[1] for c in self.t.calls if c[0] == "DELETE"]
+        cid = self.man["campaign"]["id"]
+        oid, sid, pid = (self.man[s][0]["id"] for s in ("offers", "shipping_methods", "packages"))
+        self.assertEqual(deletes, [f"/api/admin/campaigns/{cid}/offers/{oid}/",
+                                   f"/api/admin/campaigns/{cid}/shipping-methods/{sid}/",
+                                   f"/api/admin/campaigns/{cid}/packages/{pid}/",
+                                   f"/api/admin/campaigns/{cid}/"])
+        man = json.loads(self.manifest_path.read_text())
+        self.assertEqual(man["campaign"]["status"], "deleted")
+        self.assertNotIn("origin", man)  # teardown adds no field the run did not have
 
 
 if __name__ == "__main__":

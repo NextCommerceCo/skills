@@ -82,6 +82,10 @@ BENEFIT_TYPES = ("package_percentage", "shipping_percentage", "order_percentage"
 CONDITION_TYPES = ("any", "count")
 OFFER_TYPES = ("offer", "voucher")
 OFFER_KINDS = ("quantity", "bxgy", "gwp")
+# Where a plan's desired state came from: a run of this skill, or a campaign that
+# already existed and was adopted. A plan or manifest without the field was
+# written before the field existed, so it was created.
+PLAN_ORIGINS = ("created", "adopted")
 DEFAULT_TIERS = (50, 55, 60)
 DEFAULT_EXIT_PCT = 10
 
@@ -1775,6 +1779,9 @@ def _validate_plan(plan: dict) -> list:
         check_origin_binding(plan, "plan")
     except CampaignAdminError as e:
         errs.append(str(e))
+    if "origin" in plan and plan["origin"] not in PLAN_ORIGINS:
+        errs.append(f"plan origin {plan['origin']!r} invalid; one of {', '.join(PLAN_ORIGINS)} "
+                    "(a plan with no origin was created by a run of this skill)")
     c = plan.get("campaign", {})
     for f in ("name", "currency", "language", "payment_gateway_group_id"):
         if c.get(f) in (None, ""):
@@ -1860,6 +1867,11 @@ def _validate_plan(plan: dict) -> list:
         ot = o.get("offer_type", "offer")
         if ot not in OFFER_TYPES:
             errs.append(f"offer {k}: offer_type {ot!r} invalid")
+        # An offer the dashboard switched off is still part of the campaign and
+        # still owned, so it is modelled rather than dropped; the pricing gates
+        # skip it because it fires on no cart.
+        if "available" in o and type(o["available"]) is not bool:
+            errs.append(f"offer {k}: available must be true or false (got {o['available']!r})")
         if "offer_type" not in o and o.get("code"):
             # apply would send this as an automatic offer and drop the code, so a
             # voucher that forgot the field would silently fire on every cart
@@ -1982,6 +1994,10 @@ def offer_body(o: dict, package_ids: dict) -> dict:
             "benefit": {"type": o["benefit"]["type"], "value": o["benefit"]["value"]}}
     if o["benefit"].get("price_rounding"):
         body["benefit"]["price_rounding"] = o["benefit"]["price_rounding"]
+    if "available" in o:
+        # Omitted means the API's own default (true); sent only when the plan says
+        # so, so a create path that never mentions availability is unchanged.
+        body["available"] = o["available"]
     if body["offer_type"] == "voucher":
         body["code"] = o["code"]
     return body
@@ -2079,6 +2095,7 @@ class Manifest:
     def new(cls, path: Path, plan: dict, plan_sha: str) -> "Manifest":
         return cls(path, {
             "store_slug": plan["store_slug"], "store_origin": plan["store_origin"],
+            "origin": "created",
             "plan_sha256": plan_sha, "run_id": str(uuid.uuid4()), "started_at": utcnow(),
             "campaign": {"status": "pending", "key": "campaign", "name": plan["campaign"]["name"]},
             "packages": [], "shipping_methods": [], "offers": [],
@@ -2104,6 +2121,13 @@ class Manifest:
         e.update(fields)
         self.save()
         return e
+
+
+def manifest_origin(man: Manifest) -> str:
+    """How this run's campaign came to be ours. Manifests written before the field
+    existed (0.7.5 and earlier) are all from a run that created the campaign, so a
+    missing value reads as `created`."""
+    return man.data.get("origin") or "created"
 
 
 def _created(client: Client, method: str, path: str, body: dict, what: str) -> dict:
@@ -2192,7 +2216,8 @@ def reconcile(client: Client, man: Manifest, plan: dict) -> None:
         read = [(x.get("id"), _finite(_num(_price_in(x, currency)))) for x in cands]
         priced = [i for i, p in read if p is not None and p == D(s["price"])]
         if len(priced) == 1 and all(p is not None for _, p in read):
-            man.mark("shipping_methods", e["key"], status="created", id=priced[0], reconciled=True, intent=None)
+            man.mark("shipping_methods", e["key"], status="created", id=priced[0],
+                     shipping_method=s["shipping_method"], reconciled=True, intent=None)
         else:
             seen = ", ".join(f"{i} at {'unreadable' if p is None else money(p)}" for i, p in read)
             raise CampaignAdminError(
@@ -2246,6 +2271,13 @@ def apply(client: Client, plan: dict, plan_sha: str, manifest_path: Path, resume
         # --resume path that might be tracked (the manifest holds the campaign api_key).
         man.path = manifest_path
         check_origin_binding(man.data, "manifest")
+        if manifest_origin(man) == "adopted":
+            # Resume finishes a build this skill started. An adopted campaign was
+            # built elsewhere: there is nothing half-created to claim, and every
+            # POST here would duplicate something that already exists.
+            raise CampaignAdminError(
+                f"{man.path} was adopted from an existing campaign, not created by a run; apply --resume "
+                "only finishes a run it started. Change an adopted campaign with diff and update.")
         if man.data["store_slug"] != plan["store_slug"]:
             raise CampaignAdminError("manifest store_slug does not match the plan")
         if man.data["plan_sha256"] != plan_sha:
@@ -2352,7 +2384,7 @@ def apply(client: Client, plan: dict, plan_sha: str, manifest_path: Path, resume
                                   + auth_hint(status, "PUT", f"/api/admin/campaigns/{cid}/packages/{e['id']}/image/"))
         else:
             man.mark("packages", p["key"], image_status="set", image_intent=None,
-                     image=resp.get("image"), image_error=None)
+                     image=resp.get("image"), image_src=img["src"], image_error=None)
             image_set_ok = True
             print(f"set image on package {e['id']} {p['key']!r}")
 
@@ -2365,7 +2397,11 @@ def apply(client: Client, plan: dict, plan_sha: str, manifest_path: Path, resume
         body = {"shipping_method": s["shipping_method"], "price": s["price"]}
         man.mark("shipping_methods", key, status="pending", intent=body)
         resp = _created(client, "POST", f"/api/admin/campaigns/{cid}/shipping-methods/", body, f"create shipping {key}")
-        man.mark("shipping_methods", key, status="created", id=resp["id"], intent=None)
+        # The store code goes in the entry: it is the shipping method's immutable
+        # identity, and a manifest that carries it does not have to reach back into
+        # the plan to know what it owns.
+        man.mark("shipping_methods", key, status="created", id=resp["id"],
+                 shipping_method=resp.get("shipping_method") or s["shipping_method"], intent=None)
         print(f"created shipping method {resp['id']} {key!r} ({s['shipping_method']} at {s['price']})")
 
     # offers
@@ -2428,6 +2464,9 @@ def apply(client: Client, plan: dict, plan_sha: str, manifest_path: Path, resume
 
 def teardown(client: Client, man: Manifest, plan: dict, plan_sha: str, confirm) -> None:
     check_origin_binding(man.data, "manifest")
+    if manifest_origin(man) == "adopted":
+        raise CampaignAdminError(
+            "teardown deletes what this run created; reduce an adopted campaign with update --allow-delete")
     if man.data["store_slug"] != plan["store_slug"] or man.data["plan_sha256"] != plan_sha:
         raise CampaignAdminError("manifest does not belong to this plan (slug or plan hash differs)")
     camp = man.data["campaign"]
@@ -2525,12 +2564,36 @@ def _price_in(obj: dict, currency: str):
     return next((x.get("price") for x in (prices or []) if isinstance(x, dict) and x.get("currency") == currency), None)
 
 
+def _available(o: dict) -> bool:
+    """Whether an offer fires at all. The field is optional and defaults to true,
+    so only an explicit false switches an offer off."""
+    return o.get("available") is not False
+
+
+def _live_package_name_ok(live_name, p: dict) -> bool:
+    """Whether the live package name is this plan entry's name. Package create
+    appends " - {variant}" to the name it is sent, so the plan holds the bare name
+    and both forms read back as a match. The plan's own `variant_title` is checked
+    first; the prefix form covers a store whose suffix the plan does not record."""
+    name = p.get("name") or ""
+    if live_name == name:
+        return True
+    if not isinstance(live_name, str) or not name:
+        return False
+    variant = p.get("variant_title")
+    if variant is not None and live_name == f"{name} - {variant}":
+        return True
+    return live_name.startswith(name + " - ")
+
+
 def _free_shipping_offers(plan: dict) -> list:
     """Automatic 100% shipping offers as (key, threshold, scope_keys); `any` is a
     threshold of 1. Vouchers are skipped: no cart case enters a shipping code.
     Reads defensively because print_plan calls it on plans not yet validated."""
     out = []
     for o in plan.get("offers") or []:
+        if not _available(o):
+            continue
         ben, cond = o.get("benefit") or {}, o.get("condition") or {}
         if (o.get("offer_type", "offer") != "offer" or ben.get("type") != "shipping_percentage"
                 or _num(ben.get("value")) != Decimal(100)):
@@ -2564,7 +2627,7 @@ def _partial_shipping_offers(plan: dict) -> list:
     plans not yet validated."""
     out = []
     for o in plan.get("offers") or []:
-        if o.get("offer_type", "offer") != "offer":
+        if o.get("offer_type", "offer") != "offer" or not _available(o):
             continue
         ben, cond = o.get("benefit") or {}, o.get("condition") or {}
         if ben.get("type") != "shipping_percentage" or _num(ben.get("value")) == Decimal(100):
@@ -2623,7 +2686,9 @@ def _cart_cases_from_plan(plan: dict, ids: dict) -> list:
     campaign's first (always None for an upsell). Each row names its
     package_keys and offer_key, so nothing is parsed back out of display labels. Rows whose packages were not created are
     skipped (the admin read-back has already recorded that failure)."""
-    offers = {o["key"]: o for o in plan.get("offers", [])}
+    # An offer with `available: false` discounts nothing, so it builds no cart case
+    # and never stacks into one (the exit voucher and the upsell lookups below).
+    offers = {o["key"]: o for o in plan.get("offers", []) if _available(o)}
     exit_offer = offers.get("exit-pop")
     free_scopes = [scope for _, _, scope in _free_shipping_offers(plan)]
     cases = []
@@ -2752,11 +2817,18 @@ def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: st
     cid = camp["id"]
     checks, cases = [], []
 
+    def row(name, result, detail=""):
+        """A read-back row with its own verdict. Only FAIL fails the report:
+        UNVERIFIED marks a field this store does not report, INFO something that
+        was not provable and is not a defect."""
+        checks.append({"check": name, "result": result, "detail": detail})
+
     def check(name, ok, detail=""):
-        checks.append({"check": name, "result": "PASS" if ok else "FAIL", "detail": detail})
+        row(name, "PASS" if ok else "FAIL", detail)
 
     live = client.get_ok(f"/api/admin/campaigns/{cid}/")
     c = plan["campaign"]
+    check("campaign.name", live.get("name") == c["name"], str(live.get("name")))
     check("campaign.currency", live.get("currency") == c["currency"], str(live.get("currency")))
     check("campaign.language", live.get("language") == c["language"], str(live.get("language")))
     check("campaign.gateway_group", live.get("payment_gateway_group_id") == c["payment_gateway_group_id"], str(live.get("payment_gateway_group_id")))
@@ -2766,9 +2838,12 @@ def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: st
     check("campaign.express_methods", live_express == sorted(c.get("available_express_payment_methods", [])), str(live_express))
     live_countries = sorted(x["code"] for x in live.get("available_shipping_countries", []))
     check("campaign.shipping_countries", live_countries == sorted(c.get("available_shipping_countries", [])), str(live_countries))
-    live_addl = sorted(live.get("additional_currencies", []))
-    check("campaign.additional_currencies", live_addl == sorted(c.get("additional_currencies", [])), str(live_addl))
+    # A campaign cleared of its extra currencies answers with null, not []
+    live_addl = sorted(live.get("additional_currencies") or [])
+    check("campaign.additional_currencies", live_addl == sorted(c.get("additional_currencies") or []), str(live_addl))
     check("campaign.statement_descriptor", (live.get("statement_descriptor") or "") == (c.get("statement_descriptor") or ""), str(live.get("statement_descriptor")))
+    check("campaign.paypal_account_id", (live.get("paypal_account_id") or None) == (c.get("paypal_account_id") or None),
+          str(live.get("paypal_account_id")))
     check("campaign.api_key_present", bool(live.get("api_key")))
 
     pkgs = {p["id"]: p for p in client.paginate(f"/api/admin/campaigns/{cid}/packages/")}
@@ -2783,15 +2858,33 @@ def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: st
         if e.get("status") != "created":
             check(f"package {e['key']}", False, f"status {e.get('status')}")
             continue
-        p = next(x for x in plan["packages"] if x["key"] == e["key"])
+        p = next((x for x in plan["packages"] if x["key"] == e["key"]), None)
+        if p is None:
+            # A key the plan no longer carries cannot be read back against anything;
+            # the pair is out of step, which is the finding.
+            check(f"package {e['key']}", False, "manifest entry not in plan")
+            continue
         live_p = pkgs.get(e.get("id"))
         ids[e["key"]] = e.get("id")
         if not live_p:
             check(f"package {e['key']}", False, "missing remotely")
             continue
-        price = next((x.get("price") for x in live_p.get("prices", []) if x.get("currency") == c["currency"]), None)
+        live_prices = live_p.get("prices") or []
+        price = next((x.get("price") for x in live_prices if x.get("currency") == c["currency"]), None)
         check(f"package {e['key']} price", _num(price) == D(p["price"]), f"{price} vs {p['price']}")
+        check(f"package {e['key']} name", _live_package_name_ok(live_p.get("name"), p),
+              f"{live_p.get('name')} vs {p['name']}")
         check(f"package {e['key']} variant", live_p.get("product_variant_id") == p["product_variant_ids"][0], str(live_p.get("product_variant_id")))
+        if p.get("price_recurring"):
+            # Only a subscription package has these, and only the plan can say so:
+            # a one-off package reads back interval "" and interval_count null.
+            recurring = next((x.get("price_recurring") for x in live_prices if x.get("currency") == c["currency"]), None)
+            check(f"package {e['key']} price_recurring", _num(recurring) == D(p["price_recurring"]),
+                  f"{recurring} vs {p['price_recurring']}")
+            check(f"package {e['key']} interval", (live_p.get("interval") or None) == p.get("interval", "month"),
+                  f"{live_p.get('interval')} vs {p.get('interval', 'month')}")
+            check(f"package {e['key']} interval_count", live_p.get("interval_count") == p.get("interval_count", 1),
+                  f"{live_p.get('interval_count')} vs {p.get('interval_count', 1)}")
         check(f"package {e['key']} purchasable", live_p.get("product_purchase_availability") == "available", str(live_p.get("product_purchase_availability")))
         # Presence covers every package, not just overridden ones: package create
         # inherits the catalogue image and swallows a failed fetch, so this row is the
@@ -2855,7 +2948,10 @@ def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: st
         # The offers LIST omits condition.packages; only the per-offer RETRIEVE
         # carries the scope, so read each offer back by id.
         for e in man.data["offers"]:
-            o = next(x for x in plan["offers"] if x["key"] == e["key"])
+            o = next((x for x in plan["offers"] if x["key"] == e["key"]), None)
+            if o is None:
+                check(f"offer {e['key']}", False, "manifest entry not in plan")
+                continue
             if e.get("status") != "created" or not e.get("id"):
                 check(f"offer {e['key']}", False, f"status {e.get('status')}")
                 continue
@@ -2869,19 +2965,54 @@ def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: st
                 check(f"offer {e['key']} scope", False, f"package key(s) {unresolved} were never created")
                 continue
             want = sorted(ids[k] for k in o["condition"]["package_keys"])
-            got = sorted(p.get("id") for p in (live_o.get("condition") or {}).get("packages", []))
-            check(f"offer {e['key']} scope", got == want and not (live_o.get("condition") or {}).get("all_packages"), f"{got} vs {want}")
-            check(f"offer {e['key']} benefit", _num((live_o.get("benefit") or {}).get("value")) == D(o["benefit"]["value"]), str((live_o.get("benefit") or {}).get("value")))
+            cond = live_o.get("condition") or {}
+            ben = live_o.get("benefit") or {}
+            got = sorted(p.get("id") for p in cond.get("packages", []))
+            check(f"offer {e['key']} scope", got == want and not cond.get("all_packages"), f"{got} vs {want}")
+            check(f"offer {e['key']} benefit", _num(ben.get("value")) == D(o["benefit"]["value"]), str(ben.get("value")))
             check(f"offer {e['key']} type", live_o.get("offer_type") == o.get("offer_type", "offer"), str(live_o.get("offer_type")))
+            check(f"offer {e['key']} name", live_o.get("name") == o["name"], str(live_o.get("name")))
+            # Availability defaults to true on both sides: the plan omits the field
+            # for every offer that fires, and so does a store that does not report it.
+            check(f"offer {e['key']} available", bool(live_o.get("available", True)) == _available(o),
+                  f"{live_o.get('available')} vs {_available(o)}")
+            check(f"offer {e['key']} condition.type", cond.get("type") == o["condition"]["type"],
+                  f"{cond.get('type')} vs {o['condition']['type']}")
+            if o["condition"]["type"] == "count":
+                # The threshold comes back as a decimal string ("2.00"), so it is
+                # compared as a number. A store whose read-back omits it proves
+                # nothing either way, which is not the same as a wrong threshold.
+                live_value = _finite(_num(cond.get("value")))
+                if live_value is None:
+                    row(f"offer {e['key']} condition.value", "UNVERIFIED",
+                        "this store's offer read-back carries no threshold; check it in the dashboard")
+                else:
+                    check(f"offer {e['key']} condition.value", live_value == D(o["condition"]["value"]),
+                          f"{cond.get('value')} vs {o['condition']['value']}")
+            check(f"offer {e['key']} benefit.type", ben.get("type") == o["benefit"]["type"],
+                  f"{ben.get('type')} vs {o['benefit']['type']}")
+            # "" and null are the same absence of rounding; only one of them is sent
+            check(f"offer {e['key']} benefit.price_rounding",
+                  (ben.get("price_rounding") or None) == (o["benefit"].get("price_rounding") or None),
+                  f"{ben.get('price_rounding')} vs {o['benefit'].get('price_rounding')}")
             if o.get("offer_type") == "voucher":
                 check(f"offer {e['key']} code", live_o.get("code") == o["code"], str(live_o.get("code")))
 
     # Pricing truth: carts/calculate with the campaign key.
-    hero_present = any(p["role"] == "hero" and ids.get(p["key"]) for p in plan["packages"])
-    if not hero_present:
+    # Only a plan that declares a hero can be missing one. A campaign whose plan
+    # names no hero role (one adopted from the dashboard, say) is not thereby broken.
+    hero_declared = any(p.get("role") == "hero" for p in plan["packages"])
+    hero_present = any(p.get("role") == "hero" and ids.get(p["key"]) for p in plan["packages"])
+    if hero_declared and not hero_present:
         check("hero packages present", False, "no created hero package ids in the manifest")
     cart_cases = _cart_cases_from_plan(plan, ids)
-    if hero_present:
+    if not plan.get("landed_prices"):
+        # Without landed rows there are no carts, so every free-shipping offer would
+        # fail the coverage gate for the lack of cases it could never have had. The
+        # offers above are still read back; the pricing is simply unproven, once.
+        row("pricing coverage unproven: no landed rows", "INFO",
+            "the plan carries no landed_prices, so calculate proves no offer threshold")
+    elif hero_present:
         free_offers = _free_shipping_offers(plan)
         for key, n, scope in free_offers:
             ok, detail = _free_shipping_coverage(cart_cases, free_offers, key, n, scope, case_ship_price)
@@ -2956,7 +3087,9 @@ def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: st
         check("campaign offers match the plan", not problems,
               "; ".join(problems) if problems else f"{len(live_offers)} live, all created by this run")
 
-    result = "PASS" if all(x["result"] == "PASS" for x in checks + cases) else "FAIL"
+    # Only a FAIL fails the report: an INFO or UNVERIFIED row records something
+    # that could not be proven here, which is not the same as a wrong value.
+    result = "FAIL" if any(x["result"] == "FAIL" for x in checks + cases) else "PASS"
     return {"manifest_run_id": man.data["run_id"], "plan_sha256": plan_sha, "verified_at": utcnow(),
             "admin_checks": checks, "calculate_cases": cases, "result": result}
 
@@ -2978,7 +3111,13 @@ def print_verify(report: dict) -> None:
             ship = f"shipping {x['expected_shipping']}"
         print(f"  {x['result']}  calculate {x['case']}: expected {x['expected_total']} ({ship}) "
               f"got {x['got_total']}{extra}")
-    print(f"VERIFY: {report['result']}")
+    # Rows that are neither PASS nor FAIL do not change the verdict, so the verdict
+    # line says how many of them there were rather than leaving them in the scroll.
+    unproven = [x["result"] for x in report["admin_checks"] + report["calculate_cases"]
+                if x["result"] not in ("PASS", "FAIL")]
+    print(f"VERIFY: {report['result']}"
+          + (f"  ({len(unproven)} row(s) not proven: {', '.join(sorted(set(unproven)))})"
+             if unproven else ""))
 
 
 # --------------------------------------------------------------------------- #
