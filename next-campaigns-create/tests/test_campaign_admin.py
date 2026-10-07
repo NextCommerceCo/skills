@@ -4169,6 +4169,40 @@ class LegacyManifest(unittest.TestCase):
         self.assertEqual([c["case"] for c in report["calculate_cases"]], ["Buy 1 single variant"])
         self.assertEqual(cart_t.calls[0][2]["shipping_method"], 2003)
 
+    def test_diff_of_the_unchanged_legacy_plan_is_no_changes(self):
+        nxt = Path(self.tmp.name) / "campaign-plan.next.json"
+        nxt.write_bytes(self.plan_path.read_bytes())
+        lines = []
+        with mock.patch.object(ca, "print", lambda *a, **k: lines.append(" ".join(map(str, a)))):
+            rc = self._main(["diff", "--plan", str(nxt), "--manifest", str(self.manifest_path)])
+        self.assertEqual((rc, "no changes" in "\n".join(lines)), (0, True), "\n".join(lines))
+        self.assertEqual([(c[0], c[1]) for c in self.t.calls if c[0] != "GET"], [])
+        # the shipping entry carries no code, so identity took it from the base plan
+        self.assertNotIn("shipping_method", self.man["shipping_methods"][0])
+        self.assertFalse((Path(self.tmp.name) / "change-set.json").exists())
+
+    def test_diff_of_an_edited_legacy_plan_patches_the_package_price(self):
+        cand = json.loads(self.plan_path.read_text())
+        cand["packages"][0]["price"] = "27.95"
+        nxt = Path(self.tmp.name) / "campaign-plan.next.json"
+        nxt.write_text(json.dumps(cand, indent=2) + "\n")
+        lines = []
+        with mock.patch.object(ca, "print", lambda *a, **k: lines.append(" ".join(map(str, a)))):
+            rc = self._main(["diff", "--plan", str(nxt), "--manifest", str(self.manifest_path)])
+        self.assertEqual(rc, 0, "\n".join(lines))
+        cs = json.loads((Path(self.tmp.name) / "change-set.json").read_text())
+        cid = self.man["campaign"]["id"]
+        pid = self.man["packages"][0]["id"]
+        self.assertEqual([(o["method"], o["section"], o["key"], o["id"], o["path"])
+                          for o in cs["ops"]],
+                         [("PATCH", "packages", "hero-801", pid,
+                           f"/api/admin/campaigns/{cid}/packages/{pid}/")])
+        self.assertEqual(cs["ops"][0]["body"],
+                         {"prices": [{"currency": "USD", "price": "27.95",
+                                      "price_recurring": None}]})
+        self.assertEqual(cs["preserved"], [])
+        self.assertEqual([(c[0], c[1]) for c in self.t.calls if c[0] != "GET"], [])
+
     def test_teardown_deletes_the_legacy_run(self):
         rc = self._main(["teardown", "--manifest", str(self.manifest_path),
                          "--plan", str(self.plan_path), "--yes"])
@@ -4183,6 +4217,962 @@ class LegacyManifest(unittest.TestCase):
         man = json.loads(self.manifest_path.read_text())
         self.assertEqual(man["campaign"]["status"], "deleted")
         self.assertNotIn("origin", man)  # teardown adds no field the run did not have
+
+def seed_roles_campaign(state):
+    """A live campaign with one package of each role `derive_role` can reach: a count
+    package discount (hero), a 100% package offer (gift), a voucher and nothing else
+    (upsell), and a package no offer touches (bump). Returns (campaign id, {role: id})."""
+    state["seq"] += 1
+    cid = state["seq"]
+    state["campaigns"][cid] = {
+        "id": cid, "name": "Roles", "currency": "USD", "language": "en",
+        "payment_gateway_group_id": 1, "api_key": "KEY-" + "y" * 20 + "0001",
+        "created_at": "2026-08-02T09:00:00+00:00", "statement_descriptor": "",
+        "paypal_account_id": None, "additional_currencies": [],
+        "available_payment_methods": [{"code": "card"}],
+        "available_express_payment_methods": [],
+        "available_shipping_countries": [{"code": "US"}]}
+    pkgs = {}
+    for role, vid, price in (("hero", 801, "24.95"), ("gift", 802, "9.95"),
+                             ("upsell", 803, "19.95"), ("bump", 804, "4.95")):
+        state["seq"] += 1
+        pkgs[role] = state["seq"]
+        state["packages"].setdefault(cid, {})[state["seq"]] = {
+            "id": state["seq"], "product_id": 22, "product_variant_id": vid,
+            "product_variant_name": "v" + str(vid), "name": f"{role.title()} item - v{vid}",
+            "prices": [{"currency": "USD", "price": price, "price_recurring": None}],
+            "is_recurring": False, "interval": "", "interval_count": None,
+            "product_purchase_availability": "available", "image": CATALOGUE_IMAGE}
+    state["seq"] += 1
+    state["shipping-methods"].setdefault(cid, {})[state["seq"]] = {
+        "id": state["seq"], "shipping_method": "standard",
+        "prices": [{"currency": "USD", "price": "6.95"}]}
+    for name, ot, code, cond, ben in (
+            ("Roles - Buy 2", "offer", None,
+             {"type": "count", "value": 2, "package_ids": [pkgs["hero"]]},
+             {"type": "package_percentage", "value": "55.00", "price_rounding": None}),
+            ("Roles - Gift free", "offer", None,
+             {"type": "any", "package_ids": [pkgs["gift"]]},
+             {"type": "package_percentage", "value": "100.00", "price_rounding": None}),
+            ("Roles - Upsell", "voucher", "SAVE30",
+             {"type": "any", "package_ids": [pkgs["upsell"]]},
+             {"type": "package_percentage", "value": "30.00", "price_rounding": None})):
+        state["seq"] += 1
+        state["offers"].setdefault(cid, {})[state["seq"]] = {
+            "id": state["seq"], "name": name, "offer_type": ot, "code": code, "available": True,
+            "condition": offer_condition(state, cond), "benefit": offer_benefit(ben)}
+    return cid, pkgs
+
+
+class AdoptFromLive(unittest.TestCase):
+    """`adopt` writes a plan whose desired state is exactly what is live, plus a
+    manifest that says this run owns it. Anything the engine would have to guess at
+    is a blocker instead, and a blocked campaign gets a plan and no manifest."""
+
+    def setUp(self):
+        self.disc = load_fixture("discovery.json")
+        self.state = fresh_state()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name) / "run"
+        self.lines = []
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _run(self, argv):
+        self.t = DynamicTransport(self.disc, self.state)
+        admin = make_client(self.t)
+        self.lines = []
+        with mock.patch.object(ca, "_client_for", lambda slug: admin), \
+                mock.patch.object(ca, "print",
+                                  lambda *a, **k: self.lines.append(" ".join(map(str, a)))):
+            return ca.main(argv)
+
+    def adopt(self, cid, *extra, out=None):
+        return self._run(["adopt", "--store", "teststore", "--campaign", str(cid),
+                          "--out", str(out or self.dir), *extra])
+
+    def out(self):
+        return "\n".join(self.lines)
+
+    def plan(self):
+        return json.loads((self.dir / "campaign-plan.json").read_text())
+
+    def manifest(self):
+        return json.loads((self.dir / "run-manifest.json").read_text())
+
+    def test_desired_state_equals_live(self):
+        cid = seed_live_campaign(self.state)
+        self.assertEqual(self.adopt(cid), 0, self.out())
+        plan = self.plan()
+        self.assertEqual(plan["origin"], "adopted")
+        self.assertEqual((plan["adopted_from_campaign_id"], plan["store_slug"]), (cid, "teststore"))
+        self.assertEqual(plan["campaign"], {
+            "name": "Dashboard Bracelet", "currency": "USD", "language": "en",
+            "payment_gateway_group_id": 1, "additional_currencies": [],
+            "available_payment_methods": ["card"], "available_express_payment_methods": [],
+            "available_shipping_countries": ["US"], "statement_descriptor": None,
+            "paypal_account_id": None})
+        self.assertEqual([(p["key"], p["name"], p["price"], p["product_variant_ids"])
+                          for p in plan["packages"]],
+                         [("pkg-801", "Photo Bracelet", "24.95", [801]),
+                          ("pkg-802", "Charm Add-on", "12.95", [802])])
+        self.assertEqual(plan["shipping_methods"], [{"shipping_method": "standard", "price": "6.95"}])
+        oids = sorted(self.state["offers"][cid])
+        self.assertEqual([o["key"] for o in plan["offers"]], [f"offer-{i}" for i in oids])
+        count = plan["offers"][0]
+        self.assertEqual(count["condition"], {"type": "count", "value": 2,
+                                              "package_keys": ["pkg-801"]})
+        self.assertEqual(count["benefit"], {"type": "package_percentage", "value": "55.00",
+                                            "price_rounding": None})
+        self.assertTrue(count["available"])
+        self.assertIsNone(plan["offers"][1]["condition"]["value"])
+        # no landed-price synthesis, no image override, nothing invented
+        self.assertEqual((plan["landed_prices"], plan["rationale"], plan["voucher_codes"],
+                          plan["handoff"], plan["blockers"], plan["waivers"]),
+                         ([], [], [], [], [], []))
+        self.assertTrue(all("image" not in p for p in plan["packages"]))
+        self.assertEqual([c[0] for c in self.t.calls if c[0] != "GET"], [])
+        self.assertNotIn("KEY-", self.out())
+
+    def test_verify_passes_on_an_adopted_campaign(self):
+        cid = seed_live_campaign(self.state)  # count hero discount plus free shipping
+        self.assertEqual(self.adopt(cid), 0, self.out())
+
+        def calc(path, body):
+            return 200, {"total": "0.00", "lines": []}
+        cart_t = FakeTransport({("POST", "/api/v1/carts/calculate/"): calc})
+        cart = ca.Client(ca.CART_API_ORIGIN, "k", auth_scheme="raw", send_version_header=False,
+                         transport=cart_t, clock=FakeClock(), sleep=lambda s: None)
+        admin = make_client(DynamicTransport(self.disc, self.state))
+        with mock.patch.object(ca, "_client_for", lambda slug: admin), \
+                mock.patch.object(ca, "Client", lambda *a, **k: cart):
+            rc = ca.main(["verify", "--manifest", str(self.dir / "run-manifest.json"),
+                          "--plan", str(self.dir / "campaign-plan.json")])
+        report = json.loads((self.dir / "verify-report.json").read_text())
+        self.assertEqual((rc, report["result"]), (0, "PASS"), json.dumps(report, indent=1))
+        rows = {x["check"]: x for x in report["admin_checks"]}
+        # the free-shipping coverage gate is replaced by one information row, and the
+        # offer read-back rows still run
+        self.assertEqual(rows["pricing coverage unproven: no landed rows"]["result"], "INFO")
+        self.assertNotIn("offer offer-%d free-shipping coverage" % sorted(self.state["offers"][cid])[1],
+                         rows)
+        oid = sorted(self.state["offers"][cid])[0]
+        self.assertEqual(rows[f"offer offer-{oid} condition.value"]["result"], "PASS")
+        self.assertEqual(cart_t.calls, [])  # no landed rows means no cart probes
+
+    def test_all_four_roles_are_derived_and_printed(self):
+        cid, pkgs = seed_roles_campaign(self.state)
+        self.assertEqual(self.adopt(cid), 0, self.out())
+        plan = self.plan()
+        self.assertEqual({p["key"]: p["role"] for p in plan["packages"]},
+                         {"pkg-801": "hero", "pkg-802": "gift", "pkg-803": "upsell",
+                          "pkg-804": "bump"})
+        self.assertIn("pkg-803", self.out())
+        self.assertIn("upsell", self.out())
+
+    def assertBlocked(self, cid, *extra, needle):
+        rc = self.adopt(cid, *extra)
+        self.assertEqual(rc, 1, self.out())
+        self.assertFalse((self.dir / "run-manifest.json").exists())
+        plan = self.plan()
+        self.assertTrue(plan["blockers"], plan)
+        self.assertIn(needle, " ".join(plan["blockers"]))
+        self.assertIn(f"adopt --store teststore --campaign {cid}", self.out())
+        return plan
+
+    def test_two_packages_on_one_variant_block(self):
+        cid = seed_live_campaign(self.state)
+        first = self.state["packages"][cid][sorted(self.state["packages"][cid])[0]]
+        self.state["seq"] += 1
+        twin = dict(first, id=self.state["seq"], name="Photo Bracelet copy - v801")
+        self.state["packages"][cid][twin["id"]] = twin
+        self.assertBlocked(cid, needle="are both on product variant 801")
+
+    def test_two_shipping_methods_on_one_code_block(self):
+        cid = seed_live_campaign(self.state)
+        self.state["seq"] += 1
+        self.state["shipping-methods"][cid][self.state["seq"]] = {
+            "id": self.state["seq"], "shipping_method": "standard",
+            "prices": [{"currency": "USD", "price": "9.95"}]}
+        self.assertBlocked(cid, needle="are both on store code 'standard'")
+
+    def test_duplicate_offer_names_block(self):
+        cid = seed_live_campaign(self.state)
+        oids = sorted(self.state["offers"][cid])
+        self.state["offers"][cid][oids[1]]["name"] = self.state["offers"][cid][oids[0]]["name"]
+        self.assertBlocked(cid, needle="share the name")
+
+    def test_a_count_offer_without_a_whole_threshold_blocks(self):
+        cid = seed_live_campaign(self.state, value_readable=False)
+        self.assertBlocked(cid, needle="count offer whose threshold reads back as None")
+        # and a fractional one is refused the same way, never rounded
+        self.state["offers"][cid][sorted(self.state["offers"][cid])[0]]["condition"]["value"] = "2.50"
+        (self.dir / "run-manifest.json").unlink(missing_ok=True)
+        self.assertBlocked(cid, needle="reads back as '2.50'")
+
+    def test_an_all_packages_offer_blocks_and_names_the_convert_flag(self):
+        cid = seed_live_campaign(self.state, all_packages=True)
+        oid = sorted(self.state["offers"][cid])[0]
+        plan = self.assertBlocked(cid, needle="is scoped to all_packages")
+        self.assertIn(f"--convert-scope {oid}", self.out())
+        # the plan still shows what the conversion would be, for review
+        self.assertEqual(plan["offers"][0]["condition"]["package_keys"], ["pkg-801", "pkg-802"])
+
+    def test_a_live_campaign_the_validator_rejects_blocks_with_its_message(self):
+        cases = (
+            ("quantity-style name", lambda state, cid: state["packages"][cid].__setitem__(
+                sorted(state["packages"][cid])[0],
+                dict(state["packages"][cid][sorted(state["packages"][cid])[0]],
+                     name="2 x Photo Bracelet - v801"))),
+            ("at least one shipping method is required",
+             lambda state, cid: state["shipping-methods"].__setitem__(cid, {})),
+            ("benefit.type", lambda state, cid: state["offers"][cid][
+                sorted(state["offers"][cid])[0]]["benefit"].__setitem__("type", "order_amount")),
+        )
+        for i, (needle, break_it) in enumerate(cases):
+            with self.subTest(needle=needle):
+                self.state = fresh_state()
+                self.dir = Path(self.tmp.name) / f"run{i}"
+                cid = seed_live_campaign(self.state)
+                break_it(self.state, cid)
+                self.assertBlocked(cid, needle=needle)
+
+    def test_convert_scope_records_the_waiver_and_the_pending_flag(self):
+        cid = seed_live_campaign(self.state, all_packages=True)
+        oid = sorted(self.state["offers"][cid])[0]
+        self.assertEqual(self.adopt(cid, "--convert-scope", str(oid)), 0, self.out())
+        plan = self.plan()
+        self.assertEqual(plan["blockers"], [])
+        self.assertEqual(len(plan["waivers"]), 1)
+        self.assertIn(f"--convert-scope {oid}", plan["waivers"][0])
+        self.assertEqual(plan["offers"][0]["condition"]["package_keys"], ["pkg-801", "pkg-802"])
+        self.assertNotIn("converted_scopes", plan)
+        entry = next(e for e in self.manifest()["offers"] if e["id"] == oid)
+        self.assertTrue(entry["scope_conversion_pending"])
+        other = next(e for e in self.manifest()["offers"] if e["id"] != oid)
+        self.assertNotIn("scope_conversion_pending", other)
+
+    def test_recurring_fields_survive(self):
+        cid = seed_live_campaign(self.state, recurring=True)
+        self.assertEqual(self.adopt(cid), 0, self.out())
+        hero, bump = self.plan()["packages"]
+        self.assertEqual((hero["price_recurring"], hero["interval"], hero["interval_count"]),
+                         ("24.95", "month", 1))
+        for f in ("price_recurring", "interval", "interval_count"):
+            self.assertNotIn(f, bump)
+
+    def test_the_manifest_records_identity_and_an_adopted_origin(self):
+        cid = seed_live_campaign(self.state)
+        self.assertEqual(self.adopt(cid), 0, self.out())
+        man = self.manifest()
+        self.assertEqual(man["origin"], "adopted")
+        self.assertEqual(man["adopted_from_campaign_id"], cid)
+        self.assertTrue(man["adopted_at"])
+        self.assertEqual(man["plan_sha256"], ca.sha256_file(self.dir / "campaign-plan.json"))
+        self.assertEqual(man["campaign"]["status"], "created")
+        self.assertEqual(man["campaign"]["api_key"], self.state["campaigns"][cid]["api_key"])
+        # the retrieve echoes the same moment in another offset; the manifest keeps
+        # what it was told and later checks compare instants
+        self.assertTrue(ca.same_instant(man["campaign"]["created_at"],
+                                        self.state["campaigns"][cid]["created_at"]))
+        pids = sorted(self.state["packages"][cid])
+        self.assertEqual([(e["key"], e["status"], e["id"], e["name"], e["product_variant_id"])
+                          for e in man["packages"]],
+                         [("pkg-801", "created", pids[0], "Photo Bracelet - v801", 801),
+                          ("pkg-802", "created", pids[1], "Charm Add-on - v802", 802)])
+        sid = sorted(self.state["shipping-methods"][cid])[0]
+        self.assertEqual(man["shipping_methods"],
+                         [{"key": "standard", "status": "created", "id": sid,
+                           "shipping_method": "standard", "price": "6.95", "intent": None}])
+        self.assertEqual([(e["key"], e["id"], e["name"], e["code"]) for e in man["offers"]],
+                         [(f"offer-{i}", i, self.state["offers"][cid][i]["name"], None)
+                          for i in sorted(self.state["offers"][cid])])
+        self.assertEqual(oct((self.dir / "run-manifest.json").stat().st_mode & 0o777), "0o600")
+        self.assertEqual(ca.manifest_origin(ca.Manifest.load(self.dir / "run-manifest.json")),
+                         "adopted")
+
+    def test_refuses_an_out_dir_that_already_holds_a_manifest(self):
+        cid = seed_live_campaign(self.state)
+        self.assertEqual(self.adopt(cid), 0, self.out())
+        before = (self.dir / "run-manifest.json").read_bytes()
+        rc = self.adopt(cid)
+        self.assertEqual(rc, 1)
+        self.assertIn("already exists", self.out())
+        self.assertEqual((self.dir / "run-manifest.json").read_bytes(), before)
+        self.assertEqual(self.t.calls, [])  # refused before the first read
+
+    def test_the_variant_suffix_is_stripped_and_the_plan_validates(self):
+        cid = seed_live_campaign(self.state)
+        self.assertEqual(self.adopt(cid), 0, self.out())
+        plan = self.plan()
+        self.assertEqual(ca.validate_plan(plan), [])
+        hero = plan["packages"][0]
+        self.assertEqual((hero["name"], hero["variant_title"]), ("Photo Bracelet", "v801"))
+        # and the stripped name still reads back as a match against the live one
+        self.assertTrue(ca._live_package_name_ok("Photo Bracelet - v801", hero))
+        # a store that leaves the name alone needs no stripping
+        self.state["patch_appends_suffix"] = False
+        self.state["packages"][cid][sorted(self.state["packages"][cid])[0]]["name"] = "Bare Name"
+        self.dir = Path(self.tmp.name) / "run2"
+        self.assertEqual(self.adopt(cid), 0, self.out())
+        self.assertEqual(self.plan()["packages"][0]["name"], "Bare Name")
+
+
+CHANGE_SET = "change-set.json"
+
+
+class _AdoptedRun(unittest.TestCase):
+    """A run directory that owns a seeded live campaign, adopted so the base plan and
+    the store start identical. Every diff case edits a copy of that plan, which is
+    what an operator does, and every diff asserts that nothing was written to the
+    store."""
+
+    seed_kw = {}
+
+    def seed(self, state):
+        return seed_live_campaign(state, **self.seed_kw)
+
+    def setUp(self):
+        self.disc = load_fixture("discovery.json")
+        self.state = fresh_state()
+        self.cid = self.seed(self.state)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name) / "run"
+        self.lines = []
+        self.assertEqual(self._run(["adopt", "--store", "teststore", "--campaign", str(self.cid),
+                                    "--out", str(self.dir)]), 0, self.out())
+        self.base_path = self.dir / "campaign-plan.json"
+        self.manifest_path = self.dir / "run-manifest.json"
+        self.base = json.loads(self.base_path.read_text())
+        self.offer_keys = [o["key"] for o in self.base["offers"]]
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _run(self, argv):
+        self.t = DynamicTransport(self.disc, self.state)
+        admin = make_client(self.t)
+        self.lines = []
+        with mock.patch.object(ca, "_client_for", lambda slug: admin), \
+                mock.patch.object(ca, "print",
+                                  lambda *a, **k: self.lines.append(" ".join(map(str, a)))):
+            return ca.main(argv)
+
+    def out(self):
+        return "\n".join(self.lines)
+
+    def cand(self):
+        return json.loads(self.base_path.read_text())
+
+    def manifest(self):
+        return json.loads(self.manifest_path.read_text())
+
+    def ids(self, section):
+        return {e["key"]: e["id"] for e in self.manifest()[section]}
+
+    def diff(self, cand, *extra, plan_path=None):
+        path = plan_path or (self.dir / "campaign-plan.next.json")
+        if cand is not None:
+            path.write_text(json.dumps(cand, indent=2) + "\n")
+        rc = self._run(["diff", "--plan", str(path), "--manifest", str(self.manifest_path), *extra])
+        self.assertEqual([(c[0], c[1]) for c in self.t.calls if c[0] != "GET"], [],
+                         "diff must send no write to the store")
+        return rc
+
+    def refuse(self, cand, *extra, needle):
+        cs = self.dir / CHANGE_SET
+        if cs.exists():
+            cs.unlink()
+        self.assertEqual(self.diff(cand, *extra), 1, self.out())
+        self.assertIn(needle, self.out())
+        self.assertFalse((self.dir / CHANGE_SET).exists(), "a refused diff writes no change set")
+        return self.out()
+
+    def change_set(self):
+        return json.loads((self.dir / CHANGE_SET).read_text())
+
+    def ops(self):
+        return [(o["method"], o["section"], o["key"]) for o in self.change_set()["ops"]]
+
+
+class DiffMatrix(_AdoptedRun):
+    """Per field and per key: what the three-way diff turns into an op, and what it
+    refuses outright."""
+
+    def test_apply_then_diff_of_the_unchanged_plan_is_no_changes(self):
+        # a created run, not an adopted one: suffixed package names and the recurring
+        # trio are the two things a false rename or price op would come from
+        d = Path(self.tmp.name) / "created"
+        d.mkdir()
+        plan = ca.recommend(self.disc, ns(name="Round trip"))
+        plan["packages"][0]["price_recurring"] = "19.95"
+        plan["packages"][0]["interval"] = "month"
+        plan["packages"][0]["interval_count"] = 1
+        plan_path = d / "campaign-plan.json"
+        ca.atomic_write_json(plan_path, plan)
+        state = fresh_state()
+        ca.apply(make_client(DynamicTransport(self.disc, state)), plan,
+                 ca.sha256_file(plan_path), d / "run-manifest.json", None)
+        nxt = d / "campaign-plan.next.json"
+        nxt.write_bytes(plan_path.read_bytes())
+        t = DynamicTransport(self.disc, state)
+        admin = make_client(t)
+        with mock.patch.object(ca, "_client_for", lambda slug: admin), \
+                mock.patch.object(ca, "print",
+                                  lambda *a, **k: self.lines.append(" ".join(map(str, a)))):
+            self.lines = []
+            rc = ca.main(["diff", "--plan", str(nxt), "--manifest", str(d / "run-manifest.json")])
+        self.assertEqual(rc, 0, self.out())
+        self.assertIn("no changes", self.out())
+        self.assertFalse((d / CHANGE_SET).exists())
+        self.assertEqual([(c[0], c[1]) for c in t.calls if c[0] != "GET"], [])
+
+    def test_adopt_then_diff_of_the_unchanged_plan_is_no_changes(self):
+        self.assertEqual(self.diff(self.cand()), 0, self.out())
+        self.assertIn("no changes", self.out())
+        self.assertFalse((self.dir / CHANGE_SET).exists())
+
+    def test_a_campaign_edit_is_one_patch_with_explicit_clearing_values(self):
+        cand = self.cand()
+        cand["campaign"]["name"] = "Renamed"
+        cand["campaign"]["statement_descriptor"] = "NEWDESC"
+        cand["campaign"]["available_shipping_countries"] = []
+        cand["campaign"]["additional_currencies"] = []
+        self.assertEqual(self.diff(cand), 0, self.out())
+        cs = self.change_set()
+        self.assertEqual(self.ops(), [("PATCH", "campaign", "campaign")])
+        op = cs["ops"][0]
+        self.assertEqual(op["id"], self.cid)
+        self.assertEqual(op["path"], f"/api/admin/campaigns/{self.cid}/")
+        self.assertEqual(op["body"], {"name": "Renamed", "statement_descriptor": "NEWDESC",
+                                      "available_shipping_countries": []})
+        self.assertEqual(op["before"], {"name": "Dashboard Bracelet", "statement_descriptor": None,
+                                        "available_shipping_countries": ["US"]})
+        self.assertEqual(op["after"], {"name": "Renamed", "statement_descriptor": "NEWDESC",
+                                       "available_shipping_countries": []})
+        self.assertFalse(cs["has_deletes"])
+        self.assertEqual(cs["merged_plan"]["campaign"]["available_shipping_countries"], [])
+        # additional_currencies clears to null, the code lists to []
+        cand["campaign"]["additional_currencies"] = ["EUR"]
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.change_set()["ops"][0]["body"]["additional_currencies"], ["EUR"])
+        self.state["campaigns"][self.cid]["additional_currencies"] = ["EUR"]
+        cand["campaign"]["additional_currencies"] = []
+        self.base["campaign"]["additional_currencies"] = ["EUR"]
+        ca.atomic_write_json(self.base_path, self.base)
+        man = self.manifest()
+        man["plan_sha256"] = ca.sha256_file(self.base_path)
+        ca.atomic_write_json(self.manifest_path, man)
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertIsNone(self.change_set()["ops"][0]["body"]["additional_currencies"])
+
+    def test_a_price_change_sends_the_whole_prices_list(self):
+        cand = self.cand()
+        cand["packages"][0]["price"] = "29.95"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        op = self.change_set()["ops"][0]
+        pid = self.ids("packages")["pkg-801"]
+        self.assertEqual((op["method"], op["section"], op["key"], op["id"]),
+                         ("PATCH", "packages", "pkg-801", pid))
+        self.assertEqual(op["path"], f"/api/admin/campaigns/{self.cid}/packages/{pid}/")
+        self.assertEqual(op["body"], {"prices": [{"currency": "USD", "price": "29.95",
+                                                  "price_recurring": None}]})
+        self.assertEqual((op["before"], op["after"]), ({"price": "24.95"}, {"price": "29.95"}))
+        self.assertEqual(self.change_set()["merged_plan"]["packages"][0]["price"], "29.95")
+
+    def test_a_new_package_is_a_post_then_its_image_put_and_an_offer_scoped_by_key(self):
+        cand = self.cand()
+        cand["packages"].append({"key": "pkg-903", "role": "bump", "name": "Extra",
+                                 "variant_title": "v903", "product_id": 22,
+                                 "product_variant_ids": [903], "price": "9.95",
+                                 "image": {"src": "https://cdn.example/extra.png"}})
+        cand["offers"].append({"key": "offer-extra", "name": "Extra free", "offer_type": "offer",
+                               "code": None,
+                               "condition": {"type": "any", "value": None,
+                                             "package_keys": ["pkg-903"]},
+                               "benefit": {"type": "package_percentage", "value": "100.00",
+                                           "price_rounding": None}})
+        self.assertEqual(self.diff(cand), 0, self.out())
+        cs = self.change_set()
+        self.assertEqual(self.ops(), [("POST", "packages", "pkg-903"),
+                                      ("PUT", "packages", "pkg-903"),
+                                      ("POST", "offers", "offer-extra")])
+        post, put, offer = cs["ops"]
+        self.assertNotIn("id", post)
+        self.assertEqual(post["path"], f"/api/admin/campaigns/{self.cid}/packages/")
+        self.assertEqual(post["body"], {"name": "Extra", "product_id": 22, "price": "9.95",
+                                        "product_variant_ids": [903]})
+        # the PUT has no id: its route is rebuilt from the id the POST returns
+        self.assertNotIn("id", put)
+        self.assertEqual(put["depends_on"], post["n"])
+        self.assertEqual(put["path"], f"/api/admin/campaigns/{self.cid}/packages/<pkg-903>/image/")
+        self.assertEqual(put["body"], {"src": "https://cdn.example/extra.png"})
+        # an offer scoped to a package created in this change set carries keys, not ids
+        self.assertIsNone(offer["body"])
+        self.assertEqual(offer["package_keys"], ["pkg-903"])
+        self.assertEqual(offer["body_template"]["condition"]["package_ids"], ["<pkg-903>"])
+        self.assertIn("<pkg-903>", self.out())
+
+    def test_a_removed_package_is_a_delete_and_an_added_offer_body_carries_live_ids(self):
+        cand = self.cand()
+        cand["packages"] = [p for p in cand["packages"] if p["key"] != "pkg-802"]
+        cand["offers"].append({"key": "offer-extra", "name": "Hero again", "offer_type": "voucher",
+                               "code": "HERO20",
+                               "condition": {"type": "any", "value": None,
+                                             "package_keys": ["pkg-801"]},
+                               "benefit": {"type": "package_percentage", "value": "20.00",
+                                           "price_rounding": None}})
+        self.assertEqual(self.diff(cand), 0, self.out())
+        cs = self.change_set()
+        self.assertEqual(self.ops(), [("DELETE", "packages", "pkg-802"),
+                                      ("POST", "offers", "offer-extra")])
+        delete, offer = cs["ops"]
+        pid = self.ids("packages")["pkg-802"]
+        self.assertEqual((delete["id"], delete["path"]),
+                         (pid, f"/api/admin/campaigns/{self.cid}/packages/{pid}/"))
+        self.assertIsNone(delete["body"])
+        self.assertEqual(delete["before"]["price"], "12.95")
+        self.assertEqual(delete["after"], {})
+        self.assertTrue(cs["has_deletes"])
+        self.assertEqual(offer["body"]["condition"]["package_ids"],
+                         [self.ids("packages")["pkg-801"]])
+        self.assertEqual(offer["body"]["code"], "HERO20")
+        self.assertNotIn("package_keys", offer)
+        self.assertIn("--allow-delete", self.out())
+
+    def test_shipping_patch_post_and_delete(self):
+        cand = self.cand()
+        cand["shipping_methods"][0]["price"] = "7.95"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        sid = self.ids("shipping_methods")["standard"]
+        op = self.change_set()["ops"][0]
+        self.assertEqual((op["method"], op["key"], op["id"]), ("PATCH", "standard", sid))
+        self.assertEqual(op["path"], f"/api/admin/campaigns/{self.cid}/shipping-methods/{sid}/")
+        self.assertEqual(op["body"], {"prices": [{"currency": "USD", "price": "7.95"}]})
+
+        cand = self.cand()
+        cand["shipping_methods"] = [{"shipping_method": "express", "price": "14.95"}]
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops(), [("DELETE", "shipping_methods", "standard"),
+                                      ("POST", "shipping_methods", "express")])
+        post = self.change_set()["ops"][1]
+        self.assertEqual(post["path"], f"/api/admin/campaigns/{self.cid}/shipping-methods/")
+        self.assertEqual(post["body"], {"shipping_method": "express", "price": "14.95"})
+
+    def test_offer_patch_sends_the_whole_condition_and_benefit(self):
+        key = self.offer_keys[0]
+        cand = self.cand()
+        offer = next(o for o in cand["offers"] if o["key"] == key)
+        offer["name"] = "Buy 3 instead"
+        offer["condition"]["value"] = 3
+        offer["available"] = False
+        self.assertEqual(self.diff(cand), 0, self.out())
+        op = self.change_set()["ops"][0]
+        oid = self.ids("offers")[key]
+        self.assertEqual((op["method"], op["section"], op["key"], op["id"]),
+                         ("PATCH", "offers", key, oid))
+        self.assertEqual(op["path"], f"/api/admin/campaigns/{self.cid}/offers/{oid}/")
+        self.assertEqual(op["body"], {
+            "name": "Buy 3 instead", "available": False,
+            "condition": {"type": "count", "all_packages": False,
+                          "package_ids": [self.ids("packages")["pkg-801"]], "value": 3}})
+        self.assertEqual(op["before"]["condition_value"], 2)
+        self.assertEqual(op["after"]["name"], "Buy 3 instead")
+        # the benefit goes whole when any part of it changes
+        cand = self.cand()
+        next(o for o in cand["offers"] if o["key"] == key)["benefit"]["price_rounding"] = "0.95"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.change_set()["ops"][0]["body"]["benefit"],
+                         {"type": "package_percentage", "value": "55.00", "price_rounding": "0.95"})
+
+    def test_a_deleted_offer_is_the_first_op(self):
+        key = self.offer_keys[0]
+        cand = self.cand()
+        cand["offers"] = [o for o in cand["offers"] if o["key"] != key]
+        cand["campaign"]["name"] = "Renamed"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops(), [("PATCH", "campaign", "campaign"),
+                                      ("DELETE", "offers", key)])
+
+    def test_the_store_already_at_the_candidates_value_is_a_noop(self):
+        self.state["packages"][self.cid][self.ids("packages")["pkg-801"]]["prices"][0]["price"] = "29.95"
+        cand = self.cand()
+        cand["packages"][0]["price"] = "29.95"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertIn("no changes", self.out())
+        self.assertFalse((self.dir / CHANGE_SET).exists())
+
+    def test_a_changed_image_src_is_a_put_and_a_removed_one_is_a_warning(self):
+        man = self.manifest()
+        man["packages"][0]["image_src"] = "https://cdn.example/old.png"
+        ca.atomic_write_json(self.manifest_path, man)
+        cand = self.cand()
+        cand["packages"][0]["image"] = {"src": "https://cdn.example/new.png"}
+        self.assertEqual(self.diff(cand), 0, self.out())
+        pid = self.ids("packages")["pkg-801"]
+        op = self.change_set()["ops"][0]
+        self.assertEqual((op["method"], op["key"], op["id"]), ("PUT", "pkg-801", pid))
+        self.assertEqual(op["path"], f"/api/admin/campaigns/{self.cid}/packages/{pid}/image/")
+        self.assertEqual(op["before"], {"image": CATALOGUE_IMAGE,
+                                        "image_src": "https://cdn.example/old.png"})
+        self.assertEqual(op["after"], {"image_src": "https://cdn.example/new.png"})
+        # dropping the field is a warning and no op: there is no delete-image route
+        cand = self.cand()
+        cand["campaign"]["name"] = "Renamed"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        cs = self.change_set()
+        self.assertEqual(self.ops(), [("PATCH", "campaign", "campaign")])
+        self.assertIn("dropped image.src https://cdn.example/old.png", " ".join(cs["warnings"]))
+
+    def test_convert_scope_adoption_yields_an_offer_patch_on_the_first_diff(self):
+        state = fresh_state()
+        cid = seed_live_campaign(state, all_packages=True)
+        oid = sorted(state["offers"][cid])[0]
+        d = Path(self.tmp.name) / "converted"
+        self.state, self.cid = state, cid
+        self.assertEqual(self._run(["adopt", "--store", "teststore", "--campaign", str(cid),
+                                    "--out", str(d), "--convert-scope", str(oid)]), 0, self.out())
+        self.dir, self.base_path = d, d / "campaign-plan.json"
+        self.manifest_path = d / "run-manifest.json"
+        self.assertEqual(self.diff(self.cand()), 0, self.out())
+        cs = self.change_set()
+        self.assertEqual(self.ops(), [("PATCH", "offers", f"offer-{oid}")])
+        body = cs["ops"][0]["body"]
+        self.assertFalse(body["condition"]["all_packages"])
+        self.assertEqual(sorted(body["condition"]["package_ids"]),
+                         sorted(self.ids("packages").values()))
+        # all_packages is never preserved, so the conversion is an op, not a kept value
+        self.assertEqual(cs["preserved"], [])
+
+    def test_deleting_a_package_the_store_changed_refuses_until_delete_changed(self):
+        pid = self.ids("packages")["pkg-802"]  # no offer scopes it
+        self.state["packages"][self.cid][pid]["prices"][0]["price"] = "13.95"
+        cand = self.cand()
+        cand["packages"] = [p for p in cand["packages"] if p["key"] != "pkg-802"]
+        msg = self.refuse(cand, needle="packages pkg-802 cannot be deleted: the store changed it")
+        self.assertIn('price: base "12.95", store "13.95"', msg)
+        self.assertIn("--delete-changed packages:pkg-802", msg)
+        self.assertEqual(self.diff(cand, "--delete-changed", "packages:pkg-802"), 0, self.out())
+        cs = self.change_set()
+        self.assertEqual(self.ops(), [("DELETE", "packages", "pkg-802")])
+        self.assertIn("authorised with --delete-changed packages:pkg-802", " ".join(cs["warnings"]))
+
+    def test_deleting_a_shipping_method_or_an_offer_the_store_changed_refuses(self):
+        sid = self.ids("shipping_methods")["standard"]
+        self.state["shipping-methods"][self.cid][sid]["prices"][0]["price"] = "7.95"
+        cand = self.cand()
+        cand["shipping_methods"] = [{"shipping_method": "express", "price": "14.95"}]
+        self.refuse(cand, needle="shipping_methods standard cannot be deleted")
+        self.assertEqual(self.diff(cand, "--delete-changed", "shipping_methods:standard"), 0,
+                         self.out())
+        self.state["shipping-methods"][self.cid][sid]["prices"][0]["price"] = "6.95"
+
+        key = self.offer_keys[1]  # the free-shipping offer
+        oid = self.ids("offers")[key]
+        self.state["offers"][self.cid][oid]["benefit"]["value"] = "50.00"
+        cand = self.cand()
+        cand["offers"] = [o for o in cand["offers"] if o["key"] != key]
+        msg = self.refuse(cand, needle=f"offers {key} cannot be deleted")
+        self.assertIn("benefit_value", msg)
+        self.assertEqual(self.diff(cand, "--delete-changed", f"offers:{key}"), 0, self.out())
+        self.assertEqual(self.ops(), [("DELETE", "offers", key)])
+
+    def test_swapping_two_offer_names_refuses_with_the_two_step_instruction(self):
+        a, b = self.offer_keys
+        cand = self.cand()
+        first = next(o for o in cand["offers"] if o["key"] == a)
+        second = next(o for o in cand["offers"] if o["key"] == b)
+        first["name"], second["name"] = second["name"], first["name"]
+        # the merged plan is perfectly valid: the names are still unique at the end
+        self.assertEqual(ca.validate_plan(cand), [])
+        msg = self.refuse(cand, needle="which live offer")
+        self.assertIn("Do it as 2 updates through a temporary name", msg)
+
+    def test_candidate_level_hard_refusals(self):
+        cases = {
+            "currency cannot change once the campaign exists":
+                lambda c: c["campaign"].__setitem__("currency", "EUR"),
+            "product_id and product_variant_ids cannot change":
+                lambda c: c["packages"][0].__setitem__("product_variant_ids", [999]),
+            "the store code cannot change on a campaign shipping method":
+                lambda c: c.__setitem__("shipping_methods", [
+                    {"key": "standard", "shipping_method": "express", "price": "6.95"}]),
+            "all_packages is never allowed":
+                lambda c: c["offers"][0]["condition"].__setitem__("all_packages", True),
+            "candidate plan has blockers":
+                lambda c: c.__setitem__("blockers", ["something the operator left in"]),
+            "candidate plan is invalid":
+                lambda c: c["packages"][0].__setitem__("price", "free"),
+            "must all name one store":
+                lambda c: c.__setitem__("store_slug", "otherstore"),
+        }
+        for needle, break_it in cases.items():
+            with self.subTest(needle=needle):
+                cand = self.cand()
+                break_it(cand)
+                if needle == "must all name one store":
+                    cand["store_origin"] = ca.slug_to_origin("otherstore")
+                self.refuse(cand, needle=needle)
+
+    def test_an_unmanaged_live_object_refuses(self):
+        self.state["seq"] += 1
+        self.state["packages"][self.cid][self.state["seq"]] = {
+            "id": self.state["seq"], "product_id": 22, "product_variant_id": 999,
+            "product_variant_name": "v999", "name": "Dashboard extra - v999",
+            "prices": [{"currency": "USD", "price": "5.00", "price_recurring": None}],
+            "is_recurring": False, "interval": "", "interval_count": None,
+            "product_purchase_availability": "available", "image": CATALOGUE_IMAGE}
+        self.refuse(self.cand(), needle="does not own")
+
+    def test_a_package_delete_a_surviving_offer_scopes_refuses(self):
+        cand = self.cand()
+        cand["packages"] = [p for p in cand["packages"] if p["key"] != "pkg-801"]
+        for o in cand["offers"]:
+            o["condition"]["package_keys"] = ["pkg-802"]
+        # the plan is valid, but the live offers still scope the package being deleted
+        self.refuse(cand, needle="cannot be deleted while live offer(s)")
+
+    def test_a_pending_entry_and_an_active_update_both_refuse(self):
+        man = self.manifest()
+        man["packages"][0]["status"] = "pending"
+        ca.atomic_write_json(self.manifest_path, man)
+        self.refuse(self.cand(), needle="this run never finished")
+        man["packages"][0]["status"] = "created"
+        man["active_update"] = {"change_set_sha256": "x", "merged_plan_sha256": "y",
+                                "started_at": "2026-10-08T00:00:00Z"}
+        ca.atomic_write_json(self.manifest_path, man)
+        self.refuse(self.cand(), needle="an update is in progress; finish it with update --resume")
+
+    def test_an_identity_failure_refuses(self):
+        pid = self.ids("packages")["pkg-801"]
+        self.state["packages"][self.cid][pid]["product_variant_id"] = 888
+        self.refuse(self.cand(), needle="ownership check failed")
+
+    def test_an_edited_canonical_plan_refuses(self):
+        base = self.cand()
+        base["campaign"]["name"] = "Edited in place"
+        ca.atomic_write_json(self.base_path, base)
+        self.refuse(self.cand(), needle="does not hash to the manifest's plan_sha256")
+
+    def test_a_base_plan_key_the_manifest_does_not_own_refuses(self):
+        # a run that stopped before journalling a package: the key is in the plan, there
+        # is no entry and nothing live, so there is nothing to diff that key against
+        extra = {"key": "pkg-999", "role": "bump", "name": "Never created",
+                 "variant_title": "v999", "product_id": 22, "product_variant_ids": [999],
+                 "price": "5.00"}
+        base = self.cand()
+        base["packages"].append(extra)
+        ca.atomic_write_json(self.base_path, base)
+        man = self.manifest()
+        man["plan_sha256"] = ca.sha256_file(self.base_path)
+        ca.atomic_write_json(self.manifest_path, man)
+        self.refuse(self.cand(), needle="the base plan names object(s) the manifest does not own")
+
+    def test_an_invalid_canonical_plan_refuses_instead_of_crashing(self):
+        cand = self.cand()  # a perfectly good candidate; the base is the broken one
+        base = self.cand()
+        base["packages"][0]["price"] = "free"
+        ca.atomic_write_json(self.base_path, base)
+        man = self.manifest()
+        man["plan_sha256"] = ca.sha256_file(self.base_path)
+        ca.atomic_write_json(self.manifest_path, man)
+        self.refuse(cand, needle="the canonical plan in the run directory is invalid")
+
+    def test_the_canonical_plan_cannot_be_the_candidate(self):
+        self.assertEqual(self.diff(None, plan_path=self.base_path), 1, self.out())
+        self.assertIn("diff compares an edited COPY", self.out())
+
+    def test_zero_ops_with_preserved_values_is_still_written(self):
+        self.state["campaigns"][self.cid]["name"] = "Renamed in the dashboard"
+        self.assertEqual(self.diff(self.cand()), 0, self.out())
+        cs = self.change_set()
+        self.assertEqual(cs["ops"], [])
+        self.assertFalse(cs["has_deletes"])
+        self.assertEqual(len(cs["preserved"]), 1)
+        self.assertIn("campaign.name", cs["preserved"][0])
+        self.assertEqual(cs["merged_plan"]["campaign"]["name"], "Renamed in the dashboard")
+        self.assertIn("only records values preserved from the store", self.out())
+        # the merged plan is written once, by diff, and the change set names those bytes
+        merged = self.dir / cs["merged_plan_file"]
+        self.assertTrue(merged.exists())
+        self.assertEqual(ca.sha256_file(merged), cs["merged_plan_sha256"])
+        self.assertEqual(cs["merged_plan_file"], f"campaign-plan.{cs['merged_plan_sha256'][:8]}.json")
+        self.assertEqual(json.loads(merged.read_text()), cs["merged_plan"])
+        self.assertEqual(ca.validate_plan(cs["merged_plan"]), [])
+        self.assertEqual((cs["schema"], cs["run_id"], cs["store_slug"], cs["campaign_id"]),
+                         (1, self.manifest()["run_id"], "teststore", self.cid))
+        self.assertEqual(cs["base_plan_sha256"], self.manifest()["plan_sha256"])
+        self.assertEqual(cs["baseline_sha256"], ca.baseline_sha256(cs["baseline"]))
+        self.assertIn(f"--change-set-sha256 {ca.sha256_file(self.dir / CHANGE_SET)}", self.out())
+        self.assertNotIn("--allow-delete", self.out())
+
+
+class DiffMatrixRecurring(_AdoptedRun):
+    seed_kw = {"recurring": True}
+
+    def test_a_price_change_keeps_the_recurring_fields(self):
+        cand = self.cand()
+        cand["packages"][0]["price"] = "29.95"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        op = self.change_set()["ops"][0]
+        self.assertEqual(op["body"], {"prices": [{"currency": "USD", "price": "29.95",
+                                                  "price_recurring": "24.95"}]})
+        self.assertNotIn("interval", op["body"])
+        merged = self.change_set()["merged_plan"]["packages"][0]
+        self.assertEqual((merged["price_recurring"], merged["interval"], merged["interval_count"]),
+                         ("24.95", "month", 1))
+
+    def test_dropping_the_recurring_trio_clears_the_interval(self):
+        cand = self.cand()
+        for f in ("price_recurring", "interval", "interval_count"):
+            cand["packages"][0].pop(f)
+        self.assertEqual(self.diff(cand), 0, self.out())
+        op = self.change_set()["ops"][0]
+        self.assertEqual(op["body"], {"prices": [{"currency": "USD", "price": "24.95",
+                                                  "price_recurring": None}],
+                                      "interval": None, "interval_count": None})
+
+
+class ThreeWayDiff(_AdoptedRun):
+    """Base, candidate and live together: what the store changed and the candidate did
+    not is kept, and what both changed is a conflict nobody guesses at."""
+
+    def test_an_untouched_field_the_store_changed_is_preserved_into_the_merged_plan(self):
+        self.state["campaigns"][self.cid]["available_shipping_countries"] = [{"code": "US"},
+                                                                             {"code": "CA"}]
+        cand = self.cand()
+        cand["packages"][0]["price"] = "29.95"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        cs = self.change_set()
+        self.assertEqual(self.ops(), [("PATCH", "packages", "pkg-801")])
+        self.assertEqual(len(cs["preserved"]), 1)
+        self.assertIn("campaign.available_shipping_countries", cs["preserved"][0])
+        self.assertEqual(cs["merged_plan"]["campaign"]["available_shipping_countries"],
+                         ["CA", "US"])
+        self.assertEqual(cs["merged_plan"]["packages"][0]["price"], "29.95")
+
+    def test_a_dashboard_rename_with_an_untouched_candidate_is_preserved_everywhere(self):
+        key = self.offer_keys[0]
+        self.state["campaigns"][self.cid]["name"] = "Dashboard renamed"
+        pid = self.ids("packages")["pkg-801"]
+        self.state["packages"][self.cid][pid]["name"] = "Renamed Bracelet - v801"
+        self.state["offers"][self.cid][self.ids("offers")[key]]["name"] = "Renamed offer"
+        self.assertEqual(self.diff(self.cand()), 0, self.out())
+        cs = self.change_set()
+        self.assertEqual(cs["ops"], [])
+        self.assertEqual(sorted(x.split(":")[0] for x in cs["preserved"]),
+                         ["campaign.name", f"offer {key}.name", "package pkg-801.name"])
+        merged = cs["merged_plan"]
+        self.assertEqual(merged["campaign"]["name"], "Dashboard renamed")
+        # the live suffix is stripped, so the merged plan keeps a bare package name
+        self.assertEqual(merged["packages"][0]["name"], "Renamed Bracelet")
+        self.assertEqual(next(o for o in merged["offers"] if o["key"] == key)["name"],
+                         "Renamed offer")
+        # a rename is not ownership: check_identity is silent about it
+        snap = ca.snapshot_live(make_client(DynamicTransport(self.disc, self.state)), self.cid)
+        self.assertEqual(ca.check_identity(ca.Manifest.load(self.manifest_path), self.base, snap),
+                         [])
+
+    def test_conflicting_edits_refuse_with_all_three_values(self):
+        pid = self.ids("packages")["pkg-801"]
+        self.state["packages"][self.cid][pid]["prices"][0]["price"] = "19.95"
+        cand = self.cand()
+        cand["packages"][0]["price"] = "29.95"
+        msg = self.refuse(cand, needle="conflicting edits")
+        self.assertIn('package pkg-801.price: base "24.95", candidate "29.95", store "19.95"', msg)
+        self.assertIn("Decide which value wins", msg)
+
+    def test_a_preserved_rename_that_collides_with_a_candidate_rename_refuses_at_the_merge(self):
+        a, b = self.offer_keys
+        # the dashboard renamed offer A to what the candidate renames offer B to
+        self.state["offers"][self.cid][self.ids("offers")[a]]["name"] = "Shared name"
+        cand = self.cand()
+        next(o for o in cand["offers"] if o["key"] == b)["name"] = "Shared name"
+        msg = self.refuse(cand, needle="the merged plan")
+        self.assertIn("duplicate offer name 'Shared name'", msg)
+
+
+class CheckIdentity(_AdoptedRun):
+    """The read-only ownership pre-flight: only what cannot legitimately change."""
+
+    def snap(self):
+        return ca.snapshot_live(make_client(DynamicTransport(self.disc, self.state)), self.cid)
+
+    def man(self):
+        return ca.Manifest.load(self.manifest_path)
+
+    def test_mutable_drift_is_ignored(self):
+        pid = self.ids("packages")["pkg-801"]
+        self.state["campaigns"][self.cid]["name"] = "Renamed"
+        self.state["campaigns"][self.cid]["statement_descriptor"] = "NEW"
+        self.state["packages"][self.cid][pid]["prices"][0]["price"] = "99.95"
+        self.state["packages"][self.cid][pid]["name"] = "Something else - v801"
+        self.state["offers"][self.cid][self.ids("offers")[self.offer_keys[0]]]["name"] = "Other"
+        self.assertEqual(ca.check_identity(self.man(), self.base, self.snap()), [])
+
+    def test_a_changed_product_variant_id_refuses_and_a_changed_created_at_does_too(self):
+        pid = self.ids("packages")["pkg-801"]
+        self.state["packages"][self.cid][pid]["product_variant_id"] = 888
+        problems = ca.check_identity(self.man(), self.base, self.snap())
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("is on product variant 888, not 801", problems[0])
+        self.state["packages"][self.cid][pid]["product_variant_id"] = 801
+        self.state["campaigns"][self.cid]["created_at"] = "2026-08-09T09:00:00+00:00"
+        problems = ca.check_identity(self.man(), self.base, self.snap())
+        self.assertIn("the id names another campaign", problems[0])
+
+    def test_a_missing_object_is_reported_unless_a_delete_op_names_it(self):
+        before = self.manifest_path.read_bytes()
+        pid = self.ids("packages")["pkg-802"]
+        self.state["packages"][self.cid].pop(pid)
+        man, snap = self.man(), self.snap()
+        problems = ca.check_identity(man, self.base, snap)
+        self.assertEqual(problems, [f"packages pkg-802 (id {pid}) is no longer on the campaign"])
+        ops = [{"n": 1, "method": "DELETE", "section": "packages", "key": "pkg-802", "id": pid}]
+        self.assertEqual(ca.check_identity(man, self.base, snap, ops=ops), [])
+        self.assertEqual(self.manifest_path.read_bytes(), before)  # never writes
+
+    def test_the_shipping_code_comes_from_the_base_plan_when_the_entry_has_none(self):
+        man = self.manifest()
+        del man["shipping_methods"][0]["shipping_method"]
+        ca.atomic_write_json(self.manifest_path, man)
+        self.assertEqual(ca.check_identity(self.man(), self.base, self.snap()), [])
+        sid = self.ids("shipping_methods")["standard"]
+        self.state["shipping-methods"][self.cid][sid]["shipping_method"] = "express"
+        problems = ca.check_identity(self.man(), self.base, self.snap())
+        self.assertEqual(problems, [f"shipping standard (id {sid}) is on store code 'express', "
+                                    "not 'standard'"])
+
+
+def seed_voucher_campaign(state):
+    """A live campaign with 2 vouchers, so a code swap can be tested the way a name
+    swap is: valid as a final state, illegal at every intermediate step."""
+    cid = seed_live_campaign(state)
+    pid = sorted(state["packages"][cid])[0]
+    for name, code, pct in (("Exit ten", "SAVE10", "10.00"), ("Exit twenty", "SAVE20", "20.00")):
+        state["seq"] += 1
+        state["offers"][cid][state["seq"]] = {
+            "id": state["seq"], "name": name, "offer_type": "voucher", "code": code,
+            "available": True,
+            "condition": offer_condition(state, {"type": "any", "package_ids": [pid]}),
+            "benefit": offer_benefit({"type": "package_percentage", "value": pct,
+                                      "price_rounding": None})}
+    return cid
+
+
+class DiffMatrixVouchers(_AdoptedRun):
+    def seed(self, state):
+        return seed_voucher_campaign(state)
+
+    def test_swapping_two_voucher_codes_refuses_at_the_step_that_would_collide(self):
+        cand = self.cand()
+        a = next(o for o in cand["offers"] if o.get("code") == "SAVE10")
+        b = next(o for o in cand["offers"] if o.get("code") == "SAVE20")
+        a["code"], b["code"] = b["code"], a["code"]
+        self.assertEqual(ca.validate_plan(cand), [])  # unique at the end
+        msg = self.refuse(cand, needle="would set the voucher code")
+        self.assertIn("Do it as 2 updates through a temporary name", msg)
 
 
 if __name__ == "__main__":

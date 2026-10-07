@@ -2,7 +2,7 @@
 """Provision a Campaigns App campaign over the NEXT Admin API.
 
 Backs the `/next-campaigns-create` skill and is normally run through
-`next-campaigns-create.sh`. Seven subcommands, in the usual order:
+`next-campaigns-create.sh`. The create path, in the usual order:
 
     discover  --store <slug>                      read-only store snapshot
     metadata  --store <slug> [--apply]            audit or create the campaign metadata definitions
@@ -11,6 +11,11 @@ Backs the `/next-campaigns-create` skill and is normally run through
     apply     --plan ... --yes --plan-sha256 ...  create campaign/packages/shipping/offers
     verify    --manifest ... --plan ...           read back + Cart API calculate
     teardown  --manifest ... --plan ... --yes     delete what THIS run created
+
+And the update path, for a campaign that already exists:
+
+    adopt     --store <slug> --campaign <id>      write a plan and manifest for a live campaign
+    diff      --plan <edited copy> --manifest ... three-way diff -> change-set.json (read-only)
 
 References: references/admin-api-contract.md (API contract and file schemas) and
 references/offer-doctrine.md (the reasoning `recommend` encodes).
@@ -92,6 +97,7 @@ DEFAULT_EXIT_PCT = 10
 PROG = "next-campaigns-create.sh"
 RUNS_DIR_NAME = "next-campaigns-create-runs"
 MANIFEST_NAME = "run-manifest.json"
+PLAN_NAME = "campaign-plan.json"
 DOTENV_NAME = ".env"
 GENERIC_TOKEN_ENV = "NEXT_ADMIN_API_TOKEN"
 TOKEN_SUFFIX = "_NEXT_ADMIN_API_TOKEN"
@@ -454,16 +460,23 @@ def sha256_file(path: Path) -> str:
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def atomic_write_json(path: Path, data, mode: int = 0o600) -> None:
+def json_bytes(data) -> bytes:
+    """The exact bytes `atomic_write_json` writes for `data`. `diff` serialises the
+    merged plan through here once, hashes those bytes and writes them, so the hash
+    in the change set is the hash of the file on disk and promotion can copy the
+    bytes rather than re-serialise them."""
+    return (json.dumps(data, indent=2, sort_keys=False) + "\n").encode()
+
+
+def atomic_write_bytes(path: Path, data: bytes, mode: int = 0o600) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=path.name + ".", dir=str(path.parent))
     try:
         if hasattr(os, "fchmod"):  # not on Windows; mode 600 is not enforced there
             os.fchmod(fd, mode)  # restrict before any secret bytes are written
-        with os.fdopen(fd, "w") as f:
-            json.dump(data, f, indent=2, sort_keys=False)
-            f.write("\n")
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
         os.replace(tmp, path)
     except BaseException:
         try:
@@ -471,6 +484,10 @@ def atomic_write_json(path: Path, data, mode: int = 0o600) -> None:
         except OSError:
             pass
         raise
+
+
+def atomic_write_json(path: Path, data, mode: int = 0o600) -> None:
+    atomic_write_bytes(path, json_bytes(data), mode)
 
 
 def _git_ignored(path: Path, repo_root: Path):
@@ -2003,6 +2020,111 @@ def offer_body(o: dict, package_ids: dict) -> dict:
     return body
 
 
+# Campaign fields an update may change, by how they are cleared. `currency` is
+# absent on purpose: it is immutable once the campaign exists.
+CAMPAIGN_SCALARS = ("name", "language", "payment_gateway_group_id")
+CAMPAIGN_CODE_LISTS = ("available_payment_methods", "available_express_payment_methods",
+                       "available_shipping_countries")
+CAMPAIGN_NULLABLE = ("statement_descriptor", "paypal_account_id")
+# Plan-space field names the diff walks per section. Plan-only fields (role,
+# variant_title, image) are merged but never produce an op.
+PACKAGE_DIFF_FIELDS = ("name", "price", "price_recurring", "interval", "interval_count")
+OFFER_DIFF_FIELDS = ("name", "offer_type", "code", "available", "condition_type",
+                     "condition_value", "package_keys", "benefit_type", "benefit_value",
+                     "price_rounding")
+
+
+def plan_campaign_n(c: dict) -> dict:
+    """A plan's campaign in the same shape `normalize_snapshot` produces, so desired
+    and live are compared field by field without either side being re-read."""
+    return {
+        "name": c.get("name"), "currency": c.get("currency"), "language": c.get("language"),
+        "payment_gateway_group_id": c.get("payment_gateway_group_id"),
+        "paypal_account_id": c.get("paypal_account_id") or None,
+        "statement_descriptor": c.get("statement_descriptor") or None,
+        "additional_currencies": sorted(c.get("additional_currencies") or []),
+        "available_payment_methods": sorted(c.get("available_payment_methods") or []),
+        "available_express_payment_methods": sorted(c.get("available_express_payment_methods") or []),
+        "available_shipping_countries": sorted(c.get("available_shipping_countries") or []),
+    }
+
+
+def plan_package_n(p: dict) -> dict:
+    """A plan package in normalised shape. The recurring trio is absent-or-set as one
+    thing: a package the plan does not price recurringly has all three at None, which
+    is what the store reads back for it."""
+    rec = p.get("price_recurring")
+    return {
+        "name": p.get("name"), "price": money(D(p["price"])) if p.get("price") is not None else None,
+        "price_recurring": money(D(rec)) if rec else None,
+        "interval": (p.get("interval", "month") or None) if rec else None,
+        "interval_count": (p.get("interval_count", 1)) if rec else None,
+    }
+
+
+def plan_offer_n(o: dict) -> dict:
+    """A plan offer in normalised shape, with the scope as package KEYS. Live offer
+    ids are translated into keys through the manifest before anything is compared, so
+    the whole diff happens in plan space."""
+    cond, ben = o.get("condition") or {}, o.get("benefit") or {}
+    return {
+        "name": o.get("name"), "offer_type": o.get("offer_type", "offer"),
+        "code": o.get("code") or None, "available": o.get("available", True),
+        "condition_type": cond.get("type"),
+        "condition_value": cond.get("value") if cond.get("type") == "count" else None,
+        "package_keys": sorted(cond.get("package_keys") or []),
+        "benefit_type": ben.get("type"),
+        "benefit_value": money(D(ben["value"])) if ben.get("value") is not None else None,
+        "price_rounding": ben.get("price_rounding") or None,
+    }
+
+
+def campaign_patch_body(live_n: dict, desired_n: dict) -> dict:
+    """Every campaign field whose desired value differs from live, with the explicit
+    clearing value the API wants: `[]` for the code lists, `null` for
+    `additional_currencies`, `statement_descriptor` and `paypal_account_id`. Never
+    `currency`, which cannot change."""
+    body = {}
+    for f in CAMPAIGN_SCALARS + CAMPAIGN_NULLABLE:
+        if desired_n.get(f) != live_n.get(f):
+            body[f] = desired_n.get(f)
+    for f in CAMPAIGN_CODE_LISTS:
+        want = list(desired_n.get(f) or [])
+        if want != list(live_n.get(f) or []):
+            body[f] = want
+    want = list(desired_n.get("additional_currencies") or [])
+    if want != list(live_n.get("additional_currencies") or []):
+        body["additional_currencies"] = want or None
+    return body
+
+
+def package_patch_body(live_n: dict, desired: dict, currency: str) -> dict:
+    """A package PATCH: the changed name, the whole `prices` list when either price
+    moved, and the recurring pair when it changed. `prices` is a list because the
+    package update endpoint replaces it; `price` on its own is create-only."""
+    want = plan_package_n(desired)
+    body = {}
+    if want["name"] != live_n.get("name"):
+        body["name"] = want["name"]
+    if want["price"] != live_n.get("price") or want["price_recurring"] != live_n.get("price_recurring"):
+        body["prices"] = [{"currency": currency, "price": want["price"],
+                           "price_recurring": want["price_recurring"]}]
+    for f in ("interval", "interval_count"):
+        if want[f] != live_n.get(f):
+            body[f] = want[f]
+    return body
+
+
+def shipping_patch_body(live_n: dict, desired: dict, currency: str) -> dict:
+    """A campaign shipping method PATCH: prices only. Its store code is its identity
+    and sending another method's code is a 400, so the diff refuses a code change
+    instead of trying to send one."""
+    want = money(D(desired["price"]))
+    if want == live_n.get("price"):
+        return {}
+    return {"prices": [{"currency": currency, "price": want}]}
+
+
 def render_requests(plan: dict) -> list:
     """Ordered (method, path, body) the apply step will send. Ids shown as placeholders."""
     reqs = [("POST", "/api/admin/campaigns/", campaign_body(plan))]
@@ -3121,6 +3243,995 @@ def print_verify(report: dict) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# adopt / diff / update
+# --------------------------------------------------------------------------- #
+
+CHANGE_SET_NAME = "change-set.json"
+CHANGE_SET_SCHEMA = 1
+# manifest section -> the path segment its collection lives under
+SECTION_ROUTES = {"packages": "packages", "shipping_methods": "shipping-methods", "offers": "offers"}
+PKG_KEY_PREFIX = "pkg-"
+OFFER_KEY_PREFIX = "offer-"
+
+
+def snapshot_live(client: Client, cid) -> dict:
+    """Everything an update has to reason about, read-only: the campaign, its
+    paginated packages, shipping methods and offers, then each offer by id because
+    the offers list omits `condition.packages`."""
+    campaign = client.get_ok(f"/api/admin/campaigns/{cid}/")
+    packages = client.paginate(f"/api/admin/campaigns/{cid}/packages/")
+    shipping = client.paginate(f"/api/admin/campaigns/{cid}/shipping-methods/")
+    offers = [client.get_ok(f"/api/admin/campaigns/{cid}/offers/{o['id']}/")
+              for o in client.paginate(f"/api/admin/campaigns/{cid}/offers/") if o.get("id")]
+    return {"campaign": campaign, "packages": packages, "shipping_methods": shipping, "offers": offers}
+
+
+def _money_or_none(raw):
+    """A price in plan form, or None when the store reports none or reports one that
+    is not a finite number. None never equals a plan price, so an unreadable price
+    shows up as a difference rather than passing as a match."""
+    v = _finite(_num(raw))
+    return None if v is None else money(v)
+
+
+def _whole(raw):
+    """A count threshold as an int ("2.00" -> 2), or None when it is missing or not a
+    whole number. None is a blocker on adopt and a difference in a diff: the engine
+    never guesses a threshold."""
+    v = _finite(_num(raw))
+    if v is None:
+        return None
+    try:
+        q = v.to_integral_value()
+    except (InvalidOperation, ValueError):  # pragma: no cover - _finite already filtered these
+        return None
+    return int(q) if q == v else None
+
+
+def _codes(value) -> list:
+    """The code strings in one of the campaign's code lists, which read back as
+    objects (`[{"code": "US"}]`) and are sent as plain strings."""
+    out = [x.get("code") if isinstance(x, dict) else x for x in value or []]
+    return [x for x in out if x]
+
+
+def _entries_by_id(man, section: str) -> dict:
+    """id -> manifest entry for the entries of one section this run still owns."""
+    if man is None:
+        return {}
+    return {e["id"]: e for e in man.data.get(section) or []
+            if e.get("status") == "created" and e.get("id") is not None}
+
+
+def _bare_package_name(live_name, variant_name, plan_p=None, man_name=None):
+    """A live package name in plan space. Package create and update append
+    " - {variant}" to the name they are sent, so the plan holds the bare name and the
+    live one has to be stripped before the two can be compared. In order: the name
+    this run journalled (the plan's own name is then the bare form), the plan's
+    `name - variant_title`, and the live `product_variant_name` suffix."""
+    plan_name = (plan_p or {}).get("name")
+    if plan_name:
+        if man_name is not None and live_name == man_name:
+            return plan_name
+        if live_name == plan_name:
+            return plan_name
+        vt = (plan_p or {}).get("variant_title")
+        if vt is not None and live_name == f"{plan_name} - {vt}":
+            return plan_name
+    if isinstance(live_name, str) and variant_name:
+        suffix = f" - {variant_name}"
+        if live_name.endswith(suffix):
+            return live_name[: -len(suffix)]
+    return live_name
+
+
+def normalize_snapshot(snap: dict, currency: str, man=None, plan=None) -> dict:
+    """A live campaign in plan space: the only input to the baseline hash and to the
+    diff. Everything that cannot be desired state is dropped (api_key, timestamps,
+    purchase and inventory availability, product name and sku, the `description`
+    fields), `""` and `null` collapse where they mean the same absence, prices and
+    thresholds become plan-shaped, and code and id lists are sorted so the hash does
+    not move with the order the store happens to list things in.
+
+    `image` is a receipt, not desired state: it is the server-built thumbnail, so it
+    is hashed into the baseline (a dashboard image change between diff and update is
+    drift) and never compared with a plan."""
+    pkg_entries = _entries_by_id(man, "packages")
+    plan_pk = {p.get("key"): p for p in (plan or {}).get("packages") or []}
+    plan_by_variant = {}
+    for p in (plan or {}).get("packages") or []:
+        vids = p.get("product_variant_ids") or []
+        if vids:
+            plan_by_variant.setdefault(vids[0], p)
+
+    c = snap.get("campaign") or {}
+    out = {"campaign": {
+        "id": c.get("id"), "name": c.get("name"), "currency": c.get("currency"),
+        "language": c.get("language"), "payment_gateway_group_id": c.get("payment_gateway_group_id"),
+        "paypal_account_id": c.get("paypal_account_id") or None,
+        "statement_descriptor": c.get("statement_descriptor") or None,
+        "additional_currencies": sorted(c.get("additional_currencies") or []),
+        "available_payment_methods": sorted(_codes(c.get("available_payment_methods"))),
+        "available_express_payment_methods": sorted(_codes(c.get("available_express_payment_methods"))),
+        "available_shipping_countries": sorted(_codes(c.get("available_shipping_countries"))),
+    }, "packages": [], "shipping_methods": [], "offers": []}
+
+    for x in snap.get("packages") or []:
+        vid = x.get("product_variant_id")
+        e = pkg_entries.get(x.get("id"))
+        plan_p = plan_pk.get(e.get("key")) if e else plan_by_variant.get(vid)
+        recurring = next((p.get("price_recurring") for p in x.get("prices") or []
+                          if isinstance(p, dict) and p.get("currency") == currency), None)
+        out["packages"].append({
+            "id": x.get("id"), "product_id": x.get("product_id"), "product_variant_id": vid,
+            "name": _bare_package_name(x.get("name"), x.get("product_variant_name"), plan_p,
+                                       (e or {}).get("name")),
+            "price": _money_or_none(_price_in(x, currency)),
+            "price_recurring": _money_or_none(recurring),
+            "interval": x.get("interval") or None,
+            "interval_count": x.get("interval_count"),
+            "image": x.get("image") or None,
+        })
+    for x in snap.get("shipping_methods") or []:
+        out["shipping_methods"].append({
+            "id": x.get("id"), "shipping_method": x.get("shipping_method"),
+            "price": _money_or_none(_price_in(x, currency)),
+        })
+    for x in snap.get("offers") or []:
+        cond, ben = x.get("condition") or {}, x.get("benefit") or {}
+        out["offers"].append({
+            "id": x.get("id"), "name": x.get("name"), "offer_type": x.get("offer_type") or "offer",
+            "code": x.get("code") or None,
+            # The field is optional and defaults to true, as _available reads it.
+            "available": x.get("available", True) is not False,
+            "condition": {
+                "type": cond.get("type"),
+                "value": _whole(cond.get("value")) if cond.get("type") == "count" else None,
+                "all_packages": bool(cond.get("all_packages")),
+                "package_ids": sorted(p.get("id") for p in cond.get("packages") or []
+                                      if isinstance(p, dict) and p.get("id") is not None),
+            },
+            "benefit": {"type": ben.get("type"), "value": _money_or_none(ben.get("value")),
+                        "price_rounding": ben.get("price_rounding") or None},
+        })
+    for section in ("packages", "shipping_methods", "offers"):
+        out[section].sort(key=lambda x: (x["id"] is None, x["id"]))
+    return out
+
+
+def baseline_sha256(norm: dict) -> str:
+    """The reviewed state of the campaign as one hash. `update` re-reads the campaign
+    and recomputes this; a different answer means the store moved after the operator
+    read the diff."""
+    return hashlib.sha256(json.dumps(norm, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def derive_role(pkg_id, offers: list) -> str:
+    """The `role` an adopted package gets, from the offers that scope it. A fixed
+    heuristic, printed by `adopt` so the operator can correct it: role is plan-only
+    and is never sent, so changing it is never an op."""
+    mine = [o for o in offers if pkg_id in (o["condition"]["package_ids"] or [])]
+    if any(o["condition"]["type"] == "count" and o["benefit"]["type"] == "package_percentage"
+           for o in mine):
+        return "hero"
+    if mine and all(o["benefit"]["type"] == "package_percentage"
+                    and _num(o["benefit"]["value"]) == Decimal(100) for o in mine):
+        return "gift"
+    if mine and all(o["offer_type"] == "voucher" for o in mine):
+        return "upsell"
+    return "bump"
+
+
+def plan_from_live(snap: dict, slug: str, *, convert_scope=()) -> tuple:
+    """(plan, blockers) for a campaign that already exists: a plan whose desired
+    state is exactly what is live. Blockers are the things the engine refuses to
+    guess at; with any of them the campaign is not adopted."""
+    currency = (snap.get("campaign") or {}).get("currency")
+    norm = normalize_snapshot(snap, currency)
+    convert = {int(x) for x in convert_scope or []}
+    variant_names = {x.get("id"): x.get("product_variant_name") for x in snap.get("packages") or []}
+    raw_value = {x.get("id"): (x.get("condition") or {}).get("value") for x in snap.get("offers") or []}
+    blockers, waivers = [], []
+
+    c = norm["campaign"]
+    packages, key_by_id, seen_variant = [], {}, {}
+    for p in norm["packages"]:
+        vid = p["product_variant_id"]
+        key = f"{PKG_KEY_PREFIX}{vid}"
+        if vid in seen_variant:
+            blockers.append(
+                f"packages {seen_variant[vid]} and {p['id']} are both on product variant {vid}; the "
+                "Campaigns API allows one package per variant, so this campaign cannot be represented "
+                "as a plan. Remove one of them in the dashboard, then adopt again.")
+        else:
+            seen_variant[vid] = p["id"]
+        key_by_id[p["id"]] = key
+        entry = {"key": key, "role": derive_role(p["id"], norm["offers"]), "name": p["name"],
+                 "variant_title": variant_names.get(p["id"]), "product_id": p["product_id"],
+                 "product_variant_ids": [vid], "price": p["price"]}
+        if p["price_recurring"]:
+            entry["price_recurring"] = p["price_recurring"]
+            entry["interval"] = p["interval"] or "month"
+            entry["interval_count"] = 1 if p["interval_count"] is None else p["interval_count"]
+        packages.append(entry)
+
+    shipping, seen_code = [], {}
+    for s in norm["shipping_methods"]:
+        code = s["shipping_method"]
+        if code in seen_code:
+            blockers.append(
+                f"campaign shipping methods {seen_code[code]} and {s['id']} are both on store code "
+                f"{code!r}; a plan carries one campaign method per store code. Remove one of them in "
+                "the dashboard, then adopt again.")
+        else:
+            seen_code[code] = s["id"]
+        shipping.append({"shipping_method": code, "price": s["price"]})
+
+    all_keys = [p["key"] for p in packages]
+    offers, seen_name, converted = [], {}, set()
+    for o in norm["offers"]:
+        key = f"{OFFER_KEY_PREFIX}{o['id']}"
+        if o["name"] in seen_name:
+            blockers.append(
+                f"offers {seen_name[o['name']]} and {o['id']} share the name {o['name']!r}; offer names "
+                "are unique per campaign, so the engine cannot tell them apart. Rename one in the "
+                "dashboard, then adopt again.")
+        else:
+            seen_name[o["name"]] = o["id"]
+        cond = o["condition"]
+        if cond["all_packages"]:
+            scope = list(all_keys)
+            if o["id"] in convert:
+                converted.add(key)
+                waivers.append(
+                    f"offer {key} ({o['name']!r}) was scoped to all_packages on the store; "
+                    f"--convert-scope {o['id']} pinned it to the campaign's current {len(all_keys)} "
+                    f"package(s) {scope}. The first diff sends that conversion as a PATCH.")
+            else:
+                blockers.append(
+                    f"offer {o['id']} ({o['name']!r}) is scoped to all_packages, which a plan cannot "
+                    f"represent: it would also cover packages created later. Re-run with "
+                    f"--convert-scope {o['id']} to pin it to the campaign's current {len(all_keys)} "
+                    "package(s), or narrow it in the dashboard.")
+        else:
+            scope = [key_by_id[i] for i in cond["package_ids"] if i in key_by_id]
+        if cond["type"] == "count" and cond["value"] is None:
+            blockers.append(
+                f"offer {o['id']} ({o['name']!r}) is a count offer whose threshold reads back as "
+                f"{raw_value.get(o['id'])!r}; adopt needs a whole number and never guesses one. Read "
+                "the threshold in the dashboard and correct the offer there, then adopt again.")
+        offers.append({
+            "key": key, "name": o["name"], "offer_type": o["offer_type"], "code": o["code"],
+            "available": o["available"],
+            "condition": {"type": cond["type"], "value": cond["value"], "package_keys": scope},
+            "benefit": {"type": o["benefit"]["type"], "value": o["benefit"]["value"],
+                        "price_rounding": o["benefit"]["price_rounding"]},
+        })
+
+    plan = {
+        "store_slug": slug, "store_origin": slug_to_origin(slug),
+        "origin": "adopted", "adopted_from_campaign_id": c["id"], "generated_at": utcnow(),
+        "campaign": {
+            "name": c["name"], "currency": c["currency"], "language": c["language"],
+            "payment_gateway_group_id": c["payment_gateway_group_id"],
+            "additional_currencies": list(c["additional_currencies"]),
+            "available_payment_methods": list(c["available_payment_methods"]),
+            "available_express_payment_methods": list(c["available_express_payment_methods"]),
+            "available_shipping_countries": list(c["available_shipping_countries"]),
+            "statement_descriptor": c["statement_descriptor"],
+            "paypal_account_id": c["paypal_account_id"],
+        },
+        "packages": packages, "shipping_methods": shipping, "offers": offers,
+        # No landed prices are synthesised: nothing read from the store says what the
+        # cart engine charges, and verify says so once rather than guessing.
+        "voucher_codes": [], "landed_prices": [], "rationale": [], "handoff": [],
+        "blockers": [], "waivers": waivers, "converted_scopes": sorted(converted),
+    }
+    # Anything the engine cannot represent is a blocker too, so adopt never writes a
+    # manifest for a campaign that later commands would refuse.
+    for e in validate_plan(plan):
+        if e not in blockers:
+            blockers.append(e)
+    plan["blockers"] = list(blockers)
+    return plan, blockers
+
+
+def adopt(client: Client, slug: str, cid, out: Path, *, convert_scope=()) -> tuple:
+    """Take ownership of a campaign that already exists. Returns (plan path, manifest
+    path), the manifest path None when the campaign has blockers."""
+    out = Path(out)
+    manifest_path = out / MANIFEST_NAME
+    if manifest_path.exists():
+        raise CampaignAdminError(
+            f"{manifest_path} already exists; that file is the record of a campaign this skill already "
+            "owns, and its plan is the only thing that can update or tear that campaign down. Pass "
+            "--out <new directory> to adopt another campaign.")
+    snap = snapshot_live(client, cid)
+    live_c = snap["campaign"] or {}
+    plan, blockers = plan_from_live(snap, slug, convert_scope=convert_scope)
+    converted = set(plan.pop("converted_scopes"))
+    plan_path = out / PLAN_NAME
+    atomic_write_json(plan_path, plan)
+
+    print(f"Campaign {live_c.get('id')} {live_c.get('name')!r} created {live_c.get('created_at')} "
+          f"on {slug_to_origin(slug)}")
+    print(f"  {len(plan['packages'])} package(s), {len(plan['shipping_methods'])} shipping method(s), "
+          f"{len(plan['offers'])} offer(s)")
+    print("Roles (a heuristic from the offers; correct them in the plan before the first diff):")
+    for p in plan["packages"]:
+        print(f"  {p['key']:<14} variant {p['product_variant_ids'][0]} "
+              f"({p.get('variant_title')})  {p['role']}")
+    for w in plan["waivers"]:
+        print(f"  waiver: {w}")
+    print(f"wrote {plan_path}")
+
+    if blockers:
+        print("BLOCKERS (this campaign is not adopted; no manifest was written):")
+        for b in blockers:
+            print(f"  - {b}")
+        pending = [x.get("id") for x in snap["offers"]
+                   if (x.get("condition") or {}).get("all_packages")
+                   and x.get("id") not in {int(i) for i in convert_scope or []}]
+        rerun = (f"{PROG} adopt --store {slug} --campaign {cid}"
+                 + "".join(f" --convert-scope {i}" for i in pending))
+        print(f"Fix them in the dashboard, then re-run: {rerun}")
+        return plan_path, None
+
+    live_pkg = {x.get("product_variant_id"): x for x in snap["packages"]}
+    live_ship = {x.get("shipping_method"): x for x in snap["shipping_methods"]}
+    now = utcnow()
+    man = Manifest(manifest_path, {
+        "store_slug": slug, "store_origin": slug_to_origin(slug),
+        "origin": "adopted", "adopted_at": now, "adopted_from_campaign_id": live_c.get("id"),
+        "plan_sha256": sha256_file(plan_path), "run_id": str(uuid.uuid4()), "started_at": now,
+        "campaign": {"status": "created", "key": "campaign", "name": live_c.get("name"),
+                     "id": live_c.get("id"), "api_key": live_c.get("api_key"),
+                     "created_at": live_c.get("created_at"), "intent": None},
+        "packages": [
+            {"key": p["key"], "status": "created", "id": live_pkg[p["product_variant_ids"][0]].get("id"),
+             "name": live_pkg[p["product_variant_ids"][0]].get("name"),
+             "product_variant_id": p["product_variant_ids"][0], "intent": None}
+            for p in plan["packages"]],
+        "shipping_methods": [
+            {"key": ship_key(s), "status": "created", "id": live_ship[s["shipping_method"]].get("id"),
+             "shipping_method": s["shipping_method"], "price": s["price"], "intent": None}
+            for s in plan["shipping_methods"]],
+        "offers": [
+            dict({"key": o["key"], "status": "created",
+                  "id": int(o["key"][len(OFFER_KEY_PREFIX):]), "name": o["name"],
+                  "code": o["code"], "intent": None},
+                 **({"scope_conversion_pending": True} if o["key"] in converted else {}))
+            for o in plan["offers"]],
+        "completed_at": now,
+    })
+    man.save()
+    print(f"wrote {manifest_path} (mode 600; it holds the campaign api_key, which is never printed)")
+    print(f"Next: copy {plan_path.name} to campaign-plan.next.json, edit that copy, then "
+          f"{PROG} diff --plan <that copy> --manifest {manifest_path}")
+    return plan_path, manifest_path
+
+
+# --------------------------------------------------------------------------- #
+# diff: three-way merge and change set
+# --------------------------------------------------------------------------- #
+
+def check_identity(man, plan: dict, snap: dict, ops=None) -> list:
+    """What cannot legitimately change, compared with the store: campaign id and
+    created_at, package id and product_variant_id, shipping id and store code, offer
+    id. Mutable fields are not ownership: a dashboard rename with an untouched
+    candidate has to flow through the three-way merge as a preserved value, so
+    mutable drift is the diff's and the baseline hash's job, not this one's. Never
+    writes. A missing object is a problem unless a DELETE op in `ops` names it."""
+    problems = []
+    deleted = {(o.get("section"), o.get("key")) for o in (ops or []) if o.get("method") == "DELETE"}
+    camp, live_c = man.data.get("campaign") or {}, snap.get("campaign") or {}
+    if live_c.get("id") != camp.get("id"):
+        problems.append(f"campaign {live_c.get('id')} is not the campaign this run owns "
+                        f"({camp.get('id')})")
+    elif camp.get("created_at") and not same_instant(live_c.get("created_at"), camp.get("created_at")):
+        problems.append(f"campaign {camp.get('id')} was created at {live_c.get('created_at')}, not at "
+                        f"{camp.get('created_at')} as this run recorded; the id names another campaign")
+    live = {s: {x.get("id"): x for x in snap.get(s) or []}
+            for s in ("packages", "shipping_methods", "offers")}
+    # 0.7.5 manifests record a shipping entry's key and id but not its store code, so
+    # for an entry without one the code comes from the hash-verified base plan.
+    plan_sm = {ship_key(s): s for s in plan.get("shipping_methods") or []}
+    for section in ("packages", "shipping_methods", "offers"):
+        for e in man.data.get(section) or []:
+            if e.get("status") != "created" or e.get("id") is None:
+                continue
+            x = live[section].get(e["id"])
+            if x is None:
+                if (section, e.get("key")) not in deleted:
+                    problems.append(f"{section} {e.get('key')} (id {e['id']}) is no longer on the campaign")
+                continue
+            if section == "packages" and e.get("product_variant_id") is not None \
+                    and x.get("product_variant_id") != e.get("product_variant_id"):
+                problems.append(
+                    f"package {e.get('key')} (id {e['id']}) is on product variant "
+                    f"{x.get('product_variant_id')}, not {e.get('product_variant_id')}; that id is "
+                    "another package now")
+            if section == "shipping_methods":
+                code = e.get("shipping_method") or (plan_sm.get(e.get("key")) or {}).get("shipping_method")
+                if code is not None and x.get("shipping_method") != code:
+                    problems.append(f"shipping {e.get('key')} (id {e['id']}) is on store code "
+                                    f"{x.get('shipping_method')!r}, not {code!r}")
+    return problems
+
+
+def _show(v) -> str:
+    """One value in a refusal or a preserved line, readable and unambiguous."""
+    return json.dumps(v, default=str)
+
+
+def _apply_package_n(p: dict, n: dict) -> dict:
+    """A merged plan package: the candidate entry with the merged live-backed values.
+    The recurring trio is set or absent as one thing, the way a plan carries it."""
+    out = dict(p)
+    out["name"], out["price"] = n["name"], n["price"]
+    if n["price_recurring"]:
+        out["price_recurring"] = n["price_recurring"]
+        out["interval"] = n["interval"] or "month"
+        out["interval_count"] = 1 if n["interval_count"] is None else n["interval_count"]
+    else:
+        for f in ("price_recurring", "interval", "interval_count"):
+            out.pop(f, None)
+    return out
+
+
+def _apply_offer_n(o: dict, n: dict) -> dict:
+    out = dict(o)
+    out["name"], out["offer_type"] = n["name"], n["offer_type"]
+    if "code" in o or n["code"] is not None:
+        out["code"] = n["code"]
+    if "available" in o or n["available"] is not True:
+        out["available"] = n["available"]
+    out["condition"] = dict(o.get("condition") or {})
+    out["condition"].update(type=n["condition_type"], value=n["condition_value"],
+                            package_keys=list(n["package_keys"]))
+    out["benefit"] = dict(o.get("benefit") or {})
+    out["benefit"].update(type=n["benefit_type"], value=n["benefit_value"],
+                          price_rounding=n["price_rounding"])
+    return out
+
+
+def _apply_campaign_n(c: dict, n: dict) -> dict:
+    out = dict(c)
+    for f in CAMPAIGN_SCALARS:
+        out[f] = n[f]
+    for f in CAMPAIGN_CODE_LISTS:
+        out[f] = list(n[f])
+    out["additional_currencies"] = list(n["additional_currencies"])
+    for f in CAMPAIGN_NULLABLE:
+        if f in c or n[f] is not None:
+            out[f] = n[f]
+    return out
+
+
+def _live_offer_n(lo: dict, key_of_package) -> dict:
+    """A normalised live offer in plan space: its scope as package keys."""
+    cond, ben = lo["condition"], lo["benefit"]
+    return {"name": lo["name"], "offer_type": lo["offer_type"], "code": lo["code"],
+            "available": lo["available"], "condition_type": cond["type"],
+            "condition_value": cond["value"],
+            "package_keys": sorted(key_of_package[i] for i in cond["package_ids"]),
+            "benefit_type": ben["type"], "benefit_value": ben["value"],
+            "price_rounding": ben["price_rounding"]}
+
+
+def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=()) -> dict:
+    """The reviewed change set for one update: base (the canonical plan), candidate
+    (the edited copy) and live, merged in plan space.
+
+    Per field: the candidate left it alone and the store changed it, so the store
+    wins and the value is preserved; the candidate changed it and the store did not,
+    so it is a PATCH; the store is already at the candidate's value, so nothing is
+    sent; all three differ, so it is a conflict and the whole diff refuses. Per key:
+    only in the candidate is a POST, only in the base is a DELETE, and a live object
+    in neither plan is unmanaged and refuses."""
+    errs = validate_plan(cand)
+    if errs:
+        raise CampaignAdminError("candidate plan is invalid:\n  - " + "\n  - ".join(errs))
+    # The base plan is this engine's own output and is hash-bound to the manifest, so a
+    # base that does not validate means the file was edited in place past the hash
+    # check or written by something else. Everything below reads fields out of it.
+    errs = validate_plan(base, for_create=False)
+    if errs:
+        raise CampaignAdminError(
+            "the canonical plan in the run directory is invalid, so there is nothing to diff "
+            "against:\n  - " + "\n  - ".join(errs)
+            + "\n  Restore it (the archives in this directory are byte copies) or adopt the campaign "
+              "into a fresh run directory.")
+    if cand.get("blockers"):
+        raise CampaignAdminError("candidate plan has blockers; clear them before diffing:\n  - "
+                                 + "\n  - ".join(cand["blockers"]))
+    check_origin_binding(base, "base plan")
+    check_origin_binding(cand, "candidate plan")
+    check_origin_binding(man.data, "manifest")
+    if cand.get("store_slug") != base.get("store_slug") or man.data.get("store_slug") != base.get("store_slug"):
+        raise CampaignAdminError("the base plan, the candidate plan and the manifest must all name one "
+                                 f"store (the base plan names {base.get('store_slug')!r})")
+    if man.data.get("active_update"):
+        raise CampaignAdminError("an update is in progress; finish it with update --resume")
+    torn = torn_down_entries(man)
+    if torn:
+        raise CampaignAdminError(f"this run was torn down, fully or in part ({', '.join(torn)}); there "
+                                 "is nothing left to update")
+    camp_entry = man.data.get("campaign") or {}
+    if camp_entry.get("status") != "created":
+        raise CampaignAdminError(f"the manifest's campaign is {camp_entry.get('status')!r}, not created; "
+                                 "there is nothing to update")
+    unfinished = [f"{s} {e.get('key')} is {e.get('status')!r}"
+                  for s in ("packages", "shipping_methods", "offers")
+                  for e in man.data.get(s) or [] if e.get("status") != "created"]
+    if unfinished:
+        raise CampaignAdminError(
+            "this run never finished:\n  - " + "\n  - ".join(unfinished)
+            + "\n  Finish it with apply --resume, or tear it down, before updating anything.")
+
+    currency = base["campaign"]["currency"]
+    if cand["campaign"].get("currency") != currency:
+        raise CampaignAdminError(
+            f"campaign currency cannot change once the campaign exists (base {currency!r}, candidate "
+            f"{cand['campaign'].get('currency')!r}); a different currency needs a new campaign")
+    live_currency = (snap.get("campaign") or {}).get("currency")
+    if live_currency != currency:
+        raise CampaignAdminError(
+            f"the campaign on the store is in {live_currency!r} and the base plan in {currency!r}; "
+            "currency is immutable, so this manifest does not describe that campaign")
+
+    problems = check_identity(man, base, snap)
+    if problems:
+        raise CampaignAdminError("ownership check failed; refusing to diff:\n  - " + "\n  - ".join(problems))
+
+    cid = camp_entry["id"]
+    live = normalize_snapshot(snap, currency, man, base)
+
+    key_by_id, id_by_key, man_entry = {}, {}, {}
+    for section in ("packages", "shipping_methods", "offers"):
+        for e in man.data.get(section) or []:
+            man_entry[(section, e.get("key"))] = e
+            if e.get("status") == "created" and e.get("id") is not None:
+                key_by_id[(section, e["id"])] = e["key"]
+                id_by_key[(section, e["key"])] = e["id"]
+
+    unmanaged = []
+    for section, label in (("packages", "package"), ("shipping_methods", "shipping method"),
+                           ("offers", "offer")):
+        for x in live[section]:
+            if (section, x["id"]) not in key_by_id:
+                what = x.get("name") or x.get("shipping_method")
+                unmanaged.append(f"{label} {x['id']} ({what!r})")
+    if unmanaged:
+        raise CampaignAdminError(
+            "the campaign carries object(s) this run does not own: " + ", ".join(unmanaged)
+            + ". An update only touches what the manifest records. Remove them in the dashboard, or "
+            "adopt the campaign into a fresh run directory and edit that plan instead.")
+
+    base_pk = {p["key"]: p for p in base.get("packages") or []}
+    base_sm = {ship_key(s): s for s in base.get("shipping_methods") or []}
+    base_of = {o["key"]: o for o in base.get("offers") or []}
+    cand_pk = {p["key"]: p for p in cand.get("packages") or []}
+    cand_sm = {ship_key(s): s for s in cand.get("shipping_methods") or []}
+    cand_of = {o["key"]: o for o in cand.get("offers") or []}
+    in_base = {"packages": base_pk, "shipping_methods": base_sm, "offers": base_of}
+    stray = [f"{section} {key}" for (section, key) in sorted(id_by_key)
+             if key not in in_base[section]]
+    if stray:
+        raise CampaignAdminError("the manifest records object(s) the base plan does not: "
+                                 + ", ".join(stray) + "; this run directory is out of step")
+    # The mirror of the check above: every key in the base plan has to be an object this
+    # run owns, or there is nothing on the store to diff that key against.
+    unowned = sorted(f"{section} {key}" for section, keys in in_base.items() for key in keys
+                     if (section, key) not in id_by_key)
+    if unowned:
+        raise CampaignAdminError(
+            "the base plan names object(s) the manifest does not own: " + ", ".join(unowned)
+            + "; the run that created them never finished. Finish it with apply --resume, or adopt "
+            "the campaign into a fresh run directory.")
+
+    live_by_key = {(section, key_by_id[(section, x["id"])]): x
+                   for section in ("packages", "shipping_methods", "offers") for x in live[section]}
+    key_of_package = {pid: key for (section, pid), key in key_by_id.items() if section == "packages"}
+    authorised = set(delete_changed or [])
+    preserved, warnings, conflicts = [], [], []
+
+    def merge(label, b, c, l, *, force_op=False):
+        """One field, three ways. Returns (the merged plan's value, whether it is an op)."""
+        if force_op:
+            return c, True
+        if c == b:
+            if l == b:
+                return b, False
+            preserved.append(f"{label}: the store's {_show(l)} is kept (the candidate did not change it)")
+            return l, False
+        if l == b:
+            return c, True
+        if l == c:
+            return c, False
+        conflicts.append(f"{label}: base {_show(b)}, candidate {_show(c)}, store {_show(l)}")
+        return c, False
+
+    def deletable(section, key, fields, b_n, l_n):
+        """A DELETE is only safe when the live object still matches the base plan: the
+        baseline hash protects edits made after the diff, not before it."""
+        changed = [f"{f}: base {_show(b_n[f])}, store {_show(l_n[f])}"
+                   for f in fields if b_n[f] != l_n[f]]
+        if not changed:
+            return
+        token = f"{section}:{key}"
+        if token in authorised:
+            warnings.append(f"{section} {key} is deleted although the store changed it since the base "
+                            f"plan ({'; '.join(changed)}); authorised with --delete-changed {token}")
+            return
+        raise CampaignAdminError(
+            f"{section} {key} cannot be deleted: the store changed it since the base plan "
+            f"({'; '.join(changed)}). Review those values, then re-run with --delete-changed {token} "
+            "to delete it anyway.")
+
+    # ---- campaign ---------------------------------------------------------- #
+    base_c, cand_c = plan_campaign_n(base["campaign"]), plan_campaign_n(cand["campaign"])
+    live_c = {k: v for k, v in live["campaign"].items() if k != "id"}
+    merged_c, camp_changed = {}, {}
+    for f in CAMPAIGN_SCALARS + CAMPAIGN_NULLABLE + CAMPAIGN_CODE_LISTS + ("additional_currencies",):
+        v, needs = merge(f"campaign.{f}", base_c.get(f), cand_c.get(f), live_c.get(f))
+        merged_c[f] = v
+        if needs:
+            camp_changed[f] = (live_c.get(f), v)
+    merged_c["currency"] = currency
+
+    # ---- packages ---------------------------------------------------------- #
+    merged_packages, pkg_patches, pkg_posts, pkg_deletes, image_puts = [], [], [], [], {}
+    new_pkg_keys = {k for k in cand_pk if k not in base_pk}
+    for key, p in cand_pk.items():
+        img = p.get("image") if isinstance(p.get("image"), dict) else None
+        src = (img or {}).get("src")
+        was_src = (man_entry.get(("packages", key)) or {}).get("image_src")
+        if key not in base_pk:
+            merged_packages.append(dict(p))
+            pkg_posts.append(key)
+            if src:
+                image_puts[key] = src
+            continue
+        bp, lp = base_pk[key], live_by_key.get(("packages", key))
+        if (p.get("product_id") != bp.get("product_id")
+                or list(p.get("product_variant_ids") or []) != list(bp.get("product_variant_ids") or [])):
+            raise CampaignAdminError(
+                f"package {key}: product_id and product_variant_ids cannot change on a package that "
+                f"exists (base {bp.get('product_id')}/{bp.get('product_variant_ids')}, candidate "
+                f"{p.get('product_id')}/{p.get('product_variant_ids')}); give the new variant its own "
+                "package key and delete the old one")
+        bn, cn = plan_package_n(bp), plan_package_n(p)
+        ln = {f: lp.get(f) for f in PACKAGE_DIFF_FIELDS}
+        merged_n, changed = {}, {}
+        for f in PACKAGE_DIFF_FIELDS:
+            v, needs = merge(f"package {key}.{f}", bn[f], cn[f], ln[f])
+            merged_n[f] = v
+            if needs:
+                changed[f] = (ln[f], v)
+        merged_packages.append(_apply_package_n(p, merged_n))
+        if changed:
+            pkg_patches.append((key, changed, merged_n))
+        # Images are diffed by intent: the candidate's src against the src this run
+        # recorded, never against the server-built thumbnail the store reads back.
+        if src and src != was_src:
+            image_puts[key] = src
+        elif not src and was_src:
+            warnings.append(f"package {key}: the candidate dropped image.src {was_src}; the image on the "
+                            "store is left as it is (there is no delete-image route)")
+    for key, bp in base_pk.items():
+        if key in cand_pk:
+            continue
+        lp = live_by_key[("packages", key)]
+        deletable("packages", key, PACKAGE_DIFF_FIELDS, plan_package_n(bp),
+                  {f: lp.get(f) for f in PACKAGE_DIFF_FIELDS})
+        pkg_deletes.append((key, bp, lp))
+
+    # ---- shipping ---------------------------------------------------------- #
+    merged_shipping, ship_patches, ship_posts, ship_deletes = [], [], [], []
+    for key, s in cand_sm.items():
+        if key not in base_sm:
+            merged_shipping.append(dict(s))
+            ship_posts.append(key)
+            continue
+        bs, ls = base_sm[key], live_by_key.get(("shipping_methods", key))
+        if s.get("shipping_method") != bs.get("shipping_method"):
+            raise CampaignAdminError(
+                f"shipping {key}: the store code cannot change on a campaign shipping method that "
+                f"exists (base {bs.get('shipping_method')!r}, candidate {s.get('shipping_method')!r}); "
+                "add a method on the new code and delete this one")
+        v, needs = merge(f"shipping {key}.price", money(D(bs["price"])), money(D(s["price"])),
+                         ls.get("price"))
+        merged = dict(s)
+        merged["price"] = v
+        merged_shipping.append(merged)
+        if needs:
+            ship_patches.append((key, {"price": (ls.get("price"), v)}, merged))
+    for key, bs in base_sm.items():
+        if key in cand_sm:
+            continue
+        ls = live_by_key[("shipping_methods", key)]
+        deletable("shipping_methods", key, ("shipping_method", "price"),
+                  {"shipping_method": bs.get("shipping_method"), "price": money(D(bs["price"]))},
+                  {"shipping_method": ls.get("shipping_method"), "price": ls.get("price")})
+        ship_deletes.append((key, bs, ls))
+
+    # ---- offers ------------------------------------------------------------ #
+    merged_offers, offer_patches, offer_posts, offer_deletes = [], [], [], []
+    for key, o in cand_of.items():
+        if key not in base_of:
+            merged_offers.append(dict(o))
+            offer_posts.append(key)
+            continue
+        bo, lo = base_of[key], live_by_key.get(("offers", key))
+        all_pk = lo["condition"]["all_packages"]
+        if all_pk and not (man_entry.get(("offers", key)) or {}).get("scope_conversion_pending"):
+            raise CampaignAdminError(
+                f"offer {key} (id {lo['id']}) is scoped to all_packages on the store; a plan cannot "
+                "represent that, so the engine will not update it. Adopt the campaign again with "
+                f"--convert-scope {lo['id']} to approve the conversion, or narrow the offer in the "
+                "dashboard")
+        bn, cn, ln = plan_offer_n(bo), plan_offer_n(o), _live_offer_n(lo, key_of_package)
+        merged_n, changed = {}, {}
+        for f in OFFER_DIFF_FIELDS:
+            # all_packages is the one live value that is never preserved: the plan
+            # cannot hold it, so an approved conversion is always a PATCH.
+            v, needs = merge(f"offer {key}.{f}", bn[f], cn[f], ln[f],
+                             force_op=all_pk and f == "package_keys")
+            merged_n[f] = v
+            if needs:
+                changed[f] = (ln[f], v)
+        merged_offers.append(_apply_offer_n(o, merged_n))
+        if changed:
+            offer_patches.append((key, changed, merged_offers[-1]))
+    for key, bo in base_of.items():
+        if key in cand_of:
+            continue
+        lo = live_by_key[("offers", key)]
+        deletable("offers", key, OFFER_DIFF_FIELDS, plan_offer_n(bo),
+                  _live_offer_n(lo, key_of_package))
+        offer_deletes.append((key, bo, lo))
+
+    # A package an offer still scopes cannot be deleted: the API answers 400 rather
+    # than narrowing the offer, so the refusal belongs here, before any write.
+    surviving = [lo for (section, k), lo in live_by_key.items() if section == "offers" and k in cand_of]
+    for key, _bp, lp in pkg_deletes:
+        refs = [f"{lo['id']} ({lo['name']!r})" for lo in surviving
+                if lp["id"] in lo["condition"]["package_ids"]]
+        if refs:
+            raise CampaignAdminError(
+                f"package {key} (id {lp['id']}) cannot be deleted while live offer(s) "
+                f"{', '.join(sorted(refs))} scope it; the API refuses that delete. Narrow or delete "
+                "those offers in their own update first, then delete the package")
+
+    if conflicts:
+        raise CampaignAdminError(
+            "conflicting edits: the store changed what you changed:\n  - " + "\n  - ".join(conflicts)
+            + "\n  Decide which value wins: set the candidate to the store's value to keep it, or put "
+              "the store back to the base value, then re-run diff.")
+
+    # ---- ops, in the order update sends them ------------------------------- #
+    ops = []
+
+    def add(method, section, key, path, body, before, after, *, oid=None, depends_on=None,
+            body_template=None, package_keys=None):
+        op = {"n": len(ops) + 1, "method": method, "section": section, "key": key}
+        if oid is not None:
+            op["id"] = oid
+        op["path"] = path
+        op["body"] = body
+        if body_template is not None:
+            op["body_template"] = body_template
+        if package_keys is not None:
+            op["package_keys"] = list(package_keys)
+        if depends_on is not None:
+            op["depends_on"] = depends_on
+        op["before"], op["after"] = before, after
+        ops.append(op)
+        return op
+
+    def item_path(section, oid):
+        return f"/api/admin/campaigns/{cid}/{SECTION_ROUTES[section]}/{oid}/"
+
+    def collection_path(section):
+        return f"/api/admin/campaigns/{cid}/{SECTION_ROUTES[section]}/"
+
+    def offer_op_bodies(merged_o, changed):
+        """(body, body_template, package_keys) for one offer op. When the scope names a
+        package this change set creates, the final body cannot exist yet: `body` is
+        None, `body_template` is the same body with `<pkg-key>` placeholders for the
+        operator to read, and `package_keys` is the ordered scope. The executor (M4)
+        builds the real body with offer_body(o, package_ids) once those POSTs have
+        answered."""
+        keys = merged_o["condition"]["package_keys"]
+        deferred = any(k in new_pkg_keys for k in keys)
+        ids = ({k: f"<{k}>" for k in keys} if deferred
+               else {k: id_by_key[("packages", k)] for k in keys})
+        full = offer_body(merged_o, ids)
+        if changed is None:
+            built = full
+        else:
+            built = {f: changed[f][1] for f in ("name", "offer_type", "code", "available")
+                     if f in changed}
+            if {"condition_type", "condition_value", "package_keys"} & set(changed):
+                built["condition"] = full["condition"]
+            if {"benefit_type", "benefit_value", "price_rounding"} & set(changed):
+                built["benefit"] = full["benefit"]
+        return (None, built, keys) if deferred else (built, None, None)
+
+    if camp_changed:
+        add("PATCH", "campaign", "campaign", f"/api/admin/campaigns/{cid}/",
+            campaign_patch_body(live_c, merged_c),
+            {f: v[0] for f, v in camp_changed.items()}, {f: v[1] for f, v in camp_changed.items()},
+            oid=cid)
+
+    for key, bo, lo in offer_deletes:
+        add("DELETE", "offers", key, item_path("offers", lo["id"]), None,
+            _live_offer_n(lo, key_of_package), {}, oid=lo["id"])
+
+    for key, _bp, lp in pkg_deletes:
+        add("DELETE", "packages", key, item_path("packages", lp["id"]), None,
+            {f: lp.get(f) for f in PACKAGE_DIFF_FIELDS}, {}, oid=lp["id"])
+    patch_by_key = {k: (changed, merged_n) for k, changed, merged_n in pkg_patches}
+    for key in cand_pk:
+        if key not in base_pk:
+            continue  # a new package is a POST, below
+        pid = id_by_key[("packages", key)]
+        if key in patch_by_key:
+            changed, merged_n = patch_by_key[key]
+            add("PATCH", "packages", key, item_path("packages", pid),
+                package_patch_body(live_by_key[("packages", key)],
+                                   _apply_package_n(cand_pk[key], merged_n), currency),
+                {f: v[0] for f, v in changed.items()}, {f: v[1] for f, v in changed.items()}, oid=pid)
+        if key in image_puts:
+            lp = live_by_key[("packages", key)]
+            add("PUT", "packages", key, f"{item_path('packages', pid)}image/",
+                image_body(cand_pk[key]),
+                {"image": lp.get("image"),
+                 "image_src": (man_entry.get(("packages", key)) or {}).get("image_src")},
+                {"image_src": image_puts[key]}, oid=pid)
+    for key in pkg_posts:
+        p = cand_pk[key]
+        post = add("POST", "packages", key, collection_path("packages"), package_body(p), {},
+                   dict(plan_package_n(p), product_variant_id=(p.get("product_variant_ids") or [None])[0]))
+        if key in image_puts:
+            # No id yet: the route is rebuilt at run time from the id the POST returns.
+            add("PUT", "packages", key, f"/api/admin/campaigns/{cid}/packages/<{key}>/image/",
+                image_body(p), {"image": None, "image_src": None}, {"image_src": image_puts[key]},
+                depends_on=post["n"])
+
+    for key, bs, ls in ship_deletes:
+        add("DELETE", "shipping_methods", key, item_path("shipping_methods", ls["id"]), None,
+            {"shipping_method": ls.get("shipping_method"), "price": ls.get("price")}, {}, oid=ls["id"])
+    for key, changed, merged in ship_patches:
+        sid = id_by_key[("shipping_methods", key)]
+        add("PATCH", "shipping_methods", key, item_path("shipping_methods", sid),
+            shipping_patch_body(live_by_key[("shipping_methods", key)], merged, currency),
+            {f: v[0] for f, v in changed.items()}, {f: v[1] for f, v in changed.items()}, oid=sid)
+    for key in ship_posts:
+        s = cand_sm[key]
+        add("POST", "shipping_methods", key, collection_path("shipping_methods"),
+            {"shipping_method": s["shipping_method"], "price": s["price"]}, {},
+            {"shipping_method": s["shipping_method"], "price": money(D(s["price"]))})
+
+    for key, changed, merged_o in offer_patches:
+        oid = id_by_key[("offers", key)]
+        body, template, keys = offer_op_bodies(merged_o, changed)
+        add("PATCH", "offers", key, item_path("offers", oid), body,
+            {f: v[0] for f, v in changed.items()}, {f: v[1] for f, v in changed.items()},
+            oid=oid, body_template=template, package_keys=keys)
+    for key in offer_posts:
+        o = cand_of[key]
+        body, template, keys = offer_op_bodies(o, None)
+        add("POST", "offers", key, collection_path("offers"), body, {}, plan_offer_n(o),
+            body_template=template, package_keys=keys)
+
+    merged = dict(cand)
+    merged["campaign"] = _apply_campaign_n(cand["campaign"], merged_c)
+    merged["packages"] = merged_packages
+    merged["shipping_methods"] = merged_shipping
+    merged["offers"] = merged_offers
+    errs = validate_plan(merged)
+    if errs:
+        raise CampaignAdminError(
+            "the merged plan (your edits plus the values preserved from the store) is invalid:\n  - "
+            + "\n  - ".join(errs)
+            + "\n  A value the store changed collides with one of your edits. Reconcile them in the "
+              "candidate and re-run diff.")
+
+    # Offer names and voucher codes are unique per campaign, so a valid final state is
+    # not enough: every op has to be legal at the moment it is sent.
+    held_names = {x["id"]: x["name"] for x in live["offers"]}
+    held_codes = {x["id"]: x["code"] for x in live["offers"] if x["code"]}
+    unborn = 0
+    for op in ops:
+        if op["section"] != "offers":
+            continue
+        if op["method"] == "DELETE":
+            held_names.pop(op["id"], None)
+            held_codes.pop(op["id"], None)
+            continue
+        oid = op.get("id")
+        if oid is None:
+            unborn -= 1
+            oid = unborn  # an object that does not exist yet still needs a slot
+        sent = op.get("body") or op.get("body_template") or {}
+        for field, held, what in (("name", held_names, "name"),
+                                  ("code", held_codes, "voucher code")):
+            want = sent.get(field)
+            if not want:
+                continue
+            clash = sorted(i for i, v in held.items() if v == want and i != oid)
+            if clash:
+                raise CampaignAdminError(
+                    f"offer {op['key']}: step {op['n']} would set the {what} {want!r}, which live offer "
+                    f"{clash[0]} still holds at that point; offer names and voucher codes are unique per "
+                    "campaign. Do it as 2 updates through a temporary name, or reorder the edits so the "
+                    "offer holding it is changed first.")
+            held[oid] = want
+
+    return {
+        "schema": CHANGE_SET_SCHEMA, "run_id": man.data.get("run_id"),
+        "store_slug": base["store_slug"], "campaign_id": cid, "created_at": utcnow(),
+        "base_plan_sha256": man.data.get("plan_sha256"),
+        "merged_plan_sha256": "", "merged_plan_file": "",
+        "baseline_sha256": baseline_sha256(live), "baseline": live,
+        "has_deletes": any(o["method"] == "DELETE" for o in ops),
+        "warnings": warnings, "preserved": preserved, "ops": ops, "merged_plan": merged,
+    }
+
+
+def write_change_set(out: Path, cs: dict) -> tuple:
+    """`diff` is the only writer of the merged plan: it serialises it once here,
+    hashes those exact bytes and writes them, so `update --plan` hashes to
+    `merged_plan_sha256` and promotion copies bytes rather than re-serialising."""
+    merged_bytes = json_bytes(cs["merged_plan"])
+    sha = hashlib.sha256(merged_bytes).hexdigest()
+    cs["merged_plan_sha256"] = sha
+    cs["merged_plan_file"] = f"campaign-plan.{sha[:8]}.json"
+    plan_path = Path(out) / cs["merged_plan_file"]
+    atomic_write_bytes(plan_path, merged_bytes)
+    cs_path = Path(out) / CHANGE_SET_NAME
+    atomic_write_json(cs_path, cs)
+    return plan_path, cs_path
+
+
+def print_change_set(cs: dict) -> None:
+    print(f"Change set for campaign {cs['campaign_id']} on store {cs['store_slug']}  "
+          f"(run {cs['run_id']})")
+    print(f"  base plan     {cs['base_plan_sha256'][:8]}")
+    print(f"  merged plan   {cs['merged_plan_file'] or '(not written yet)'}")
+    print(f"  baseline      {cs['baseline_sha256'][:8]}")
+    if cs["preserved"]:
+        print("Kept from the store (the candidate did not touch these):")
+        for x in cs["preserved"]:
+            print(f"  - {x}")
+    if cs["warnings"]:
+        print("Warnings:")
+        for x in cs["warnings"]:
+            print(f"  - {x}")
+    if not cs["ops"]:
+        print("No requests: this change set only records values preserved from the store.")
+        return
+    print(f"Requests update will send, in order ({len(cs['ops'])}"
+          + (", including DELETEs" if cs["has_deletes"] else "") + "):")
+    for op in cs["ops"]:
+        body = op["body"] if op["body"] is not None else op.get("body_template")
+        shown = "" if body is None else "  " + json.dumps(body)
+        dep = f"  (after step {op['depends_on']})" if op.get("depends_on") else ""
+        print(f"  {op['n']:>2}. {op['method']:<6} {op['section']} {op['key']}  {op['path']}{shown}{dep}")
+        if op["before"] or op["after"]:
+            print(f"      before {json.dumps(op['before'])}  after {json.dumps(op['after'])}")
+
+
+def update_command(cs: dict, plan_path: Path, manifest_path: Path, cs_path: Path, cs_sha: str) -> str:
+    """The exact command that approves this change set."""
+    return (f"{PROG} update --plan {plan_path} --manifest {manifest_path} "
+            f"--change-set {cs_path} --yes --change-set-sha256 {cs_sha}"
+            + (" --allow-delete" if cs["has_deletes"] else ""))
+
+
+# --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
 
@@ -3195,6 +4306,23 @@ def main(argv=None) -> int:
     t.add_argument("--plan", required=True)
     t.add_argument("--yes", action="store_true")
 
+    ad = sub.add_parser("adopt", help="take ownership of a campaign that already exists")
+    ad.add_argument("--store", required=True, help="store subdomain, e.g. mystore or mystore.29next.store")
+    ad.add_argument("--campaign", required=True, type=int,
+                    help="campaign id (never a name: campaign names are not unique)")
+    ad.add_argument("--out")
+    ad.add_argument("--convert-scope", action="append", type=int, metavar="OFFER_ID",
+                    help="approve converting that live all_packages offer to the campaign's current "
+                         "packages, repeatable")
+
+    df = sub.add_parser("diff", help="three-way diff of an edited plan against the base plan and the store")
+    df.add_argument("--plan", required=True, help="the edited copy, e.g. campaign-plan.next.json")
+    df.add_argument("--manifest", required=True)
+    df.add_argument("--out")
+    df.add_argument("--delete-changed", action="append", metavar="SECTION:KEY",
+                    help="authorise deleting an object the store changed since the base plan, e.g. "
+                         "offers:tier-2, repeatable")
+
     m = sub.add_parser("metadata", help="audit (default) or create the campaign metadata definitions")
     m.add_argument("--store", required=True, help="store subdomain, e.g. mystore or mystore.29next.store")
     m.add_argument("--apply", action="store_true", help="create the missing definitions (needs metadata:write)")
@@ -3230,7 +4358,7 @@ def _dispatch(args) -> int:
             raise CampaignAdminError(
                 f"{out} already holds a run ({MANIFEST_NAME}); its plan is the only file that can resume or "
                 "tear that campaign down. Pass --out <new directory> for another campaign.")
-        path = out / "campaign-plan.json"
+        path = out / PLAN_NAME
         atomic_write_json(path, plan)
         print_plan(plan, path)
         print(f"wrote {path}")
@@ -3301,6 +4429,47 @@ def _dispatch(args) -> int:
                 return input("Type DELETE to confirm: ").strip() == "DELETE"
             return False
         teardown(client, man, plan, sha256_file(plan_path), confirm)
+        return 0
+
+    if args.cmd == "adopt":
+        slug = normalize_store(args.store)
+        client = _client_for(slug)
+        out = resolve_out_dir(args.out, Path.cwd() / RUNS_DIR_NAME / f"{slug}-{args.campaign}")
+        _plan_path, man_path = adopt(client, slug, args.campaign, out,
+                                     convert_scope=args.convert_scope or [])
+        return 0 if man_path is not None else 1
+
+    if args.cmd == "diff":
+        manifest_path = guard_manifest_path(args.manifest)
+        man = Manifest.load(manifest_path)
+        check_origin_binding(man.data, "manifest")
+        run_dir = run_dir_for(manifest_path)
+        base_path = run_dir / PLAN_NAME
+        base, base_sha = load_json_and_hash(base_path)
+        if base_sha != man.data.get("plan_sha256"):
+            raise CampaignAdminError(
+                f"{base_path} does not hash to the manifest's plan_sha256; the canonical plan has been "
+                "edited in place. Restore it (the archives in this directory are byte copies), or adopt "
+                "the campaign into a fresh run directory. Edits belong in a copy, not in this file.")
+        cand_path = Path(args.plan)
+        if _same_file(cand_path, base_path):
+            raise CampaignAdminError(
+                f"--plan is the canonical plan itself ({base_path}); diff compares an edited COPY with "
+                "it. Copy it to campaign-plan.next.json, edit that, and pass the copy.")
+        cand = load_json(cand_path)
+        client = _client_for(base["store_slug"])
+        snap = snapshot_live(client, man.data["campaign"]["id"])
+        cs = diff_change_set(base, cand, man, snap, delete_changed=args.delete_changed or [])
+        if not cs["ops"] and not cs["preserved"]:
+            print("no changes: the candidate plan matches both the base plan and the store")
+            return 0
+        out = resolve_out_dir(args.out, run_dir)
+        plan_path, cs_path = write_change_set(out, cs)
+        print_change_set(cs)
+        print(f"wrote {plan_path}")
+        print(f"wrote {cs_path}")
+        print("Approve with: "
+              + update_command(cs, plan_path, manifest_path, cs_path, sha256_file(cs_path)))
         return 0
 
     if args.cmd == "metadata":
