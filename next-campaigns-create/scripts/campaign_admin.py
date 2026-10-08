@@ -3527,13 +3527,14 @@ def _offer_vs_plan(n: dict, o: dict, package_ids: dict, need_condition: bool, ne
     write is about to depend on it."""
     out = []
     # What the percentage means depends on these three, so a live offer that
-    # differs here is not the offer the plan prices, whatever its value.
-    if n["benefit"]["type"] != o["benefit"]["type"]:
+    # differs here is not the offer the plan prices, whatever its value. No edit
+    # writes them, so a read that omits one is inconclusive, not a mismatch.
+    if n["benefit"]["type"] is not None and n["benefit"]["type"] != o["benefit"]["type"]:
         out.append(f"benefit.type is {n['benefit']['type']} live, {o['benefit']['type']} in the plan")
-    if n["offer_type"] != o.get("offer_type", "offer"):
+    if n["offer_type"] is not None and n["offer_type"] != o.get("offer_type", "offer"):
         out.append(f"offer_type is {n['offer_type']} live, {o.get('offer_type', 'offer')} in the plan")
-    if o.get("offer_type", "offer") == "voucher" and n["code"] != o.get("code"):
-        out.append(f"code is {n['code']} live, {o.get('code')} in the plan")
+    if o.get("offer_type", "offer") == "voucher" and n["code"] is not None and n["code"] != o.get("code"):
+        out.append(f"code is {n['code']!r} live, {o.get('code')!r} in the plan")
     if n["benefit"]["value"] != money(D(o["benefit"]["value"])):
         out.append(f"benefit.value is {n['benefit']['value']} live, {o['benefit']['value']} in the plan")
     if n["benefit"]["price_rounding"] != (o["benefit"].get("price_rounding") or None):

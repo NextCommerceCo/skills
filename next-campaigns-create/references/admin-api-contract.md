@@ -287,7 +287,8 @@ The checks around each write:
   benefit). That reduced read is saved in the receipt and hashed.
 - **The store must agree with the plan.** A live value that differs from the plan
   is refused: the plan's landed prices would be wrong either way. That covers the
-  offer's type, benefit type and voucher code as well as the fields being edited.
+  offer's type, benefit type and voucher code as well as the fields being edited;
+  a read that omits one of those three is inconclusive, since no edit writes them.
 - **One edit at a time.** `edit` holds an `edit.lock` file in the run directory
   while it writes and checks the manifest is unchanged since its preview.
 - **The read must carry what the write depends on.** A condition write replaces

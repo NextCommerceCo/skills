@@ -265,8 +265,15 @@ class EditGateAndOwnership(EditHarness):
         self.offer("exit-pop")["code"] = "OTHER10"
         self.assertEqual(self.cli("--changes", self.spec(
             [{"op": "set_offer_benefit", "offer_key": "exit-pop", "value": "12"}])), 1)
-        self.assertIn("code is OTHER10 live", self.error())
+        self.assertIn("code is 'OTHER10' live", self.error())
         self.assertEqual(self.writes(), [])
+
+    def test_read_that_omits_offer_kind_fields_is_not_a_mismatch(self):
+        live = self.offer("exit-pop")
+        del live["offer_type"], live["code"], live["benefit"]["type"]
+        self.assertEqual(self.edit([{"op": "set_offer_benefit", "offer_key": "exit-pop", "value": "12"}]), 0,
+                         self.out[-3:])
+        self.assertEqual(live["benefit"]["value"], "12.00")
 
     def test_second_edit_in_the_same_run_directory_is_locked_out(self):
         sp = self.spec(self.ladder_ops())
