@@ -10,8 +10,8 @@ the package IDs your funnel pages need.
 Use it when a new product or offer needs a campaign to exist on your store
 before the funnel is built. Afterwards it can also change that campaign for
 you: a price, an offer's percentage, which products an offer covers, pausing an
-offer or adding one. It only changes campaigns it created itself. Any other
-campaign is changed in the Campaigns App dashboard.
+offer or adding one. It only edits campaigns it created from a plan. A cloned
+campaign, or any other campaign, is changed in the Campaigns App dashboard.
 
 ## What You Need
 
@@ -135,6 +135,32 @@ say so before you approve.
 > Combining Buy 1 at 50% with buy 2 get 1 free on the same products does not
 > work: the engine keeps the larger percentage, so three units would take 50%.
 > Buy 1 at the list price plus the BOGO offer is the supported mix.
+
+## Copy an existing campaign
+
+Ask your assistant to clone a campaign, giving it the store and source campaign
+ID. You can also request a name. The assistant shows the settings and all copied
+resources for approval, including discount codes. It then sends one clone
+request. The server names the copy after the source with `-COPY` appended; your
+requested name is applied to the new campaign in a separate rename request.
+
+The copy has a new campaign key, but keeps the package and shipping IDs your
+funnel pages use. Offer IDs and codes also stay the same. Paused offers remain
+paused, and removed offers are excluded. The source campaign stays unchanged.
+Your store must have a deployment that supports the clone endpoint. If it does
+not, the assistant stops and asks you to check deployment.
+
+If the connection fails after sending, keep the run directory. The assistant
+can resume a known copy or recover a unique matching copy within the saved
+request window. It never repeats an uncertain clone request. If it cannot tell
+which copy belongs to the run, it stops for manual resolution. A different
+operator making an identical copy during that window remains an ownership risk.
+
+Verification compares the destination with what you approved, and reports any
+later source changes separately. It checks copied prices and offer conditions;
+it does not price test carts for clones. You can remove the copy using its run
+manifest even when a copied price failed verification. In-place edits of a clone
+are not supported by this version; make them in the Campaigns App dashboard.
 
 ## Safety
 

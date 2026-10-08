@@ -138,3 +138,91 @@ funnel never shows that code on the checkout page. An upsell price other than
 49.95 is refused, because there is one package per variant. For example
 `--upsell 23:39.95:50` asks for 19.97, and the error suggests
 `--upsell 23:49.95:60`, which lands at 19.98 on the existing package.
+
+## Clone preview and interrupted copy
+
+This example is synthetic. Preview a copy of campaign 42 on `example-store`:
+
+```bash
+bash <skill-dir>/next-campaigns-create.sh clone --store example-store --source 42 \
+  --name 'Autumn copy' --out /tmp/example-campaign-clone
+```
+
+The preview contains the source settings and every copied resource row. For
+example, package 8 can retain a campaign-currency price of `19.95`, shipping
+method 3 can retain code `standard` and price `4.95`, and offer 6 can retain
+voucher `EXAMPLE10`, a count condition of 1 and package scope `[8]`. An unavailable
+nonremoved offer is included. The intended writes are:
+
+```text
+POST /api/admin/campaigns/42/clone/     body: none
+PATCH /api/admin/campaigns/{new_id}/   body: {"name": "Autumn copy"}
+```
+
+The server first names the copy after the source with `-COPY` appended. Review
+the whole preview, then use its actual hash:
+
+```bash
+bash <skill-dir>/next-campaigns-create.sh clone --store example-store --source 42 \
+  --name 'Autumn copy' --out /tmp/example-campaign-clone \
+  --yes --clone-sha256 '<hash from this preview>'
+```
+
+An abbreviated manifest after a successful clone might contain the following.
+The omitted approval document and hash must remain intact in a real run; this
+excerpt cannot be used as a resume manifest.
+
+```json
+{
+  "kind": "clone",
+  "plan_sha256": null,
+  "source_campaign_id": 42,
+  "source_name": "Autumn",
+  "clone_sha256": "<redacted approval hash>",
+  "clone_approval": "<omitted secret-free approval document>",
+  "campaign": {
+    "id": 81,
+    "name": "Autumn copy",
+    "status": "created",
+    "created_at": "2026-10-08T03:00:01Z",
+    "api_key": "<REDACTED>"
+  },
+  "clone_request": {
+    "status": "confirmed",
+    "attempted_at": "2026-10-08T03:00:00Z",
+    "attempt_deadline": "2026-10-08T03:01:30Z",
+    "preexisting_ids": [],
+    "resolved_at": "2026-10-08T03:00:02Z"
+  },
+  "rename": {"status": "done", "name": "Autumn copy"},
+  "inventory_complete": true,
+  "parity": {"status": "match", "details": []}
+}
+```
+
+If the POST response is lost, the journal stays uncertain. Resume the same run:
+
+```bash
+bash <skill-dir>/next-campaigns-create.sh clone --store example-store --source 42 \
+  --name 'Autumn copy' --resume /tmp/example-campaign-clone/run-manifest.json \
+  --yes --clone-sha256 '<original approved hash>'
+```
+
+The tool never sends another clone POST. It can adopt one matching copy created
+within the original attempt window after excluding preexisting IDs. Zero or
+multiple candidates require manual resolution. Waiting longer does not extend
+the deadline, and an identical copy made by someone else inside the window is
+still an ownership risk. Check the store's deployment if the approved POST
+returns 404 or 405; this example does not establish endpoint availability.
+
+```bash
+bash <skill-dir>/next-campaigns-create.sh verify \
+  --manifest /tmp/example-campaign-clone/run-manifest.json
+bash <skill-dir>/next-campaigns-create.sh teardown \
+  --manifest /tmp/example-campaign-clone/run-manifest.json --yes
+```
+
+These commands omit `--plan`. Verification checks the immutable source snapshot,
+reports later source drift separately and skips cart pricing. Teardown owns only
+the destination and can clean it up even if parity failed or inventory initially
+could not be read. Make in-place changes to a clone in the dashboard.

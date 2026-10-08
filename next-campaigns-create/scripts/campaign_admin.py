@@ -2,14 +2,15 @@
 """Provision a Campaigns App campaign over the NEXT Admin API.
 
 Backs the `/next-campaigns-create` skill and is normally run through
-`next-campaigns-create.sh`. Eight subcommands, in the usual order:
+`next-campaigns-create.sh`. Nine subcommands, in the usual order:
 
     discover  --store <slug>                      read-only store snapshot
     metadata  --store <slug> [--apply]            audit or create the campaign metadata definitions
     recommend --discovery ... --hero ... --ctc ... [--offer-type quantity|bxgy|gwp] build campaign-plan.json
     plan      --plan campaign-plan.json           validate + print requests + hash
     apply     --plan ... --yes --plan-sha256 ...  create campaign/packages/shipping/offers
-    verify    --manifest ... --plan ...           read back + Cart API calculate
+    clone     --store ... --source ...            copy with preserved funnel IDs (gated)
+    verify    --manifest ... [--plan ...]         read back + Cart API calculate for creation runs
     edit      --manifest ... --plan ... --changes campaign-edit.json
                                                   change what THIS run created, in place (gated)
     teardown  --manifest ... --plan ... --yes     delete what THIS run created
@@ -52,6 +53,7 @@ import json
 import math
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -61,7 +63,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from collections import namedtuple
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 
@@ -309,7 +311,7 @@ class Client:
                 self._sleep(wait)
 
     # -- public ------------------------------------------------------------ #
-    def request(self, method: str, path_or_url: str, body=None, *, send_version_header=None):
+    def request(self, method: str, path_or_url: str, body=None, *, send_version_header=None, clone_decode=False):
         """Return (status, parsed_json_or_text). Never raises on HTTP status.
         `send_version_header` overrides the client default for this one call."""
         url = self._absolute(path_or_url)
@@ -346,7 +348,7 @@ class Client:
             if status is not None and 300 <= status < 400:
                 raise CampaignAdminError(f"{method} {url} answered {status}; redirects are refused")
             try:
-                return status, json.loads(text) if text else None
+                return status, json.loads(text, parse_float=Decimal) if clone_decode and text else json.loads(text) if text else None
             except json.JSONDecodeError:
                 return status, text
         return status, text  # pragma: no cover
@@ -2280,6 +2282,8 @@ def apply(client: Client, plan: dict, plan_sha: str, manifest_path: Path, resume
 
     if resume_path:
         man = Manifest.load(resume_path)
+        if man.data.get("kind") == "clone":
+            raise CampaignAdminError("use clone --resume for a clone manifest")
         if manifest_path.exists() and not _same_file(manifest_path, resume_path):
             other = load_json(manifest_path)
             if other.get("run_id") != man.data.get("run_id"):
@@ -2543,6 +2547,8 @@ def find_added_offer(client: Client, cid, man: Manifest, receipt: dict, name: st
 
 
 def teardown(client: Client, man: Manifest, plan: dict, plan_sha: str, confirm) -> None:
+    if man.data.get("kind") == "clone" or not plan_sha:
+        raise CampaignAdminError("creation teardown requires a matching nonempty plan hash; use clone lifecycle without --plan")
     check_origin_binding(man.data, "manifest")
     pe = man.data.get("pending_edit")
     accepted = {man.data["plan_sha256"]} | pending_edit_hashes(man)
@@ -2881,6 +2887,8 @@ OFFER_SET_CHECK = "campaign offers match the plan"
 
 
 def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: str) -> dict:
+    if man.data.get("kind") == "clone" or not plan_sha:
+        raise CampaignAdminError("creation verification requires a matching nonempty plan hash; use clone lifecycle without --plan")
     errs = validate_plan(plan, for_create=False)
     if errs:
         raise CampaignAdminError("plan is invalid, cannot verify:\n  - " + "\n  - ".join(errs))
@@ -3604,6 +3612,8 @@ def _edit_ownership(client: Client, man: Manifest, plan: dict, plan_sha: str, ac
     """The checks every edit path passes before it reads or writes an object:
     the manifest belongs to this store and plan, the run is a built campaign
     that teardown has not touched, and the live campaign is the one it made."""
+    if man.data.get("kind") == "clone" or not plan_sha:
+        raise CampaignAdminError("in-place edits of a cloned campaign are not supported in this version; change it in the dashboard")
     check_origin_binding(man.data, "manifest")
     if man.data["store_slug"] != plan["store_slug"]:
         raise CampaignAdminError("manifest store_slug does not match the plan")
@@ -4102,7 +4112,8 @@ class EditLock:
     journal. The lock is a file created exclusively; a run that dies leaves it
     behind, and the message says how to clear it."""
 
-    def __init__(self, run_dir: Path):
+    def __init__(self, run_dir: Path, operation="edit"):
+        self.operation = operation
         self.path = Path(run_dir) / EDIT_LOCK_NAME
 
     def __enter__(self):
@@ -4110,8 +4121,8 @@ class EditLock:
             fd = os.open(str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError:
             raise CampaignAdminError(
-                f"another edit is running in this run directory ({self.path} exists). If none is, a "
-                "previous edit was cut short: delete that file, then re-run the same command to finish "
+                f"another {self.operation} is running in this run directory ({self.path} exists). If none is, a "
+                "previous operation was cut short: delete that file, then re-run the same command to finish "
                 "or undo it.")
         with os.fdopen(fd, "w") as f:
             f.write(f"{os.getpid()} {utcnow()}\n")
@@ -4126,6 +4137,10 @@ class EditLock:
 
 
 def run_edit(args) -> int:
+    if Manifest.load(Path(args.manifest)).data.get("kind") == "clone":
+        raise CampaignAdminError("in-place edits of a cloned campaign are not supported in this version; change it in the dashboard")
+    if not args.plan:
+        raise CampaignAdminError("creation manifests require --plan")
     plan_path = Path(args.plan).expanduser()
     if plan_path.is_symlink():
         raise CampaignAdminError(f"plan {plan_path} is a symlink; refusing to write through it")
@@ -4230,8 +4245,551 @@ def run_edit(args) -> int:
 
 
 # --------------------------------------------------------------------------- #
-# CLI
+# Clone: immutable approval, single-attempt journal and destination ownership.
 # --------------------------------------------------------------------------- #
+
+CLONE_SETTINGS = ("currency", "additional_currencies", "language",
+                  "available_shipping_countries", "payment_gateway_group_id",
+                  "available_payment_methods", "available_express_payment_methods",
+                  "paypal_account_id", "statement_descriptor")
+CLONE_SETS = ("additional_currencies", "available_shipping_countries",
+              "available_payment_methods", "available_express_payment_methods")
+CLONE_COLLECTIONS = {"packages": "packages", "shipping_methods": "shipping-methods", "offers": "offers"}
+
+
+def clone_get(client, path):
+    status, body = client.request("GET", path, clone_decode=True)
+    if status != 200 or not isinstance(body, (dict, list)):
+        raise CampaignAdminError(f"clone read failed: GET {path} returned {status}; no response body displayed"
+                                 + auth_hint(status, "GET", path))
+    return body
+
+
+def clone_list(client, path):
+    rows, seen = [], set()
+    expected_count = None
+    for _ in range(MAX_PAGES):
+        if path in seen:
+            raise CampaignAdminError("clone collection pagination loop")
+        seen.add(path)
+        body = clone_get(client, path)
+        if isinstance(body, list):
+            page, nxt = body, None
+        elif "results" in body and "next" in body:
+            page, nxt = body["results"], body["next"]
+            if "count" in body:
+                count = body["count"]
+                if (isinstance(count, bool) or not isinstance(count, int) or count < 0
+                        or (expected_count is not None and count != expected_count)):
+                    raise CampaignAdminError("clone collection count is invalid or changed during pagination")
+                expected_count = count
+        else:
+            raise CampaignAdminError("clone collection response is incomplete")
+        if not isinstance(page, list) or any(not isinstance(x, dict) for x in page):
+            raise CampaignAdminError("clone collection rows are invalid")
+        rows.extend(page)
+        if expected_count is not None and len(rows) > expected_count:
+            raise CampaignAdminError("clone collection exceeds its advertised count")
+        if nxt is None:
+            if expected_count is not None and len(rows) != expected_count:
+                raise CampaignAdminError("clone collection is incomplete: advertised count differs from rows read")
+            return rows
+        if not isinstance(nxt, str) or not nxt:
+            raise CampaignAdminError("clone collection next link is invalid")
+        path = nxt
+    raise CampaignAdminError("clone collection exceeded pagination limit")
+
+
+def clone_campaigns(client):
+    rows = clone_list(client, "/api/admin/campaigns/")
+    for row in rows:
+        clone_require(row, ("id", "name", "created_at"), "campaign list")
+        clone_id(row["id"])
+        if not isinstance(row["name"], str) or not _parse_instant(row["created_at"]):
+            raise CampaignAdminError("clone campaign list identity is incomplete")
+    return rows
+
+
+def clone_require(obj, fields, label):
+    if not isinstance(obj, dict) or any(k not in obj for k in fields):
+        raise CampaignAdminError(f"{label}: missing required preservation fields")
+
+
+def clone_id(value):
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise CampaignAdminError("clone response has an invalid reference ID")
+    return value
+
+
+def clone_number(value):
+    try:
+        number = Decimal(str(value))
+        if not number.is_finite():
+            raise InvalidOperation
+        # Decimal.normalize() rounds at the active context precision. Avoid it.
+        if number == 0:
+            return "0"
+        text = format(number, "f")
+        return text.rstrip("0").rstrip(".") if "." in text else text
+    except (InvalidOperation, ValueError):
+        raise CampaignAdminError("clone response has an invalid decimal value")
+
+
+def clone_set(values):
+    if not isinstance(values, list):
+        raise CampaignAdminError("clone response has an invalid set-valued field")
+    out = []
+    for value in values:
+        if isinstance(value, dict):
+            value = value.get("code")
+        if not isinstance(value, str) or not value:
+            raise CampaignAdminError("clone response has an invalid set member")
+        out.append(value)
+    return sorted(set(out))
+
+
+def clone_prices(rows, currency):
+    if not isinstance(rows, list):
+        raise CampaignAdminError("clone response has no prices")
+    result = []
+    for row in rows:
+        clone_require(row, ("currency", "price"), "price")
+        if not isinstance(row["currency"], str) or not row["currency"]:
+            raise CampaignAdminError("clone price currency is invalid")
+        price = {"currency": row["currency"], "price": clone_number(row["price"])}
+        if "price_recurring" in row:
+            price["price_recurring"] = (None if row["price_recurring"] is None
+                                        else clone_number(row["price_recurring"]))
+        result.append(price)
+    codes = [r["currency"] for r in result]
+    if currency not in codes or len(set(codes)) != len(codes):
+        raise CampaignAdminError("clone prices omit campaign currency or repeat a currency")
+    return sorted(result, key=lambda r: r["currency"])
+
+
+def clone_resource(section, row, currency):
+    clone_require(row, ("id",), section)
+    result = {"id": clone_id(row["id"])}
+    if section in ("packages", "shipping_methods"):
+        fields = ("name", "product_variant_id", "prices") if section == "packages" else ("shipping_method", "prices")
+        clone_require(row, fields, section)
+        result.update({k: row[k] for k in fields if k != "prices"})
+        result["prices"] = clone_prices(row["prices"], currency)
+        return result
+    clone_require(row, ("name", "offer_type", "code", "available", "condition", "benefit"), "offer")
+    if not isinstance(row["available"], bool):
+        raise CampaignAdminError("offer availability is missing or invalid")
+    result.update({k: row[k] for k in ("name", "offer_type", "code", "available")})
+    cond, benefit = row["condition"], row["benefit"]
+    clone_require(cond, ("type", "value", "all_packages", "packages"), "offer condition")
+    clone_require(benefit, ("type", "value", "price_rounding"), "offer benefit")
+    if not isinstance(cond["all_packages"], bool) or not isinstance(cond["packages"], list):
+        raise CampaignAdminError("offer package scope is unavailable")
+    result["condition"] = {"type": cond["type"],
+                           "value": None if cond["value"] is None else clone_number(cond["value"]),
+                           "all_packages": cond["all_packages"],
+                           "package_ids": sorted(set(clone_id(p["id"]) for p in cond["packages"]
+                                                     if isinstance(p, dict) and "id" in p))}
+    if len(result["condition"]["package_ids"]) != len(cond["packages"]):
+        raise CampaignAdminError("offer package scope is incomplete or duplicated")
+    result["benefit"] = {"type": benefit["type"], "value": clone_number(benefit["value"]),
+                         "price_rounding": None if benefit["price_rounding"] in (None, "")
+                         else clone_number(benefit["price_rounding"])}
+    return result
+
+
+def clone_read(client, cid):
+    base = f"/api/admin/campaigns/{clone_id(cid)}/"
+    campaign = clone_get(client, base)
+    clone_require(campaign, ("id", "name", "created_at", "api_key") + CLONE_SETTINGS, "campaign")
+    if (campaign["id"] != cid or not _parse_instant(campaign["created_at"])
+            or not isinstance(campaign["name"], str) or not campaign["name"]
+            or not isinstance(campaign["api_key"], str) or not campaign["api_key"]):
+        raise CampaignAdminError("clone campaign identity is incomplete")
+    settings = {k: clone_set(campaign[k]) if k in CLONE_SETS else campaign[k] for k in CLONE_SETTINGS}
+    snapshot = {"settings": settings}
+    for section, part in CLONE_COLLECTIONS.items():
+        rows = []
+        for row in clone_list(client, base + part + "/"):
+            if section == "offers":
+                if row.get("is_removed") is True:
+                    continue
+                rid = clone_id(row.get("id"))
+                row = clone_get(client, base + f"offers/{rid}/")
+                if not isinstance(row, dict) or row.get("id") != rid:
+                    raise CampaignAdminError("offer detail reference ID differs from its list entry")
+                if row.get("is_removed") is True:
+                    continue
+            rows.append(clone_resource(section, row, settings["currency"]))
+        ids = [r["id"] for r in rows]
+        if len(set(ids)) != len(ids):
+            raise CampaignAdminError("clone collection contains duplicate reference IDs")
+        snapshot[section] = sorted(rows, key=lambda r: r["id"])
+    return campaign, snapshot
+
+
+def clone_approval(client, slug, source, name):
+    campaign, snapshot = clone_read(client, source)
+    server_name = campaign["name"] + "-COPY"
+    requests = [{"method": "POST", "path": f"/api/admin/campaigns/{source}/clone/", "body": None}]
+    if name is not None:
+        requests.append({"method": "PATCH", "path": "/api/admin/campaigns/{new_id}/", "body": {"name": name}})
+    return {"version": 1, "store_slug": slug, "store_origin": slug_to_origin(slug),
+            "source_campaign_id": source, "source_name": campaign["name"],
+            "source_created_at": _parse_instant(campaign["created_at"]).astimezone(timezone.utc).isoformat(),
+            "snapshot": snapshot, "requested_name": name, "server_name": server_name, "requests": requests}
+
+
+def clone_preview(approval, args):
+    sha = canonical_sha256(approval)
+    print(json.dumps(approval, indent=2, sort_keys=True))
+    print("Clone preserves funnel package/shipping/offer reference IDs and discount codes; it gets a new campaign key.")
+    print("Server resets usage counters and disables retail price/quantity. These are not normally exposed by the API.")
+    print("The clone POST has no body. Store deployment must support this route. There is no source revision precondition.")
+    cmd = [PROG, "clone", "--store", approval["store_slug"], "--source", str(approval["source_campaign_id"])]
+    if approval["requested_name"] is not None:
+        cmd += ["--name", approval["requested_name"]]
+    if args.out:
+        cmd += ["--out", args.out]
+    if args.resume:
+        cmd += ["--resume", args.resume]
+    print("Approve: " + shlex.join(cmd + ["--yes", "--clone-sha256", sha]))
+
+
+def validate_clone(man, client):
+    d = man.data
+    a = d.get("clone_approval")
+    if d.get("kind") != "clone":
+        raise CampaignAdminError("creation manifests require --plan")
+    if not isinstance(a, dict) or a.get("version") != 1 or canonical_sha256(a) != d.get("clone_sha256"):
+        raise CampaignAdminError("clone approval hash is invalid")
+    if d.get("plan_sha256") is not None:
+        raise CampaignAdminError("clone manifest must not carry a plan hash")
+    if check_origin_binding(d, "clone manifest") != client.origin or any(
+            d.get(k) != a.get(k) for k in ("store_slug", "store_origin", "source_campaign_id", "source_name", "source_created_at")):
+        raise CampaignAdminError("clone store/source binding differs")
+    clone_id(d["source_campaign_id"])
+    if d.get("campaign", {}).get("id") == d["source_campaign_id"]:
+        raise CampaignAdminError("source campaign cannot be the clone destination")
+    request = d.get("clone_request", {})
+    if request.get("status") == "not_sent" and (request.get("attempted_at") or request.get("attempt_deadline")
+                                                or d.get("campaign", {}).get("id")):
+        raise CampaignAdminError("clone journal has attempt evidence despite not_sent; resolve manually; POST will not be repeated")
+    if request.get("status") == "confirmed":
+        campaign = d.get("campaign", {})
+        clone_id(campaign.get("id"))
+        if not _parse_instant(campaign.get("created_at")) or not campaign.get("api_key"):
+            raise CampaignAdminError("confirmed clone has incomplete destination identity")
+    if d.get("rename", {}).get("name") != a["requested_name"]:
+        raise CampaignAdminError("clone rename differs from approval")
+    return a
+
+
+def clone_identity(live, man):
+    c, a = man.data["campaign"], man.data["clone_approval"]
+    return (isinstance(live, dict) and live.get("id") == c.get("id")
+            and live.get("id") != a["source_campaign_id"]
+            and _parse_instant(c.get("created_at")) is not None
+            and _parse_instant(live.get("created_at")) is not None
+            and same_instant(live.get("created_at"), c.get("created_at"))
+            and live.get("name") in {a["server_name"], a["requested_name"] or a["server_name"]})
+
+
+def clone_compare(expected, actual):
+    checks = []
+    def add(name, match):
+        checks.append({"check": name, "result": "PASS" if match else "FAIL",
+                       "detail": "matches approved snapshot" if match else "differs from approved snapshot"})
+    for key in CLONE_SETTINGS:
+        add("settings." + key, expected["settings"].get(key) == actual["settings"].get(key))
+    currencies = set(expected["settings"]["additional_currencies"] + [expected["settings"]["currency"]])
+    for section in CLONE_COLLECTIONS:
+        want = {r["id"]: r for r in expected[section]}
+        got = {r["id"]: r for r in actual[section]}
+        add(section + ".reference_ids", want.keys() == got.keys())
+        for rid, row in want.items():
+            other = got.get(rid, {})
+            for field, value in row.items():
+                if field == "prices":
+                    prices = {p["currency"]: p for p in other.get("prices", [])}
+                    match = all(prices.get(p["currency"]) == p for p in value if p["currency"] in currencies)
+                else:
+                    match = other.get(field) == value
+                add(f"{section}.{rid}.{field}", match)
+    return checks
+
+
+def clone_inventory(man, snapshot):
+    for section in CLONE_COLLECTIONS:
+        man.data[section] = [dict(row, key=f"{section}-{row['id']}", origin="cloned", status="created")
+                             for row in snapshot[section]]
+    man.data["inventory_complete"] = True
+    man.save()
+
+
+def clone_record(man, campaign):
+    a = man.data["clone_approval"]
+    clone_require(campaign, ("id", "name", "created_at", "api_key"), "clone response")
+    clone_id(campaign["id"])
+    if (campaign["id"] == a["source_campaign_id"] or not _parse_instant(campaign["created_at"])
+            or not isinstance(campaign["api_key"], str) or not campaign["api_key"]
+            or campaign["name"] not in {a["server_name"], a["requested_name"] or a["server_name"]}):
+        raise CampaignAdminError("clone response identity is invalid; resolve uncertain request manually")
+    man.data["campaign"] = {k: campaign[k] for k in ("id", "name", "created_at", "api_key")}
+    man.data["campaign"].update(status="created", key="campaign")
+    man.data["clone_request"].update(status="confirmed", resolved_at=utcnow())
+    man.save()
+
+
+def clone_recover(client, man):
+    a, request = man.data["clone_approval"], man.data["clone_request"]
+    start, end = _parse_instant(request.get("attempted_at")), _parse_instant(request.get("attempt_deadline"))
+    if not start or not end or end != start + timedelta(seconds=TIMEOUT + 60) or "preexisting_ids" not in request:
+        raise CampaignAdminError("uncertain clone has no valid persisted attempt window; resolve manually; POST will not be repeated")
+    excluded = set(request["preexisting_ids"]) | {a["source_campaign_id"]}
+    candidates = []
+    for row in clone_campaigns(client):
+        at = _parse_instant(row.get("created_at"))
+        if (row.get("id") not in excluded and row.get("name") in {a["server_name"], a["requested_name"] or a["server_name"]}
+                and at and start - timedelta(seconds=60) <= at <= end):
+            candidates.append(row)
+    if len(candidates) != 1:
+        ids = [row.get("id") for row in candidates]
+        raise CampaignAdminError(f"uncertain clone: {len(candidates)} candidates {ids}; resolve manually; POST will not be repeated")
+    candidate = candidates[0]
+    campaign, snapshot = clone_read(client, clone_id(candidate.get("id")))
+    if (campaign["name"] != candidate["name"] or not same_instant(campaign["created_at"], candidate["created_at"])
+            or any(c["result"] == "FAIL" for c in clone_compare(a["snapshot"], snapshot))):
+        raise CampaignAdminError("uncertain clone candidate differs from saved identity/content; resolve manually")
+    clone_record(man, campaign)
+
+
+def clone_finish(client, man):
+    a = validate_clone(man, client)
+    if torn_down_entries(man) or man.data.get("torn_down_at"):
+        raise CampaignAdminError("clone teardown has started; cannot resume cloning")
+    request = man.data["clone_request"]
+    if request["status"] == "rejected":
+        raise CampaignAdminError("clone request was rejected; inspect deployment/permissions and preview a new run")
+    if request["status"] == "not_sent":
+        existing = clone_campaigns(client)
+        fresh = clone_approval(client, a["store_slug"], a["source_campaign_id"], a["requested_name"])
+        if canonical_sha256(fresh) != man.data["clone_sha256"]:
+            raise CampaignAdminError("source changed before POST; saved clone approval no longer matches")
+        start = datetime.now(timezone.utc)
+        request.update(status="sending", attempted_at=start.isoformat(),
+                       attempt_deadline=(start + timedelta(seconds=TIMEOUT + 60)).isoformat(),
+                       preexisting_ids=[clone_id(r.get("id")) for r in existing
+                                        if r.get("name") in {a["server_name"], a["requested_name"]}])
+        man.save()
+        path = f"/api/admin/campaigns/{a['source_campaign_id']}/clone/"
+        try:
+            status, body = client.request("POST", path, body=None, clone_decode=True)
+            if status == 201:
+                clone_record(man, body)
+            else:
+                request["status"] = "rejected" if status is not None and 400 <= status < 500 else "uncertain"
+                man.save()
+                if status in (404, 405):
+                    raise CampaignAdminError("clone endpoint unavailable on this store; check its deployment")
+                raise CampaignAdminError(f"clone POST returned {status}; {request['status']}; POST will not be repeated"
+                                         + auth_hint(status, "POST", path))
+        except Exception:
+            if request["status"] == "sending":
+                request["status"] = "uncertain"
+                man.save()
+            raise
+    elif request["status"] in ("sending", "uncertain"):
+        clone_recover(client, man)
+    elif request["status"] != "confirmed":
+        raise CampaignAdminError("unknown clone request state; resolve manually")
+    cid = clone_id(man.data["campaign"].get("id"))
+    path = f"/api/admin/campaigns/{cid}/"
+    live = clone_get(client, path)
+    if not clone_identity(live, man):
+        raise CampaignAdminError("destination campaign identity mismatch; refusing rename/inventory")
+    rename = man.data["rename"]
+    if a["requested_name"] is not None:
+        if live["name"] != a["requested_name"]:
+            if rename["status"] == "done":
+                raise CampaignAdminError("completed clone rename changed in the dashboard; refusing to overwrite it")
+            rename["status"] = "pending"
+            man.save()
+            status, _ = client.request("PATCH", path, {"name": a["requested_name"]}, clone_decode=True)
+            live = clone_get(client, path)
+            if not clone_identity(live, man) or live["name"] != a["requested_name"]:
+                raise CampaignAdminError(f"clone rename not verified (PATCH returned {status}); resume this manifest")
+        rename["status"] = "done"
+        man.data["campaign"]["name"] = a["requested_name"]
+        man.save()
+    live, snapshot = clone_read(client, cid)
+    if not clone_identity(live, man):
+        raise CampaignAdminError("destination identity changed during enumeration")
+    if not man.data.get("inventory_complete"):
+        clone_inventory(man, snapshot)
+    checks = clone_compare(a["snapshot"], snapshot)
+    man.data["parity"] = {"status": "mismatch" if any(c["result"] == "FAIL" for c in checks) else "match",
+                          "details": [c["check"] for c in checks if c["result"] == "FAIL"]}
+    man.data["completed_at"] = utcnow()
+    man.save()
+    print(f"Clone campaign {cid} complete; parity: {man.data['parity']['status']}. Key is stored only in {man.path} (mode 600).")
+    for detail in man.data["parity"]["details"]:
+        print(f"  mismatch: {detail}")
+    for section in CLONE_COLLECTIONS:
+        print(f"  {section} reference IDs: {[e['id'] for e in man.data[section]]}")
+
+
+def run_clone(args):
+    slug = normalize_store(args.store)
+    if args.source <= 0 or (args.name is not None and not args.name.strip()):
+        raise CampaignAdminError("clone requires a positive source ID and a nonempty explicit name")
+    client = _client_for(slug)
+    if args.resume:
+        path = guard_manifest_path(args.resume)
+        if args.out and Path(args.out).expanduser().resolve() != path.parent.resolve():
+            raise CampaignAdminError("resume --out must be the saved run directory")
+        with EditLock(path.parent, "clone operation"):
+            man = Manifest.load(path)
+            a = validate_clone(man, client)
+            if (slug, args.source, args.name) != (a["store_slug"], a["source_campaign_id"], a["requested_name"]):
+                raise CampaignAdminError("resume arguments differ from the saved clone approval")
+            if not args.yes or args.clone_sha256 != man.data["clone_sha256"]:
+                clone_preview(a, args)
+                return 2
+            clone_finish(client, man)
+        return 0
+    a = clone_approval(client, slug, args.source, args.name)
+    sha = canonical_sha256(a)
+    if not args.yes or args.clone_sha256 != sha:
+        clone_preview(a, args)
+        return 2
+    out = resolve_out_dir(args.out, Path.cwd() / RUNS_DIR_NAME / slug / f"clone-{args.source}")
+    path = guard_manifest_path(out / MANIFEST_NAME)
+    with EditLock(out, "clone operation"):
+        if path.exists():
+            raise CampaignAdminError("clone run already exists; use --resume or a new --out directory")
+        man = Manifest(path, {"kind": "clone", "plan_sha256": None, "clone_approval": a, "clone_sha256": sha,
+                             "run_id": str(uuid.uuid4()), "started_at": utcnow(),
+                             **{k: a[k] for k in ("store_slug", "store_origin", "source_campaign_id", "source_name", "source_created_at")},
+                             "campaign": {"key": "campaign", "status": "pending", "name": a["server_name"]},
+                             "clone_request": {"status": "not_sent", "attempted_at": None, "resolved_at": None},
+                             "rename": {"name": args.name, "status": "pending" if args.name is not None else "skipped"},
+                             "inventory_complete": False, "parity": {"status": "unchecked", "details": []},
+                             "packages": [], "shipping_methods": [], "offers": []})
+        man.save()
+        clone_finish(client, man)
+    return 0
+
+
+def clone_verify(client, man):
+    a = validate_clone(man, client)
+    source, current = clone_read(client, a["source_campaign_id"])
+    dest, snapshot = clone_read(client, clone_id(man.data["campaign"].get("id")))
+    checks = clone_compare(a["snapshot"], snapshot)
+    for name, match in (("destination identity", clone_identity(dest, man)),
+                        ("destination name", dest["name"] == (a["requested_name"] or a["server_name"])),
+                        ("distinct campaign key", dest["api_key"] != source["api_key"] and dest["api_key"] == man.data["campaign"].get("api_key"))):
+        checks.append({"check": name, "result": "PASS" if match else "FAIL", "detail": "verified" if match else "mismatch"})
+    derived = []
+    supported = set(a["snapshot"]["settings"]["additional_currencies"])
+    for section in ("packages", "shipping_methods"):
+        for row in a["snapshot"][section]:
+            missing = supported - {p["currency"] for p in row["prices"]}
+            if missing:
+                derived.append({"section": section, "id": row["id"], "currencies": sorted(missing)})
+    resets = {}
+    if "enable_retail_price_and_quantity" in dest:
+        match = dest["enable_retail_price_and_quantity"] is False
+        checks.append({"check": "reset.enable_retail_price_and_quantity", "result": "PASS" if match else "FAIL",
+                       "detail": "exposed by API"})
+        resets["enable_retail_price_and_quantity"] = "checked"
+    else:
+        resets["enable_retail_price_and_quantity"] = "documented server behavior; not exposed by API"
+    for row in snapshot["offers"]:
+        live_offer = clone_get(client, f"/api/admin/campaigns/{dest['id']}/offers/{row['id']}/")
+        for field in ("num_applications", "num_orders", "total_discount"):
+            label = f"offers.{row['id']}.{field}"
+            if field in live_offer:
+                match = clone_number(live_offer[field]) == "0"
+                checks.append({"check": "reset." + label, "result": "PASS" if match else "FAIL", "detail": "exposed by API"})
+                resets[label] = "checked"
+            else:
+                resets[label] = "documented server behavior; not exposed by API"
+    drift = [c["check"] for c in clone_compare(a["snapshot"], current) if c["result"] == "FAIL"]
+    if source["name"] != a["source_name"] or not same_instant(source["created_at"], a["source_created_at"]):
+        drift.append("source identity/name")
+    return {"kind": "clone", "result": "FAIL" if any(c["result"] == "FAIL" for c in checks) else "PASS",
+            "admin_checks": checks, "source_drift": drift, "calculate_cases": [],
+            "cart_probes": {"status": "skipped", "reason": "No approved plan-derived landed prices for a clone."},
+            "forex_derived_prices": derived, "resets": resets, "parity_at_creation": man.data.get("parity")}
+
+
+def clone_teardown(client, man, confirm):
+    a = validate_clone(man, client)
+    if man.data["clone_request"]["status"] in ("sending", "uncertain"):
+        clone_recover(client, man)
+    if man.data["clone_request"]["status"] != "confirmed":
+        raise CampaignAdminError("no confirmed clone destination to tear down")
+    cid = clone_id(man.data["campaign"].get("id"))
+    path = f"/api/admin/campaigns/{cid}/"
+    status, live = client.request("GET", path, clone_decode=True)
+    if status == 404:
+        man.mark("campaign", "campaign", status="deleted")
+        return
+    if status != 200 or not clone_identity(live, man):
+        raise CampaignAdminError("clone destination identity mismatch; refusing all deletes")
+    if not man.data.get("inventory_complete"):
+        live, snapshot = clone_read(client, cid)
+        if not clone_identity(live, man):
+            raise CampaignAdminError("clone identity changed during inventory refresh; refusing all deletes")
+        clone_inventory(man, snapshot)
+    todo = []
+    for section in ("offers", "shipping_methods", "packages"):
+        for entry in man.data[section]:
+            if entry.get("status") == "deleted":
+                continue
+            child = path + f"{CLONE_COLLECTIONS[section]}/{clone_id(entry.get('id'))}/"
+            status, row = client.request("GET", child, clone_decode=True)
+            if status == 404:
+                continue
+            if status != 200:
+                raise CampaignAdminError("clone child read failed; refusing all deletes" + auth_hint(status, "GET", child))
+            observed = clone_resource(section, row, a["snapshot"]["settings"]["currency"])
+            if any(observed.get(k) != v for k, v in entry.items() if k in observed):
+                raise CampaignAdminError("clone child identity mismatch; refusing all deletes")
+            todo.append((section, entry["key"], child))
+    if not confirm():
+        raise CampaignAdminError("teardown not confirmed (pass --yes)")
+    todo.append(("campaign", "campaign", path))
+    for section, key, target in todo:
+        man.mark(section, key, status="deleting")
+        status, _ = client.request("DELETE", target, clone_decode=True)
+        if status not in (200, 202, 204, 404):
+            raise CampaignAdminError(f"clone DELETE returned {status}; resume teardown" + auth_hint(status, "DELETE", target))
+        man.mark(section, key, status="deleted")
+    man.data["torn_down_at"] = utcnow()
+    man.save()
+
+
+def clone_lifecycle(args):
+    path = guard_manifest_path(args.manifest)
+    # Lock before the first manifest read, including kind discovery.
+    with EditLock(path.parent, "clone operation"):
+        man = Manifest.load(path)
+        if man.data.get("kind") != "clone":
+            raise CampaignAdminError("creation manifests require --plan")
+        client = _client_for(man.data["store_slug"])
+        if args.cmd == "teardown":
+            def confirm():
+                return args.yes or (sys.stdin.isatty() and input("Type DELETE to confirm: ").strip() == "DELETE")
+            clone_teardown(client, man, confirm)
+            return 0
+        report = clone_verify(client, man)
+        out = resolve_out_dir(args.out, path.parent)
+        atomic_write_json(out / "verify-report.json", report)
+        print_verify(report)
+        return 0 if report["result"] == "PASS" else 1
+
 
 def _client_for(slug: str) -> Client:
     return Client(slug_to_origin(slug), load_token(slug))
@@ -4294,19 +4852,28 @@ def main(argv=None) -> int:
     a.add_argument("--resume", help="run-manifest.json of an interrupted run")
     a.add_argument("--out")
 
+    c = sub.add_parser("clone", help="copy a campaign, preserving funnel reference IDs (gated)")
+    c.add_argument("--store", required=True)
+    c.add_argument("--source", required=True, type=int)
+    c.add_argument("--name")
+    c.add_argument("--out")
+    c.add_argument("--yes", action="store_true")
+    c.add_argument("--clone-sha256")
+    c.add_argument("--resume")
+
     v = sub.add_parser("verify", help="read back + carts/calculate")
     v.add_argument("--manifest", required=True)
-    v.add_argument("--plan", required=True)
+    v.add_argument("--plan")
     v.add_argument("--out")
 
     t = sub.add_parser("teardown", help="delete what this run created")
     t.add_argument("--manifest", required=True)
-    t.add_argument("--plan", required=True)
+    t.add_argument("--plan")
     t.add_argument("--yes", action="store_true")
 
     e = sub.add_parser("edit", help="change what this run created, in place (gated)")
     e.add_argument("--manifest", required=True)
-    e.add_argument("--plan", required=True)
+    e.add_argument("--plan")
     e.add_argument("--changes", help="edit file (campaign-edit.json) listing the operations")
     e.add_argument("--undo", help="receipt of the edit to undo (edit-<n>-receipt.json)")
     e.add_argument("--yes", action="store_true")
@@ -4327,6 +4894,12 @@ def main(argv=None) -> int:
 
 
 def _dispatch(args) -> int:
+    if args.cmd == "clone":
+        return run_clone(args)
+    if args.cmd in ("verify", "teardown") and not args.plan:
+        return clone_lifecycle(args)
+    if args.cmd in ("verify", "teardown") and Manifest.load(Path(args.manifest)).data.get("kind") == "clone":
+        raise CampaignAdminError("clone manifests use their saved approval; omit --plan")
     if args.cmd == "discover":
         slug = normalize_store(args.store)
         client = _client_for(slug)

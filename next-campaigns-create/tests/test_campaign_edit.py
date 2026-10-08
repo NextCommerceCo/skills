@@ -985,3 +985,15 @@ class EditRecovery(EditHarness):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CloneEditRefusal(unittest.TestCase):
+    def test_clone_manifest_refused_before_any_other_read_or_write(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "run-manifest.json"
+            ca.atomic_write_json(path, {"kind": "clone"})
+            before = path.read_bytes()
+            self.assertEqual(ca.main(["edit", "--manifest", str(path), "--plan", "missing-plan.json",
+                                      "--changes", "missing-edit.json"]), 1)
+            self.assertEqual(path.read_bytes(), before)
+            self.assertEqual(list(Path(directory).iterdir()), [path])

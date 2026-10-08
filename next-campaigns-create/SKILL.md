@@ -1,6 +1,6 @@
 ---
 name: next-campaigns-create
-version: 0.8.0
+version: 0.9.0
 description: |
   Provision a launch-ready Campaigns App campaign over the NEXT Admin API:
   read the store's catalogue, gateway groups and shipping methods, recommend a
@@ -9,7 +9,8 @@ description: |
   methods and offers in one approval-gated run. Hands back the campaign api_key
   and the package ids the funnel needs. Offer kinds: quantity Buy 1/2/3,
   buy-X-get-Y as a labeled percentage approximation, and gift-with-purchase as
-  a gift package plus a gift-scoped 100% offer.
+  a gift package plus a gift-scoped 100% offer. Also clone an existing campaign
+  through a separate approval gate, preserving its funnel reference IDs.
 
   Use when: "create a campaign for {store}", "set up the campaign in the
   Campaigns App", "provision a campaign over the API", "recommend a campaign
@@ -17,8 +18,9 @@ description: |
   "gift with purchase", or when a new campaign needs to exist on a store
   before funnel work starts. Also: "change the price", "change the tier
   percentages", "pause that offer", "add an offer" on a campaign this skill
-  created, which it edits in place from that run's manifest. A campaign it did
-  not create is out of scope.
+  created, which it edits in place from that run's manifest. Use "clone a campaign"
+  or "copy campaign 42" to copy an existing campaign. Edit refuses clone manifests;
+  make changes to those copies in the dashboard.
 allowed-tools:
   - Bash
   - Read
@@ -60,7 +62,8 @@ and gift-with-purchase are in `references/worked-examples.md`.
 
 ## Scope
 
-This skill creates a NEW campaign, and can then change that campaign in place.
+This skill creates a new campaign from a plan or clones an existing campaign.
+It can edit campaigns created from a plan; clone manifests are not editable.
 The run manifest is the boundary for both: the engine never writes to a campaign,
 package, shipping method or offer the manifest does not record. `edit` changes
 only objects in it, `teardown` removes only objects in it, and an offer someone
@@ -101,7 +104,7 @@ Admin API; those are not the documented NEXT Admin API convention and commonly
 return storefront HTML 404 pages instead of JSON. A raw key or a `Token` prefix
 on the Admin API gets a 401 that looks like a bad key.
 
-The Campaign Cart API is a different host with a different credential. `verify`
+The Campaign Cart API is a different host with a different credential. For creation manifests, `verify`
 calls `POST https://campaigns.apps.29next.com/api/v1/carts/calculate/` with the
 campaign api_key sent raw in the `Authorization` header: no scheme prefix, and
 never the Admin token. The engine builds both kinds of request; do not
@@ -167,12 +170,14 @@ confirmation that covers it:
 | 5 | `POST /api/admin/campaigns/{id}/offers/` (tiers and vouchers) | same |
 | 6 to 9 | `DELETE` offers, shipping methods, packages, campaign | teardown only: manifest-bound, identity read-back, `--yes` |
 | 10 | `POST /api/admin/metadata/` (only the missing campaign metadata definitions) | `metadata --apply` after an `AskUserQuestion` |
-| 11 | local JSON under the run directory (discovery, plan, manifest, verify report) | no gate |
+| 11 | local JSON under the run directory (discovery, plan, manifest, verify report) | no gate for discover, recommend, apply and verify; clone writes its run files only after its approval gate |
 | 12 | `POST /api/v1/carts/calculate/` on the Cart API in `verify` | none: creates nothing, reads pricing back |
 | 13 | `GET` of the public `skills.json` on GitHub, cached in `${XDG_CACHE_HOME:-~/.cache}/next-skills/catalog.json`, in `check-update` | none: read-only, no credentials, skipped with `NEXT_SKILLS_NO_UPDATE_CHECK=1` |
 | 14 | `PATCH /api/admin/campaigns/{id}/packages/{id}/` (the `prices[]` rows, on a package this run created) | Phase 7 edit preview + `edit --yes --edit-sha256 --live-traffic` |
 | 15 | `PATCH /api/admin/campaigns/{id}/offers/{id}/` (benefit value and rounding, the condition, `available`, on an offer this run created) | same |
 | 16 | `POST /api/admin/campaigns/{id}/offers/` (an offer added to a campaign this run created) | same |
+| 17 | bodyless `POST /api/admin/campaigns/{source_id}/clone/` | clone preview + `--yes --clone-sha256` |
+| 18 | `PATCH /api/admin/campaigns/{new_id}/` with only `name` | same clone approval, only when a name was requested |
 
 The engine refuses the writes in rows 1 to 5 unless `apply` receives `--yes` and
 a `--plan-sha256` equal to the hash of the plan file it is about to send. The
@@ -187,11 +192,95 @@ the edit file and the live state of every object the edit will write, so a
 change to any of them needs a fresh preview and a fresh approval. Row 11 also
 covers the edit receipts, which hold before-images and no secret.
 
-There is no `PUT`, `PATCH` or `DELETE` on anything this run did not create, no
-`PATCH` on the campaign itself or on a shipping method, and no write that edits
-an existing metadata definition.
+The only campaign PATCH is the clone's optional destination rename. There is no
+shipping-method PATCH or write to an existing metadata definition. Clone sends
+its POST to the source route, but the server creates independent destination
+objects and leaves the source unchanged. Clone teardown omits `--plan` and
+validates the saved clone approval and destination inventory instead.
 
 ---
+
+## Clone an existing campaign
+
+Use `clone` when the operator wants a copy of an existing campaign on the same
+store. It is separate from `apply` and does not create a campaign plan. Take
+the source ID and requested name from the operator's request, then preview:
+
+```bash
+bash <skill-dir>/next-campaigns-create.sh clone --store <slug> --source <id> --out <run-dir>
+```
+
+Add `--name '<requested name>'` if the operator wants a rename. The server first
+names the copy `{source name}-COPY`; setting a name requires a second request,
+a PATCH to the new campaign. The preview lists copied settings and resource
+rows, including offer codes, followed by the intended requests. It reads every
+page and each offer's detail so package scope is part of approval. Unavailable
+offers still copy; removed offers do not.
+
+Show the preview and obtain approval for its exact content. Run the generated
+command with both `--yes` and `--clone-sha256 <preview hash>`. A missing or stale
+hash exits 2 without creating a directory, lock or manifest. The final source
+read must still match the approved hash. The API has no revision precondition,
+so a change between that read and the clone transaction can still happen;
+verification checks the resulting copy against the approved snapshot.
+
+Route availability depends on the store's deployment. A successful source GET
+does not prove that the clone endpoint exists. An approved POST returning 404
+or 405 stops with deployment guidance. Do not infer availability from a closed
+issue or a merged change, and do not make a trial clone outside the approval gate.
+
+A clone gets a new campaign ID and key while preserving the package, shipping
+and offer reference IDs used by funnel pages. Discount codes and package scope
+copy unchanged, including `all_packages`. Prices in the campaign currency copy
+exactly. When the source lacks a supported additional-currency price, the server
+can derive it by forex; the report identifies those prices separately. Server
+usage counters reset and retail price/quantity is disabled. The report treats
+unexposed resets as documented behavior, not verified facts.
+
+### Interrupted clones
+
+Resume with the same store, source, requested name and approval hash, adding
+`--resume <run-dir>/run-manifest.json`. Keep the saved approval; do not replace it
+with a new source snapshot after a POST may have been sent. A confirmed copy
+resumes its rename or inventory reads. A rename that already landed needs no
+second PATCH. An uncertain clone POST is never sent again automatically.
+
+Recovery excludes preexisting IDs and reads the whole campaign list. It can
+adopt only one matching copy within the persisted attempt window, from 60
+seconds before sending to the original request timeout plus 60 seconds. It
+then checks that candidate's identity and full copied content. Zero candidates,
+multiple candidates or a missing window require manual resolution. A copy
+created after the saved deadline cannot be adopted on a later resume. Another
+operator could create an indistinguishable copy within the same window; the
+API supplies no request marker or idempotency key to prove ownership.
+
+The protected manifest saves the destination ID immediately after a valid 201.
+A later resource read failure leaves incomplete inventory, which resume can
+refresh without another POST. If enumeration succeeds but parity fails, the
+copy remains recorded and can be torn down. Report the mismatch to the operator.
+
+### Verify, teardown and handoff
+
+```bash
+bash <skill-dir>/next-campaigns-create.sh verify --manifest <run-dir>/run-manifest.json
+bash <skill-dir>/next-campaigns-create.sh teardown --manifest <run-dir>/run-manifest.json --yes
+```
+
+Clone verification uses the immutable approval in the manifest; supplying a
+plan is an error. It reports later source drift separately. It skips Cart API
+probes because this run has no approved plan-derived landed prices.
+
+Teardown checks the recorded destination identity and its own resource entries
+before deleting anything. Incomplete inventory is refreshed only after the
+campaign's exact creation instant and approved name have been checked. A parity
+mismatch does not remove ownership. Clone execution, resume and teardown share
+the run's `edit.lock`; a held lock refuses another operation. After a crash,
+remove a stale lock only after confirming that no operation still holds it.
+
+Point the operator to the mode-600 manifest for the new campaign key, and list
+the preserved funnel reference IDs. Never print either campaign key or the
+Admin token. The source key is not saved. In-place `edit` refuses a clone
+manifest before writing a receipt or lock; make those changes in the dashboard.
 
 ## Phase 0: Locate the executable
 
@@ -1046,6 +1135,9 @@ from the most recent edit.
 
 ## Invariants
 
+The offer-construction rules below apply to `recommend` and `apply`. Clone
+preserves existing offer semantics, including `all_packages`.
+
 - Never scope a tier offer to `all_packages`; always name the hero package ids.
 - Never create quantity packages (`2x ...`); tiers are offers.
 - Never encode buy-X-get-Y as a free-unit or Nth-unit-free field; label the
@@ -1065,6 +1157,8 @@ from the most recent edit.
   changes and teardown deletes only what this run created, after reading each
   object back and checking its identity. An offer the manifest does not record
   is listed to the operator and left alone.
+- Never mutate the clone source. Clone creates a new destination campaign and
+  the source id is refused as a delete or rename target.
 - Offer an in-place edit before teardown for any change to a campaign this skill
   created. Offer teardown only for a field edit refuses, and name the field.
 - Never apply an edit without showing the operator its preview and asking
@@ -1088,14 +1182,16 @@ from the most recent edit.
 
 `discover` writes to `./next-campaigns-create-runs/<subdomain>/` under the current
 working directory. `recommend` writes next to the discovery file it reads;
-`apply` and `verify` write next to the plan file. `--out` overrides each. `edit`
+`apply` and creation `verify` write next to the plan file. Clone defaults to
+`./next-campaigns-create-runs/<slug>/clone-<source-id>/`; its verification report
+lives beside the manifest. `--out` overrides the output directory. `edit`
 rewrites the plan file in place and writes its receipts next to the manifest.
 
 | File | Written by | Holds |
 |---|---|---|
 | `discovery.json` | `discover` | the store snapshot: catalogue, gateway groups, shipping methods, existing campaigns, the Offers API probe and the metadata audit |
 | `campaign-plan.json` | `recommend` | the campaign, packages, shipping methods and offers `apply` will create, plus the rationale and blockers |
-| `run-manifest.json` | `apply` | every id the run created and its status, plus the campaign api_key |
+| `run-manifest.json` | `apply`, `clone` | every id the run created and its status, plus the campaign api_key |
 | `verify-report.json` | `verify` | every read-back and cart check, with PASS or FAIL |
 | `campaign-edit.json` | you, in Phase 7 | the operations of one in-place edit |
 | `edit-<n>-receipt.json` | `edit` | the before-image of every object the edit wrote, the plan before and after, and the approval it ran under; what `--undo` replays |
@@ -1168,7 +1264,8 @@ holding a live secret.
 | `discover` | GET | `/api/admin/store/`, `/api/admin/gateway-groups/`, `/api/admin/shipping-methods/`, `/api/admin/products/`, `/api/admin/campaigns/`, `/api/admin/campaigns/{id}/offers/` (the Offers API probe), `/api/admin/metadata/` |
 | `metadata --apply` | POST | `/api/admin/metadata/` |
 | `apply` | POST, PUT | rows 1 to 5 of the write inventory |
-| `verify` | GET, POST | campaign read-back, then `/api/v1/carts/calculate/` on the Cart API |
+| `clone` | GET, POST, PATCH | source read-back, clone POST, optional destination rename |
+| `verify` | GET, POST | campaign read-back; Cart API calculate only for creation manifests |
 | `edit` | GET, PATCH, POST | read-back, then rows 14 to 16 of the write inventory |
 | `teardown` | GET, DELETE | read-back, then rows 6 to 9 of the write inventory |
 

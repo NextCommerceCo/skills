@@ -58,7 +58,8 @@ token that has been pasted into a chat or a ticket once the work is done.
 | GET | `/api/admin/metadata/` | the 11 campaign/attribution definitions |
 | POST | `/api/admin/metadata/` | create a missing metadata definition (`metadata --apply`; sent without the version header) |
 | GET/POST | `/api/admin/campaigns/` | list (cursor paginated) / create |
-| GET/DELETE | `/api/admin/campaigns/{id}/` | retrieve (returns `api_key`) / delete |
+| GET/PATCH/DELETE | `/api/admin/campaigns/{id}/` | retrieve (returns `api_key`) / rename a clone destination / delete |
+| POST | `/api/admin/campaigns/{id}/clone/` | bodyless clone request, availability depends on store deployment |
 | GET/POST | `/api/admin/campaigns/{id}/packages/` | list / create |
 | GET/PATCH/DELETE | `/api/admin/campaigns/{id}/packages/{packageId}/` | read back / edit the price / delete |
 | PUT | `/api/admin/campaigns/{id}/packages/{packageId}/image/` | replace the package image (optional override) |
@@ -490,3 +491,77 @@ is the store code for an entry without one, so manifests written before 0.4.0
 still resume, verify and tear down. Resume matches `pending` entries by identity
 (package: variant id + name; shipping: code + price; offer: name) before creating
 anything, so a lost response never duplicates.
+
+## Clone contract and journal
+
+`POST /api/admin/campaigns/{source_id}/clone/` takes no request body and needs
+`campaigns:write`. A body cannot set a name. The 201 response is a campaign
+detail object, including a new `id` and `api_key`, with no nested resources.
+The server names it `{source name}-COPY`. The optional rename uses
+`PATCH /api/admin/campaigns/{new_id}/` with only `{"name": "<requested name>"}`.
+This is the only campaign PATCH the clone command sends; currency is immutable.
+
+Packages and shipping options get new database primary keys but preserve their
+reference IDs, the IDs exposed in Admin API paths and used by funnel pages.
+Offers preserve their reference IDs and discount codes. Only nonremoved offers
+copy, including unavailable ones. Condition package references map to the new
+packages; `all_packages` is preserved. Campaign settings copy, including PayPal
+account, gateway group and payment methods. The new campaign key is distinct.
+Campaign-currency prices copy exactly; missing supported additional-currency
+prices can be derived by forex. Usage counters reset to zero and
+`enable_retail_price_and_quantity` becomes false. These resets are documented
+server behavior unless the response actually exposes them.
+
+The server clones in one transaction, but supplies no idempotency key or revision
+precondition. A lost response may mean the complete copy exists. Store deployment
+determines route availability: 404/405 after a successful source read means
+check deployment. Do not infer store availability from source-control status.
+401/403 uses the normal token/scope guidance. No campaign response body is
+printed in clone errors.
+
+Clone decoding uses `Decimal` for JSON numbers. Canonical snapshots store prices
+as decimal strings without rounding, sort resources by reference ID and normalize
+set-valued settings. Each offer detail is read because lists omit package scope.
+Snapshots explicitly select copied fields; they exclude keys, timestamps and
+usage counters. Source creation identity is retained separately in UTC.
+
+A clone manifest has `kind: "clone"`, `plan_sha256: null`, source identity fields,
+`clone_sha256` and the secret-free `clone_approval` document. That document binds
+the store, source settings and resource rows, requested name, server name and
+request sequence. Creation manifests and `campaign-plan.json` remain unchanged.
+Clone verification and teardown reject a supplied plan; `null` is never a wildcard
+for a creation plan hash. Clone `edit` refuses before any lock or receipt write.
+
+`clone_request.status` is `not_sent`, `sending`, `uncertain`, `rejected` or
+`confirmed`. Before POST, the journal saves existing same-name candidate IDs,
+`attempted_at` and `attempt_deadline` (attempt time plus request timeout plus 60
+seconds). Recovery never widens this window: candidate creation must fall between
+attempt time minus 60 seconds and the saved deadline. Missing window evidence,
+zero candidates or multiple candidates stops for manual resolution. One candidate
+must match identity and approved content before adoption. This is still not
+server-backed proof: another operator can create an identical copy in that window.
+
+A valid 201 immediately journals the destination ID, name, creation instant and
+key. Only the protected mode-600 manifest holds that key; the source key is never
+persisted. `rename` records `name` and `status: pending|done|skipped`. Resume first
+reads the destination, so a rename already applied needs no second PATCH.
+
+`inventory_complete` becomes true once destination enumeration succeeds. The
+usual resource arrays hold destination read-back fields, deterministic keys and
+`origin: "cloned"`. `parity: {status: match|mismatch|unchecked, details: [...]}`
+records preservation differences; a mismatch does not remove ownership or block
+completion. `completed_at` records completed enumeration. Teardown uses these
+owned entries, not the expected source rows. With incomplete inventory, teardown
+refreshes only after checking the journaled destination ID and exact creation
+instant, with its server name or approved rename. Source/destination equality
+always refuses mutation.
+
+Clone execution, resume and teardown share `edit.lock`, created exclusively with
+mode 600 beside the manifest. Resume and teardown load the manifest under that
+lock. A new clone's preview and gate run before any directory or lock is created.
+The existing run-directory gitignore and symlink guards apply.
+
+Clone reports compare the destination with the saved approval, list current
+source drift separately, and identify supported currencies missing from source
+price rows as forex-derived. Cart probes are skipped with a reason because no
+plan-derived landed prices were approved. Reports contain no campaign key.

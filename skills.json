@@ -313,10 +313,10 @@
     {
       "id": "next-campaigns-create",
       "name": "Campaign Provisioning",
-      "version": "0.8.0",
+      "version": "0.9.0",
       "path": "next-campaigns-create/SKILL.md",
       "domain": "campaigns",
-      "description": "Create a launch-ready Campaigns App campaign over the Admin API: packages, shipping, quantity Buy 1/2/3, buy-X-get-Y as a labeled percentage, and gift-with-purchase, behind a plan-hash approval gate. Then change that campaign in place: prices, offer percentages, conditions and scope, pausing or adding an offer.",
+      "description": "Create a launch-ready Campaigns App campaign over the Admin API from a reviewed plan, or clone an existing campaign with its funnel package and shipping ids preserved, behind an approval gate; then change what it created in place.",
       "related_skills": [
         {
           "id": "next-campaigns-setup",
@@ -335,7 +335,9 @@
         "campaign packages and offers",
         "change the campaign price",
         "change the tier percentages",
-        "pause an offer"
+        "pause an offer",
+        "clone a campaign",
+        "copy an existing campaign"
       ],
       "prerequisites": [
         "Python 3.9 or newer (standard library only) and a bash shell; on Windows run scripts/campaign_admin.py with Python directly",
@@ -348,7 +350,7 @@
         "requires_approval": true,
         "network": "next-admin-api; github-raw read-only (check-update)",
         "token_env": "NEXT_ADMIN_API_TOKEN",
-        "notes": "check-update reads the public skills.json from GitHub at most once a day with no credentials, caches it under ~/.cache/next-skills, never installs anything and always exits 0 (NEXT_SKILLS_NO_UPDATE_CHECK=1 skips it). Creates a campaign, its packages, shipping methods and offers only under apply --yes --plan-sha256 <hash of the reviewed plan>; creates missing metadata definitions only under metadata --apply; teardown deletes only what the run manifest owns, after identity read-back. edit changes only packages and offers the run manifest owns (package price, offer benefit, condition, scope and availability, or one added offer), under edit --yes --edit-sha256 <hash of the previewed change> --live-traffic yes|no, after the same identity read-back; it saves each before-image to a receipt before the first write, never retries a write and never deletes. Never touches a campaign, package or offer it did not create, and never edits an existing metadata definition. verify calls the Campaign Cart API calculate endpoint with the campaign key and creates nothing. The run manifest holds the campaign api_key (mode 600, and the run directory must be gitignored inside a repository)."
+        "notes": "check-update reads the public skills.json from GitHub at most once a day with no credentials, caches it under ~/.cache/next-skills, never installs anything and always exits 0 (NEXT_SKILLS_NO_UPDATE_CHECK=1 skips it). Creates a campaign, its packages, shipping methods and offers only under apply --yes --plan-sha256 <hash of the reviewed plan>; creates missing metadata definitions only under metadata --apply; teardown deletes only what the run manifest owns, after identity read-back. edit changes only packages and offers the run manifest owns (package price, offer benefit, condition, scope and availability, or one added offer), under edit --yes --edit-sha256 <hash of the previewed change> --live-traffic yes|no, after the same identity read-back; it saves each before-image to a receipt before the first write, never retries a write and never deletes. Never touches a campaign, package or offer it did not create, and never edits an existing metadata definition. For creation manifests, verify calls the Campaign Cart API calculate endpoint with the campaign key and creates nothing. The run manifest holds the campaign api_key (mode 600, and the run directory must be gitignored inside a repository). clone requires --yes and a matching --clone-sha256, sends one bodyless source clone POST and optionally renames only the destination. Availability depends on store deployment. An uncertain clone POST is never repeated; recovery needs a unique candidate within the saved attempt window and cannot prove request identity against another operator making an identical copy. Clone verify and teardown use the saved approval and destination inventory without --plan; clone edit is refused and Cart API probes are skipped. The source campaign is never mutated and its key is never persisted."
       }
     }
   ]

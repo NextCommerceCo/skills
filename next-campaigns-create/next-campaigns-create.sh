@@ -41,11 +41,17 @@ Usage:
   next-campaigns-create.sh plan      --plan <dir>/campaign-plan.json [--check-store]
   next-campaigns-create.sh apply     --plan <dir>/campaign-plan.json --yes --plan-sha256 <plan-sha256>
                                     [--resume <dir>/run-manifest.json] [--out <dir>]
-  next-campaigns-create.sh verify    --manifest <dir>/run-manifest.json --plan <dir>/campaign-plan.json
+  next-campaigns-create.sh clone     --store <subdomain> --source <campaign_id> [--name <name>]
+                                    [--out <dir>] [--yes --clone-sha256 <hash>]
+                                    [--resume <dir>/run-manifest.json]
+  next-campaigns-create.sh verify    --manifest <dir>/run-manifest.json [--plan <dir>/campaign-plan.json]
   next-campaigns-create.sh edit      --manifest <dir>/run-manifest.json --plan <dir>/campaign-plan.json
                                     --changes <dir>/campaign-edit.json | --undo <dir>/edit-<n>-receipt.json
                                     [--yes --edit-sha256 <edit-sha256> --live-traffic yes|no]
-  next-campaigns-create.sh teardown  --manifest <dir>/run-manifest.json --plan <dir>/campaign-plan.json --yes
+  next-campaigns-create.sh teardown  --manifest <dir>/run-manifest.json [--plan <dir>/campaign-plan.json] --yes
+
+  verify and teardown require --plan for creation manifests; omit it for clone manifests.
+  Clone manifests cannot be edited in place; use the dashboard.
 
 Admin API token, first match wins:
   1. {STORE}_NEXT_ADMIN_API_TOKEN in the environment
@@ -71,7 +77,7 @@ Environment:
   NEXT_SKILLS_CHECK_TIMEOUT     seconds before check-update gives up (default: 10)
 
 Exit codes:
-  0 success. 1 refused or failed. 2 usage error, the apply or edit gate, or no usable Python.
+  0 success. 1 refused or failed. 2 usage error, the apply, clone or edit gate, or no usable Python.
   Every exit 2 means nothing was written to the store. check-update always exits 0.
 
 Without bash (Windows): run python3 <skill-dir>/scripts/campaign_admin.py with the same

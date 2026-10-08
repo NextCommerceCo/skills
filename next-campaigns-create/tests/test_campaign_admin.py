@@ -10,6 +10,7 @@ and verify's calculate comparison.
 from __future__ import annotations
 
 import argparse
+import copy
 import importlib.util
 import json
 import os
@@ -832,6 +833,7 @@ class DynamicTransport(FakeTransport):
         # PATCH 200 without changing anything.
         self.before = {}
         self.lose = set()
+        self.transport_loss = set()
         self.ignore_patch = set()
         self.routes, self.child_create, self.child_list = store_routes(disc, state)
 
@@ -848,6 +850,10 @@ class DynamicTransport(FakeTransport):
         if key in self.fail_on:
             st = self.fail_on.pop(key)
             return st, {}, json.dumps({"detail": "injected"})
+        if key in self.transport_loss:
+            self.transport_loss.discard(key)
+            self._handle(method, path, base, parts, body)
+            raise urllib.error.URLError("simulated transport loss after commit")
         if key in self.lose:
             self.lose.discard(key)
             self._handle(method, path, base, parts, body)
@@ -861,7 +867,48 @@ class DynamicTransport(FakeTransport):
             return st, {}, json.dumps(resp)
         if len(parts) >= 4 and parts[2] == "campaigns":
             cid = int(parts[3])
+            if len(parts) == 5 and parts[4] == "clone" and method == "POST":
+                source = self.state["campaigns"].get(cid)
+                if source is None:
+                    return 404, {}, "{}"
+                self.state["seq"] += 1
+                new_id = self.state["seq"]
+                cloned = copy.deepcopy(source)
+                cloned.update(id=new_id, name=source["name"] + "-COPY", api_key="CLONE-KEY-REDACTED-" + str(new_id),
+                              created_at=ca.utcnow(), updated_at=ca.utcnow())
+                for field in ("num_applications", "num_orders", "total_discount"):
+                    if field in cloned:
+                        cloned[field] = 0
+                if "enable_retail_price_and_quantity" in cloned:
+                    cloned["enable_retail_price_and_quantity"] = False
+                self.state["campaigns"][new_id] = cloned
+                for collection in ("packages", "shipping-methods", "offers"):
+                    self.state[collection][new_id] = copy.deepcopy({
+                        i: row for i, row in self.state[collection].get(cid, {}).items()
+                        if collection != "offers" or not row.get("is_removed", False)})
+                # Synthetic forex rate is 1:1. Keep source decimal text exact.
+                currencies = [source["currency"]] + source.get("additional_currencies", [])
+                for collection in ("packages", "shipping-methods"):
+                    for item in self.state[collection][new_id].values():
+                        prices = item["prices"]
+                        default = next(r for r in prices if r["currency"] == source["currency"])
+                        for currency in currencies:
+                            if not any(r["currency"] == currency for r in prices):
+                                prices.append(dict(default, currency=currency))
+                        item["prices"] = [r for r in prices if r["currency"] in currencies]
+                for offer in self.state["offers"][new_id].values():
+                    for field in ("num_applications", "num_orders", "total_discount"):
+                        if field in offer:
+                            offer[field] = 0
+                return 201, {}, json.dumps(cloned)
             if len(parts) == 4:
+                if method == "PATCH":
+                    c = self.state["campaigns"].get(cid)
+                    if c is None:
+                        return 404, {}, "{}"
+                    if key not in self.ignore_patch and "name" in body:
+                        c["name"] = body["name"]
+                    return 200, {}, json.dumps(c)
                 if method == "GET":
                     c = self.state["campaigns"].get(cid)
                     if c:
