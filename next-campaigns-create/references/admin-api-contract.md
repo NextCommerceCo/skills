@@ -60,12 +60,12 @@ token that has been pasted into a chat or a ticket once the work is done.
 | GET/POST | `/api/admin/campaigns/` | list (cursor paginated) / create |
 | GET/DELETE | `/api/admin/campaigns/{id}/` | retrieve (returns `api_key`) / delete |
 | GET/POST | `/api/admin/campaigns/{id}/packages/` | list / create |
-| DELETE | `/api/admin/campaigns/{id}/packages/{packageId}/` | delete |
+| GET/PATCH/DELETE | `/api/admin/campaigns/{id}/packages/{packageId}/` | read back / edit the price / delete |
 | PUT | `/api/admin/campaigns/{id}/packages/{packageId}/image/` | replace the package image (optional override) |
 | GET/POST | `/api/admin/campaigns/{id}/shipping-methods/` | list / create |
 | DELETE | `/api/admin/campaigns/{id}/shipping-methods/{id}/` | delete |
 | GET/POST | `/api/admin/campaigns/{id}/offers/` | list / create |
-| GET/DELETE | `/api/admin/campaigns/{id}/offers/{offerId}/` | retrieve / delete |
+| GET/PATCH/DELETE | `/api/admin/campaigns/{id}/offers/{offerId}/` | retrieve / edit / delete |
 | POST | `campaigns.apps.29next.com/api/v1/carts/calculate/` | pricing truth (verify); `?upsell=true` for upsell carts |
 
 ## Field notes and live gotchas
@@ -226,11 +226,13 @@ token that has been pasted into a chat or a ticket once the work is done.
     verify expects full shipping there, so prove those by hand.
   - The masking analysis only knows the plan's offers, so verify also lists the
     campaign's live offers (`campaign offers match the plan`), after the pricing
-    probes, and fails on any this run did not create. It does not read the live
-    `condition.value` back: the Admin API's offer retrieve body is undocumented
-    for it. If a live threshold still looks wrong after that check, prove it with
-    a hand `carts/calculate` at N and N-1 units rather than assuming the plan's
-    number is what the campaign stored.
+    probes, and fails on any this run did not create. It reads the live
+    `condition.type`, `condition.value` and `available` back when the offer
+    retrieve body carries them, and skips the check when it does not: the public
+    reference does not document those read fields, so an absent one is not a
+    mismatch. If a live threshold still looks wrong after that check, prove it
+    with a hand `carts/calculate` at N and N-1 units rather than assuming the
+    plan's number is what the campaign stored.
   - A hand-edited condition is handled the same way. The case that forced this
     was a live campaign whose count-2 offer the engine priced correctly but
     verify failed on every 2+ row by the shipping price.
@@ -253,6 +255,69 @@ token that has been pasted into a chat or a ticket once the work is done.
 - Rate limit: 4 requests per second, documented. The client paces at least 300 ms
   between calls and retries only GETs, honouring `Retry-After`. A POST or DELETE
   is never retried.
+
+## In-place edits
+
+`edit` changes objects the run manifest records and nothing else. The request
+bodies, and the PATCH behaviour they are built around:
+
+| Change | Request | Behaviour the engine relies on |
+|---|---|---|
+| package price | `PATCH .../packages/{id}/` `{"prices": [{"currency", "price"}, ...]}` | a package PATCH takes `prices[]` rows. The engine sends every row the package has and changes only the campaign-currency one, so other currencies keep their price |
+| offer percentage, rounding | `PATCH .../offers/{id}/` `{"benefit": {"value", "price_rounding"}}` | the benefit is merged: a field that is not sent is kept. `price_rounding` is sent only when it changes, as a value or `null` |
+| offer condition or scope | `PATCH .../offers/{id}/` `{"condition": {"type", "value", "all_packages": false, "package_ids"}}` | the condition is replaced whole: an `any` condition sent without `value` reads back with `value: null`. The engine therefore always sends all of it |
+| pause or resume | `PATCH .../offers/{id}/` `{"available": false}` | a plain field |
+| add an offer | `POST .../offers/` then, to pause, `PATCH {"available": false}` | a new offer is live on create whatever the create body says about `available` |
+
+All changes to one offer go in one PATCH. A combined body (benefit, condition
+and `available` together) has not been observed on a live store; the read-back
+after the write is what catches a field that did not land.
+
+Not edited: `PATCH` on the campaign (`currency`, `language` and
+`payment_gateway_group_id` are fixed at create), `PATCH` on a shipping method (a
+bare `price` there is answered 200 and ignored, and the method's price is part of
+how teardown identifies it), an offer's `offer_type` or `code` (changing either
+makes a different offer), `all_packages`, and any `DELETE`.
+
+The checks around each write:
+
+- **Before-image.** Each object is read by its journalled id and reduced to the
+  fields an edit can change or relies on (a package: id, name, variant id and
+  `prices[]`; an offer: id, name, type, code, `available`, the condition and the
+  benefit). That reduced read is saved in the receipt and hashed.
+- **The store must agree with the plan.** A live value that differs from the plan
+  is refused: the plan's landed prices would be wrong either way. That covers the
+  offer's type, benefit type and voucher code as well as the fields being edited;
+  a read that omits one of those three is inconclusive, since no edit writes them.
+- **One edit at a time.** `edit` holds an `edit.lock` file in the run directory
+  while it writes and checks the manifest is unchanged since its preview.
+- **The read must carry what the write depends on.** A condition write replaces
+  the whole condition, so the read has to show `type`, `value` and the packages.
+  A pause needs `available`. When the store's read omits one, the edit is refused
+  as unprovable.
+- **Re-read before, read back after.** There is no conditional write (no
+  `If-Match`), so the engine re-reads each object immediately before its PATCH
+  and stops if it is no longer the saved before-image, then reads it after and
+  compares it with the intended state. A 2xx is not the test. A mismatch stops
+  the run with both bodies printed. No write is retried.
+- **Approval hash.** SHA-256 over the plan file's hash, the edit file and each
+  object's before-image hash.
+
+Landed prices after an edit are recomputed from the plan's packages and offers,
+not carried over. For a checkout row, the live automatic `package_percentage`
+offers whose scope covers the row's packages and whose condition the quantity
+meets are compared and the highest percentage wins; `price_rounding` is applied
+to the winner, never used to choose it. No such offer means the package price,
+with `offer_key` null. An upsell row is priced by its own voucher. The engine
+refuses shapes those rows cannot express: a row whose packages no longer share a
+price, a scope covering part of a row, and two eligible offers at the same
+percentage.
+
+The residual in "Reconcile residual" applies to an added offer too: a lost POST
+response is claimed by offer name. It is narrowed by the receipt, which lists
+every offer id that was live before the edit; none of those is ever a
+candidate, so an offer that already existed cannot be claimed, paused or later
+deleted by this run.
 
 ## Reconcile residual
 
@@ -318,7 +383,22 @@ otherwise.
 - `verify-report.json`: the admin read-back checks and the `calculate` cases.
   Each case records `shipping` (`paid`, `free` or `none`), `expected_shipping`,
   `shipping_key` (the method the cart carried, null for an upsell) and the
-  request `path`.
+  request `path`. `sections` breaks the result down as `owned_fields`,
+  `calculate` and `live_offer_set`; `calculate` reads `NOT ATTRIBUTABLE` when an
+  offer this run does not own is live, listed in `unowned_live_offers`. The
+  overall `result` is unchanged by the breakdown.
+- `campaign-edit.json`: `{"operations": [...], "note": "..."}`, the input to
+  `edit`. Operations are `set_package_price`, `set_offer_benefit`,
+  `set_offer_condition`, `set_offer_scope`, `set_offer_available` and
+  `add_offer`.
+- `edit-<n>-receipt.json`: written before an edit's first request. Holds the edit
+  file, the approval hash, the `live_traffic_acknowledged` answer, the plan text
+  before and the plan after with both hashes, `preexisting_offer_ids`, and per
+  object the `before` image, its hash, the `expected` read after the write, the
+  `patch` body and the `restore` body. No secret. Mode 600 like the other run
+  files.
+- `edit-<n>-rollback.json`: written when an unfinished edit is rolled back. Holds
+  the actions taken and the plan the rollback left, with its hash.
 
 ### campaign-plan.json
 
@@ -333,7 +413,7 @@ otherwise.
    "product_id","product_variant_ids","price",
    "image":{"src","file_name"}}],
  "shipping_methods": [{"key","shipping_method","price"}],
- "offers": [{"key","name","offer_type","code",
+ "offers": [{"key","name","offer_type","code","available",
    "condition":{"type","value","package_keys"},
    "benefit":{"type","value","price_rounding"}}],
  "landed_prices": [{"tier","kind":"tier|single|upsell","qty","offer_key","package_keys",
@@ -357,6 +437,14 @@ has one `upsell` row per variant package, so `verify` probes each variant with
 the code. An upsell row's `package_keys` may name a hero or bump package when
 the upsell reused it.
 
+`available` on an offer is optional. `edit` writes `false` when it pauses an offer
+and removes the field when it resumes one; a hand-written `true` is accepted and
+means the same as leaving it out. A paused offer is left out
+of the landed-price and free-shipping calculations. A fresh `apply` refuses a
+plan with a paused offer, because every offer is created live; `--resume` accepts
+one whose manifest entry is already `created`. After an edit the plan file is
+rewritten, so its hash changes and the manifest's `plan_sha256` follows it.
+
 `offer_kind` is written by `recommend` (`quantity` when `--offer-type` is omitted)
 and is optional for `validate_plan`. Package `role` is not schema-checked;
 `recommend` emits `hero`, `bump`, `upsell` and `gift`. The extra landed fields
@@ -377,8 +465,22 @@ fractional. `print_plan` formats either.
  "packages": [{"key","status","id","name","product_variant_id",
    "image_status":"pending|set|unsupported|failed","image","image_at_create","image_error"}],
  "shipping_methods": [{"key","status","id"}],
- "offers": [{"key","status","id","name"}]}
+ "offers": [{"key","status","id","name","pause_pending"}],
+ "edits": [{"edit","kind":"edit|undo|rolled_back","receipt","edit_sha256",
+   "old_plan_sha256","new_plan_sha256","applied_at"}],
+ "pending_edit": {"edit","kind","receipt","old_plan_sha256","new_plan_sha256",
+   "objects": {"<section>:<key>": "pending|sending|verified"},
+   "adds": {"<offer key>": "pending|verified"},
+   "rollback": {"approved_sha256","objects","adds","plan_sha256"}}}
 ```
+
+`edits` and `pending_edit` exist only on a run that has been edited.
+`pending_edit` is present while an edit is unfinished and is removed when it
+completes or is rolled back. While it is present, `verify` and `--resume` refuse,
+`edit` continues or rolls back, and `teardown` accepts any of the three plan
+hashes it names (the plan the edit started from, the one it writes, and the one a
+rollback writes) and takes the identity of an offer the edit created from the
+receipt.
 
 `package_keys` in the plan resolve to created ids at apply time. Each
 `landed_prices` row carries its own `package_keys`, `offer_key` and optional

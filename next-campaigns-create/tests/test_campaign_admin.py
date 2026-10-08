@@ -797,9 +797,13 @@ def store_routes(disc, state):
                 # already carries one. Mirror that, or every verify PASS assertion breaks.
                 item["image"] = state.get("catalogue_image", CATALOGUE_IMAGE)
             if kind == "offers":
-                item["condition"] = {"type": body["condition"]["type"], "all_packages": False,
+                # Read shape: value is always present (null for `any`), and a new offer
+                # is live whatever the create body said about `available`.
+                item["condition"] = {"type": body["condition"]["type"], "value": body["condition"].get("value"),
+                                     "all_packages": False,
                                      "packages": [{"id": i} for i in body["condition"]["package_ids"]]}
                 item["benefit"] = dict(body["benefit"])
+                item["available"] = True
             if kind == "shipping-methods":
                 item["prices"] = [{"currency": "USD", "price": body["price"]}]
             state[kind].setdefault(cid, {})[item["id"]] = item
@@ -821,6 +825,14 @@ class DynamicTransport(FakeTransport):
         self.state = state
         self.fail_on = fail_on or {}
         self.image_url = image_url
+        # One-shot knobs for the edit tests, keyed like fail_on by (method, path):
+        # `before` runs a callable just ahead of the request (a dashboard change
+        # landing mid-run); `lose` performs the request and then answers 502, the
+        # shape of a response lost on the way back; `ignore_patch` answers a
+        # PATCH 200 without changing anything.
+        self.before = {}
+        self.lose = set()
+        self.ignore_patch = set()
         self.routes, self.child_create, self.child_list = store_routes(disc, state)
 
     def __call__(self, req, timeout):
@@ -831,9 +843,19 @@ class DynamicTransport(FakeTransport):
         base = path.split("?")[0]
         parts = base.strip("/").split("/")
         key = (method, base)
+        if key in self.before:
+            self.before.pop(key)()
         if key in self.fail_on:
             st = self.fail_on.pop(key)
             return st, {}, json.dumps({"detail": "injected"})
+        if key in self.lose:
+            self.lose.discard(key)
+            self._handle(method, path, base, parts, body)
+            return 502, {}, json.dumps({"detail": "response lost"})
+        return self._handle(method, path, base, parts, body)
+
+    def _handle(self, method, path, base, parts, body):
+        key = (method, base)
         if key in self.routes:
             st, resp = self.routes[key](path, body)
             return st, {}, json.dumps(resp)
@@ -872,6 +894,26 @@ class DynamicTransport(FakeTransport):
                 if method == "DELETE":
                     self.state[kind].get(cid, {}).pop(iid, None)
                     return 204, {}, ""
+                if method == "PATCH":
+                    if item is None:
+                        return 404, {}, "{}"
+                    if key in self.ignore_patch:
+                        return 200, {}, json.dumps(item)
+                    # Observed PATCH behaviour: a package takes prices[] rows (a bare
+                    # price is answered 200 and ignored); an offer's benefit is merged,
+                    # its condition is replaced whole, `available` is a plain field.
+                    if kind == "packages" and "prices" in body:
+                        item["prices"] = [dict({"price_recurring": None}, **r) for r in body["prices"]]
+                    if kind == "offers":
+                        if "benefit" in body:
+                            item["benefit"].update(body["benefit"])
+                        if "condition" in body:
+                            c = body["condition"]
+                            item["condition"] = {"type": c["type"], "value": c.get("value"), "all_packages": False,
+                                                 "packages": [{"id": i} for i in c["package_ids"]]}
+                        if "available" in body:
+                            item["available"] = body["available"]
+                    return 200, {}, json.dumps(item)
             if len(parts) == 7 and kind == "packages" and parts[6] == "image" and method == "PUT":
                 item = self.state[kind].get(cid, {}).get(int(parts[5]))
                 if item is None:
