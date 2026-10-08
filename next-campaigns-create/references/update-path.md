@@ -493,7 +493,14 @@ For a run that **cannot** finish: a 400 on a PATCH the store will keep
 rejecting, a rejected image `src`, or a resume that refuses on drift. Without it
 a rejected write would leave the run behind `active_update` forever.
 
-`--settle` sends nothing. It reads back every op left in flight, writes the plan
+`--settle` sends nothing. A PATCH or a POST left in flight has to read back at
+exactly its `before` or its `after` state: if the object sits at neither, or an
+object with the same identity holds different values, `--settle` refuses like
+`--resume` does, and the object has to be put right in the dashboard first. A
+DELETE left in flight whose object is still on the campaign is recorded as not
+applied, whatever changed on it since.
+
+It reads back every op left in flight, writes the plan
 that describes what actually landed (the base plan plus the `after` of every
 applied op, created keys added and deleted keys dropped, and any `landed_prices`
 or `voucher_codes` row that priced a dropped key dropped with it), validates it,

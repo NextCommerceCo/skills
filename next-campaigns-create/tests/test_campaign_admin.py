@@ -6583,6 +6583,30 @@ class Settle(_CreatedRun):
         self.assertEqual(self.diff(cand), 0, self.out())
         self.assertEqual(self.ops(), [("PATCH", "packages", "hero-23")])
 
+    def test_settle_closes_a_delete_that_never_landed_even_if_the_object_changed(self):
+        """A DELETE still on the campaign did not land. Settle records it as not
+        applied whatever the dashboard did to the object since; only a resume, which
+        would send the DELETE, has to refuse the change."""
+        cand = self.cand()
+        gone = cand["offers"][-1]["key"]
+        cand["offers"] = cand["offers"][:-1]
+        self.assertEqual(self.diff(cand), 0, self.out())
+        oid = self.ids("offers")[gone]
+        t = DynamicTransport(self.disc, self.state, fail_on={
+            ("DELETE", f"/api/admin/campaigns/{self.cid}/offers/{oid}/"): 500})
+        self.assertEqual(self.update("--allow-delete", transport=t), 1, self.out())
+        self.state["offers"][self.cid][oid]["name"] = "Renamed in the dashboard"
+        self.assertEqual(self.update("--allow-delete", "--resume"), 1, self.out())
+        self.assertIn("no longer matches what the diff showed", self.out())
+        self.assertEqual(self.update("--settle"), 0, self.out())
+        self.assertEqual(self.sent(), [], "settle never writes to the store")
+        man = self.manifest()
+        self.assertNotIn("active_update", man)
+        entry = next(e for e in man["offers"] if e["key"] == gone)
+        self.assertEqual(entry["status"], "created")
+        self.assertEqual([o["outcome"] for o in man["history"][-1]["ops"]
+                          if o["method"] == "DELETE"], ["not applied"])
+
     def test_an_in_flight_op_at_neither_state_refuses(self):
         self._stopped_on_a_400()
         pid = self.ids("packages")["hero-23"]

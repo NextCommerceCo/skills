@@ -79,9 +79,9 @@ campaign, package, shipping method or offer the manifest does not record. `edit`
 changes only objects in it, `teardown` removes only objects in it, and an offer
 someone added in the dashboard is listed and left alone. A campaign this skill
 created is owned by its run directory. A campaign built in the dashboard, or one
-whose run directory was lost, becomes owned only through `adopt --store <sub>
---campaign <id>`, by id, after the operator confirms the campaign's id, name and
-created_at. Nothing adopts a campaign implicitly, and `adopt` refuses a directory
+whose run directory was lost, becomes owned only through
+`adopt --store <subdomain> --campaign <id>`, by id, after the operator confirms
+the campaign's id, name and created_at. Nothing adopts a campaign implicitly, and `adopt` refuses a directory
 that already holds a manifest.
 
 Teardown and recreate is the fallback for the few fields neither path can change,
@@ -541,8 +541,8 @@ The full procedure, with every plan edit and every refusal, is in
 [`references/update-path.md`](references/update-path.md). Read it before running
 `diff`. In outline:
 
-- **U1 Identify.** Use the existing run directory, or `adopt --store <sub>
-  --campaign <id>` after confirming the campaign's id, name and created_at with
+- **U1 Identify.** Use the existing run directory, or
+  `adopt --store <subdomain> --campaign <id>` after confirming the campaign's id, name and created_at with
   `AskUserQuestion`. `adopt` writes a plan whose desired state equals live plus
   a manifest with `origin: "adopted"`, into
   `./next-campaigns-create-runs/<subdomain>-<campaign_id>/` by default. Blockers

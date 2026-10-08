@@ -5305,7 +5305,7 @@ def _one_live(section: str, obj: dict, currency: str, plan: dict, kop: dict) -> 
 
 
 def _resolve_in_flight(client: Client, man: Manifest, plan: dict, cs: dict, snap: dict,
-                       norm: dict, currency: str, cid, journal: dict) -> None:
+                       norm: dict, currency: str, cid, journal: dict, settling: bool = False) -> None:
     """Every op left `in_flight` by an interruption, decided by reading the store: it
     landed with its response lost (mark it done), or it never went out (leave it to be
     sent). Anything in between refuses and names the object and the field, because no
@@ -5343,8 +5343,8 @@ def _resolve_in_flight(client: Client, man: Manifest, plan: dict, cs: dict, snap
                 raise CampaignAdminError(
                     f"op {n}: {section} {key} was not created by this run: {section[:-1]} "
                     f"{full.get('id')} answers to the same identity but holds different values "
-                    f"({'; '.join(diffs)}). It is not ours to claim. Remove it in the dashboard, or "
-                    "close this update with update --settle.")
+                    f"({'; '.join(diffs)}). It is not ours to claim, and neither --resume nor --settle "
+                    "can go past it. Remove it in the dashboard, then run the same command again.")
             # One save: ownership and the completed op land together or not at all.
             fields = {"status": "created", "id": full.get("id"), "intent": None, "reconciled": True}
             if section == "packages":
@@ -5366,6 +5366,11 @@ def _resolve_in_flight(client: Client, man: Manifest, plan: dict, cs: dict, snap
                 _remove_entry(man, section, key, n)
                 _save_op(man, n, "done")
                 journal[n]["status"] = "done"
+                continue
+            if settling:
+                # Still on the campaign, so the DELETE did not land. Settle records it
+                # as not applied whatever else happened to the object; only a resume,
+                # which would send the DELETE, has to care that it changed.
                 continue
             got = _resume_view(section, next(o for o in norm[section] if o["id"] == op["id"]), kop)
             diffs = [f for f, v in (op.get("before") or {}).items() if got.get(f) != v]
@@ -5421,7 +5426,8 @@ def _resolve_in_flight(client: Client, man: Manifest, plan: dict, cs: dict, snap
         raise CampaignAdminError(
             f"op {n}: {section} {key} is at neither the value before this update nor the value after "
             f"it ({detail}); it was changed while the update was not running. Put it back to one of "
-            "them in the dashboard and resume, or close this update with update --settle.")
+            "them in the dashboard, then run --resume or --settle again; neither can tell a "
+            "half-applied write from a dashboard edit.")
 
 
 def _resume_check(man: Manifest, cs: dict, norm: dict, journal: dict) -> None:
@@ -5560,7 +5566,7 @@ def _settle(client: Client, man: Manifest, base: dict, base_path: Path, plan: di
     every op left in flight, writes the plan that describes what actually landed,
     promotes it through the same 4 steps and clears `active_update`. The operator then
     runs a fresh diff for the remainder."""
-    _resolve_in_flight(client, man, plan, cs, snap, norm, currency, cid, journal)
+    _resolve_in_flight(client, man, plan, cs, snap, norm, currency, cid, journal, settling=True)
     applied = {o["n"] for o in cs.get("ops") or []
                if (journal.get(o["n"]) or {}).get("status") == "done"}
     # An op that did not land leaves its object alone: a DELETE marked `deleting`
