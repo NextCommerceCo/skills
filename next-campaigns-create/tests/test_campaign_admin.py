@@ -13,6 +13,7 @@ import argparse
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -4203,6 +4204,36 @@ class LegacyManifest(unittest.TestCase):
         self.assertEqual(cs["preserved"], [])
         self.assertEqual([(c[0], c[1]) for c in self.t.calls if c[0] != "GET"], [])
 
+    def test_update_of_the_edited_legacy_plan_backfills_the_shipping_code(self):
+        d = Path(self.tmp.name)
+        cand = json.loads(self.plan_path.read_text())
+        cand["packages"][0]["price"] = "27.95"
+        nxt = d / "campaign-plan.next.json"
+        nxt.write_text(json.dumps(cand, indent=2) + "\n")
+        lines = []
+        with mock.patch.object(ca, "print", lambda *a, **k: lines.append(" ".join(map(str, a)))):
+            self.assertEqual(self._main(["diff", "--plan", str(nxt),
+                                         "--manifest", str(self.manifest_path)]), 0,
+                             "\n".join(lines))
+            cs = json.loads((d / "change-set.json").read_text())
+            rc = self._main(["update", "--plan", str(d / cs["merged_plan_file"]),
+                             "--manifest", str(self.manifest_path),
+                             "--change-set", str(d / "change-set.json"), "--yes",
+                             "--change-set-sha256", ca.sha256_file(d / "change-set.json")])
+        self.assertEqual(rc, 0, "\n".join(lines))
+        cid, pid = self.man["campaign"]["id"], self.man["packages"][0]["id"]
+        self.assertEqual([(c[0], c[1]) for c in self.t.calls if c[0] != "GET"],
+                         [("PATCH", f"/api/admin/campaigns/{cid}/packages/{pid}/")])
+        man = json.loads(self.manifest_path.read_text())
+        # the entry 0.7.5 wrote carried no store code; a completed update backfills it
+        self.assertEqual(man["shipping_methods"][0]["shipping_method"], "standard")
+        self.assertNotIn("price", man["shipping_methods"][0])  # no field the run never had
+        self.assertEqual(man["plan_sha256"], cs["merged_plan_sha256"])
+        self.assertEqual(ca.sha256_file(self.plan_path), cs["merged_plan_sha256"])
+        self.assertEqual(json.loads(self.plan_path.read_text())["packages"][0]["price"], "27.95")
+        self.assertNotIn("origin", man)  # an update adds no field the run did not have
+        self.assertNotIn("active_update", man)
+
     def test_teardown_deletes_the_legacy_run(self):
         rc = self._main(["teardown", "--manifest", str(self.manifest_path),
                          "--plan", str(self.plan_path), "--yes"])
@@ -5174,6 +5205,1283 @@ class DiffMatrixVouchers(_AdoptedRun):
         msg = self.refuse(cand, needle="would set the voucher code")
         self.assertIn("Do it as 2 updates through a temporary name", msg)
 
+
+class _Interrupted(Exception):
+    """The process dying mid-run: whatever the journal holds on disk is all that is
+    left for a resume to reason about."""
+
+
+class InterruptingTransport(DynamicTransport):
+    """A store that stops at a chosen write. `stop_after=N` cuts the run before write
+    N+1 leaves (so N writes landed); `lose_response_on={N}` lets write N land and then
+    loses its answer, which is the one state a resume cannot read off the journal."""
+
+    def __init__(self, disc, state, *, stop_after=None, lose_response_on=(), **kw):
+        super().__init__(disc, state, **kw)
+        self.stop_after, self.lose_response_on = stop_after, set(lose_response_on)
+        self.writes = 0
+
+    def __call__(self, req, timeout):
+        if req.get_method() != "GET":
+            self.writes += 1
+            if self.stop_after is not None and self.writes > self.stop_after:
+                raise _Interrupted(f"the run stopped before write {self.writes}")
+            if self.writes in self.lose_response_on:
+                super().__call__(req, timeout)  # the store applies it
+                raise _Interrupted(f"the answer to write {self.writes} was lost")
+        return super().__call__(req, timeout)
+
+
+class _UpdatableRun(_AdoptedRun):
+    """An adopted run plus what an update needs: the command the last diff printed, a
+    read-back of everything that went to the store, and the run's files afterwards."""
+
+    def _run_with(self, transport, argv):
+        self.t = transport
+        admin = make_client(self.t)
+        self.lines = []
+        with mock.patch.object(ca, "_client_for", lambda slug: admin), \
+                mock.patch.object(ca, "print",
+                                  lambda *a, **k: self.lines.append(" ".join(map(str, a)))):
+            return ca.main(argv)
+
+    def update_argv(self, *extra, plan=None, cs=None, sha=None):
+        cs_path = Path(cs) if cs else (self.dir / CHANGE_SET)
+        merged = Path(plan) if plan else self.dir / self.change_set()["merged_plan_file"]
+        return ["update", "--plan", str(merged), "--manifest", str(self.manifest_path),
+                "--change-set", str(cs_path), "--yes",
+                "--change-set-sha256", sha or ca.sha256_file(cs_path), *extra]
+
+    def update(self, *extra, transport=None, plan=None, cs=None, sha=None):
+        argv = self.update_argv(*extra, plan=plan, cs=cs, sha=sha)
+        return self._run_with(transport or DynamicTransport(self.disc, self.state), argv)
+
+    def sent(self):
+        return [(c[0], c[1]) for c in self.t.calls if c[0] != "GET"]
+
+    def bodies(self):
+        return [(c[0], c[1], c[2]) for c in self.t.calls if c[0] != "GET"]
+
+    def plan_now(self):
+        return json.loads(self.base_path.read_text())
+
+    def tamper(self, mutate):
+        cs = self.change_set()
+        mutate(cs)
+        ca.atomic_write_json(self.dir / CHANGE_SET, cs)
+        return cs
+
+    def refuse_update(self, *extra, needle, code=2, **kw):
+        before = self.manifest_path.read_bytes()
+        self.assertEqual(self.update(*extra, **kw), code, self.out())
+        self.assertIn(needle, self.out())
+        self.assertEqual(self.sent(), [], "a refused update must send no write")
+        self.assertEqual(self.manifest_path.read_bytes(), before,
+                         "a refused update must not touch the manifest")
+        return self.out()
+
+    def edited(self, **kw):
+        """A candidate with one field per section changed, diffed and ready to apply."""
+        cand = self.cand()
+        cand["campaign"]["name"] = kw.get("name", "Edited campaign")
+        cand["packages"][0]["price"] = kw.get("price", "29.95")
+        cand["shipping_methods"][0]["price"] = kw.get("ship", "7.95")
+        cand["offers"][0]["benefit"]["value"] = kw.get("pct", "60.00")
+        self.assertEqual(self.diff(cand), 0, self.out())
+        return cand
+
+
+class UpdateGate(_UpdatableRun):
+    """Everything update checks before its first request. Every case here must refuse
+    with nothing sent to the store."""
+
+    def setUp(self):
+        super().setUp()
+        self.edited()
+
+    def test_without_the_flags_it_prints_the_change_set_and_builds_no_client(self):
+        cs_path = self.dir / CHANGE_SET
+
+        def no_client(slug):
+            raise AssertionError("the gate must refuse before a client exists")
+        self.lines = []
+        with mock.patch.object(ca, "_client_for", no_client), \
+                mock.patch.object(ca, "print",
+                                  lambda *a, **k: self.lines.append(" ".join(map(str, a)))):
+            rc = ca.main(["update", "--plan", str(self.dir / self.change_set()["merged_plan_file"]),
+                          "--manifest", str(self.manifest_path), "--change-set", str(cs_path)])
+        self.assertEqual(rc, 2, self.out())
+        self.assertIn("Requests update will send", self.out())
+        self.assertIn("NOT APPLIED", self.out())
+        self.assertIn(f"--change-set-sha256 {ca.sha256_file(cs_path)}", self.out())
+
+    def test_a_wrong_change_set_hash_refuses(self):
+        self.refuse_update(needle="NOT APPLIED", sha="0" * 64)
+
+    def test_a_plan_that_is_not_the_merged_plan_refuses(self):
+        other = self.dir / "campaign-plan.other.json"
+        other.write_text(json.dumps(self.cand(), indent=2) + "\n")
+        self.refuse_update(needle="not the plan passed with --plan", plan=other)
+
+    def test_a_plan_whose_bytes_were_re_indented_without_the_change_set_refuses(self):
+        merged = self.dir / self.change_set()["merged_plan_file"]
+        merged.write_text(json.dumps(json.loads(merged.read_text()), indent=4) + "\n")
+        # the same plan, different bytes: the change set names the bytes diff wrote
+        self.refuse_update(needle="diff is the only writer of that file")
+
+    def test_baseline_drift_between_diff_and_update_refuses(self):
+        self.state["campaigns"][self.cid]["language"] = "de"
+        self.refuse_update(needle="campaign changed since you reviewed the diff; re-run diff")
+
+    def test_a_dashboard_image_change_between_diff_and_update_is_drift(self):
+        pid = self.ids("packages")["pkg-801"]
+        self.state["packages"][self.cid][pid]["image"] = "https://cdn.test/media/other.webp"
+        self.refuse_update(needle="campaign changed since you reviewed the diff")
+
+    def test_deletes_without_allow_delete_refuse(self):
+        cand = self.cand()
+        cand["offers"] = [o for o in cand["offers"] if o["key"] != self.offer_keys[1]]
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.refuse_update(needle="--allow-delete was not passed")
+        self.assertEqual(self.update("--allow-delete"), 0, self.out())
+
+    def test_a_change_set_from_another_run_or_campaign_refuses(self):
+        self.tamper(lambda cs: cs.update(run_id="00000000-0000-4000-8000-000000000000"))
+        self.refuse_update(needle="names run_id")
+        self.tamper(lambda cs: cs.update(run_id=self.manifest()["run_id"], campaign_id=999))
+        self.refuse_update(needle="names campaign_id 999")
+
+    def test_a_change_set_from_another_store_refuses(self):
+        self.tamper(lambda cs: cs.update(store_slug="otherstore"))
+        self.refuse_update(needle="names store_slug 'otherstore'")
+
+    def test_a_stale_base_plan_hash_refuses_after_an_intervening_update(self):
+        stale = self.dir / "change-set.stale.json"
+        shutil.copy(self.dir / CHANGE_SET, stale)
+        stale_plan = self.dir / self.change_set()["merged_plan_file"]
+        self.assertEqual(self.update(), 0, self.out())  # the intervening update
+        self.assertEqual(self.update(cs=stale, plan=stale_plan), 2, self.out())
+        self.assertIn("has already been applied", self.out())
+        cs = json.loads(stale.read_text())
+        cs["merged_plan_sha256"] = "1" * 64
+        ca.atomic_write_json(stale, cs)
+        self.assertEqual(self.update(cs=stale, plan=stale_plan), 2, self.out())
+        self.assertIn("the run moved on after the diff", self.out())
+
+    def test_an_edited_canonical_plan_refuses(self):
+        self.base_path.write_text(self.base_path.read_text() + "\n")
+        self.refuse_update(needle="edited in place")
+
+    def test_an_op_id_the_manifest_does_not_own_refuses(self):
+        self.tamper(lambda cs: cs["ops"][1].update(id=999, path=cs["ops"][1]["path"]))
+        self.refuse_update(needle="is not an object this run owns")
+
+    def test_an_op_path_outside_this_campaign_refuses(self):
+        pid = self.ids("packages")["pkg-801"]
+        self.tamper(lambda cs: cs["ops"][1].update(
+            path=f"/api/admin/campaigns/999/packages/{pid}/"))
+        self.refuse_update(needle="is not the route for PATCH packages pkg-801")
+
+    def test_an_op_path_whose_section_or_id_does_not_match_refuses(self):
+        pid = self.ids("packages")["pkg-801"]
+        self.tamper(lambda cs: cs["ops"][1].update(
+            path=f"/api/admin/campaigns/{self.cid}/offers/{pid}/"))
+        self.refuse_update(needle="is not the route for PATCH packages pkg-801")
+        other = self.ids("packages")["pkg-802"]
+        self.tamper(lambda cs: cs["ops"][1].update(
+            path=f"/api/admin/campaigns/{self.cid}/packages/{other}/"))
+        self.refuse_update(needle="is not the route for PATCH packages pkg-801")
+
+    def test_a_post_carrying_an_id_or_reusing_a_live_key_refuses(self):
+        cand = self.cand()
+        cand["shipping_methods"].append({"shipping_method": "express", "price": "12.95"})
+        self.assertEqual(self.diff(cand), 0, self.out())
+        n = next(o["n"] for o in self.change_set()["ops"]
+                 if o["method"] == "POST") - 1
+        self.tamper(lambda cs: cs["ops"][n].update(id=4242))
+        self.refuse_update(needle="cannot name id 4242")
+        self.tamper(lambda cs: (cs["ops"][n].pop("id"),
+                                cs["ops"][n].update(key="standard")))
+        self.refuse_update(needle="is already an object this run owns")
+
+    def test_an_op_out_of_order_refuses(self):
+        self.tamper(lambda cs: cs["ops"][1].update(n=99))
+        self.refuse_update(needle="is out of step")
+
+    def test_a_post_its_dependent_image_put_and_a_scoped_offer_pass_the_binding(self):
+        cand = self.cand()
+        cand["packages"].append({"key": "pkg-900", "role": "bump", "name": "New Bump",
+                                 "variant_title": "v900", "product_id": 22,
+                                 "product_variant_ids": [900], "price": "9.95",
+                                 "image": {"src": "https://cdn.example/new.png"}})
+        cand["offers"].append({"key": "offer-new", "name": "New Offer", "offer_type": "offer",
+                               "code": None,
+                               "condition": {"type": "any", "value": None,
+                                             "package_keys": ["pkg-900"]},
+                               "benefit": {"type": "package_percentage", "value": "10.00",
+                                           "price_rounding": None}})
+        self.assertEqual(self.diff(cand), 0, self.out())
+        ops = {(o["method"], o["key"]): o for o in self.change_set()["ops"]}
+        put = ops[("PUT", "pkg-900")]
+        self.assertEqual((put.get("id"), put["depends_on"]),
+                         (None, ops[("POST", "pkg-900")]["n"]))
+        self.assertIsNone(ops[("POST", "offer-new")]["body"])
+        self.assertEqual(self.update(), 0, self.out())
+        new_id = self.ids("packages")["pkg-900"]
+        self.assertIn(("PUT", f"/api/admin/campaigns/{self.cid}/packages/{new_id}/image/"),
+                      self.sent())
+        offer_post = next(b for b in self.bodies()
+                          if b[0] == "POST" and b[1].endswith("/offers/"))
+        self.assertEqual(offer_post[2]["condition"]["package_ids"], [new_id])
+
+    def test_an_active_update_refuses_a_fresh_update(self):
+        man = self.manifest()
+        man["active_update"] = {"change_set_sha256": "x", "merged_plan_sha256": "y",
+                                "started_at": "2026-10-08T00:00:00Z"}
+        ca.atomic_write_json(self.manifest_path, man)
+        self.refuse_update(needle="an update is in progress")
+
+
+class PreservedOnly(_UpdatableRun):
+    """A change set with no requests in it is still worth applying: it carries the
+    values the store changed and the candidate left alone."""
+
+    def test_a_zero_op_change_set_promotes_the_merged_plan_with_no_write(self):
+        self.state["campaigns"][self.cid]["name"] = "Renamed in the dashboard"
+        self.assertEqual(self.diff(self.cand()), 0, self.out())
+        cs = self.change_set()
+        self.assertEqual(cs["ops"], [])
+        old_sha = self.manifest()["plan_sha256"]
+        self.assertEqual(self.update(), 0, self.out())
+        self.assertEqual(self.sent(), [], "nothing is sent for a change set with no ops")
+        self.assertEqual(self.plan_now()["campaign"]["name"], "Renamed in the dashboard")
+        man = self.manifest()
+        self.assertEqual(man["plan_sha256"], cs["merged_plan_sha256"])
+        self.assertEqual(man["campaign"]["name"], "Renamed in the dashboard")
+        self.assertNotIn("active_update", man)
+        self.assertNotIn("pending_promotion", man)
+        self.assertEqual(ca.sha256_file(self.base_path), cs["merged_plan_sha256"])
+        # the plan it replaced is kept as a byte copy
+        archive = self.dir / f"campaign-plan.{old_sha[:8]}.json"
+        self.assertEqual(ca.sha256_file(archive), old_sha)
+        self.assertEqual([h["change_set_sha256"] for h in man["history"]],
+                         [ca.sha256_file(self.dir / CHANGE_SET)])
+        # and the run is in step: a second diff of the promoted plan sees nothing
+        self.assertEqual(self.diff(self.plan_now()), 0, self.out())
+        self.assertIn("no changes", self.out())
+
+
+class ImageUpdate(_UpdatableRun):
+    """An approved image PUT on a package that already carries one."""
+
+    def test_a_put_on_a_package_whose_image_is_already_set_is_sent_and_recorded(self):
+        man = self.manifest()
+        man["packages"][0].update(image_status="set", image_src="https://cdn.example/old.png",
+                                  image=CATALOGUE_IMAGE)
+        ca.atomic_write_json(self.manifest_path, man)
+        cand = self.cand()
+        cand["packages"][0]["image"] = {"src": "https://cdn.example/new.png"}
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops(), [("PUT", "packages", "pkg-801")])
+        self.assertEqual(self.update(), 0, self.out())
+        pid = self.ids("packages")["pkg-801"]
+        self.assertEqual(self.bodies(),
+                         [("PUT", f"/api/admin/campaigns/{self.cid}/packages/{pid}/image/",
+                           {"src": "https://cdn.example/new.png"})])
+        e = self.manifest()["packages"][0]
+        self.assertEqual((e["image_status"], e["image_src"], e["image"]),
+                         ("set", "https://cdn.example/new.png", OVERRIDE_IMAGE))
+        self.assertEqual(self.plan_now()["packages"][0]["image"],
+                         {"src": "https://cdn.example/new.png"})
+
+    def test_a_rejected_image_marks_the_package_failed_and_the_update_finishes(self):
+        cand = self.cand()
+        cand["campaign"]["name"] = "Renamed too"
+        cand["packages"][0]["image"] = {"src": "https://cdn.example/new.png"}
+        self.assertEqual(self.diff(cand), 0, self.out())
+        pid = self.ids("packages")["pkg-801"]
+        t = DynamicTransport(self.disc, self.state, fail_on={
+            ("PUT", f"/api/admin/campaigns/{self.cid}/packages/{pid}/image/"): 400})
+        self.assertEqual(self.update(transport=t), 1, self.out())
+        self.assertIn("did not land", self.out())
+        e = self.manifest()["packages"][0]
+        self.assertEqual(e["image_status"], "failed")
+        # the campaign PATCH before it landed, and the plan was promoted anyway
+        self.assertEqual(self.state["campaigns"][self.cid]["name"], "Renamed too")
+        self.assertEqual(self.plan_now()["campaign"]["name"], "Renamed too")
+        self.assertNotIn("active_update", self.manifest())
+
+
+class UpdateOrder(_UpdatableRun):
+    """Execution order: the campaign, then offer deletes, then packages with their
+    images, then shipping, then offers."""
+
+    def _every_section(self):
+        cand = self.cand()
+        cand["campaign"]["name"] = "Edited campaign"
+        cand["packages"][0]["price"] = "29.95"
+        cand["packages"] = [p for p in cand["packages"] if p["key"] != "pkg-802"]
+        cand["packages"].append({"key": "pkg-900", "role": "bump", "name": "New Bump",
+                                 "variant_title": "v900", "product_id": 22,
+                                 "product_variant_ids": [900], "price": "9.95",
+                                 "image": {"src": "https://cdn.example/new.png"}})
+        cand["shipping_methods"][0]["price"] = "7.95"
+        cand["shipping_methods"].append({"shipping_method": "express", "price": "12.95"})
+        cand["offers"] = [o for o in cand["offers"] if o["key"] != self.offer_keys[1]]
+        cand["offers"][0]["benefit"]["value"] = "60.00"
+        cand["offers"].append({"key": "offer-new", "name": "New Offer", "offer_type": "offer",
+                               "code": None,
+                               "condition": {"type": "any", "value": None,
+                                             "package_keys": ["pkg-900"]},
+                               "benefit": {"type": "package_percentage", "value": "10.00",
+                                           "price_rounding": None}})
+        self.assertEqual(self.diff(cand), 0, self.out())
+        return cand
+
+    def test_every_section_in_one_change_set_goes_out_in_the_printed_order(self):
+        self._every_section()
+        planned = [(o["method"], o["section"], o["key"]) for o in self.change_set()["ops"]]
+        self.assertEqual(planned, [
+            ("PATCH", "campaign", "campaign"),
+            ("DELETE", "offers", self.offer_keys[1]),
+            ("DELETE", "packages", "pkg-802"),
+            ("PATCH", "packages", "pkg-801"),
+            ("POST", "packages", "pkg-900"),
+            ("PUT", "packages", "pkg-900"),
+            ("PATCH", "shipping_methods", "standard"),
+            ("POST", "shipping_methods", "express"),
+            ("PATCH", "offers", self.offer_keys[0]),
+            ("POST", "offers", "offer-new")])
+        self.assertEqual(self.update("--allow-delete"), 0, self.out())
+        self.assertEqual([m for m, _p in self.sent()],
+                         [o[0] for o in planned])
+        self.assertEqual([p for _m, p in self.sent()],
+                         [o["path"] for o in self.change_set()["ops"][:4]]
+                         + [self.sent()[4][1]]  # the POST's collection route
+                         + [f"/api/admin/campaigns/{self.cid}/packages/"
+                            f"{self.ids('packages')['pkg-900']}/image/"]
+                         + [o["path"] for o in self.change_set()["ops"][6:]])
+
+    def test_the_journal_records_every_op_queued_then_in_flight_then_done(self):
+        self.edited()
+        saved = []
+        real = ca.Manifest.save
+
+        def spy(man):
+            real(man)
+            saved.append([(o["n"], o["status"]) for o in man.data.get("ops") or []])
+        with mock.patch.object(ca.Manifest, "save", spy):
+            self.assertEqual(self.update(), 0, self.out())
+        self.assertIn([(1, "queued"), (2, "queued"), (3, "queued"), (4, "queued")], saved)
+        # every op is saved in_flight before the next one is even looked at
+        for n in (1, 2, 3, 4):
+            flight = next(i for i, s in enumerate(saved) if (n, "in_flight") in s)
+            done = next(i for i, s in enumerate(saved) if (n, "done") in s)
+            self.assertLess(flight, done, f"op {n} was not saved in flight before it was done")
+
+    def test_an_op_that_fails_stops_the_run_and_leaves_the_journal_mid_update(self):
+        self.edited()
+        pid = self.ids("packages")["pkg-801"]
+        t = DynamicTransport(self.disc, self.state, fail_on={
+            ("PATCH", f"/api/admin/campaigns/{self.cid}/packages/{pid}/"): 400})
+        self.assertEqual(self.update(transport=t), 1, self.out())
+        self.assertIn("returned 400", self.out())
+        man = self.manifest()
+        self.assertEqual([(o["n"], o["status"]) for o in man["ops"]],
+                         [(1, "done"), (2, "in_flight"), (3, "queued"), (4, "queued")])
+        self.assertIn("active_update", man)
+        self.assertEqual(man["plan_sha256"], self.change_set()["base_plan_sha256"])
+
+
+class RemovedEntries(_UpdatableRun):
+    """A DELETE moves its entry out of the active section into `removed[]`, so nothing
+    afterwards reads the run as torn down."""
+
+    def _delete_the_free_shipping_offer(self):
+        cand = self.cand()
+        cand["offers"] = [o for o in cand["offers"] if o["key"] != self.offer_keys[1]]
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertTrue(self.change_set()["has_deletes"])
+        oid = self.ids("offers")[self.offer_keys[1]]
+        self.assertEqual(self.update("--allow-delete"), 0, self.out())
+        return oid
+
+    def test_a_delete_moves_the_entry_into_removed(self):
+        oid = self._delete_the_free_shipping_offer()
+        man = self.manifest()
+        self.assertEqual([e["key"] for e in man["offers"]], [self.offer_keys[0]])
+        self.assertEqual([(r["section"], r["key"], r["id"], r["status"]) for r in man["removed"]],
+                         [("offers", self.offer_keys[1], oid, "deleted")])
+        self.assertEqual(ca.torn_down_entries(ca.Manifest.load(self.manifest_path)), [])
+        self.assertEqual(self.sent(),
+                         [("DELETE", f"/api/admin/campaigns/{self.cid}/offers/{oid}/")])
+
+    def test_verify_passes_after_a_delete(self):
+        self._delete_the_free_shipping_offer()
+        cart_t = FakeTransport({("POST", "/api/v1/carts/calculate/"):
+                                lambda path, body: (200, {"total": "0.00", "lines": []})})
+        cart = ca.Client(ca.CART_API_ORIGIN, "k", auth_scheme="raw", send_version_header=False,
+                         transport=cart_t, clock=FakeClock(), sleep=lambda s: None)
+        self.t = DynamicTransport(self.disc, self.state)
+        admin = make_client(self.t)
+        self.lines = []
+        with mock.patch.object(ca, "_client_for", lambda slug: admin), \
+                mock.patch.object(ca, "Client", lambda *a, **k: cart), \
+                mock.patch.object(ca, "print",
+                                  lambda *a, **k: self.lines.append(" ".join(map(str, a)))):
+            rc = ca.main(["verify", "--manifest", str(self.manifest_path),
+                          "--plan", str(self.base_path)])
+        report = json.loads((self.dir / "verify-report.json").read_text())
+        self.assertEqual((rc, report["result"]), (0, "PASS"), json.dumps(report, indent=1))
+
+    def test_a_second_update_runs_on_the_reduced_run(self):
+        self._delete_the_free_shipping_offer()
+        cand = self.plan_now()
+        cand["campaign"]["name"] = "Second update"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.update(), 0, self.out())
+        self.assertEqual(self.plan_now()["campaign"]["name"], "Second update")
+        self.assertEqual(len(self.manifest()["history"]), 2)
+
+
+class ActiveUpdate(_UpdatableRun):
+    """While an update is journalled and unfinished, every other command refuses and
+    says how to finish it."""
+
+    def setUp(self):
+        super().setUp()
+        self.edited()
+        with self.assertRaises(_Interrupted):
+            self.update(transport=InterruptingTransport(self.disc, self.state, stop_after=2))
+        man = self.manifest()
+        # op 3 was saved in flight before its request left, which is the whole point:
+        # a resume can tell "never sent" from "may have landed".
+        self.assertEqual([(o["n"], o["status"]) for o in man["ops"]],
+                         [(1, "done"), (2, "done"), (3, "in_flight"), (4, "queued")])
+        self.assertIn("active_update", man)
+
+    def _main(self, argv, transport=None):
+        return self._run_with(transport or DynamicTransport(self.disc, self.state), argv)
+
+    def test_diff_refuses(self):
+        self.assertEqual(self.diff(self.cand(), plan_path=self.dir / "again.json"), 1, self.out())
+        self.assertIn(ca.ACTIVE_UPDATE_MSG, self.out())
+
+    def test_verify_refuses(self):
+        self.assertEqual(self._main(["verify", "--manifest", str(self.manifest_path),
+                                     "--plan", str(self.base_path)]), 1, self.out())
+        self.assertIn(ca.ACTIVE_UPDATE_MSG, self.out())
+
+    def test_teardown_refuses(self):
+        self.assertEqual(self._main(["teardown", "--manifest", str(self.manifest_path),
+                                     "--plan", str(self.base_path), "--yes"]), 1, self.out())
+        self.assertIn(ca.ACTIVE_UPDATE_MSG, self.out())
+        self.assertEqual(self.sent(), [])
+
+    def test_apply_resume_refuses(self):
+        self.assertEqual(self._main(["apply", "--plan", str(self.base_path), "--yes",
+                                     "--plan-sha256", ca.sha256_file(self.base_path),
+                                     "--resume", str(self.manifest_path),
+                                     "--out", str(self.dir)]), 1, self.out())
+        self.assertIn(ca.ACTIVE_UPDATE_MSG, self.out())
+        self.assertEqual(self.sent(), [])
+
+    def test_update_without_resume_or_settle_refuses(self):
+        self.assertEqual(self.update(), 2, self.out())
+        self.assertIn(ca.ACTIVE_UPDATE_MSG, self.out())
+        self.assertIn("close it with update --settle", self.out())
+        self.assertEqual(self.sent(), [])
+
+class _CreatedRun(_UpdatableRun):
+    """A run this skill created: `origin: created`, so teardown and apply --resume are
+    in scope next to diff and update, and verify has real landed rows to price."""
+
+    def setUp(self):
+        self.disc = load_fixture("discovery.json")
+        self.state = fresh_state()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name) / "run"
+        self.dir.mkdir(parents=True)
+        self.lines = []
+        plan = ca.recommend(self.disc, ns(name="Bracelet - test", exit_code="BRACELET10"))
+        self.base_path = self.dir / "campaign-plan.json"
+        ca.atomic_write_json(self.base_path, plan)
+        self.manifest_path = self.dir / "run-manifest.json"
+        self.assertEqual(self._run(["apply", "--plan", str(self.base_path), "--yes",
+                                    "--plan-sha256", ca.sha256_file(self.base_path),
+                                    "--out", str(self.dir)]), 0, self.out())
+        self.base = json.loads(self.base_path.read_text())
+        self.cid = self.manifest()["campaign"]["id"]
+        self.offer_keys = [o["key"] for o in self.base["offers"]]
+
+    def _cart(self):
+        def calc(path, body):
+            qty = sum(l["quantity"] for l in body["lines"])
+            unit = ca.landed_unit(Decimal("49.95"), Decimal({1: 50, 2: 55, 3: 60}[qty]), None)
+            if body.get("vouchers"):
+                unit = ca.landed_unit(unit, Decimal(10), None)
+            total = unit * qty + Decimal("6.95")
+            return 200, {"total": str(total), "subtotal": str(unit * qty), "lines": []}
+        t = FakeTransport({("POST", "/api/v1/carts/calculate/"): calc})
+        return ca.Client(ca.CART_API_ORIGIN, "campaignkey", auth_scheme="raw",
+                         send_version_header=False, transport=t, clock=FakeClock(),
+                         sleep=lambda s: None)
+
+    def verify(self, plan=None):
+        self.t = DynamicTransport(self.disc, self.state)
+        admin, cart = make_client(self.t), self._cart()
+        self.lines = []
+        with mock.patch.object(ca, "_client_for", lambda slug: admin), \
+                mock.patch.object(ca, "Client", lambda *a, **k: cart), \
+                mock.patch.object(ca, "print",
+                                  lambda *a, **k: self.lines.append(" ".join(map(str, a)))):
+            rc = ca.main(["verify", "--manifest", str(self.manifest_path),
+                          "--plan", str(plan or self.base_path)])
+        return rc
+
+    def verify_report(self):
+        return json.loads((self.dir / "verify-report.json").read_text())
+
+    def teardown_run(self):
+        return self._run(["teardown", "--manifest", str(self.manifest_path),
+                          "--plan", str(self.base_path), "--yes"])
+
+    def rename_in_the_dashboard(self):
+        """What a dashboard edit looks like to this run: the campaign, one package and
+        one offer renamed under it, with the candidate untouched."""
+        self.state["campaigns"][self.cid]["name"] = "Dashboard renamed"
+        pid = self.ids("packages")["hero-23"]
+        self.state["packages"][self.cid][pid]["name"] = "Renamed hero - v23"
+        oid = self.ids("offers")[self.offer_keys[0]]
+        self.state["offers"][self.cid][oid]["name"] = "Renamed offer"
+        return pid, oid
+
+
+class PreservedThroughUpdate(_CreatedRun):
+    """The three-way merge's other half: what the store changed and the candidate did
+    not is written into the plan and into the manifest, so the run is in step again."""
+
+    def test_a_dashboard_rename_is_preserved_then_the_manifest_is_refreshed(self):
+        pid, oid = self.rename_in_the_dashboard()
+        self.assertEqual(self.diff(self.cand()), 0, self.out())
+        cs = self.change_set()
+        self.assertEqual(cs["ops"], [])
+        self.assertEqual(len(cs["preserved"]), 3, cs["preserved"])
+        self.assertEqual(self.update(), 0, self.out())
+        self.assertEqual(self.sent(), [])
+        man = self.manifest()
+        # the names the run records are the live ones now, not what the plan used to say
+        self.assertEqual(man["campaign"]["name"], "Dashboard renamed")
+        self.assertEqual(next(e for e in man["packages"] if e["id"] == pid)["name"],
+                         "Renamed hero - v23")
+        self.assertEqual(next(e for e in man["offers"] if e["id"] == oid)["name"],
+                         "Renamed offer")
+        plan = self.plan_now()
+        self.assertEqual(plan["campaign"]["name"], "Dashboard renamed")
+        self.assertEqual(plan["packages"][0]["name"], "Renamed hero")  # the suffix is stripped
+        # in step: the same candidate diffs to nothing, and verify and teardown both
+        # read the run back against what is live
+        self.assertEqual(self.diff(self.cand()), 0, self.out())
+        self.assertIn("no changes", self.out())
+        self.assertEqual(self.verify(), 0, json.dumps(self.verify_report(), indent=1))
+        self.assertEqual(self.teardown_run(), 0, self.out())
+        self.assertEqual(self.state["campaigns"], {})
+
+
+class PlanPromotion(_CreatedRun):
+    """Promotion in 4 steps, interrupted at every boundary and recovered through the
+    real entry points with no hand edits."""
+
+    def crash(self, target, *, before=False, when=None):
+        """Replace one engine primitive so one call dies the way a killed process
+        does: `before` skips the work, otherwise the work lands first."""
+        real = getattr(ca, target)
+        seen = {"n": 0}
+
+        def wrapper(*a, **kw):
+            seen["n"] += 1
+            if when is None or when(seen["n"], a, kw):
+                if before:
+                    raise _Interrupted(f"{target} died before call {seen['n']}")
+                real(*a, **kw)
+                raise _Interrupted(f"{target} died after call {seen['n']}")
+            return real(*a, **kw)
+        return mock.patch.object(ca, target, wrapper)
+
+    def crash_on_save(self, *, before_the_last=False):
+        """Kill the run at one of the 2 manifest writes promotion makes: the one that
+        records `pending_promotion` (step 2), or the one that clears it (step 4)."""
+        real = ca.Manifest.save
+        state = {"saw_pending": False}
+
+        def wrapper(man):
+            pending = "pending_promotion" in man.data
+            if before_the_last and state["saw_pending"] and not pending:
+                raise _Interrupted("died before the manifest that ends the promotion")
+            real(man)
+            if pending:
+                state["saw_pending"] = True
+                if not before_the_last:
+                    raise _Interrupted("died after the manifest that commits the promotion")
+        return mock.patch.object(ca.Manifest, "save", wrapper)
+
+    def one_rename(self):
+        cand = self.cand()
+        cand["campaign"]["name"] = "Renamed by the plan"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        return self.change_set()
+
+    def resume(self):
+        return self.update("--resume")
+
+    def assertInProgress(self):
+        """Before the manifest commits to the new plan the update is simply unfinished:
+        every other command says so, and --resume finishes it."""
+        man = self.manifest()
+        self.assertIn("active_update", man)
+        self.assertEqual(man["plan_sha256"], self.change_set()["base_plan_sha256"])
+        self.assertEqual(self.verify(), 1, self.out())
+        self.assertIn(ca.ACTIVE_UPDATE_MSG, self.out())
+        self.assertEqual(self.teardown_run(), 1, self.out())
+        self.assertIn(ca.ACTIVE_UPDATE_MSG, self.out())
+        self.assertEqual(self.resume(), 0, self.out())
+        self.assertFinished()
+
+    def assertFinished(self):
+        cs = self.change_set()
+        man = self.manifest()
+        self.assertNotIn("active_update", man)
+        self.assertNotIn("pending_promotion", man)
+        self.assertEqual(man["plan_sha256"], cs["merged_plan_sha256"])
+        self.assertEqual(ca.sha256_file(self.base_path), cs["merged_plan_sha256"])
+        self.assertEqual(self.plan_now()["campaign"]["name"], "Renamed by the plan")
+        self.assertEqual(self.verify(), 0, json.dumps(self.verify_report(), indent=1))
+        self.assertEqual(self.teardown_run(), 0, self.out())
+
+    def test_interrupted_before_the_first_step(self):
+        self.one_rename()
+        with self.crash("promote_plan", before=True), self.assertRaises(_Interrupted):
+            self.update()
+        self.assertInProgress()
+
+    def test_interrupted_after_the_old_plan_was_archived(self):
+        self.one_rename()
+        old = self.manifest()["plan_sha256"]
+        with self.crash("archive_bytes", when=lambda n, a, k: n == 1), \
+                self.assertRaises(_Interrupted):
+            self.update()
+        self.assertEqual(ca.sha256_file(self.dir / f"campaign-plan.{old[:8]}.json"), old)
+        self.assertNotIn("pending_promotion", self.manifest())
+        self.assertInProgress()
+
+    def test_interrupted_after_the_manifest_committed_to_the_new_plan(self):
+        cs = self.one_rename()
+        with self.crash_on_save(), self.assertRaises(_Interrupted):
+            self.update()
+        man = self.manifest()
+        # the manifest is on the new plan, the file on disk is still the old one
+        self.assertEqual(man["plan_sha256"], cs["merged_plan_sha256"])
+        self.assertEqual(man["pending_promotion"],
+                         {"archived": cs["merged_plan_file"], "sha256": cs["merged_plan_sha256"]})
+        self.assertEqual(ca.sha256_file(self.base_path), cs["base_plan_sha256"])
+        # verify alone recovers it: the plan is read only after the manifest is opened
+        self.assertEqual(self.verify(), 0, json.dumps(self.verify_report(), indent=1))
+        self.assertFinished()
+
+    def test_interrupted_after_the_plan_file_was_replaced(self):
+        cs = self.one_rename()
+        with self.crash_on_save(before_the_last=True), self.assertRaises(_Interrupted):
+            self.update()
+        man = self.manifest()
+        self.assertIn("pending_promotion", man)
+        self.assertEqual(ca.sha256_file(self.base_path), cs["merged_plan_sha256"])
+        self.assertEqual(self.teardown_run(), 0, self.out())  # recovery, then the real work
+        self.assertNotIn("pending_promotion", self.manifest())
+        self.assertNotIn("active_update", self.manifest())
+
+    def test_a_completed_update_needs_no_recovery(self):
+        self.one_rename()
+        self.assertEqual(self.update(), 0, self.out())
+        self.assertFinished()
+
+    def test_a_merged_plan_re_indented_by_hand_keeps_its_own_bytes(self):
+        cs = self.one_rename()
+        merged = self.dir / cs["merged_plan_file"]
+        merged.write_text(json.dumps(json.loads(merged.read_text()), indent=4) + "\n")
+        want = merged.read_bytes()
+        self.tamper(lambda c: c.update(merged_plan_sha256=ca.sha256_file(merged)))
+        self.assertEqual(self.update(), 0, self.out())
+        self.assertEqual(self.base_path.read_bytes(), want)
+        self.assertEqual(self.manifest()["plan_sha256"], ca.sha256_file(merged))
+        self.assertEqual(merged.read_bytes(), want, "the archive is never consumed or moved")
+        self.assertEqual(self.verify(), 0, json.dumps(self.verify_report(), indent=1))
+
+    def test_a_plan_outside_the_run_directory_and_the_archive_both_stay_intact(self):
+        cs = self.one_rename()
+        merged = self.dir / cs["merged_plan_file"]
+        outside = Path(self.tmp.name) / "elsewhere" / cs["merged_plan_file"]
+        outside.parent.mkdir(parents=True)
+        shutil.copy(merged, outside)
+        self.assertEqual(self.update(plan=outside), 0, self.out())
+        self.assertEqual(outside.read_bytes(), merged.read_bytes())
+        self.assertEqual(self.base_path.read_bytes(), merged.read_bytes())
+        self.assertTrue(merged.exists())
+
+    def test_history_grows_by_one_per_update(self):
+        for name in ("First", "Second"):
+            cand = self.cand()
+            cand["campaign"]["name"] = name
+            self.assertEqual(self.diff(cand), 0, self.out())
+            self.assertEqual(self.update(), 0, self.out())
+        man = self.manifest()
+        self.assertEqual(len(man["history"]), 2)
+        first, second = man["history"]
+        self.assertEqual(first["to_plan_sha256"], second["from_plan_sha256"])
+        self.assertEqual(second["to_plan_sha256"], man["plan_sha256"])
+        # every plan this run has had is still on disk, byte for byte
+        for h in man["history"]:
+            self.assertEqual(ca.sha256_file(self.dir / h["archived"]), h["from_plan_sha256"])
+
+class _ResumableRun(_UpdatableRun):
+    """An adopted run plus the two ways a run stops: killed before a write leaves, and
+    killed after it landed with the answer lost."""
+
+    def interrupt(self, *extra, stop_after=None, lose=()):
+        t = InterruptingTransport(self.disc, self.state, stop_after=stop_after,
+                                  lose_response_on=lose)
+        with self.assertRaises(_Interrupted):
+            self.update(*extra, transport=t)
+        return t
+
+    def journal(self):
+        return [(o["n"], o["status"]) for o in self.manifest().get("ops") or []]
+
+    def refuse_resume(self, *extra, needle, code=1):
+        self.assertEqual(self.update("--resume", *extra), code, self.out())
+        self.assertIn(needle, self.out())
+        self.assertEqual(self.sent(), [], "a refused resume sends nothing")
+        return self.out()
+
+    def four_patches(self):
+        """campaign, package, shipping and offer, one PATCH each: 4 ops, 4 writes."""
+        return self.edited()
+
+    def with_a_new_shipping_method(self):
+        """campaign PATCH, package PATCH, shipping PATCH, shipping POST, offer PATCH."""
+        cand = self.cand()
+        cand["campaign"]["name"] = "Edited campaign"
+        cand["packages"][0]["price"] = "29.95"
+        cand["shipping_methods"][0]["price"] = "7.95"
+        cand["shipping_methods"].append({"shipping_method": "express", "price": "12.95"})
+        cand["offers"][0]["benefit"]["value"] = "60.00"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual([o["method"] for o in self.change_set()["ops"]],
+                         ["PATCH", "PATCH", "PATCH", "POST", "PATCH"])
+        return cand
+
+
+class UpdateResume(_ResumableRun):
+    """Finishing an update that stopped: what landed is read off the store, what never
+    went out is sent, and anything else refuses before a single request."""
+
+    def test_a_post_whose_response_was_lost_is_claimed_after_a_full_read_back(self):
+        self.with_a_new_shipping_method()
+        self.interrupt(lose=[4])
+        self.assertEqual(self.journal(), [(1, "done"), (2, "done"), (3, "done"), (4, "in_flight"),
+                                          (5, "queued")])
+        self.assertNotIn("express", self.ids("shipping_methods"))
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        sid = self.ids("shipping_methods")["express"]
+        self.assertEqual(self.state["shipping-methods"][self.cid][sid]["shipping_method"], "express")
+        e = next(x for x in self.manifest()["shipping_methods"] if x["key"] == "express")
+        self.assertEqual((e["status"], e.get("reconciled")), ("created", True))
+        # the lost POST is not sent again: only the op after it goes out
+        self.assertEqual(self.sent(),
+                         [("PATCH", f"/api/admin/campaigns/{self.cid}/offers/"
+                                    f"{self.ids('offers')[self.offer_keys[0]]}/")])
+        self.assertNotIn("active_update", self.manifest())
+
+    def test_a_same_named_object_with_different_contents_is_never_claimed(self):
+        cand = self.cand()
+        cand["packages"].append({"key": "pkg-900", "role": "bump", "name": "New Bump",
+                                 "variant_title": "v900", "product_id": 22,
+                                 "product_variant_ids": [900], "price": "9.95"})
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual([o["method"] for o in self.change_set()["ops"]], ["POST"])
+        self.interrupt(lose=[1])
+        pid = next(i for i, x in self.state["packages"][self.cid].items()
+                   if x["product_variant_id"] == 900)
+        self.state["packages"][self.cid][pid]["prices"][0]["price"] = "11.95"
+        before = self.manifest_path.read_bytes()
+        self.refuse_resume(needle="was not created by this run")
+        self.assertIn("price", self.out())
+        self.assertEqual(self.manifest_path.read_bytes(), before,
+                         "a refused claim leaves the manifest byte-identical")
+        self.assertNotIn("pkg-900", self.ids("packages"))
+
+    def test_the_candidate_lookup_is_read_only(self):
+        # the lookup apply --resume and update --resume share never marks anything
+        man = ca.Manifest.load(self.manifest_path)
+        before = self.manifest_path.read_bytes()
+        t = DynamicTransport(self.disc, self.state)
+        hits = ca.find_pending_candidates(make_client(t), man, self.base, "packages", "pkg-801")
+        self.assertEqual([x["id"] for x in hits], [self.ids("packages")["pkg-801"]])
+        self.assertEqual(self.manifest_path.read_bytes(), before)
+        self.assertEqual([(c[0], c[1]) for c in t.calls if c[0] != "GET"], [])
+
+    def test_a_patch_that_never_went_out_is_re_sent(self):
+        self.four_patches()
+        self.interrupt(stop_after=1)
+        self.assertEqual(self.journal(), [(1, "done"), (2, "in_flight"), (3, "queued"),
+                                          (4, "queued")])
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertEqual([m for m, _p in self.sent()], ["PATCH", "PATCH", "PATCH"])
+        self.assertEqual(self.plan_now()["packages"][0]["price"], "29.95")
+        self.assertNotIn("active_update", self.manifest())
+
+    def test_a_rename_whose_response_was_lost_resumes_through_after(self):
+        cand = self.cand()
+        cand["campaign"]["name"] = "Renamed once"
+        cand["packages"][0]["name"] = "Renamed package"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.interrupt(lose=[2])
+        self.assertEqual(self.journal(), [(1, "done"), (2, "in_flight")])
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertEqual(self.sent(), [], "an op already at its after value is not re-sent")
+        self.assertEqual(self.plan_now()["packages"][0]["name"], "Renamed package")
+        self.assertEqual(self.manifest()["packages"][0]["name"], "Renamed package - v801")
+
+    def test_a_shipping_price_patch_whose_response_was_lost_resumes_through_after(self):
+        cand = self.cand()
+        cand["shipping_methods"][0]["price"] = "8.95"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.interrupt(lose=[1])
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertEqual(self.sent(), [])
+        e = self.manifest()["shipping_methods"][0]
+        self.assertEqual((e["price"], e["shipping_method"]), ("8.95", "standard"))
+
+    def test_a_delete_that_landed_with_its_answer_lost_counts_the_404_as_done(self):
+        cand = self.cand()
+        cand["offers"] = [o for o in cand["offers"] if o["key"] != self.offer_keys[1]]
+        self.assertEqual(self.diff(cand), 0, self.out())
+        oid = self.ids("offers")[self.offer_keys[1]]
+        self.interrupt("--allow-delete", lose=[1])
+        self.assertNotIn(oid, self.state["offers"][self.cid])
+        e = next(x for x in self.manifest()["offers"] if x["key"] == self.offer_keys[1])
+        self.assertEqual(e["status"], "deleting")
+        self.assertEqual(self.update("--resume", "--allow-delete"), 0, self.out())
+        self.assertEqual(self.sent(), [], "the object is already gone: nothing is re-sent")
+        man = self.manifest()
+        self.assertEqual([x["key"] for x in man["offers"]], [self.offer_keys[0]])
+        self.assertEqual([(r["key"], r["id"]) for r in man["removed"]],
+                         [(self.offer_keys[1], oid)])
+        self.assertEqual(ca.torn_down_entries(ca.Manifest.load(self.manifest_path)), [])
+
+    def test_a_missing_object_no_delete_op_names_refuses(self):
+        self.four_patches()
+        self.interrupt(stop_after=1)
+        pid = self.ids("packages")["pkg-802"]  # no op touches it
+        del self.state["packages"][self.cid][pid]
+        self.refuse_resume(needle="is no longer on the campaign")
+        self.assertIn("pkg-802", self.out())
+
+    def test_a_dashboard_edit_to_a_campaign_setting_refuses(self):
+        self.four_patches()
+        self.interrupt(stop_after=1)
+        self.state["campaigns"][self.cid]["language"] = "de"
+        self.refuse_resume(needle="campaign campaign: language is")
+
+    def test_a_dashboard_edit_to_a_discount_refuses(self):
+        self.four_patches()
+        self.interrupt(stop_after=1)
+        oid = self.ids("offers")[self.offer_keys[0]]  # op 4, still queued
+        self.state["offers"][self.cid][oid]["benefit"]["value"] = "70.00"
+        self.refuse_resume(needle=f"offers {self.offer_keys[0]}: benefit_value is")
+
+    def test_a_dashboard_edit_to_a_scope_refuses(self):
+        self.four_patches()
+        self.interrupt(stop_after=1)
+        oid = self.ids("offers")[self.offer_keys[1]]  # no op touches it
+        self.state["offers"][self.cid][oid]["condition"]["packages"] = [
+            {"id": self.ids("packages")["pkg-802"]}]
+        self.refuse_resume(needle=f"offers {self.offer_keys[1]}: package_keys is")
+
+    def test_a_dashboard_edit_to_an_object_no_pending_op_touches_refuses(self):
+        self.four_patches()
+        self.interrupt(stop_after=1)
+        pid = self.ids("packages")["pkg-802"]
+        self.state["packages"][self.cid][pid]["prices"][0]["price"] = "13.95"
+        self.refuse_resume(needle="packages pkg-802: price is")
+
+    def test_an_object_created_in_the_dashboard_that_matches_a_queued_post_is_unmanaged(self):
+        self.with_a_new_shipping_method()
+        self.interrupt(stop_after=2)
+        self.assertEqual(self.journal()[2:], [(3, "in_flight"), (4, "queued"), (5, "queued")])
+        # someone adds exactly what op 4 would have created, by hand
+        self.state["seq"] += 1
+        self.state["shipping-methods"][self.cid][self.state["seq"]] = {
+            "id": self.state["seq"], "shipping_method": "express",
+            "prices": [{"currency": "USD", "price": "12.95"}]}
+        self.refuse_resume(needle="object(s) this run does not own")
+        self.assertIn("express", self.out())
+        self.assertNotIn("express", self.ids("shipping_methods"))
+
+    def test_a_claimed_package_lets_its_image_put_and_a_scoped_offer_finish(self):
+        cand = self.cand()
+        cand["packages"].append({"key": "pkg-900", "role": "bump", "name": "New Bump",
+                                 "variant_title": "v900", "product_id": 22,
+                                 "product_variant_ids": [900], "price": "9.95",
+                                 "image": {"src": "https://cdn.example/new.png"}})
+        cand["offers"].append({"key": "offer-new", "name": "New Offer", "offer_type": "offer",
+                               "code": None,
+                               "condition": {"type": "any", "value": None,
+                                             "package_keys": ["pkg-900"]},
+                               "benefit": {"type": "package_percentage", "value": "10.00",
+                                           "price_rounding": None}})
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual([o["method"] for o in self.change_set()["ops"]],
+                         ["POST", "PUT", "POST"])
+        self.interrupt(lose=[1])  # the package exists; its answer never came back
+        self.assertEqual(self.journal(), [(1, "in_flight"), (2, "queued"), (3, "queued")])
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        pid = self.ids("packages")["pkg-900"]
+        # the image route is rebuilt from the id the claim recovered, and the offer's
+        # scope is built with it too
+        self.assertEqual(self.sent(),
+                         [("PUT", f"/api/admin/campaigns/{self.cid}/packages/{pid}/image/"),
+                          ("POST", f"/api/admin/campaigns/{self.cid}/offers/")])
+        offer_post = self.bodies()[-1][2]
+        self.assertEqual(offer_post["condition"]["package_ids"], [pid])
+        self.assertNotIn("active_update", self.manifest())
+        self.assertEqual(self.manifest()["packages"][-1]["image_src"],
+                         "https://cdn.example/new.png")
+
+    def test_a_deleting_entry_no_op_of_this_change_set_names_refuses(self):
+        self.four_patches()
+        self.interrupt(stop_after=1)
+        man = self.manifest()
+        man["packages"][1]["status"] = "deleting"
+        ca.atomic_write_json(self.manifest_path, man)
+        self.refuse_resume(needle="this run was torn down")
+
+    def test_resuming_with_another_change_set_hash_refuses(self):
+        self.four_patches()
+        self.interrupt(stop_after=1)
+        other = self.dir / "change-set.other.json"
+        shutil.copy(self.dir / CHANGE_SET, other)
+        cs = json.loads(other.read_text())
+        cs["created_at"] = "2026-01-01T00:00:00Z"  # same run, different bytes
+        ca.atomic_write_json(other, cs)
+        self.assertEqual(self.update("--resume", cs=other), 2, self.out())
+        self.assertIn("finish that one first", self.out())
+        self.assertEqual(self.sent(), [])
+
+    def test_resume_without_an_update_in_progress_refuses(self):
+        self.four_patches()
+        self.assertEqual(self.update("--resume"), 2, self.out())
+        self.assertIn("no update is in progress", self.out())
+        self.assertEqual(self.sent(), [])
+
+
+class ImageResume(_ResumableRun):
+    """The one op whose result the store makes up: a thumbnail URL nobody can predict."""
+
+    def _image_put(self):
+        man = self.manifest()
+        man["packages"][0].update(image_status="set", image_src="https://cdn.example/old.png",
+                                  image=CATALOGUE_IMAGE)
+        ca.atomic_write_json(self.manifest_path, man)
+        cand = self.cand()
+        cand["packages"][0]["image"] = {"src": "https://cdn.example/new.png"}
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops(), [("PUT", "packages", "pkg-801")])
+        return self.ids("packages")["pkg-801"]
+
+    def test_a_put_that_never_went_out_is_re_sent(self):
+        pid = self._image_put()
+        self.interrupt(stop_after=0)
+        self.assertEqual(self.journal(), [(1, "in_flight")])
+        self.assertEqual(self.manifest()["packages"][0]["image"], CATALOGUE_IMAGE)
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertEqual(self.sent(),
+                         [("PUT", f"/api/admin/campaigns/{self.cid}/packages/{pid}/image/")])
+        e = self.manifest()["packages"][0]
+        self.assertEqual((e["image_status"], e["image_src"], e["image"]),
+                         ("set", "https://cdn.example/new.png", OVERRIDE_IMAGE))
+
+    def test_a_put_whose_answer_was_lost_records_the_live_url_and_is_not_re_sent(self):
+        self._image_put()
+        self.interrupt(lose=[1])
+        self.assertEqual(self.state["packages"][self.cid][self.ids("packages")["pkg-801"]]["image"],
+                         OVERRIDE_IMAGE)
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertEqual(self.sent(), [], "the live thumbnail is the receipt; nothing is re-sent")
+        e = self.manifest()["packages"][0]
+        self.assertEqual((e["image_status"], e["image_src"], e["image"]),
+                         ("set", "https://cdn.example/new.png", OVERRIDE_IMAGE))
+        self.assertNotIn("active_update", self.manifest())
+
+class Settle(_CreatedRun):
+    """Closing an update that cannot finish: no writes, a plan that describes what
+    actually landed, and the run unlocked for a fresh diff."""
+
+    def _stopped_on_a_400(self):
+        """op 1 (the campaign rename) lands, op 2 (the package rename) is refused."""
+        cand = self.cand()
+        cand["campaign"]["name"] = "Renamed campaign"
+        cand["packages"][0]["name"] = "Renamed hero"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual([(o["method"], o["section"]) for o in self.change_set()["ops"]],
+                         [("PATCH", "campaign"), ("PATCH", "packages")])
+        pid = self.ids("packages")["hero-23"]
+        t = DynamicTransport(self.disc, self.state, fail_on={
+            ("PATCH", f"/api/admin/campaigns/{self.cid}/packages/{pid}/"): 400})
+        self.assertEqual(self.update(transport=t), 1, self.out())
+        self.assertIn("returned 400", self.out())
+        self.assertEqual([(o["n"], o["status"]) for o in self.manifest()["ops"]],
+                         [(1, "done"), (2, "in_flight")])
+        return cand
+
+    def test_the_other_commands_refuse_until_it_is_settled(self):
+        self._stopped_on_a_400()
+        self.assertEqual(self.verify(), 1, self.out())
+        self.assertIn(ca.ACTIVE_UPDATE_MSG, self.out())
+        self.assertEqual(self.teardown_run(), 1, self.out())
+        self.assertIn(ca.ACTIVE_UPDATE_MSG, self.out())
+        self.assertEqual(self.diff(self.cand(), plan_path=self.dir / "again.json"), 1, self.out())
+        self.assertIn(ca.ACTIVE_UPDATE_MSG, self.out())
+
+    def test_settle_promotes_a_plan_holding_the_op_that_landed_and_sends_nothing(self):
+        cand = self._stopped_on_a_400()
+        cs = self.change_set()
+        self.assertEqual(self.update("--settle"), 0, self.out())
+        self.assertEqual(self.sent(), [], "settle never writes to the store")
+        plan = self.plan_now()
+        self.assertEqual(plan["campaign"]["name"], "Renamed campaign")
+        self.assertEqual(plan["packages"][0]["name"], self.base["packages"][0]["name"])
+        man = self.manifest()
+        self.assertNotIn("active_update", man)
+        self.assertNotIn("pending_promotion", man)
+        self.assertEqual(man["plan_sha256"], ca.sha256_file(self.base_path))
+        self.assertNotEqual(man["plan_sha256"], cs["merged_plan_sha256"])
+        h = man["history"][-1]
+        self.assertEqual((h["change_set_sha256"], h["settled"]),
+                         (ca.sha256_file(self.dir / CHANGE_SET), True))
+        self.assertEqual([(o["n"], o["outcome"]) for o in h["ops"]],
+                         [(1, "applied"), (2, "not applied")])
+        self.assertIn("1 of 2 op(s) had landed", self.out())
+        # verify reads the settled plan back clean, and a fresh diff proposes the rest
+        self.assertEqual(self.verify(), 0, json.dumps(self.verify_report(), indent=1))
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops(), [("PATCH", "packages", "hero-23")])
+
+    def test_an_in_flight_op_at_neither_state_refuses(self):
+        self._stopped_on_a_400()
+        pid = self.ids("packages")["hero-23"]
+        self.state["packages"][self.cid][pid]["name"] = "Something else entirely"
+        self.assertEqual(self.update("--settle"), 1, self.out())
+        self.assertIn("at neither the value before this update nor the value after it", self.out())
+        self.assertEqual(self.sent(), [])
+        self.assertIn("active_update", self.manifest())
+
+    def test_a_delete_that_never_landed_puts_its_entry_back(self):
+        cand = self.cand()
+        cand["offers"] = [o for o in cand["offers"] if o["key"] != "exit-pop"]
+        self.assertEqual(self.diff(cand), 0, self.out())
+        oid = self.ids("offers")["exit-pop"]
+        t = DynamicTransport(self.disc, self.state, fail_on={
+            ("DELETE", f"/api/admin/campaigns/{self.cid}/offers/{oid}/"): 400})
+        self.assertEqual(self.update("--allow-delete", transport=t), 1, self.out())
+        self.assertEqual(next(e for e in self.manifest()["offers"]
+                              if e["key"] == "exit-pop")["status"], "deleting")
+        self.assertEqual(self.update("--settle"), 0, self.out())
+        e = next(x for x in self.manifest()["offers"] if x["key"] == "exit-pop")
+        self.assertEqual(e["status"], "created")
+        self.assertEqual(ca.torn_down_entries(ca.Manifest.load(self.manifest_path)), [])
+        self.assertEqual([o["key"] for o in self.plan_now()["offers"]],
+                         [o["key"] for o in self.base["offers"]])
+        self.assertEqual(self.verify(), 0, json.dumps(self.verify_report(), indent=1))
+
+
+class RunLock(_UpdatableRun):
+    """One process per run directory, for the whole life of a command that can write
+    it. A stale lock is the operator's call, never the engine's."""
+
+    def lock_path(self):
+        return self.dir / ca.RUN_LOCK_NAME
+
+    def hold(self, pid=424242):
+        ca.atomic_write_bytes(self.lock_path(),
+                              json.dumps({"pid": pid, "started_at": "2026-10-08T00:00:00Z"})
+                              .encode())
+
+    def test_a_second_update_while_one_holds_the_lock_refuses(self):
+        self.edited()
+        self.hold()
+        self.assertEqual(self.update(), 1, self.out())
+        self.assertIn(str(self.lock_path()), self.out())
+        self.assertIn("pid 424242", self.out())
+        self.assertEqual(self.sent(), [])
+        self.assertTrue(self.lock_path().exists(), "a stale lock is never removed automatically")
+
+    def test_teardown_during_an_update_refuses(self):
+        self.hold(pid=99999)
+        rc = self._run(["teardown", "--manifest", str(self.manifest_path),
+                        "--plan", str(self.base_path), "--yes"])
+        self.assertEqual(rc, 1, self.out())
+        self.assertIn("holds this run directory", self.out())
+        self.assertIn("pid 99999", self.out())
+        self.assertEqual([(c[0], c[1]) for c in self.t.calls if c[0] != "GET"], [])
+
+    def test_the_lock_is_released_after_a_run_and_after_an_error(self):
+        self.edited()
+        self.assertFalse(self.lock_path().exists())
+        pid = self.ids("packages")["pkg-801"]
+        t = DynamicTransport(self.disc, self.state, fail_on={
+            ("PATCH", f"/api/admin/campaigns/{self.cid}/packages/{pid}/"): 400})
+        self.assertEqual(self.update(transport=t), 1, self.out())
+        self.assertFalse(self.lock_path().exists(), "an error still releases the lock")
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertFalse(self.lock_path().exists())
+
+    def test_the_read_only_commands_are_not_locked(self):
+        self.hold()
+        self.assertEqual(self._run(["plan", "--plan", str(self.base_path)]), 0, self.out())
+        self.assertIn("Requests", self.out())
+
+
+class EndToEndUpdate(unittest.TestCase):
+    """Both whole paths, through ca.main only: a campaign that already existed, and one
+    this skill created, each edited and read back."""
+
+    def setUp(self):
+        self.disc = load_fixture("discovery.json")
+        self.state = fresh_state()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name) / "run"
+        self.lines = []
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def out(self):
+        return "\n".join(self.lines)
+
+    def main(self, argv, cart=None):
+        self.t = DynamicTransport(self.disc, self.state)
+        admin = make_client(self.t)
+        self.lines = []
+        with mock.patch.object(ca, "_client_for", lambda slug: admin), \
+                mock.patch.object(ca, "print",
+                                  lambda *a, **k: self.lines.append(" ".join(map(str, a)))):
+            if cart is None:
+                return ca.main(argv)
+            with mock.patch.object(ca, "Client", lambda *a, **k: cart):
+                return ca.main(argv)
+
+    def writes(self):
+        return [(c[0], c[1]) for c in self.t.calls if c[0] != "GET"]
+
+    def flat_cart(self):
+        t = FakeTransport({("POST", "/api/v1/carts/calculate/"):
+                           lambda path, body: (200, {"total": "0.00", "lines": []})})
+        return ca.Client(ca.CART_API_ORIGIN, "k", auth_scheme="raw", send_version_header=False,
+                         transport=t, clock=FakeClock(), sleep=lambda s: None)
+
+    def approve(self, d):
+        cs = json.loads((d / CHANGE_SET).read_text())
+        return (["update", "--plan", str(d / cs["merged_plan_file"]),
+                 "--manifest", str(d / "run-manifest.json"),
+                 "--change-set", str(d / CHANGE_SET), "--yes",
+                 "--change-set-sha256", ca.sha256_file(d / CHANGE_SET)], cs)
+
+    def test_adopt_diff_update_verify_on_a_dashboard_campaign(self):
+        cid = seed_live_campaign(self.state)
+        d = self.dir
+        self.assertEqual(self.main(["adopt", "--store", "teststore", "--campaign", str(cid),
+                                    "--out", str(d)]), 0, self.out())
+        self.assertEqual(self.writes(), [], "adopt is read-only")
+        plan = json.loads((d / "campaign-plan.json").read_text())
+        cand = json.loads(json.dumps(plan))
+        cand["campaign"]["statement_descriptor"] = "NEWDESC"
+        cand["packages"][1]["price"] = "14.95"
+        cand["offers"][0]["benefit"]["value"] = "60.00"
+        nxt = d / "campaign-plan.next.json"
+        nxt.write_text(json.dumps(cand, indent=2) + "\n")
+        self.assertEqual(self.main(["diff", "--plan", str(nxt),
+                                    "--manifest", str(d / "run-manifest.json")]), 0, self.out())
+        self.assertEqual(self.writes(), [], "diff is read-only")
+        argv, cs = self.approve(d)
+        self.assertEqual([(o["method"], o["section"], o["key"]) for o in cs["ops"]],
+                         [("PATCH", "campaign", "campaign"),
+                          ("PATCH", "packages", "pkg-802"),
+                          ("PATCH", "offers", cs["ops"][2]["key"])])
+        self.assertEqual(self.main(argv), 0, self.out())
+        self.assertEqual(self.writes(), [(o["method"], o["path"]) for o in cs["ops"]])
+        self.assertEqual(ca.sha256_file(d / "campaign-plan.json"), cs["merged_plan_sha256"])
+        live = self.state["campaigns"][cid]
+        self.assertEqual(live["statement_descriptor"], "NEWDESC")
+        self.assertEqual(self.main(["verify", "--manifest", str(d / "run-manifest.json"),
+                                    "--plan", str(d / "campaign-plan.json")],
+                                   cart=self.flat_cart()), 0, self.out())
+        report = json.loads((d / "verify-report.json").read_text())
+        self.assertEqual(report["result"], "PASS", json.dumps(report, indent=1))
+        # and the run is in step: nothing left to diff
+        again = d / "campaign-plan.again.json"
+        again.write_bytes((d / "campaign-plan.json").read_bytes())
+        self.assertEqual(self.main(["diff", "--plan", str(again),
+                                    "--manifest", str(d / "run-manifest.json")]), 0, self.out())
+        self.assertIn("no changes", self.out())
+
+    def test_recommend_apply_diff_update_verify_teardown_on_a_created_campaign(self):
+        d = self.dir
+        d.mkdir(parents=True)
+        disc_path = d / "discovery.json"
+        ca.atomic_write_json(disc_path, self.disc)
+        self.assertEqual(self.main(["recommend", "--discovery", str(disc_path), "--hero", "22",
+                                    "--ctc", "low", "--anchor-price", "49.95",
+                                    "--shipping", "standard:6.95", "--name", "Bracelet - test",
+                                    "--exit-code", "BRACELET10"]), 0, self.out())
+        plan_path = d / "campaign-plan.json"
+        self.assertEqual(self.main(["apply", "--plan", str(plan_path), "--yes",
+                                    "--plan-sha256", ca.sha256_file(plan_path)]), 0, self.out())
+        man_path = d / "run-manifest.json"
+        cand = json.loads(plan_path.read_text())
+        cand["campaign"]["name"] = "Bracelet - renamed"
+        cand["offers"] = [o for o in cand["offers"] if o["key"] != "exit-pop"]
+        cand["voucher_codes"] = []
+        nxt = d / "campaign-plan.next.json"
+        nxt.write_text(json.dumps(cand, indent=2) + "\n")
+        self.assertEqual(self.main(["diff", "--plan", str(nxt), "--manifest", str(man_path)]),
+                         0, self.out())
+        argv, cs = self.approve(d)
+        self.assertEqual([(o["method"], o["section"], o["key"]) for o in cs["ops"]],
+                         [("PATCH", "campaign", "campaign"), ("DELETE", "offers", "exit-pop")])
+        self.assertEqual(self.main(argv), 2, self.out())  # the DELETE needs approving
+        self.assertIn("--allow-delete", self.out())
+        self.assertEqual(self.main(argv + ["--allow-delete"]), 0, self.out())
+        self.assertEqual(self.writes(), [(o["method"], o["path"]) for o in cs["ops"]])
+        man = json.loads(man_path.read_text())
+        self.assertEqual([r["key"] for r in man["removed"]], ["exit-pop"])
+        self.assertEqual(man["campaign"]["name"], "Bracelet - renamed")
+
+        def calc(path, body):
+            qty = sum(l["quantity"] for l in body["lines"])
+            unit = ca.landed_unit(Decimal("49.95"), Decimal({1: 50, 2: 55, 3: 60}[qty]), None)
+            return 200, {"total": str(unit * qty + Decimal("6.95")), "lines": []}
+        cart = ca.Client(ca.CART_API_ORIGIN, "k", auth_scheme="raw", send_version_header=False,
+                         transport=FakeTransport({("POST", "/api/v1/carts/calculate/"): calc}),
+                         clock=FakeClock(), sleep=lambda s: None)
+        self.assertEqual(self.main(["verify", "--manifest", str(man_path),
+                                    "--plan", str(plan_path)], cart=cart), 0, self.out())
+        report = json.loads((d / "verify-report.json").read_text())
+        self.assertEqual(report["result"], "PASS", json.dumps(report, indent=1))
+        self.assertEqual(self.main(["teardown", "--manifest", str(man_path),
+                                    "--plan", str(plan_path), "--yes"]), 0, self.out())
+        self.assertEqual(self.state["campaigns"], {})
+        self.assertEqual([m for m, _p in self.writes()],
+                         ["DELETE"] * len(self.writes()))
 
 if __name__ == "__main__":
     unittest.main()
