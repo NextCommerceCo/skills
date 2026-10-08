@@ -7,7 +7,9 @@ reference pages under
 <https://developers.nextcommerce.com/docs/admin-api/reference/campaigns/>, and the
 token permissions at
 <https://developers.nextcommerce.com/docs/admin-api/permissions>. The reasoning
-behind each recommendation is in [offer-doctrine.md](offer-doctrine.md).
+behind each recommendation is in [offer-doctrine.md](offer-doctrine.md), and the
+procedure for changing a campaign that already exists is in
+[update-path.md](update-path.md).
 
 ## Auth and host
 
@@ -23,7 +25,7 @@ Token permissions:
 | Permission | Used by |
 |---|---|
 | `store:read` | `discover` (`GET /store/`, its first request) |
-| `campaigns:read`, `campaigns:write`, `catalogue:read`, `gateways:read` | `discover`, `plan --check-store`, `apply`, `verify`, `teardown` |
+| `campaigns:read`, `campaigns:write`, `catalogue:read`, `gateways:read` | `discover`, `plan --check-store`, `apply`, `verify`, `teardown`, `adopt`, `diff`, `update` (`adopt` and `diff` only read) |
 | `metadata:read` | the metadata audit in `discover` |
 | `metadata:write` | `metadata --apply` |
 
@@ -58,15 +60,19 @@ token that has been pasted into a chat or a ticket once the work is done.
 | GET | `/api/admin/metadata/` | the 11 campaign/attribution definitions |
 | POST | `/api/admin/metadata/` | create a missing metadata definition (`metadata --apply`; sent without the version header) |
 | GET/POST | `/api/admin/campaigns/` | list (cursor paginated) / create |
-| GET/DELETE | `/api/admin/campaigns/{id}/` | retrieve (returns `api_key`) / delete |
+| GET/PATCH/DELETE | `/api/admin/campaigns/{id}/` | retrieve (returns `api_key`) / update the campaign's settings (`update`) / delete |
 | GET/POST | `/api/admin/campaigns/{id}/packages/` | list / create |
-| DELETE | `/api/admin/campaigns/{id}/packages/{packageId}/` | delete |
+| GET/PATCH/DELETE | `/api/admin/campaigns/{id}/packages/{packageId}/` | retrieve one (teardown's identity read-back, and a resumed update's full read-back) / update name, `prices[]` and the recurring fields / delete |
 | PUT | `/api/admin/campaigns/{id}/packages/{packageId}/image/` | replace the package image (optional override) |
 | GET/POST | `/api/admin/campaigns/{id}/shipping-methods/` | list / create |
-| DELETE | `/api/admin/campaigns/{id}/shipping-methods/{id}/` | delete |
+| GET/PATCH/DELETE | `/api/admin/campaigns/{id}/shipping-methods/{id}/` | retrieve one (same two readers) / update `prices[]` / delete |
 | GET/POST | `/api/admin/campaigns/{id}/offers/` | list / create |
-| GET/DELETE | `/api/admin/campaigns/{id}/offers/{offerId}/` | retrieve / delete |
+| GET/PATCH/DELETE | `/api/admin/campaigns/{id}/offers/{offerId}/` | retrieve (the only read that carries the scope) / update name, type, code, `available`, `condition`, `benefit` / delete |
 | POST | `campaigns.apps.29next.com/api/v1/carts/calculate/` | pricing truth (verify); `?upsell=true` for upsell carts |
+
+The PATCH routes are the update path's. `adopt` and `diff` send no writes at
+all: they use the campaign GET, the three collection GETs and the per-offer
+retrieve.
 
 ## Field notes and live gotchas
 
@@ -182,7 +188,9 @@ token that has been pasted into a chat or a ticket once the work is done.
   (customer-entered `code`, works post-purchase). `condition.type` is `any` or
   `count` (integer `value` of at least 1). Scope with `condition.package_ids`.
   `all_packages: true` also covers packages created later and is never what a
-  tier offer wants; the plan never uses it. `benefit.type` is
+  tier offer wants; the plan cannot express it, so it is never sent, and `adopt`
+  blocks on a live offer that carries it unless the operator approves pinning it
+  with `--convert-scope <offer_id>`. `benefit.type` is
   `package_percentage`, `shipping_percentage` or `order_percentage`; `value` is a
   decimal string; `price_rounding` is one of `null`, `"0.00"`, `"0.95"`,
   `"0.97"`, `"0.99"`. There is no free-quantity benefit, no fixed-amount
@@ -193,7 +201,8 @@ token that has been pasted into a chat or a ticket once the work is done.
   scoped only to gift packages, and omits `price_rounding` so charm rounding
   cannot bring a 100% line back to 0.95.
 - Offer scope read-back: the offers list omits `condition.packages`; only the
-  per-offer retrieve carries the scope. `verify` retrieves each offer by id.
+  per-offer retrieve carries the scope. `verify`, `adopt` and `diff` all
+  retrieve each offer by id for that reason.
 - Free shipping is an automatic `offer` with `benefit.type`
   `shipping_percentage` at `100.00`, scoped to the hero packages. It is operator
   input, not doctrine, so `recommend` only emits it on request:
@@ -226,11 +235,12 @@ token that has been pasted into a chat or a ticket once the work is done.
     verify expects full shipping there, so prove those by hand.
   - The masking analysis only knows the plan's offers, so verify also lists the
     campaign's live offers (`campaign offers match the plan`), after the pricing
-    probes, and fails on any this run did not create. It does not read the live
-    `condition.value` back: the Admin API's offer retrieve body is undocumented
-    for it. If a live threshold still looks wrong after that check, prove it with
-    a hand `carts/calculate` at N and N-1 units rather than assuming the plan's
-    number is what the campaign stored.
+    probes, and fails on any this run did not create. Since 1.0.0 it also reads
+    the live `condition.value` back, confirmed readable on 2026-10-08 (see
+    "Read-only checks" below): a threshold a store does not report is an
+    `UNVERIFIED` row rather than a pass. If a live threshold still looks wrong
+    after both checks, prove it with a hand `carts/calculate` at N and N-1 units
+    rather than assuming the plan's number is what the campaign stored.
   - A hand-edited condition is handled the same way. The case that forced this
     was a live campaign whose count-2 offer the engine priced correctly but
     verify failed on every 2+ row by the shipping price.
@@ -253,6 +263,87 @@ token that has been pasted into a chat or a ticket once the work is done.
 - Rate limit: 4 requests per second, documented. The client paces at least 300 ms
   between calls and retries only GETs, honouring `Retry-After`. A POST or DELETE
   is never retried.
+
+## Update semantics
+
+What the update path (`adopt`, `diff`, `update`) relies on, field by field.
+
+- **A PATCH carries only what changed.** Each body is built by comparing the
+  desired value with the live one, in plan space, and sending the difference.
+  Nothing else is sent, so a field nobody edited cannot be clobbered by a
+  round-trip.
+- **Currency is never in a PATCH body.** It is immutable, so `diff` refuses a
+  currency edit instead, and refuses a manifest whose base plan currency does
+  not match the live campaign.
+- **Campaign clearing values are explicit.** `[]` empties
+  `available_payment_methods`, `available_express_payment_methods` and
+  `available_shipping_countries`; `null` clears `additional_currencies`,
+  `statement_descriptor` and `paypal_account_id`. Read-back uses different
+  empties for the same absence (`""` for the descriptor, `null` for the PayPal
+  id, `[]` or `null` for the extra currencies), so the normaliser collapses
+  `""` and `null` to one value before anything is compared.
+- **A package PATCH sends `prices[]`.** `prices: [{currency, price,
+  price_recurring}]` replaces the price list; the create-only `price` field is
+  not an update field. A changed `name`, `interval` or `interval_count` goes in
+  the same body.
+- **A shipping PATCH sends prices only.** The store code is that method's
+  identity. Sending `shipping_method` with a code another method on the campaign
+  uses answers 400 on releases that validate duplicates, so `diff` refuses a
+  code change on an existing shipping key and tells the operator to add a method
+  on the new code and delete the old one.
+- **An offer PATCH replaces `condition` and `benefit` wholly.** When either
+  changes, the complete object is sent, scope included. A partial condition
+  would drop the fields it omits.
+- **Offer names and voucher codes are unique per campaign, at every step.** A
+  final state that is valid is not enough: `diff` walks the ops in the order
+  `update` sends them against the names and codes still live at that point and
+  refuses an intermediate collision. Swapping two offer names is the standard
+  case, and it needs 2 updates through a temporary name.
+- **`available` retires an offer without deleting it.** It is a boolean,
+  defaults to true, is modelled in the plan, and is sent on create and update.
+  An offer set to false keeps its id and stops firing. Per-customer limits and
+  date ranges are not fields at all.
+- **A package an offer still scopes cannot be deleted.** The API answers 400
+  rather than narrowing the offer, so `diff` refuses that delete before anything
+  is sent and names the offers holding the package.
+- **Ids are never reused.** A deleted package, shipping method or offer cannot
+  come back under its old id, so a delete plus a create is a repoint for the
+  funnel. A PATCH never changes an id, and the campaign `api_key` does not
+  change on update.
+- **Ownership is checked on immutable fields only.** The pre-flight read-back
+  compares the campaign id and created_at, each package's id and
+  `product_variant_id`, each shipping method's id and store code, and each
+  offer's id. Names, prices and codes are mutable, so drift in them is the
+  three-way merge's business, not an ownership failure.
+
+## Read-only checks, 2026-10-08
+
+Confirmed read-only against live stores (2 campaigns, GET only, no writes). No
+store, campaign or key is named here: this repository is public.
+
+| Check | Result | Effect on the design |
+|---|---|---|
+| offer retrieve returns `condition.value` | yes: `"2.00"` for a `count` condition, `null` for `any`. The list carries it too, without `packages` | thresholds are readable, so `adopt` never has to ask for one. A `count` offer whose value is missing or not a whole number is a plain blocker |
+| offer retrieve fields | `id, name, offer_type, code, available, condition{type, value, all_packages, packages[{id, ...}], description}, benefit{type, value, price_rounding, description}` | the `description` fields are ignored by the normaliser |
+| package GET | carries `product_id`, `product_variant_id`, `product_variant_name`, `is_recurring`, `interval` (`""` when not recurring), `interval_count` (`null`), `prices[{currency, price, price_recurring}]` | `adopt` needs no catalogue read |
+| campaign GET empty values | `statement_descriptor: ""`, `paypal_account_id: null`, `additional_currencies: []`, `payment_gateway_group_id` an int | the normaliser maps `""` and `null` to one value |
+| list envelopes | packages, shipping methods and offers arrive as `{results: [...]}` | the client already reads both shapes |
+
+## Not yet verified against a live store
+
+The reads above were checked live. **No write on the update path has been.** The
+four points below are implemented from the published contract and proven against
+the offline fake only, and each needs a write-capable store to settle.
+
+| Open point | The engine's current assumption |
+|---|---|
+| the PATCH body shapes | campaign: changed fields plus the explicit clearing values above. Package: `name`, `prices: [{currency, price, price_recurring}]`, `interval`, `interval_count`. Shipping: `prices` only. Offer: changed `name`, `offer_type`, `code`, `available`, plus the whole `condition` and `benefit` when either changes |
+| whether a package PATCH re-appends `" - {variant}"` to `name` | the fake re-appends it, as create does. The normaliser strips the suffix before comparing (by the name this run journalled, by the plan's `name - variant_title`, then by the live `product_variant_name`), so a diff is 0 ops whichever the store does |
+| the accepted clearing values | `[]` for the three campaign code lists, `null` for `additional_currencies`, `statement_descriptor` and `paypal_account_id`. A store that rejects one of them fails that op with the store's own message, and `update --settle` closes the run |
+| a package DELETE while an offer still references it | a 400, so `diff` refuses the delete before sending it and names the offers to deal with first. If the platform instead cascades, the refusal is merely conservative: the operator removes or narrows those offers in their own update |
+
+Until a live write check passes, treat an update as reviewed and gated rather
+than proven, and read the store back with `verify` after every one.
 
 ## Reconcile residual
 
@@ -295,15 +386,20 @@ Files live in a run directory:
 
 - `discover` defaults to `./next-campaigns-create-runs/<slug>/` under the current
   working directory.
+- `adopt` defaults to `./next-campaigns-create-runs/<slug>-<campaign_id>/`.
 - `recommend` writes next to the discovery file it reads.
 - `apply` and `verify` write next to the plan file.
+- `diff` writes into the run directory of the manifest it is given.
 - `--out` overrides the directory for any of them.
 
-One directory holds one campaign run. `recommend` refuses a directory that already
-holds a `run-manifest.json`. A resume refuses a destination holding a different
-run, and refuses a run that teardown has touched. When the directory is inside a
-git repository it must be gitignored; the engine checks and refuses to write
-otherwise.
+One directory holds one campaign run. `recommend` and `adopt` both refuse a
+directory that already holds a `run-manifest.json`. A resume refuses a
+destination holding a different run, and refuses a run that teardown has
+touched. When the directory is inside a git repository it must be gitignored;
+the engine checks and refuses to write otherwise. Every command that can write
+the directory holds a `.run.lock` in it for its whole life (the pid and start
+time of the holder, created with `O_CREAT | O_EXCL`, removed on exit and only by
+hand after a kill).
 
 - `discovery.json`: the store snapshot plus `offers_supported`,
   `metadata_checked`, `metadata_missing`, `metadata_conflicts` and
@@ -318,22 +414,36 @@ otherwise.
 - `verify-report.json`: the admin read-back checks and the `calculate` cases.
   Each case records `shipping` (`paid`, `free` or `none`), `expected_shipping`,
   `shipping_key` (the method the cart carried, null for an upsell) and the
-  request `path`.
+  request `path`. A check's `result` is `PASS`, `FAIL`, `INFO` or `UNVERIFIED`,
+  and the report's `result` is FAIL only when some row is FAIL.
+- `campaign-plan.next.json`: the operator's edited copy, by convention. Input to
+  `diff` only. Nothing writes it and nothing promotes it.
+- `change-set.json`: the reviewed change set, written by `diff`. Its own SHA-256
+  is the approval token, passed to `update` as
+  `--change-set-sha256 <change-set-sha256>`. Schema below.
+- `campaign-plan.<sha8>.json`: byte copies of plans, never re-serialised. `diff`
+  writes the merged plan under the first 8 characters of its SHA-256, and each
+  promotion archives the plan it replaces the same way. `update --plan` takes
+  the merged one.
+- `.run.lock`: `{"pid": <int>, "started_at": "..."}` while a command holds the
+  run directory.
 
 ### campaign-plan.json
 
 ```json
 {"store_slug": "...", "store_origin": "https://<slug>.29next.store",
  "generated_at": "...", "ctc": "low|high", "offer_kind": "quantity|bxgy|gwp",
+ "origin": "created|adopted", "adopted_from_campaign_id": 0,
  "campaign": {"name","currency","language","payment_gateway_group_id",
    "additional_currencies","available_payment_methods",
    "available_express_payment_methods","available_shipping_countries",
-   "statement_descriptor"},
+   "statement_descriptor","paypal_account_id"},
  "packages": [{"key","role":"hero|bump|upsell|gift","name","variant_title",
    "product_id","product_variant_ids","price",
+   "price_recurring","interval","interval_count",
    "image":{"src","file_name"}}],
  "shipping_methods": [{"key","shipping_method","price"}],
- "offers": [{"key","name","offer_type","code",
+ "offers": [{"key","name","offer_type","code","available",
    "condition":{"type","value","package_keys"},
    "benefit":{"type","value","price_rounding"}}],
  "landed_prices": [{"tier","kind":"tier|single|upsell","qty","offer_key","package_keys",
@@ -369,16 +479,141 @@ hero+gift cart so the two `package_percentage` offers are proven together.
 integer when the rate is whole and a decimal string (for example `"33.33"`) when
 fractional. `print_plan` formats either.
 
+`origin` says where the desired state came from: `created` by a run of this
+skill, `adopted` from a campaign that already existed. Only `adopt` writes it,
+so a plan from `recommend` carries none, and a missing value reads as `created`.
+`adopt` also records `adopted_from_campaign_id`, writes `landed_prices: []`
+(nothing on the store says what anchor the discounts came off), and writes
+neither `ctc` nor `offer_kind` nor an `image` field. `paypal_account_id` is
+written by `adopt` and can be set by hand; `recommend` does not emit it.
+`offers[].available` is a boolean that defaults to true and is sent on create and
+update; `false` retires the offer without deleting it. The recurring trio on a
+package is set or absent as one thing.
+
 ### run-manifest.json
 
 ```json
-{"store_slug","store_origin","plan_sha256","run_id","started_at",
+{"store_slug","store_origin","origin":"created|adopted","plan_sha256","run_id","started_at",
+ "adopted_at","adopted_from_campaign_id","completed_at","promoted_at",
  "campaign": {"status":"pending|created|deleting|deleted","id","api_key","name","created_at"},
  "packages": [{"key","status","id","name","product_variant_id",
-   "image_status":"pending|set|unsupported|failed","image","image_at_create","image_error"}],
- "shipping_methods": [{"key","status","id"}],
- "offers": [{"key","status","id","name"}]}
+   "image_status":"pending|set|unsupported|failed","image","image_at_create",
+   "image_src","image_error"}],
+ "shipping_methods": [{"key","status","id","shipping_method","price"}],
+ "offers": [{"key","status","id","name","code","scope_conversion_pending"}],
+ "active_update": {"change_set_sha256","merged_plan_sha256","started_at"},
+ "ops": [{"n","method","section","key","status":"queued|in_flight|done","id"}],
+ "removed": [{"key","section","status":"deleted","id","op","removed_at","..."}],
+ "history": [{"at","change_set_sha256","from_plan_sha256","to_plan_sha256",
+   "archived","settled","ops":[{"n","method","section","key","outcome"}]}],
+ "pending_promotion": {"archived","sha256"}}
 ```
+
+The update path's fields:
+
+| Field | Written by | Meaning |
+|---|---|---|
+| `origin` | `apply` (`created`), `adopt` (`adopted`) | a missing value reads as `created`. `teardown` and `apply --resume` refuse an adopted manifest |
+| `adopted_at`, `adopted_from_campaign_id` | `adopt` | when ownership was taken, and of which campaign |
+| `shipping_method` on a shipping entry | `apply`, `adopt`, `reconcile`, and a completed update | the store code, that method's immutable identity. Manifests from 0.7.5 and earlier do not carry it, so the ownership check falls back to the hash-verified base plan for those |
+| `price` on a shipping entry | `adopt`, refreshed by a completed update | present only on runs that recorded one; a refresh never adds a field the run did not have |
+| `image_src` on a package | `apply` and `update` when an image lands | the `src` this run sent. Images are diffed by intent against this value, never against the server-built thumbnail in `image` |
+| `scope_conversion_pending` on an offer | `adopt --convert-scope` | an approved `all_packages` conversion the first `diff` will send as a PATCH. Cleared once it lands |
+| `active_update` | `update`, before the first write | the change set and merged plan this update is applying. While it is present, `diff`, `verify`, `teardown` and `apply --resume` refuse, and `update` needs `--resume` or `--settle` |
+| `ops` | `update` | the journal. Every op is `queued`, then durably `in_flight` immediately before its request goes out, then `done`. Only an `in_flight` op can have landed with its response lost |
+| `removed` | a completed DELETE | the receipt for an object that is gone: its old entry plus `section`, `op` and `removed_at`. The active section then holds only what is on the campaign |
+| `history` | each promotion | one entry per completed or settled update: the change set, the plan hashes either side, the archive name, each op's outcome, and `settled: true` when `--settle` wrote it |
+| `pending_promotion` | step 2 of a promotion | the bytes still to be copied onto `campaign-plan.json`. Any later command finishes the promotion before reading the plan, which is what makes an interrupted one recoverable |
+| `promoted_at` | step 4 of a promotion | when the canonical plan last changed |
+
+### change-set.json
+
+```json
+{"schema": 1, "run_id": "", "store_slug": "", "campaign_id": 0, "created_at": "",
+ "base_plan_sha256": "<plan-sha256>", "merged_plan_sha256": "<plan-sha256>",
+ "merged_plan_file": "campaign-plan.<sha8>.json",
+ "baseline_sha256": "<baseline-sha256>", "baseline": {},
+ "has_deletes": false, "warnings": [], "preserved": [],
+ "ops": [{"n": 1, "method": "PATCH|POST|PUT|DELETE", "section": "", "key": "",
+          "id": 0, "path": "", "body": {}, "body_template": {}, "package_keys": [],
+          "depends_on": 0, "before": {}, "after": {}}],
+ "merged_plan": {}}
+```
+
+- `schema` is 1. A change set written by another schema is refused rather than
+  guessed at.
+- `run_id`, `store_slug` and `campaign_id` bind it to one run and one campaign.
+  `base_plan_sha256` has to equal both the manifest's `plan_sha256` and the hash
+  of `campaign-plan.json` on disk, so a change set from before another update is
+  refused.
+- `merged_plan_file` names the bytes `diff` wrote and `update --plan` must pass;
+  `merged_plan_sha256` is the hash of those bytes, and `merged_plan` is the same
+  plan parsed, which `update` compares with the file it was given. `diff` is the
+  only writer of that file, and promotion copies its bytes rather than
+  re-serialising, so a merged plan re-indented by hand keeps its own formatting
+  as long as the change set's hash is recomputed with it.
+- `baseline` is the normalised live snapshot the operator reviewed and
+  `baseline_sha256` its hash. `update` re-reads the campaign and recomputes that
+  hash; a different answer is the "campaign changed since you reviewed the diff"
+  refusal. `update --resume` compares the whole store against this baseline plus
+  the `after` of every completed op.
+- `preserved` and `warnings` are operator-facing lines: a value kept from the
+  store, a dropped `image.src`, or a `--delete-changed` authorisation.
+  `has_deletes` drives the `--allow-delete` gate.
+- An op's `path` is the exact route, rebuilt and re-checked by `update` from the
+  campaign id, the section and the resolved id. `id` is absent on a POST and on
+  an image PUT that waits for one. `body_template` plus `package_keys` stand in
+  for a body that cannot exist yet, because the offer's scope names a package
+  this change set creates: the real body is built once that POST has answered.
+  `depends_on` names that POST's `n`. `before` and `after` are the field values
+  either side of the op, in plan space, and they are what a resume compares
+  against.
+
+### The normalised snapshot
+
+`baseline`, and every comparison the diff makes, is the live campaign in plan
+space:
+
+```json
+{"campaign": {"id": 0, "name": "", "currency": "USD", "language": "en",
+   "payment_gateway_group_id": 1, "paypal_account_id": null,
+   "statement_descriptor": null, "additional_currencies": [],
+   "available_payment_methods": [], "available_express_payment_methods": [],
+   "available_shipping_countries": []},
+ "packages": [{"id": 0, "product_id": 0, "product_variant_id": 0, "name": "",
+   "price": "0.00", "price_recurring": null, "interval": null,
+   "interval_count": null, "image": null}],
+ "shipping_methods": [{"id": 0, "shipping_method": "", "price": "0.00"}],
+ "offers": [{"id": 0, "name": "", "offer_type": "offer", "code": null,
+   "available": true,
+   "condition": {"type": "count", "value": 2, "all_packages": false, "package_ids": []},
+   "benefit": {"type": "package_percentage", "value": "0.00", "price_rounding": null}}]}
+```
+
+Rules, because the hash moves if any of them change:
+
+- Prices become plan-shaped decimal strings. A price the store does not report,
+  or reports as something that is not a finite number, becomes `null`, which
+  never equals a plan price, so it reads as a difference rather than a match.
+- `condition.value` becomes an int (`"2.00"` to `2`) for a `count` condition and
+  `null` for `any`. A value that is not a whole number becomes `null`: a blocker
+  on adopt, a difference in a diff.
+- `""` and `null` collapse for `statement_descriptor`, `interval` and
+  `price_rounding`; `additional_currencies` `null` becomes `[]`.
+- Code lists, `package_ids` and the sections themselves are sorted, so the hash
+  does not move with the order the store happens to list things in.
+- A package `name` is stripped to its bare form before comparison, by the name
+  this run journalled, then the plan's `name - variant_title`, then the live
+  `product_variant_name` suffix.
+- Excluded entirely: `api_key`, timestamps, `product_purchase_availability`,
+  `product_inventory_availability`, product name and sku, and the `description`
+  fields on a condition or benefit.
+- `image` is a receipt, not desired state. It is the server-built thumbnail, so
+  it is hashed into the baseline (an image changed in the dashboard between the
+  diff and the update is caught as drift) and never compared with a plan.
+
+The baseline hash is the SHA-256 of that object serialised with sorted keys and
+no whitespace. It covers every field above, `image` included, and nothing else.
 
 `package_keys` in the plan resolve to created ids at apply time. Each
 `landed_prices` row carries its own `package_keys`, `offer_key` and optional
