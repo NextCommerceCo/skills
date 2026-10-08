@@ -1,17 +1,19 @@
 # Campaign Provisioning
 
-Creates a new campaign in your store's Campaigns App, with its packages,
-shipping and offers, from a plan you approve first. Your AI assistant looks at
-what your store already has, suggests how the campaign should be set up, and
-shows you every change it will make and the prices your customers will pay.
-Nothing is created until you say go. At the end you get the campaign key and
-the package IDs your funnel pages need.
+Creates a campaign in your store's Campaigns App, with its packages, shipping
+and offers, from a plan you approve first, and changes a campaign you already
+have. Your AI assistant looks at what your store already has, suggests how the
+campaign should be set up, and shows you every change it will make and the
+prices your customers will pay. Nothing is created or changed until you say go.
+At the end you get the campaign key and the package IDs your funnel pages need.
 
 Use it when a new product or offer needs a campaign to exist on your store
-before the funnel is built. Afterwards it can also change that campaign for
-you: a price, an offer's percentage, which products an offer covers, pausing an
-offer or adding one. It only changes campaigns it created itself. Any other
-campaign is changed in the Campaigns App dashboard.
+before the funnel is built, and later when a price, an offer or a setting on
+that campaign has to change. A quick change to a campaign it built, such as a
+price, an offer's percentage, which products an offer covers, pausing an offer
+or adding one, it makes in place. For a campaign someone else built, or for the
+campaign's own settings, its shipping prices, or adding and removing packages,
+it takes the campaign over first and then works from a reviewed list of changes.
 
 ## What You Need
 
@@ -23,7 +25,9 @@ campaign is changed in the Campaigns App dashboard.
   and read and write metadata. You don't need to give it full access. If the
   key doesn't work, your assistant tells you which permission is missing. A key
   that is missing a permission has to be created again with all seven; trying
-  the same key again won't help.
+  the same key again won't help. Changing a campaign that already exists, one
+  this skill built or one it took over, uses the same key and only its campaign
+  permissions, so there is nothing extra to create for that.
 - **The Campaigns App** installed on your store.
 - **A computer with Python 3.9 or newer and a bash shell.** On Windows, use
   WSL, or ask your assistant to run the Python program directly.
@@ -85,7 +89,11 @@ Ask your AI assistant something like:
 > Run next-campaigns-create for mystore: create a campaign for the Photo
 > Bracelet at 49.95, low cost-to-consumer, standard shipping 6.95.
 
-It then walks you through, step by step:
+For a campaign you already have, ask for the change instead, for example "change
+the Buy 2 price on the Photo Bracelet campaign to 21.95". That follows the
+shorter path in "Changing a campaign you already have" below.
+
+For a new campaign it walks you through, step by step:
 
 1. **Setup**: confirms your store, sets up the private file for your API key,
    and checks the key works.
@@ -136,23 +144,87 @@ say so before you approve.
 > work: the engine keeps the larger percentage, so three units would take 50%.
 > Buy 1 at the list price plus the BOGO offer is the supported mix.
 
+## Changing a campaign you already have
+
+Ask in plain words for what you want different. Your assistant works out which
+settings that means, shows you the exact list before anything is sent, and waits
+for your yes.
+
+| You ask for | What changes on the campaign |
+|-------------|------------------------------|
+| "Make Buy 2 a bit cheaper" | the discount on that offer |
+| "Drop the price of the main package to 22.95" | that package's price |
+| "Shipping is 7.95 now" | the shipping price |
+| "Stop the exit discount from running" | that offer is switched off, but kept, so you can switch it back on |
+| "Add the warranty add-on at 9.95" | a new package, and the funnel page gets a new ID to use |
+| "Add a discount on the add-on" | a new offer |
+| "We also ship to Canada now" | the shipping countries |
+| "Rename the campaign" | the campaign name |
+| "Remove the Buy 3 offer for good" | that offer is deleted, which needs a separate yes |
+
+Four things to know before you ask:
+
+- **You see every change first.** Your assistant shows you a numbered list of
+  exactly what will be sent, and what each value is now versus what it becomes.
+  Nothing goes to your store until you approve that list.
+- **Deleting needs its own yes.** Changing a price and deleting an offer are not
+  the same kind of decision. Anything that removes a package, a shipping method
+  or an offer is called out on its own and needs a second, explicit approval.
+  Deleted things do not come back, and anything recreated afterwards gets a new
+  ID, so your funnel pages have to be repointed.
+- **Changes you made in the dashboard are kept.** If you changed something
+  yourself since the last time the assistant looked, that value stays as you set
+  it and is listed for you as kept. The only thing that stops the run is you and
+  the assistant having changed the same setting to two different values, which
+  it reports rather than picking a winner.
+- **The campaign key never changes.** Updating a campaign does not change the
+  key your funnel pages use.
+
+> [!IMPORTANT]
+> A campaign built in the Campaigns App dashboard has to be taken over before it
+> can be changed this way. Your assistant lists the campaigns on your store and
+> asks you to confirm which one, by its ID number, its name and the date it was
+> created. Taking it over reads the campaign and writes a local record of it;
+> nothing on your store changes. If the campaign is in a shape the skill cannot describe safely,
+> such as two offers with the same name, it stops and tells you what to fix in
+> the dashboard first.
+
+> [!IMPORTANT]
+> One thing cannot be changed at all: the campaign's currency. That is fixed
+> when the campaign is created, so a different currency needs a new campaign.
+> A product variant also cannot be swapped on an existing package, and a
+> shipping method cannot be moved to a different shipping code: in both cases
+> the assistant adds the new one and removes the old one, which needs the
+> delete approval.
+
 ## Safety
 
-- **Nothing is created until you approve the exact plan.** The approval is tied
-  to the plan file's fingerprint, so a changed plan needs a new approval.
-- **It only touches what it created.** It never changes or removes a campaign,
-  package or offer it did not create. An offer you added yourself in the
-  dashboard is left exactly as it is.
+- **Nothing is created or changed until you approve the exact plan.** The
+  approval is tied to the fingerprint of the file you reviewed, so a changed
+  plan or a changed list of requests needs a new approval.
+- **It only touches the campaign you pointed it at.** It keeps its own record of
+  the campaign it created or that you handed over, and it refuses to touch
+  anything that record does not cover, including anything added to the campaign
+  from elsewhere. An offer you added yourself in the dashboard is listed and
+  left exactly as it is.
 - **Changes are approved the same way.** Before changing a campaign it shows
-  each value before and after, and the prices your customers will pay before
-  and after. It keeps a record of the old values so the change can be undone.
-- **It changes a campaign in place when it can.** The campaign keeps its key
-  and its IDs, so your funnel pages keep working. A few things cannot be
-  changed this way, such as the currency or which product a package sells. For
-  those it tells you which one, and that the campaign would have to be removed
-  and created again.
+  each value before and after, and the prices your customers will pay before and
+  after. A quick in-place change also asks whether shoppers are on the campaign
+  right now, and keeps a record of the old values so it can be undone.
+- **The campaign keeps its key and its IDs**, so your funnel pages keep working.
+  A few things cannot be changed at all, such as the currency or which product a
+  package sells. For those it tells you which one, and that the campaign would
+  have to be removed and created again.
+- **Deletions are a separate approval**, and the campaign itself is never
+  deleted by a change. An in-place change never deletes anything: an offer is
+  paused instead.
 - **An interrupted run can be recovered.** It can pick up where it left off
-  without creating anything twice, or remove only what it created.
+  without creating anything twice, or remove only what it created. An update
+  that stopped halfway checks the campaign against what it had already done
+  before it carries on, and stops if someone changed something in the dashboard
+  in the meantime.
+- **It checks your store again just before sending an update**, and refuses if
+  anything moved since you read the list. You get a fresh list to approve.
 - It paces its requests to stay within your store's request limit.
 - The campaign key is saved in a protected file on your computer and is never
   shown in the chat.
@@ -162,6 +234,20 @@ say so before you approve.
 
 Ask your assistant which version you have. It can read it from the skill
 itself.
+
+Version 0.8.0 added in-place edits: a price, an offer's percentage, an offer's
+condition or scope, pausing an offer or adding one, on a campaign this skill
+built, with a record of the old values so the change can be undone.
+
+Version 1.0.0 builds on that and adds the ability to change a campaign the skill
+did not build: taking over a campaign made in the dashboard, showing you a
+reviewed list of changes, and applying it behind its own approval. In-place
+edits are unchanged and are still the quick route for a campaign this skill
+built. Everything the earlier versions did is unchanged too, and an existing
+campaign created by this skill keeps working with the files already on your
+machine. It is a major version because the skill can now change and delete
+things on a campaign someone else created, which is a change to what it is
+allowed to do rather than a new convenience.
 
 If you installed from a copy of the skills repository, update that copy and run
 the installer's status check. It marks the skill as out of date when a newer

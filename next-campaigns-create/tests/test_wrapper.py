@@ -81,7 +81,8 @@ class Launcher(unittest.TestCase):
     def test_help_exit_zero(self):
         r = run("--help", cwd=self.root)
         self.assertEqual(r.returncode, 0, r.stderr)
-        for part in ("discover", "metadata", "recommend", "teardown", "NEXT_ADMIN_API_TOKEN", ".env"):
+        for part in ("discover", "metadata", "recommend", "teardown", "adopt", "diff", "update",
+                     "--change-set-sha256", "--allow-delete", "NEXT_ADMIN_API_TOKEN", ".env"):
             self.assertIn(part, r.stdout)
 
     def test_no_args_exit_two(self):

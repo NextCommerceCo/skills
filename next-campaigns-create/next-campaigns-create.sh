@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# next-campaigns-create: provision a Campaigns App campaign over the NEXT Admin API.
+# next-campaigns-create: provision and update a Campaigns App campaign over the NEXT
+# Admin API.
 #
 # Launcher for scripts/campaign_admin.py. It prints the skill version, checks for
 # Python 3.9+, and forwards every other argument to the engine unchanged. The
@@ -27,7 +28,7 @@ PY="${NEXT_CAMPAIGNS_CREATE_PYTHON:-python3}"
 
 usage() {
   cat <<'EOF'
-next-campaigns-create: provision a Campaigns App campaign over the NEXT Admin API
+next-campaigns-create: provision and update a Campaigns App campaign over the NEXT Admin API
 
 Usage:
   next-campaigns-create.sh --version
@@ -35,6 +36,8 @@ Usage:
   next-campaigns-create.sh check-update [--no-cache] [--json]
   next-campaigns-create.sh discover  --store <subdomain> [--out <dir>]
   next-campaigns-create.sh metadata  --store <subdomain> [--apply]
+
+Create a campaign:
   next-campaigns-create.sh recommend --discovery <dir>/discovery.json --hero <product_id>
                                     --ctc low|high --anchor-price <decimal>
                                     --shipping <code>:<price>[:<key>] [options]
@@ -47,6 +50,18 @@ Usage:
                                     [--yes --edit-sha256 <edit-sha256> --live-traffic yes|no]
   next-campaigns-create.sh teardown  --manifest <dir>/run-manifest.json --plan <dir>/campaign-plan.json --yes
 
+Update a campaign that already exists (adopt and diff send no writes):
+  next-campaigns-create.sh adopt     --store <subdomain> --campaign <id>
+                                    [--out <dir>] [--convert-scope <offer_id>]
+  next-campaigns-create.sh diff      --plan <dir>/campaign-plan.next.json
+                                    --manifest <dir>/run-manifest.json
+                                    [--out <dir>] [--delete-changed <section>:<key>]
+  next-campaigns-create.sh update    --plan <dir>/campaign-plan.<sha8>.json
+                                    --manifest <dir>/run-manifest.json
+                                    --change-set <dir>/change-set.json
+                                    --yes --change-set-sha256 <change-set-sha256>
+                                    [--allow-delete] [--resume | --settle]
+
 Admin API token, first match wins:
   1. {STORE}_NEXT_ADMIN_API_TOKEN in the environment
      (mystore -> MYSTORE_NEXT_ADMIN_API_TOKEN, my-store -> MY_STORE_NEXT_ADMIN_API_TOKEN)
@@ -55,10 +70,13 @@ Admin API token, first match wins:
   Never pass the token on the command line.
 
 Run files:
-  discover writes ./next-campaigns-create-runs/<store>/discovery.json. recommend, apply
-  and verify write next to the file they read; --out overrides. edit rewrites the plan
-  and writes its receipts next to the manifest. Inside a git repository
-  the run directory must be gitignored: add "next-campaigns-create-runs/" to .gitignore.
+  discover writes ./next-campaigns-create-runs/<store>/discovery.json and adopt writes
+  ./next-campaigns-create-runs/<store>-<campaign id>/. recommend, apply and verify write
+  next to the file they read, and diff into the manifest's run directory; --out overrides.
+  edit rewrites the plan in place and writes its receipts next to the manifest.
+  Inside a git repository the run directory must be gitignored: add
+  "next-campaigns-create-runs/" to .gitignore. One command at a time per run directory:
+  each holds a .run.lock while it runs.
 
 Update check:
   check-update prints the installed version, then whether a newer version is published
@@ -71,8 +89,9 @@ Environment:
   NEXT_SKILLS_CHECK_TIMEOUT     seconds before check-update gives up (default: 10)
 
 Exit codes:
-  0 success. 1 refused or failed. 2 usage error, the apply or edit gate, or no usable Python.
-  Every exit 2 means nothing was written to the store. check-update always exits 0.
+  0 success. 1 refused or failed. 2 usage error, or the apply, edit or update gate, or no
+  usable Python. Every exit 2 means nothing was sent to the store. check-update always
+  exits 0.
 
 Without bash (Windows): run python3 <skill-dir>/scripts/campaign_admin.py with the same
 arguments and the token set in the environment.
