@@ -1,0 +1,43 @@
+{
+  "store_slug": "teststore",
+  "store_origin": "https://teststore.29next.store",
+  "origin": "created",
+  "plan_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "run_id": "11111111-2222-3333-4444-555555555555",
+  "started_at": "2026-09-02T12:00:00+00:00",
+  "campaign": {
+    "status": "created",
+    "key": "campaign",
+    "name": "Legacy Bracelet",
+    "id": 2001,
+    "api_key": "test-key",
+    "created_at": "2026-09-02T12:00:05+00:00",
+    "intent": null
+  },
+  "packages": [
+    {
+      "key": "hero-801",
+      "status": "created",
+      "id": 2002,
+      "name": "Legacy Bracelet - One size",
+      "product_variant_id": 801,
+      "image_status": "set",
+      "image": "https://cdn.test/media/thumbnails/override.webp",
+      "image_at_create": "https://cdn.test/media/thumbnails/catalogue.webp",
+      "intent": null
+    }
+  ],
+  "shipping_methods": [
+    {"key": "standard", "status": "created", "id": 2003, "shipping_method": "standard", "intent": null}
+  ],
+  "offers": [
+    {
+      "key": "tier-2",
+      "status": "created",
+      "id": 2004,
+      "name": "Legacy Bracelet - Buy 2",
+      "intent": null
+    }
+  ],
+  "completed_at": "2026-09-02T12:00:30+00:00"
+}

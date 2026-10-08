@@ -363,7 +363,7 @@ class Clone(unittest.TestCase):
     def test_lock_blocks_clone_resume_and_teardown_without_changes(self):
         self.assertEqual(self.run_clone(), 0)
         before, writes = self.path.read_bytes(), self.writes()
-        with ca.EditLock(self.out):
+        with ca.run_lock(self.out):
             for action in (lambda: self.run_clone(), lambda: self.run_clone(resume=True),
                            lambda: self.lifecycle("teardown", "--yes")):
                 self.assertEqual(action(), 1)

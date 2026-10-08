@@ -37,8 +37,9 @@ def live_engine(state, cid):
         lines = [(l["package_id"], l["quantity"]) for l in body["lines"]]
 
         def met(o):
+            # The store reports a count threshold as a decimal string ("2.00").
             need = o["condition"].get("value") if o["condition"]["type"] == "count" else 1
-            return sum(q for i, q in lines if i in scope(o)) >= (need or 1)
+            return sum(q for i, q in lines if i in scope(o)) >= Decimal(str(need or 1))
 
         def pct(o, kind):
             return o.get("offer_type", "offer") == kind and o["benefit"]["type"] == "package_percentage"
@@ -275,18 +276,20 @@ class EditGateAndOwnership(EditHarness):
                          self.out[-3:])
         self.assertEqual(live["benefit"]["value"], "12.00")
 
-    def test_second_edit_in_the_same_run_directory_is_locked_out(self):
+    def test_second_command_in_the_same_run_directory_is_locked_out(self):
+        """edit takes the same run-directory lock apply, verify, teardown, diff and
+        update take, so one writer per run covers every pair of them."""
         sp = self.spec(self.ladder_ops())
         self.assertEqual(self.cli("--changes", sp), 2)
         sha = self.sha()
-        (self.dir / ca.EDIT_LOCK_NAME).write_text("held")
+        (self.dir / ca.RUN_LOCK_NAME).write_text("held")
         self.assertEqual(self.cli("--changes", sp, "--yes", "--edit-sha256", sha, "--live-traffic", "no"), 1)
-        self.assertIn("another edit is running", self.error())
+        self.assertIn("holds this run directory", self.error())
         self.assertEqual(self.writes(), [])
-        self.assertTrue((self.dir / ca.EDIT_LOCK_NAME).exists())  # not ours to remove
-        (self.dir / ca.EDIT_LOCK_NAME).unlink()
+        self.assertTrue((self.dir / ca.RUN_LOCK_NAME).exists())  # not ours to remove
+        (self.dir / ca.RUN_LOCK_NAME).unlink()
         self.assertEqual(self.cli("--changes", sp, "--yes", "--edit-sha256", sha, "--live-traffic", "no"), 0)
-        self.assertFalse((self.dir / ca.EDIT_LOCK_NAME).exists())
+        self.assertFalse((self.dir / ca.RUN_LOCK_NAME).exists())
 
     def test_drift_between_preview_and_apply_is_refused(self):
         sp = self.spec(self.ladder_ops())
@@ -482,9 +485,9 @@ class EditPricing(EditHarness):
         self.offer("tier-2")["condition"]["value"] = 3
         self.offer("tier-3")["available"] = False
         checks = {c["check"]: c["result"] for c in self.verify()["admin_checks"]}
-        self.assertEqual(checks["offer tier-2 condition value"], "FAIL")
+        self.assertEqual(checks["offer tier-2 condition.value"], "FAIL")
         self.assertEqual(checks["offer tier-3 available"], "FAIL")
-        self.assertEqual(checks["offer tier-1 condition value"], "PASS")
+        self.assertEqual(checks["offer tier-1 condition.value"], "PASS")
 
     def test_pausing_a_higher_tier_falls_to_the_next_one(self):
         self.assertEqual(self.edit([{"op": "set_offer_available", "offer_key": "tier-3", "available": False}]), 0)
@@ -558,8 +561,9 @@ class EditPricingRounded(EditHarness):
     def test_value_only_edit_keeps_rounding_and_can_clear_it(self):
         self.assertEqual(self.edit([{"op": "set_offer_benefit", "offer_key": "tier-2", "value": "52"}]), 0)
         self.assertEqual(self.writes()[-1][2], {"benefit": {"value": "52.00"}})
-        self.assertEqual(self.offer("tier-2")["benefit"], {"type": "package_percentage", "value": "52.00",
-                                                          "price_rounding": "0.99"})
+        ben = self.offer("tier-2")["benefit"]
+        self.assertEqual({f: ben[f] for f in ("type", "value", "price_rounding")},
+                         {"type": "package_percentage", "value": "52.00", "price_rounding": "0.99"})
         self.assertEqual(self.row("Buy 2")["unit_after"], "24.99")
         self.assert_in_line()
         self.assertEqual(self.edit([{"op": "set_offer_benefit", "offer_key": "tier-2", "price_rounding": None}],
@@ -722,12 +726,18 @@ class EditAddOffer(EditHarness):
         self.t.before[("POST", self.offers_path())] = rename
         self.t.fail_on[("POST", self.offers_path())] = 400
         self.assertEqual(self.approve("--changes", sp), 1)
-        self.assertEqual(self.approve("--changes", sp, live=None), 0, self.out[-3:])
-        mine = self.reload().entry("offers", "loyalty")["id"]
-        self.assertNotEqual(mine, other)
+        # The rerun looks for the offer it may have created, finds only the one that
+        # was live before the edit, and posts again rather than claiming it. The store
+        # then refuses the name, which is the right answer: the offer is not ours.
+        self.assertEqual(self.approve("--changes", sp, live=None), 1)
+        self.assertIn("already exists on this campaign", self.error())
+        self.assertIsNone(self.reload().entry("offers", "loyalty").get("id"))
         self.assertNotIn(other, [e.get("id") for e in self.man.data["offers"]])
         # and teardown therefore never deletes it
         plan, sha = ca.load_json_and_hash(self.plan_path)
+        # the dashboard offer scopes a hero package, which this store would refuse to
+        # delete while it does; that refusal is not what this test is about
+        self.state["cascade_on_package_delete"] = True
         ca.teardown(self.client(), self.man, plan, sha, lambda: True)
         self.assertFalse([c for c in self.t.calls if c[0] == "DELETE" and c[1].endswith(f"/offers/{other}/")])
 
