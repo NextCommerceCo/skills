@@ -880,9 +880,10 @@ for a creation plan hash. `edit`, `diff` and `update` refuse a clone manifest be
 write; the copy is changed by adopting it by its new id.
 
 `clone_request.status` is `not_sent`, `sending`, `uncertain`, `rejected` or
-`confirmed`. Before POST, the journal saves existing same-name candidate IDs,
-`attempted_at` and `attempt_deadline` (attempt time plus request timeout plus 60
-seconds). Recovery never widens this window: candidate creation must fall between
+`confirmed`. Before POST, the journal saves the id of every campaign that already
+existed on the store, `attempted_at` and `attempt_deadline` (attempt time plus
+request timeout plus 60 seconds). A `rejected` request keeps those fields as the
+record of the one attempt that was made. Recovery never widens this window: candidate creation must fall between
 attempt time minus 60 seconds and the saved deadline. Missing window evidence,
 zero candidates or multiple candidates stops for manual resolution. One candidate
 must match identity and approved content before adoption. This is still not
@@ -900,7 +901,11 @@ records preservation differences; a mismatch does not remove ownership or block
 completion. `completed_at` records completed enumeration. Teardown uses these
 owned entries, not the expected source rows, and only reference ids from the
 approved snapshot are ever owned. It refuses to delete the campaign while any
-unowned package, shipping method or offer remains under it. Before the clone
+unowned package, shipping method or offer remains under it. That check runs
+immediately before the campaign DELETE, but the API offers no precondition, so
+an object someone adds in the dashboard in the moment between the check and the
+delete is removed with the campaign. The run lock serializes this skill's own
+commands, not other writers. Before the clone
 POST, the journal saves every campaign id that already existed, so a later
 rename cannot make an unrelated campaign a recovery candidate. With incomplete inventory, teardown
 refreshes only after checking the journaled destination ID and exact creation

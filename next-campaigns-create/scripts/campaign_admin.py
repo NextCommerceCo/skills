@@ -6863,8 +6863,8 @@ def clone_list(client, path):
         body = clone_get(client, path)
         if isinstance(body, list):
             page, nxt = body, None
-        elif "results" in body and "next" in body:
-            page, nxt = body["results"], body["next"]
+        elif "results" in body:
+            page, nxt = body["results"], body.get("next")
             if "count" in body:
                 count = body["count"]
                 if (isinstance(count, bool) or not isinstance(count, int) or count < 0
@@ -6962,6 +6962,11 @@ def clone_resource(section, row, currency):
         fields = ("name", "product_variant_id", "prices") if section == "packages" else ("shipping_method", "prices")
         clone_require(row, fields, section)
         result.update({k: row[k] for k in fields if k != "prices"})
+        if section == "packages":
+            # Subscription billing is part of what the copy must preserve.
+            for k in ("is_recurring", "interval", "interval_count"):
+                if k in row:
+                    result[k] = row[k]
         result["prices"] = clone_prices(row["prices"], currency)
         return result
     clone_require(row, ("name", "offer_type", "code", "available", "condition", "benefit"), "offer")
@@ -6976,10 +6981,13 @@ def clone_resource(section, row, currency):
     result["condition"] = {"type": cond["type"],
                            "value": None if cond["value"] is None else clone_number(cond["value"]),
                            "all_packages": cond["all_packages"],
-                           "package_ids": sorted(set(clone_id(p["id"]) for p in cond["packages"]
-                                                     if isinstance(p, dict) and "id" in p))}
-    if len(result["condition"]["package_ids"]) != len(cond["packages"]):
-        raise CampaignAdminError("offer package scope is incomplete or duplicated")
+                           "package_ids": None}
+    if any(not isinstance(p, dict) or "id" not in p for p in cond["packages"]):
+        raise CampaignAdminError("offer package scope has an entry without an id")
+    scope = [clone_id(p["id"]) for p in cond["packages"]]
+    if len(set(scope)) != len(scope):
+        raise CampaignAdminError("offer package scope lists the same package twice")
+    result["condition"]["package_ids"] = sorted(set(scope))
     result["benefit"] = {"type": benefit["type"], "value": clone_number(benefit["value"]),
                          "price_rounding": None if benefit["price_rounding"] in (None, "")
                          else clone_number(benefit["price_rounding"])}
@@ -7042,6 +7050,8 @@ def clone_preview(approval, args):
     if args.resume:
         cmd += ["--resume", args.resume]
     print("Approve: " + shlex.join(cmd + ["--yes", "--clone-sha256", sha]))
+    print(f"NOT APPLIED: pass --yes --clone-sha256 {sha} to send the clone request; nothing was sent.",
+          file=sys.stderr)
 
 
 def validate_clone(man, client):
@@ -7153,9 +7163,12 @@ def clone_recover(client, man):
         raise CampaignAdminError(f"uncertain clone: {len(candidates)} candidates {ids}; resolve manually; POST will not be repeated")
     candidate = candidates[0]
     campaign, snapshot = clone_read(client, clone_id(candidate.get("id")))
-    if (campaign["name"] != candidate["name"] or not same_instant(campaign["created_at"], candidate["created_at"])
-            or any(c["result"] == "FAIL" for c in clone_compare(a["snapshot"], snapshot))):
-        raise CampaignAdminError("uncertain clone candidate differs from saved identity/content; resolve manually")
+    failing = [c["check"] for c in clone_compare(a["snapshot"], snapshot) if c["result"] == "FAIL"]
+    if campaign["name"] != candidate["name"] or not same_instant(campaign["created_at"], candidate["created_at"]):
+        failing.insert(0, "campaign identity")
+    if failing:
+        raise CampaignAdminError("uncertain clone candidate " + str(campaign["id"]) + " differs from the approved snapshot ("
+                                 + ", ".join(failing) + "); resolve manually; POST will not be repeated")
     clone_record(man, campaign)
 
 

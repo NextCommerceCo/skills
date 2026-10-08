@@ -430,10 +430,10 @@ Exit codes, for every subcommand:
 |---|---|
 | 0 | success; `check-update` always exits 0. `diff` also exits 0 when there is nothing to change |
 | 1 | refused or failed: invalid input, credential missing, a store error, a verify FAIL, an `adopt` with blockers, every `edit` refusal that is not the gate (an op the engine cannot do in place, a live value that drifted from the plan, a read that cannot prove the change, a write the store rejected), any `diff` refusal (conflict, unmanaged object, a delete the store changed, a name swap), and the `update` refusals that are not gates: the ownership read-back, a manifest the run cannot use, every `--resume` or `--settle` refusal that reads the store, and a write the store rejected |
-| 2 | a gate refused: `apply`, `edit` or `update` printed a line starting `NOT APPLIED` and sent nothing. The argument parser rejecting the command and a launcher precondition failing are also 2, and print no such line |
+| 2 | a gate refused: `apply`, `clone`, `edit` or `update` printed a line starting `NOT APPLIED` and sent nothing. The argument parser rejecting the command and a launcher precondition failing are also 2, and print no such line |
 
 Every exit 2 means nothing was sent to the store. Every gate in the engine prints
-a `NOT APPLIED` line, in one of four forms, all on stderr:
+a `NOT APPLIED` line, in one of five forms, all on stderr:
 
 - `apply`, under the plan printout: `NOT APPLIED: pass --yes --plan-sha256 <hash
   above> to approve this exact plan.` The words `<hash above>` are literal; the
@@ -448,6 +448,8 @@ a `NOT APPLIED` line, in one of four forms, all on stderr:
   or, once the hash is right, the request for `--live-traffic yes` or
   `--live-traffic no`. On the gate of an edit that stopped partway, one sentence
   sits between the two: `This continues the edit that was already approved.`
+- `clone`, under the preview: `NOT APPLIED: pass --yes --clone-sha256 <hash> to
+  send the clone request; nothing was sent.`
 
 The two exit 2s with no `NOT APPLIED` line are the argument parser rejecting the
 command and a launcher precondition (no usable Python, a missing engine, no

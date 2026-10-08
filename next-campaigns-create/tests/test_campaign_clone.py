@@ -76,7 +76,10 @@ class Clone(unittest.TestCase):
 
     def test_preview_and_stale_hash_touch_nothing(self):
         for kwargs in ({"gate": False}, {"sha": "stale"}):
-            self.assertEqual(self.run_clone(**kwargs), 2)
+            output = io.StringIO()
+            with mock.patch.object(ca, "print", builtins.print), mock.patch("sys.stdout", io.StringIO()), mock.patch("sys.stderr", output):
+                self.assertEqual(self.run_clone(**kwargs), 2)
+            self.assertIn("NOT APPLIED: pass --yes --clone-sha256", output.getvalue())
             self.assertFalse(self.out.exists())
             self.assertEqual(self.writes(), [])
 
@@ -390,9 +393,23 @@ class Clone(unittest.TestCase):
         self.assertEqual(self.run_clone(gate=False), 1)
         self.assertFalse(self.out.exists())
         self.state["offers"][7][4] = copy.deepcopy(self.source["offers"][7][4])
-        self.t.child_list = lambda kind: lambda path, body: (200, {"results": []})
+        # An envelope whose advertised count does not match the rows read is a partial read.
+        self.t.child_list = lambda kind: lambda path, body: (200, {"count": 1, "results": [], "next": None})
         self.assertEqual(self.run_clone(gate=False), 1)
         self.assertEqual(self.writes(), [])
+
+    def test_results_envelope_without_next_is_a_single_page(self):
+        original = self.t.child_list
+        self.t.child_list = lambda kind: (lambda path, body: (200, {"results": [{"id": 4}]})) if kind == "offers" else original(kind)
+        self.assertEqual(len(self.approval()["snapshot"]["offers"]), 1)
+
+    def test_subscription_fields_preserved_and_verified(self):
+        self.state["packages"][7][42].update(is_recurring=True, interval="month", interval_count=1)
+        self.assertEqual(self.run_clone(), 0)
+        self.assertEqual(self.man().data["packages"][0]["interval"], "month")
+        self.assertEqual(ca.clone_verify(self.client, self.man())["result"], "PASS")
+        self.state["packages"][101][42]["interval_count"] = 3
+        self.assertEqual(ca.clone_verify(self.client, self.man())["result"], "FAIL")
 
     def test_pagination_reads_every_page_and_offer_detail(self):
         original = self.t.child_list
@@ -458,7 +475,10 @@ class Clone(unittest.TestCase):
         self.assertEqual(self.run_clone("Renamed"), 0)
         before = self.writes()
         self.state["campaigns"][101]["name"] = "Synthetic original-COPY"
-        self.assertEqual(self.run_clone("Renamed", resume=True), 1)
+        output = io.StringIO()
+        with mock.patch.object(ca, "print", builtins.print), mock.patch("sys.stderr", output):
+            self.assertEqual(self.run_clone("Renamed", resume=True), 1)
+        self.assertIn("dashboard", output.getvalue())
         self.assertEqual(self.writes(), before)
 
     def test_missing_creation_identity_refuses_teardown(self):
