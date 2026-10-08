@@ -14,6 +14,8 @@ price, an offer's percentage, which products an offer covers, pausing an offer
 or adding one, it makes in place. For a campaign someone else built, or for the
 campaign's own settings, its shipping prices, or adding and removing packages,
 it takes the campaign over first and then works from a reviewed list of changes.
+It can also copy a campaign you already have into a new one, keeping the IDs
+your funnel pages use.
 
 ## What You Need
 
@@ -196,6 +198,34 @@ Four things to know before you ask:
 > shipping method cannot be moved to a different shipping code: in both cases
 > the assistant adds the new one and removes the old one, which needs the
 > delete approval.
+## Copy an existing campaign
+
+Ask your assistant to clone a campaign, giving it the store and source campaign
+ID. You can also request a name. The assistant shows the settings and all copied
+resources for approval, including discount codes. It then sends one clone
+request. The server names the copy after the source with `-COPY` appended; your
+requested name is applied to the new campaign in a separate rename request.
+
+The copy has a new campaign key, but keeps the package and shipping IDs your
+funnel pages use. Offer IDs and codes also stay the same. Paused offers remain
+paused, and removed offers are excluded. The source campaign stays unchanged.
+Your store must have a deployment that supports the clone endpoint. If it does
+not, the assistant stops and asks you to check deployment.
+
+If the connection fails after sending, keep the run directory. The assistant
+can resume a known copy or recover a unique matching copy within the saved
+request window. It never repeats an uncertain clone request. If it cannot tell
+which copy belongs to the run, it stops for manual resolution. A different
+operator making an identical copy during that window remains an ownership risk.
+
+Verification compares the destination with what you approved, and reports any
+later source changes separately. It checks copied prices and offer conditions;
+it does not price test carts for clones. You can remove the copy using its run
+manifest even when a copied price failed verification. If something was added
+to the copy in the dashboard, teardown removes what it created and leaves the
+campaign in place until you remove the addition yourself. To change the copy
+later, ask your assistant to take it over by its new ID; from there it works
+the same way as changing any campaign you already have, described next.
 
 ## Safety
 

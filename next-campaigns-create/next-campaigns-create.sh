@@ -44,11 +44,17 @@ Create a campaign:
   next-campaigns-create.sh plan      --plan <dir>/campaign-plan.json [--check-store]
   next-campaigns-create.sh apply     --plan <dir>/campaign-plan.json --yes --plan-sha256 <plan-sha256>
                                     [--resume <dir>/run-manifest.json] [--out <dir>]
-  next-campaigns-create.sh verify    --manifest <dir>/run-manifest.json --plan <dir>/campaign-plan.json
+  next-campaigns-create.sh clone     --store <subdomain> --source <campaign_id> [--name <name>]
+                                    [--out <dir>] [--yes --clone-sha256 <hash>]
+                                    [--resume <dir>/run-manifest.json]
+  next-campaigns-create.sh verify    --manifest <dir>/run-manifest.json [--plan <dir>/campaign-plan.json]
   next-campaigns-create.sh edit      --manifest <dir>/run-manifest.json --plan <dir>/campaign-plan.json
                                     --changes <dir>/campaign-edit.json | --undo <dir>/edit-<n>-receipt.json
                                     [--yes --edit-sha256 <edit-sha256> --live-traffic yes|no]
-  next-campaigns-create.sh teardown  --manifest <dir>/run-manifest.json --plan <dir>/campaign-plan.json --yes
+  next-campaigns-create.sh teardown  --manifest <dir>/run-manifest.json [--plan <dir>/campaign-plan.json] --yes
+
+  verify and teardown require --plan for creation manifests; omit it for clone manifests.
+  Clone manifests cannot be edited, diffed or updated; adopt the copy by its id instead.
 
 Update a campaign that already exists (adopt and diff send no writes):
   next-campaigns-create.sh adopt     --store <subdomain> --campaign <id>
@@ -89,9 +95,9 @@ Environment:
   NEXT_SKILLS_CHECK_TIMEOUT     seconds before check-update gives up (default: 10)
 
 Exit codes:
-  0 success. 1 refused or failed. 2 usage error, or the apply, edit or update gate, or no
-  usable Python. Every exit 2 means nothing was sent to the store. check-update always
-  exits 0.
+  0 success. 1 refused or failed. 2 usage error, or the apply, clone, edit or update gate,
+  or no usable Python. Every exit 2 means nothing was sent to the store. check-update
+  always exits 0.
 
 Without bash (Windows): run python3 <skill-dir>/scripts/campaign_admin.py with the same
 arguments and the token set in the environment.

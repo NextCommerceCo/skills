@@ -72,6 +72,7 @@ class Launcher(unittest.TestCase):
         r = run("--version", cwd=self.root)
         self.assertEqual(r.returncode, 0, r.stderr)
         want = re.search(r"^version:\s*(\S+)", (SKILL_DIR / "SKILL.md").read_text(), re.M).group(1)
+        self.assertEqual(want, "1.1.0")
         self.assertEqual(r.stdout.strip(), f"next-campaigns-create {want}")
         catalog = REPO_ROOT / "skills.json"
         if catalog.exists():  # absent in an installed copy, present in the repository
@@ -81,7 +82,7 @@ class Launcher(unittest.TestCase):
     def test_help_exit_zero(self):
         r = run("--help", cwd=self.root)
         self.assertEqual(r.returncode, 0, r.stderr)
-        for part in ("discover", "metadata", "recommend", "teardown", "adopt", "diff", "update",
+        for part in ("discover", "metadata", "recommend", "clone", "--clone-sha256", "teardown", "adopt", "diff", "update",
                      "--change-set-sha256", "--allow-delete", "NEXT_ADMIN_API_TOKEN", ".env"):
             self.assertIn(part, r.stdout)
 
