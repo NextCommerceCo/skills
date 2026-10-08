@@ -348,7 +348,9 @@ class Client:
             if status is not None and 300 <= status < 400:
                 raise CampaignAdminError(f"{method} {url} answered {status}; redirects are refused")
             try:
-                return status, json.loads(text, parse_float=Decimal) if clone_decode and text else json.loads(text) if text else None
+                if not text:
+                    return status, None
+                return status, json.loads(text, parse_float=Decimal) if clone_decode else json.loads(text)
             except json.JSONDecodeError:
                 return status, text
         return status, text  # pragma: no cover
@@ -4759,7 +4761,14 @@ def clone_teardown(client, man, confirm):
     path = f"/api/admin/campaigns/{cid}/"
     status, live = client.request("GET", path, clone_decode=True)
     if status == 404:
+        # The campaign is already gone, and the server cascades through its children.
+        for section in ("offers", "shipping_methods", "packages"):
+            for entry in man.data[section]:
+                if entry.get("status") != "deleted":
+                    man.mark(section, entry["key"], status="deleted")
         man.mark("campaign", "campaign", status="deleted")
+        man.data["torn_down_at"] = utcnow()
+        man.save()
         return
     if status != 200 or not clone_identity(live, man):
         raise CampaignAdminError("clone destination identity mismatch; refusing all deletes")
@@ -4938,10 +4947,16 @@ def main(argv=None) -> int:
 def _dispatch(args) -> int:
     if args.cmd == "clone":
         return run_clone(args)
-    if args.cmd in ("verify", "teardown") and not args.plan:
-        return clone_lifecycle(args)
-    if args.cmd in ("verify", "teardown") and Manifest.load(Path(args.manifest)).data.get("kind") == "clone":
-        raise CampaignAdminError("clone manifests use their saved approval; omit --plan")
+    if args.cmd in ("verify", "teardown"):
+        # Route on the manifest kind, read once here without the lock. clone_lifecycle
+        # reloads it under the run lock before acting, which is the copy it trusts.
+        kind = Manifest.load(guard_manifest_path(args.manifest)).data.get("kind")
+        if kind == "clone":
+            if args.plan:
+                raise CampaignAdminError("clone manifests use their saved approval; omit --plan")
+            return clone_lifecycle(args)
+        if not args.plan:
+            raise CampaignAdminError("creation manifests require --plan")
     if args.cmd == "discover":
         slug = normalize_store(args.store)
         client = _client_for(slug)

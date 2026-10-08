@@ -62,9 +62,15 @@ and gift-with-purchase are in `references/worked-examples.md`.
 
 ## Scope
 
-This skill creates a new campaign from a plan or clones an existing campaign.
-It can edit campaigns created from a plan; clone manifests are not editable.
-The run manifest is the boundary for both: the engine never writes to a campaign,
+This skill has three paths, each recorded in a run manifest:
+
+- create a new campaign from a reviewed plan (`recommend`, `plan`, `apply`);
+- clone an existing campaign into a new one (`clone`), keeping its funnel
+  reference ids;
+- change a campaign this skill created from a plan, in place (`edit`). A
+  cloned campaign is not editable here; change it in the dashboard.
+
+The run manifest is the boundary for all three: the engine never writes to a campaign,
 package, shipping method or offer the manifest does not record. `edit` changes
 only objects in it, `teardown` removes only objects in it, and an offer someone
 added in the dashboard is listed and left alone. A campaign this skill did not

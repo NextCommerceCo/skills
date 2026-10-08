@@ -263,6 +263,23 @@ class Clone(unittest.TestCase):
         self.assertNotIn(101, self.state["campaigns"])
         self.assertTrue(all("/101/" in c[1] for c in self.writes() if c[0] == "DELETE"))
 
+    def test_teardown_of_already_deleted_destination_finalizes_manifest(self):
+        self.assertEqual(self.run_clone(), 0)
+        del self.state["campaigns"][101]
+        self.assertEqual(self.lifecycle("teardown", "--yes"), 0)
+        man = self.man().data
+        self.assertTrue(man.get("torn_down_at"))
+        self.assertEqual(man["campaign"]["status"], "deleted")
+        self.assertTrue(all(e["status"] == "deleted" for s in ("offers", "shipping_methods", "packages") for e in man[s]))
+        self.assertFalse([c for c in self.writes() if c[0] == "DELETE"])
+
+    def test_empty_body_decodes_to_none_on_both_paths(self):
+        client = base.make_client(lambda req, timeout: (200, {}, ""))
+        self.assertEqual(client.request("GET", "/api/admin/campaigns/7/", clone_decode=True), (200, None))
+        self.assertEqual(client.request("GET", "/api/admin/campaigns/7/"), (200, None))
+        with self.assertRaises(ca.CampaignAdminError):
+            ca.clone_get(client, "/api/admin/campaigns/7/")
+
     def test_parity_mismatch_still_owned_and_tears_down(self):
         self.t.before[("GET", "/api/admin/campaigns/101/shipping-methods/")] = lambda: self.state["shipping-methods"][101][9]["prices"][0].update(price="9.99")
         self.assertEqual(self.run_clone(), 0)
