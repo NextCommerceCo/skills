@@ -326,12 +326,32 @@ Exit codes, for every subcommand:
 |---|---|
 | 0 | success; `check-update` always exits 0. `diff` also exits 0 when there is nothing to change |
 | 1 | refused or failed: invalid input, credential missing, a store error, a verify FAIL, an `adopt` with blockers, every `edit` refusal that is not the gate (an op the engine cannot do in place, a live value that drifted from the plan, a read that cannot prove the change, a write the store rejected), any `diff` refusal (conflict, unmanaged object, a delete the store changed, a name swap), and the `update` refusals that are not gates: the ownership read-back, a manifest the run cannot use, every `--resume` or `--settle` refusal that reads the store, and a write the store rejected |
-| 2 | the argument parser rejected the command, the apply, edit or update gate printed `NOT APPLIED`, or a launcher precondition failed |
+| 2 | a gate refused: `apply`, `edit` or `update` printed a line starting `NOT APPLIED` and sent nothing. The argument parser rejecting the command and a launcher precondition failing are also 2, and print no such line |
 
-Every exit 2 means nothing was sent to the store. The edit gate is the one that
-reads from the store first: its preview shows live values, so it needs the token.
-It is exit 2 for a missing `--yes`, a wrong `--edit-sha256`, and a first edit
-without `--live-traffic yes|no`.
+Every exit 2 means nothing was sent to the store. Every gate in the engine prints
+a `NOT APPLIED` line, in one of four forms, all on stderr:
+
+- `apply`, under the plan printout: `NOT APPLIED: pass --yes --plan-sha256 <hash
+  above> to approve this exact plan.` The words `<hash above>` are literal; the
+  hash itself is in the printout above the line.
+- `update`'s hash gate, under the change-set printout: `NOT APPLIED: pass --yes
+  --change-set-sha256 <the hash> to approve this exact change set.` Here the real
+  hash is in the line, so it can be copied straight into the command.
+- every other `update` gate: `ERROR: <the reason>` and then `NOT APPLIED: nothing
+  was sent to the store.` on the next line.
+- `edit`: `NOT APPLIED: nothing was written.` and then either `Approve this exact
+  change with:` plus the command to re-run with `--yes --edit-sha256 <the hash>`,
+  or, once the hash is right, the request for `--live-traffic yes` or
+  `--live-traffic no`. On the gate of an edit that stopped partway, one sentence
+  sits between the two: `This continues the edit that was already approved.`
+
+The two exit 2s with no `NOT APPLIED` line are the argument parser rejecting the
+command and a launcher precondition (no usable Python, a missing engine, no
+subcommand at all); each prints its own message and runs nothing.
+
+The edit gate is the one that reads from the store first: its preview shows live
+values, so it needs the token. It is exit 2 for a missing `--yes`, a wrong
+`--edit-sha256`, and a first edit without `--live-traffic yes|no`.
 
 The update gate's exit 2 is the whole gate family: a missing `--yes` or a wrong
 `--change-set-sha256`, a change set bound to another run, campaign or plan, an op
@@ -1350,7 +1370,7 @@ manifest.
 | `campaign-plan.json` | `recommend`, `adopt`, then every `edit` and `update` | the run's canonical plan: the desired state of the campaign. `recommend` writes what `apply` will create; `adopt` writes what is already live; an `edit` rewrites it with the fields it changed and the landed prices recomputed; a completed `update` promotes the merged plan onto it |
 | `campaign-plan.next.json` | you, by convention | the operator's working copy, the only file `diff` reads edits from. Input only: nothing promotes it |
 | `campaign-edit.json` | you, in Phase 7 | the operations of one in-place edit |
-| `change-set.json` | `diff` | the reviewed change set: every op in order with its body, before and after, the preserved values, the warnings, the baseline snapshot and its hash, and the merged plan. Its own SHA-256 is the approval token for `update` |
+| `change-set.json` | `diff` | the reviewed change set: every op in order with its body, before and after, the preserved values, the plan-only differences, the warnings, the baseline snapshot and its hash, and the merged plan (`references/admin-api-contract.md` lists every key). Its own SHA-256 is the approval token for `update` |
 | `campaign-plan.<sha8>.json` | `diff`, and promotion | two kinds, both byte copies: the merged plan `diff` wrote and `update --plan` takes, and the previous canonical plan archived by each promotion. The 8 characters are the start of that plan's SHA-256 |
 | `run-manifest.json` | `apply`, `adopt`, `edit`, `update` | every id this run owns and its status, the campaign api_key, and for an adopted run `origin: "adopted"` with `adopted_at` and `adopted_from_campaign_id`. An edit in flight adds `pending_edit`; a finished one adds an `edits[]` entry. An update in flight adds `active_update` and an op journal; a completed one adds a `history[]` entry |
 | `edit-<n>-receipt.json` | `edit` | the before-image of every object the edit wrote, the plan before and after, and the approval it ran under; what `--undo` replays |

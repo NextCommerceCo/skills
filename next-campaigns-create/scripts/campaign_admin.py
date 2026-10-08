@@ -4142,6 +4142,25 @@ def plan_only_differences(base: dict, merged: dict, ops: list, kept=()) -> list:
     return out
 
 
+def _recorded_image_src(entry: dict, base_p: dict):
+    """The `image.src` this run last asked the store for on one package, which is what
+    a candidate's src is diffed against. Never the server-built thumbnail.
+
+    A completed image PUT records it as `image_src` on the manifest entry. A manifest
+    written before that field existed (0.7.5, 0.8.0) carries only `image_status` and
+    the thumbnail receipt, so for a package whose BASE plan holds `image.src` that
+    value is the recorded intent: the base plan is hash-verified against the manifest,
+    which makes it this run's own record of what it asked for. Reading the absent
+    field as "no src was ever sent" made a diff of an unchanged legacy plan emit a
+    PUT, and that PUT would overwrite an image changed in the dashboard since with
+    the original source.
+    """
+    if entry.get("image_src") is not None:
+        return entry["image_src"]
+    img = (base_p or {}).get("image")
+    return img.get("src") if isinstance(img, dict) else None
+
+
 def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=()) -> dict:
     """The reviewed change set for one update: base (the canonical plan), candidate
     (the edited copy) and live, merged in plan space.
@@ -4321,10 +4340,12 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
     # ---- packages ---------------------------------------------------------- #
     merged_packages, pkg_patches, pkg_posts, pkg_deletes, image_puts = [], [], [], [], {}
     new_pkg_keys = {k for k in cand_pk if k not in base_pk}
+    recorded_src = {}
     for key, p in cand_pk.items():
         img = p.get("image") if isinstance(p.get("image"), dict) else None
         src = (img or {}).get("src")
-        was_src = (man_entry.get(("packages", key)) or {}).get("image_src")
+        was_src = _recorded_image_src(man_entry.get(("packages", key)) or {}, base_pk.get(key))
+        recorded_src[key] = was_src
         if key not in base_pk:
             merged_packages.append(dict(p))
             pkg_posts.append(key)
@@ -4552,8 +4573,7 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
             lp = live_by_key[("packages", key)]
             add("PUT", "packages", key, f"{item_path('packages', pid)}image/",
                 image_body(cand_pk[key]),
-                {"image": lp.get("image"),
-                 "image_src": (man_entry.get(("packages", key)) or {}).get("image_src")},
+                {"image": lp.get("image"), "image_src": recorded_src.get(key)},
                 {"image_src": image_puts[key]}, oid=pid)
     for key in pkg_posts:
         p = cand_pk[key]
@@ -5232,6 +5252,27 @@ def _resume_view(section: str, obj: dict, key_of_package=None) -> dict:
     return _live_offer_n(obj, key_of_package)
 
 
+def _derived_after(op: dict) -> dict:
+    """The fields of `_resume_view` an op leaves behind without naming them in its
+    `after`, so expected state and live state are built in one field space.
+
+    An op's `after` speaks the plan's field space, and `all_packages` is the one value
+    the offer view compares that no plan field holds, so no op field can carry it. It
+    is derived from the op instead: every offer op that sends a `condition` (a POST, or
+    a PATCH whose `after` names `package_keys`) pins the offer to package ids, and
+    `offer_body` says `all_packages: false` in that condition, so false is what the op
+    lands. Leaving it out of a completed POST's expected state hid a dashboard
+    expansion of a newly created offer from the read-back; carrying the baseline's
+    `true` over a completed conversion made resume reject its own PATCH.
+    """
+    if op.get("section") != "offers":
+        return {}
+    if op["method"] == "POST" or (op["method"] == "PATCH"
+                                  and "package_keys" in (op.get("after") or {})):
+        return {"all_packages": False}
+    return {}
+
+
 def _key_map(man: Manifest) -> dict:
     """(section, live id) -> manifest key, for everything this run owns now plus the
     receipts of what it has deleted (the change set's baseline still names those)."""
@@ -5385,9 +5426,10 @@ def _resolve_in_flight(client: Client, man: Manifest, plan: dict, cs: dict, snap
 
 def _resume_check(man: Manifest, cs: dict, norm: dict, journal: dict) -> None:
     """The whole live snapshot against the state this interrupted update left: the
-    reviewed baseline with the `after` of every op journalled `done`. A `queued` op was
-    never sent, so its fields are still at `before`; anything else that differs is a
-    dashboard edit made during the interruption, and it refuses by name."""
+    reviewed baseline with the `after` of every op journalled `done`, plus whatever
+    else those ops determine (`_derived_after`). A `queued` op was never sent, so its
+    fields are still at `before`; anything else that differs is a dashboard edit made
+    during the interruption, and it refuses by name."""
     key_by_id = _key_map(man)
     kop = _package_keys_for(norm, key_by_id)
     baseline = cs.get("baseline") or {}
@@ -5408,14 +5450,16 @@ def _resume_check(man: Manifest, cs: dict, norm: dict, journal: dict) -> None:
         if op["method"] == "DELETE":
             exp.pop(at, None)
         elif op["method"] == "POST":
-            exp[at] = dict(op.get("after") or {})
+            exp[at] = dict(op.get("after") or {}, **_derived_after(op))
             if op["section"] == "packages":
                 skip.add((at, "image"))
         elif op["method"] == "PUT":
             # The store builds the thumbnail, so its value after a PUT is not knowable.
             skip.add((at, "image"))
         else:
-            exp.setdefault(at, {}).update(op.get("after") or {})
+            at_exp = exp.setdefault(at, {})
+            at_exp.update(op.get("after") or {})
+            at_exp.update(_derived_after(op))
 
     live, unmanaged = {("campaign", "campaign"): _resume_view("campaign", norm["campaign"])}, []
     for section in SECTION_ROUTES:

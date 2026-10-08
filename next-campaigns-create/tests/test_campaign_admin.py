@@ -4744,6 +4744,101 @@ class AdoptFromLive(unittest.TestCase):
 CHANGE_SET = "change-set.json"
 
 
+class LegacyImageManifest(unittest.TestCase):
+    """A run directory written by 0.8.0 whose package carries an image override: the
+    manifest records `image_status: set` and the thumbnail receipt, and no `image_src`
+    (that field is newer). The plan is hash-bound to the manifest, so its `image.src`
+    is the only record of what this run sent, and an unchanged copy of the plan has to
+    diff to nothing. Re-sending the PUT would overwrite an image changed in the
+    dashboard since with the original source."""
+
+    SRC = "https://cdn.example/legacy-hero.png"
+
+    def setUp(self):
+        self.disc = load_fixture("discovery.json")
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.plan_path = self.dir / "campaign-plan.json"
+        self.plan_path.write_bytes((FIXTURES / "plan-0.8.0.json").read_bytes())
+        man = load_fixture("manifest-0.8.0.json")
+        # The fixture carries a placeholder digest, the way manifest-0.7.5.json does.
+        man["plan_sha256"] = ca.sha256_file(self.plan_path)
+        self.manifest_path = self.dir / "run-manifest.json"
+        ca.atomic_write_json(self.manifest_path, man)
+        self.man = man
+        self.state = LegacyManifest._live_state()
+        # the override this run PUT is what the store reads back now
+        self.state["packages"][2001][2002]["image"] = OVERRIDE_IMAGE
+        self.t = DynamicTransport(self.disc, self.state)
+        self.lines = []
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _main(self, argv):
+        admin = make_client(self.t)
+        self.lines = []
+        with mock.patch.object(ca, "_client_for", lambda slug: admin), \
+                mock.patch.object(ca, "print",
+                                  lambda *a, **k: self.lines.append(" ".join(map(str, a)))):
+            return ca.main(argv)
+
+    def out(self):
+        return "\n".join(self.lines)
+
+    def cand(self):
+        return json.loads(self.plan_path.read_text())
+
+    def diff(self, cand):
+        nxt = self.dir / "campaign-plan.next.json"
+        nxt.write_text(json.dumps(cand, indent=2) + "\n")
+        return self._main(["diff", "--plan", str(nxt), "--manifest", str(self.manifest_path)])
+
+    def change_set(self):
+        return json.loads((self.dir / CHANGE_SET).read_text())
+
+    def test_an_unchanged_copy_of_the_legacy_plan_sends_no_image_put(self):
+        self.assertEqual(self.diff(self.cand()), 0, self.out())
+        self.assertIn("no changes", self.out())
+        self.assertNotIn("image_src", self.man["packages"][0])
+        self.assertFalse((self.dir / CHANGE_SET).exists())
+        self.assertEqual([(c[0], c[1]) for c in self.t.calls if c[0] != "GET"], [])
+
+    def test_an_edited_src_is_one_put_diffed_against_the_base_plan(self):
+        new = "https://cdn.example/legacy-new.png"
+        cand = self.cand()
+        cand["packages"][0]["image"] = {"src": new}
+        self.assertEqual(self.diff(cand), 0, self.out())
+        cs = self.change_set()
+        pid = self.man["packages"][0]["id"]
+        self.assertEqual([(o["method"], o["section"], o["key"], o["id"]) for o in cs["ops"]],
+                         [("PUT", "packages", "hero-801", pid)])
+        # the `before` names the src the base plan recorded, not a missing one
+        self.assertEqual(cs["ops"][0]["before"], {"image": OVERRIDE_IMAGE, "image_src": self.SRC})
+        self.assertEqual(cs["ops"][0]["after"], {"image_src": new})
+        cs_path = self.dir / CHANGE_SET
+        self.assertEqual(self._main(["update", "--plan", str(self.dir / cs["merged_plan_file"]),
+                                     "--manifest", str(self.manifest_path),
+                                     "--change-set", str(cs_path), "--yes",
+                                     "--change-set-sha256", ca.sha256_file(cs_path)]),
+                         0, self.out())
+        # and the completed update records the src, so this run is on the modern shape
+        e = json.loads(self.manifest_path.read_text())["packages"][0]
+        self.assertEqual((e["image_status"], e["image_src"], e["image"]),
+                         ("set", new, OVERRIDE_IMAGE))
+
+    def test_a_dropped_src_warns_instead_of_going_quiet(self):
+        """The fallback is the recorded intent for every reader of it, so dropping the
+        field is the same warning a modern manifest gets rather than silence."""
+        cand = self.cand()
+        cand["packages"][0].pop("image")
+        self.assertEqual(self.diff(cand), 0, self.out())
+        cs = self.change_set()
+        self.assertEqual(cs["ops"], [])
+        self.assertTrue(any(f"dropped image.src {self.SRC}" in w for w in cs["warnings"]),
+                        cs["warnings"])
+
+
 class _AdoptedRun(unittest.TestCase):
     """A run directory that owns a seeded live campaign, adopted so the base plan and
     the store start identical. Every diff case edits a copy of that plan, which is
@@ -4763,11 +4858,17 @@ class _AdoptedRun(unittest.TestCase):
         self.dir = Path(self.tmp.name) / "run"
         self.lines = []
         self.assertEqual(self._run(["adopt", "--store", "teststore", "--campaign", str(self.cid),
-                                    "--out", str(self.dir)]), 0, self.out())
+                                    "--out", str(self.dir), *self.adopt_extra()]), 0, self.out())
         self.base_path = self.dir / "campaign-plan.json"
         self.manifest_path = self.dir / "run-manifest.json"
         self.base = json.loads(self.base_path.read_text())
         self.offer_keys = [o["key"] for o in self.base["offers"]]
+
+    def adopt_extra(self):
+        """Extra flags this run's `adopt` takes. A subclass that seeds a campaign-wide
+        offer returns `--convert-scope <id>`, so the run starts with the approved
+        conversion pending the way an operator's does."""
+        return []
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -7511,6 +7612,69 @@ class ClearingOfferRounding(_ResumableRun):
         self.assertEqual(self.plan_now()["offers"][0]["benefit"]["price_rounding"], "0.95")
 
 
+class RecordedImageIntent(_UpdatableRun):
+    """Which src a package's image PUT is diffed against. A completed PUT records
+    `image_src` on the manifest entry, but a run from before that field existed has
+    only `image_status` and the thumbnail, and the base plan is where its intent is
+    written down."""
+
+    KEY = "pkg-801"
+
+    def entry(self):
+        return next(x for x in self.manifest()["packages"] if x["key"] == self.KEY)
+
+    def legacy_run(self, src="https://cdn.example/old.png"):
+        """A run whose base plan asks for an image and whose manifest records the
+        receipt without the src, which is every run written before 0.8.1."""
+        base = json.loads(self.base_path.read_text())
+        base["packages"][0]["image"] = {"src": src}
+        ca.atomic_write_json(self.base_path, base)
+        man = self.manifest()
+        man["packages"][0].update(image_status="set", image=CATALOGUE_IMAGE)
+        man["plan_sha256"] = ca.sha256_file(self.base_path)
+        ca.atomic_write_json(self.manifest_path, man)
+        self.base = json.loads(self.base_path.read_text())
+        return src
+
+    def test_an_unchanged_copy_of_a_legacy_run_sends_no_image_put(self):
+        self.legacy_run()
+        self.assertEqual(self.diff(self.cand()), 0, self.out())
+        self.assertIn("no changes", self.out())
+        self.assertFalse((self.dir / CHANGE_SET).exists())
+
+    def test_a_changed_src_on_a_legacy_run_is_still_one_put(self):
+        old = self.legacy_run()
+        cand = self.cand()
+        cand["packages"][0]["image"] = {"src": "https://cdn.example/new.png"}
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops(), [("PUT", "packages", self.KEY)])
+        op = self.change_set()["ops"][0]
+        self.assertEqual(op["before"], {"image": CATALOGUE_IMAGE, "image_src": old})
+        self.assertEqual(op["after"], {"image_src": "https://cdn.example/new.png"})
+        self.assertEqual(self.update(), 0, self.out())
+        self.assertEqual(self.entry()["image_src"], "https://cdn.example/new.png")
+
+    def test_a_src_added_to_an_adopted_package_is_a_put_and_is_then_recorded(self):
+        """An adopted plan carries no image at all, so there is nothing to fall back
+        to: the first src an operator adds is a change like any other."""
+        self.assertNotIn("image", self.base["packages"][0])
+        self.assertNotIn("image_src", self.entry())
+        cand = self.cand()
+        cand["packages"][0]["image"] = {"src": "https://cdn.example/added.png"}
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops(), [("PUT", "packages", self.KEY)])
+        self.assertEqual(self.change_set()["ops"][0]["before"],
+                         {"image": CATALOGUE_IMAGE, "image_src": None})
+        self.assertEqual(self.update(), 0, self.out())
+        e = self.entry()
+        self.assertEqual((e["image_status"], e["image_src"], e["image"]),
+                         ("set", "https://cdn.example/added.png", OVERRIDE_IMAGE))
+        # and now that the src is recorded, the same plan diffs to nothing
+        self.assertEqual(self.diff(self.plan_now(), plan_path=self.dir / "again.json"),
+                         0, self.out())
+        self.assertIn("no changes", self.out())
+
+
 class LiveScopeExpansion(_ResumableRun):
     """`all_packages` is the one live value a plan cannot hold: an offer scoped to the
     whole campaign also covers packages created later, so the discount it carries was
@@ -7559,6 +7723,42 @@ class LiveScopeExpansion(_ResumableRun):
         oid = self.expand(key)
         self.refuse(self.cand(), needle=f"offer {key} (id {oid}) is scoped to all_packages")
 
+    def two_new_offers(self):
+        """Two offer POSTs in one change set, so the first can land and the second be
+        caught in flight: an offer POST is the last thing update sends, so nothing
+        else can be the later op."""
+        cand = self.cand()
+        for n in ("one", "two"):
+            cand["offers"].append({
+                "key": f"offer-new-{n}", "name": f"Extra {n}", "offer_type": "offer",
+                "code": None,
+                "condition": {"type": "any", "value": None, "package_keys": ["pkg-802"]},
+                "benefit": {"type": "package_percentage", "value": "15.00",
+                            "price_rounding": None}})
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops(), [("POST", "offers", "offer-new-one"),
+                                      ("POST", "offers", "offer-new-two")])
+        return cand
+
+    def test_an_expansion_of_an_offer_this_change_set_created_refuses_the_resume(self):
+        """A completed POST's expected state is its `after`, and no plan field, so no
+        op field, can hold `all_packages`. Derived from the op rather than left out:
+        an offer this change set creates is scoped to package ids, so a dashboard
+        switch to the whole campaign is drift like any other."""
+        self.two_new_offers()
+        self.interrupt(stop_after=1)
+        self.assertEqual(self.journal(), [(1, "done"), (2, "in_flight")])
+        self.expand("offer-new-one")
+        self.refuse_resume(needle="offers offer-new-one: all_packages is")
+        self.assertEqual(len(self.state["offers"][self.cid]), 3, "the second POST never went out")
+
+    def test_the_same_resume_finishes_when_nothing_widened_the_new_offer(self):
+        self.two_new_offers()
+        self.interrupt(stop_after=1)
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertEqual(len(self.state["offers"][self.cid]), 4)
+        self.assertNotIn("active_update", self.manifest())
+
     def test_settle_closes_the_update_and_the_next_diff_refuses_the_expansion(self):
         key = self.offer_keys[0]
         self.four_patches()
@@ -7570,6 +7770,66 @@ class LiveScopeExpansion(_ResumableRun):
         self.assertNotIn("active_update", self.manifest())
         self.assertEqual(self.sent(), [], "--settle sends nothing to the store")
         self.refuse(self.cand(), needle=f"offer {key} (id {oid}) is scoped to all_packages")
+
+
+class ConvertedScopeResume(_ResumableRun):
+    """An adopted campaign-wide offer whose approved conversion is the first op of an
+    update that then stopped. The conversion landed, so the store is no longer at the
+    baseline's `all_packages: true` for that offer, and resume has to read its own
+    work as done rather than as a dashboard edit."""
+
+    seed_kw = {"all_packages": True}
+
+    def converted_id(self):
+        return sorted(self.state["offers"][self.cid])[0]
+
+    def adopt_extra(self):
+        return ["--convert-scope", str(self.converted_id())]
+
+    def entry(self, key):
+        return next(e for e in self.manifest()["offers"] if e["key"] == key)
+
+    def conversion_then_a_rename(self):
+        """The conversion PATCH the adoption approved, plus a later op: a rename on the
+        other offer."""
+        cand = self.cand()
+        cand["offers"][1]["name"] = "Dashboard Bracelet - Shipping on us"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops(), [("PATCH", "offers", self.offer_keys[0]),
+                                      ("PATCH", "offers", self.offer_keys[1])])
+        cs = self.change_set()
+        self.assertEqual(cs["ops"][0]["after"]["package_keys"], ["pkg-801", "pkg-802"])
+        self.assertTrue(cs["baseline"]["offers"][0]["condition"]["all_packages"])
+        return cand
+
+    def test_the_conversion_it_landed_itself_is_not_read_as_drift(self):
+        key = self.offer_keys[0]
+        self.conversion_then_a_rename()
+        self.interrupt(stop_after=1)
+        self.assertEqual(self.journal(), [(1, "done"), (2, "in_flight")])
+        self.assertTrue(self.entry(key)["scope_conversion_pending"])
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        # the second op is the only one re-sent, and the conversion stands
+        self.assertEqual([m for m, _p in self.sent()], ["PATCH"])
+        live = self.state["offers"][self.cid][self.ids("offers")[key]]
+        self.assertFalse(live["condition"]["all_packages"])
+        self.assertEqual(sorted(p["id"] for p in live["condition"]["packages"]),
+                         sorted(self.ids("packages").values()))
+        self.assertNotIn("active_update", self.manifest())
+        # the manifest no longer waits for a conversion, so the next diff is quiet
+        self.assertNotIn("scope_conversion_pending", self.entry(key))
+        self.assertEqual(self.diff(self.plan_now(), plan_path=self.dir / "again.json"),
+                         0, self.out())
+        self.assertIn("no changes", self.out())
+
+    def test_a_dashboard_re_expansion_after_the_conversion_still_refuses(self):
+        """The fix must not make `all_packages` unreadable on a converted offer: put
+        the offer back to campaign-wide in the dashboard and the resume refuses."""
+        key = self.offer_keys[0]
+        self.conversion_then_a_rename()
+        self.interrupt(stop_after=1)
+        self.state["offers"][self.cid][self.ids("offers")[key]]["condition"]["all_packages"] = True
+        self.refuse_resume(needle=f"offers {key}: all_packages is")
 
 
 class ReleasedOfferIdentifiers(_UpdatableRun):
@@ -7631,6 +7891,130 @@ class ReleasedOfferIdentifiers(_UpdatableRun):
         self.assertEqual(ca.validate_plan(cand), [])
         msg = self.refuse(cand, needle="would set the name")
         self.assertIn("Do it as 2 updates through a temporary name", msg)
+
+class ChangeSetSchema(_AdoptedRun):
+    """What `diff` actually writes. `references/admin-api-contract.md` documents the
+    change set key by key, and a key the engine adds without the reference naming it
+    is how an operator ends up reading a stale schema."""
+
+    DOCUMENTED = ["base_plan_sha256", "baseline", "baseline_sha256", "campaign_id",
+                  "created_at", "has_deletes", "merged_plan", "merged_plan_file",
+                  "merged_plan_sha256", "ops", "plan_only", "preserved", "run_id",
+                  "schema", "store_slug", "warnings"]
+    DOCUMENTED_OP = ["after", "before", "body", "body_template", "depends_on", "id",
+                     "key", "method", "n", "package_keys", "path", "section"]
+
+    def every_op_shape(self):
+        """One change set carrying every op shape: a PATCH with an id, a DELETE, a
+        POST with no id, the image PUT that waits on that POST (`depends_on`), and an
+        offer POST whose body cannot exist yet (`body_template`, `package_keys`)."""
+        cand = self.cand()
+        cand["campaign"]["name"] = "Edited campaign"
+        cand["packages"][0]["price"] = "29.95"
+        cand["offers"] = [o for o in cand["offers"] if o["key"] != self.offer_keys[1]]
+        cand["packages"].append({"key": "pkg-903", "role": "bump", "name": "Extra",
+                                 "variant_title": "v903", "product_id": 22,
+                                 "product_variant_ids": [903], "price": "9.95",
+                                 "image": {"src": "https://cdn.example/extra.png"}})
+        cand["offers"].append({"key": "offer-extra", "name": "Extra free",
+                               "offer_type": "offer", "code": None,
+                               "condition": {"type": "any", "value": None,
+                                             "package_keys": ["pkg-903"]},
+                               "benefit": {"type": "package_percentage", "value": "100.00",
+                                           "price_rounding": None}})
+        self.assertEqual(self.diff(cand), 0, self.out())
+        return self.change_set()
+
+    def test_the_change_set_carries_exactly_the_documented_keys(self):
+        cs = self.every_op_shape()
+        self.assertEqual(sorted(cs), self.DOCUMENTED)
+        methods = [o["method"] for o in cs["ops"]]
+        self.assertEqual(sorted(set(methods)), ["DELETE", "PATCH", "POST", "PUT"])
+        seen = sorted({f for o in cs["ops"] for f in o})
+        self.assertEqual(seen, self.DOCUMENTED_OP)
+        # `id` is the one op key that is not on every op: a POST has no id yet, and
+        # neither does the image PUT that waits for one
+        self.assertEqual(sorted(o["method"] for o in cs["ops"] if "id" not in o),
+                         ["POST", "POST", "PUT"])
+
+    def test_plan_only_is_written_even_when_no_request_carries_anything(self):
+        """The key the reference was missing, on the change set that exists only
+        because of it."""
+        cand = self.cand()
+        cand["packages"][0]["role"] = "upsell"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        cs = self.change_set()
+        self.assertEqual(sorted(cs), self.DOCUMENTED)
+        self.assertEqual(cs["ops"], [])
+        self.assertEqual(cs["plan_only"], ['package pkg-801.role: "hero" -> "upsell"'])
+
+class ExitTwoOutput(_CreatedRun):
+    """What a gate prints on exit 2. SKILL.md's exit-code table and
+    `references/update-path.md`'s Refusals section both claim a `NOT APPLIED` line,
+    so the wording of each form is pinned here rather than asserted loosely."""
+
+    def line(self, needle):
+        return next(l for l in self.lines if needle in l)
+
+    def test_the_apply_gate_names_the_plan_hash_flag(self):
+        self.lines = []
+        with mock.patch.object(ca, "print",
+                               lambda *a, **k: self.lines.append(" ".join(map(str, a)))):
+            rc = ca.main(["apply", "--plan", str(self.base_path)])
+        self.assertEqual(rc, 2, self.out())
+        self.assertEqual(self.line("NOT APPLIED"),
+                         "\nNOT APPLIED: pass --yes --plan-sha256 <hash above> to approve this "
+                         "exact plan.")
+
+    def test_the_update_hash_gate_names_the_change_set_hash(self):
+        self.edited()
+        cs_path = self.dir / CHANGE_SET
+        self.lines = []
+        with mock.patch.object(ca, "print",
+                               lambda *a, **k: self.lines.append(" ".join(map(str, a)))):
+            rc = ca.main(["update", "--plan", str(self.dir / self.change_set()["merged_plan_file"]),
+                          "--manifest", str(self.manifest_path), "--change-set", str(cs_path)])
+        self.assertEqual(rc, 2, self.out())
+        self.assertEqual(self.line("NOT APPLIED"),
+                         f"\nNOT APPLIED: pass --yes --change-set-sha256 {ca.sha256_file(cs_path)} "
+                         "to approve this exact change set.")
+
+    def test_every_other_update_gate_says_nothing_was_sent(self):
+        """The whole `ChangeSetNotApplied` family: one `ERROR:` line with the reason,
+        then the same closing line whatever the reason was."""
+        cand = self.cand()
+        cand["offers"] = [o for o in cand["offers"] if o["key"] != self.offer_keys[-1]]
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.update(), 2, self.out())
+        self.assertEqual(
+            self.line("NOT APPLIED"),
+            "ERROR: this change set deletes object(s) from the campaign and --allow-delete was "
+            "not passed; nothing was sent. Re-read the DELETE steps above, then add "
+            "--allow-delete to the same command.\nNOT APPLIED: nothing was sent to the store.")
+        self.assertEqual(self.sent(), [])
+
+    def test_the_edit_gate_says_nothing_was_written_and_then_asks_for_live_traffic(self):
+        spec = self.dir / "campaign-edit.json"
+        heroes = [x["key"] for x in self.base["packages"] if x["role"] == "hero"]
+        spec.write_text(json.dumps({"operations": [
+            {"op": "set_package_price", "package_keys": heroes, "price": "59.95"}]}))
+        base = (f"{ca.PROG} edit --manifest {self.manifest_path} --plan {self.base_path}"
+                f" --changes {spec}")
+        argv = ["edit", "--manifest", str(self.manifest_path), "--plan", str(self.base_path),
+                "--changes", str(spec)]
+        self.assertEqual(self._run(argv), 2, self.out())
+        sha = next(l.split(": ", 1)[1] for l in reversed(self.lines)
+                   if l.startswith("Edit SHA-256: "))
+        self.assertEqual(self.line("NOT APPLIED"),
+                         "\nNOT APPLIED: nothing was written. Approve this exact change with:\n  "
+                         f"{base} --live-traffic <yes|no> --yes --edit-sha256 {sha}")
+        # the hash alone is not the whole gate: the live-traffic answer is its own line
+        self.assertEqual(self._run(argv + ["--yes", "--edit-sha256", sha]), 2, self.out())
+        self.assertEqual(self.line("NOT APPLIED"),
+                         "\nNOT APPLIED: nothing was written. Say whether a funnel is sending "
+                         "shoppers to this campaign right now with --live-traffic yes or "
+                         "--live-traffic no; the answer is recorded in the receipt.")
+        self.assertEqual(self.sent(), [])
 
 
 if __name__ == "__main__":

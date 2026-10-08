@@ -272,6 +272,25 @@ and the store (live). Per field:
 Per key: only in the candidate is a POST, only in the base is a DELETE, and a
 live object in neither plan is unmanaged and refuses the whole diff.
 
+A package `image` is the one field not diffed against the store. The store reads
+back a thumbnail it built itself, so the comparison is between the candidate's
+`image.src` and the src this run recorded, and a PUT goes out only when those two
+differ. The recorded src is `image_src` on the manifest entry, written when an
+image lands. A run written before that field existed (0.7.5, 0.8.0) carries only
+`image_status` and the thumbnail, and for one of those the **base plan's**
+`image.src` is the recorded intent: the base plan is hash-verified against the
+manifest, which makes it that run's own record of what it asked for. So a diff of
+an unchanged copy of such a plan sends nothing: re-sending the PUT would overwrite
+an image changed in the dashboard since with the original source. An adopted plan
+carries no `image` at all, so the first src an operator adds to one is a change
+like any other, and the completed update records it as `image_src`.
+
+The same rule has one other effect. A package whose image PUT never landed under
+an older run (`image_status` `pending` or `failed`, so no `image_src` was
+recorded) is not re-sent by a diff of the unchanged plan either. A `pending` one
+is retried by `apply --resume`; `failed` is terminal by design, because the src
+cannot change without changing the plan.
+
 What `diff` prints, and how to read it:
 
 - The three hashes: the base plan, the merged plan file it wrote
@@ -461,7 +480,12 @@ catches an edit made in the dashboard while the update was not running, before
 the resume could overwrite it. An offer's `all_packages` is compared there too,
 although no plan can hold it: switching an offer to the whole campaign leaves
 its package list untouched, so no other field would show the change, and the
-discount would go on to cover packages nobody reviewed.
+discount would go on to cover packages nobody reviewed. No plan field holds it, so
+no op field can either: for a completed op the value is derived from the op rather
+than carried over from the baseline. An offer op that sends a `condition` (a POST,
+or a PATCH of the scope) pins the offer to package ids, so `all_packages` is false
+after it. That is what lets a resume accept a scope conversion it landed itself,
+and still refuse an offer widened in the dashboard after a POST created it.
 
 ### `update --settle`
 
@@ -500,6 +524,25 @@ This is the one place that says which exit code each refusal uses; `SKILL.md`'s
 exit-code table is a summary of it. Every refusal here sends nothing, with one
 exception named below: a write the store rejected mid-run, where the ops before
 it had already gone out.
+
+Every exit 2 prints a line starting `NOT APPLIED`, and there are two forms of it
+on the update path. The hash gate prints the change set and then:
+
+```
+NOT APPLIED: pass --yes --change-set-sha256 <the hash> to approve this exact change set.
+```
+
+Every other gate prints the reason and then one fixed closing line:
+
+```
+ERROR: <the reason>
+NOT APPLIED: nothing was sent to the store.
+```
+
+An exit 1 prints the `ERROR:` line on its own, with no `NOT APPLIED` after it, so
+the closing line is what tells a gate apart from a refusal that read the store.
+`edit` has its own pair of forms, both opening `NOT APPLIED: nothing was
+written.`; `SKILL.md`'s exit-code section lists all four.
 
 `update` exits 2 for the gate family: everything it checks about the paperwork
 before it looks at the store.
@@ -569,7 +612,8 @@ neither writes to the store at all.
 | `op N: ... returned 4xx` | 1 | the store rejected that write; nothing after it was sent | fix the cause and `update --resume`, or close it with `update --settle` |
 | `this run's plan promotion was interrupted and the merged plan it promotes to ... is gone` | 1 | the merged archive was deleted mid-promotion | restore that file (the change set names it in `merged_plan_file`) and run the command again |
 | `teardown deletes what this run created` | 1 | `teardown` on an adopted campaign | reduce an adopted campaign with `update --allow-delete`; the campaign itself is deleted in the dashboard |
-| `was adopted from an existing campaign, not created by a run` | 1 | `apply --resume` on an adopted manifest | change an adopted campaign with `diff` and `update` |
+| `was adopted from an existing campaign, not created by a run; apply --resume only finishes a run it started` | 1 | `apply --resume` on an adopted manifest. A plain `apply` does not reach it: the check is in the resume branch | change an adopted campaign with `diff` and `update` |
+| `was adopted from an existing campaign, not created by a run; edit changes a campaign this skill built and proves it against the plan's landed prices, which an adopted plan does not have` | 1 | any `edit` on an adopted manifest, `--changes`, `--undo` and a resumed edit alike: it refuses after the plan is read and before the token is used | change an adopted campaign with `diff` and `update` |
 
 ---
 

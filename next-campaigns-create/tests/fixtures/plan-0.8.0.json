@@ -1,0 +1,82 @@
+{
+  "store_slug": "teststore",
+  "store_origin": "https://teststore.29next.store",
+  "offer_kind": "quantity",
+  "campaign": {
+    "name": "Legacy Bracelet",
+    "currency": "USD",
+    "language": "en",
+    "payment_gateway_group_id": 1,
+    "available_payment_methods": [
+      "card"
+    ],
+    "available_express_payment_methods": [],
+    "available_shipping_countries": [
+      "US"
+    ],
+    "additional_currencies": [],
+    "statement_descriptor": "LEGACY"
+  },
+  "packages": [
+    {
+      "key": "hero-801",
+      "role": "hero",
+      "name": "Legacy Bracelet",
+      "variant_title": "One size",
+      "product_id": 22,
+      "product_variant_ids": [
+        801
+      ],
+      "price": "24.95",
+      "image": {
+        "src": "https://cdn.example/legacy-hero.png"
+      }
+    }
+  ],
+  "shipping_methods": [
+    {
+      "shipping_method": "standard",
+      "price": "6.95"
+    }
+  ],
+  "offers": [
+    {
+      "key": "tier-2",
+      "name": "Legacy Bracelet - Buy 2",
+      "offer_type": "offer",
+      "code": null,
+      "condition": {
+        "type": "count",
+        "value": 2,
+        "package_keys": [
+          "hero-801"
+        ]
+      },
+      "benefit": {
+        "type": "package_percentage",
+        "value": "10.00",
+        "price_rounding": null
+      }
+    }
+  ],
+  "landed_prices": [
+    {
+      "kind": "single",
+      "tier": "Buy 1",
+      "qty": 1,
+      "package_keys": [
+        "hero-801"
+      ],
+      "offer_key": null,
+      "anchor": "24.95",
+      "unit_after": "24.95",
+      "order_total": "24.95"
+    }
+  ],
+  "rationale": [
+    "Buy 1 pays the anchor; the Buy 2 offer takes 10% off from two units."
+  ],
+  "blockers": [],
+  "waivers": [],
+  "handoff": []
+}

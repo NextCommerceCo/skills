@@ -711,7 +711,7 @@ The update path's fields:
 | `adopted_at`, `adopted_from_campaign_id` | `adopt` | when ownership was taken, and of which campaign |
 | `shipping_method` on a shipping entry | `apply`, `adopt`, `reconcile`, and a completed update | the store code, that method's immutable identity. Manifests from 0.7.5 and earlier do not carry it, so the ownership check falls back to the hash-verified base plan for those |
 | `price` on a shipping entry | `adopt`, refreshed by a completed update | present only on runs that recorded one; a refresh never adds a field the run did not have |
-| `image_src` on a package | `apply` and `update` when an image lands | the `src` this run sent. Images are diffed by intent against this value, never against the server-built thumbnail in `image` |
+| `image_src` on a package | `apply` and `update` when an image lands | the `src` this run sent. Images are diffed by intent against this value, never against the server-built thumbnail in `image`. Manifests from 0.8.0 and earlier do not carry it, so for those the diff falls back to the hash-verified base plan's `image.src` for that package, and a completed update records the field |
 | `scope_conversion_pending` on an offer | `adopt --convert-scope` | an approved `all_packages` conversion the first `diff` will send as a PATCH. Cleared once it lands |
 | `pause_pending` on an offer | `edit`, on an offer it added paused | set while the offer is created and not yet paused, cleared when the pause is read back |
 | `edits` | each finished `edit` or `--undo` | one entry per edit: its number, kind, receipt file, approval hash and the plan hashes either side |
@@ -730,12 +730,19 @@ The update path's fields:
  "base_plan_sha256": "<plan-sha256>", "merged_plan_sha256": "<plan-sha256>",
  "merged_plan_file": "campaign-plan.<sha8>.json",
  "baseline_sha256": "<baseline-sha256>", "baseline": {},
- "has_deletes": false, "warnings": [], "preserved": [],
+ "has_deletes": false, "warnings": [], "preserved": [], "plan_only": [],
  "ops": [{"n": 1, "method": "PATCH|POST|PUT|DELETE", "section": "", "key": "",
           "id": 0, "path": "", "body": {}, "body_template": {}, "package_keys": [],
           "depends_on": 0, "before": {}, "after": {}}],
  "merged_plan": {}}
 ```
+
+Those 16 keys are all of them, and `diff` writes every one of them every time: a
+list with nothing in it is written as `[]` rather than left out. On an op, `n`,
+`method`, `section`, `key`, `path`, `body`, `before` and `after` are always there
+(`body` is `null` on a DELETE and on an op whose body is deferred), while `id`,
+`body_template`, `package_keys` and `depends_on` appear only in the cases the rules
+below give.
 
 - `schema` is 1. A change set written by another schema is refused rather than
   guessed at.
@@ -757,6 +764,14 @@ The update path's fields:
 - `preserved` and `warnings` are operator-facing lines: a value kept from the
   store, a dropped `image.src`, or a `--delete-changed` authorisation.
   `has_deletes` drives the `--allow-delete` gate.
+- `plan_only` is every way the merged plan differs from the base plan that no
+  request carries, one `what: before -> after` line each: a plan-only field such
+  as a package `role`, a value the candidate and the dashboard reached
+  independently, an advisory row dropped with the object it priced. It is what
+  makes a change set with 0 ops worth writing, and a value `preserved` already
+  prints is not repeated here.
+- `created_at` is when `diff` wrote the change set. Nothing is bound to it; it is
+  there for the operator reading two change sets in one run directory.
 - An op's `path` is the exact route, rebuilt and re-checked by `update` from the
   campaign id, the section and the resolved id. `id` is absent on a POST and on
   an image PUT that waits for one. `body_template` plus `package_keys` stand in
