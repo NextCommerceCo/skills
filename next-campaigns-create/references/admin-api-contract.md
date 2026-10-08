@@ -551,7 +551,11 @@ usual resource arrays hold destination read-back fields, deterministic keys and
 `origin: "cloned"`. `parity: {status: match|mismatch|unchecked, details: [...]}`
 records preservation differences; a mismatch does not remove ownership or block
 completion. `completed_at` records completed enumeration. Teardown uses these
-owned entries, not the expected source rows. With incomplete inventory, teardown
+owned entries, not the expected source rows, and only reference ids from the
+approved snapshot are ever owned. It refuses to delete the campaign while any
+unowned package, shipping method or offer remains under it. Before the clone
+POST, the journal saves every campaign id that already existed, so a later
+rename cannot make an unrelated campaign a recovery candidate. With incomplete inventory, teardown
 refreshes only after checking the journaled destination ID and exact creation
 instant, with its server name or approved rename. Source/destination equality
 always refuses mutation.

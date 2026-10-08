@@ -273,7 +273,11 @@ probes because this run has no approved plan-derived landed prices.
 Teardown checks the recorded destination identity and its own resource entries
 before deleting anything. Incomplete inventory is refreshed only after the
 campaign's exact creation instant and approved name have been checked. A parity
-mismatch does not remove ownership. Clone execution, resume and teardown share
+mismatch does not remove ownership. Teardown deletes the owned children first
+and then refuses to delete the campaign itself while anything the run does not
+own is still under it, because that delete would cascade through a dashboard
+addition; the message lists what to remove in the dashboard before running
+teardown again. Clone execution, resume and teardown share
 the run's `edit.lock`; a held lock refuses another operation. After a crash,
 remove a stale lock only after confirming that no operation still holds it.
 

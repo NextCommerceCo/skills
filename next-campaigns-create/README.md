@@ -159,7 +159,9 @@ operator making an identical copy during that window remains an ownership risk.
 Verification compares the destination with what you approved, and reports any
 later source changes separately. It checks copied prices and offer conditions;
 it does not price test carts for clones. You can remove the copy using its run
-manifest even when a copied price failed verification. In-place edits of a clone
+manifest even when a copied price failed verification. If something was added
+to the copy in the dashboard, teardown removes what it created and leaves the
+campaign in place until you remove the addition yourself. In-place edits of a clone
 are not supported by this version; make them in the Campaigns App dashboard.
 
 ## Safety

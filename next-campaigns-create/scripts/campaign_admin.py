@@ -4587,8 +4587,9 @@ def clone_finish(client, man):
         start = datetime.now(timezone.utc)
         request.update(status="sending", attempted_at=start.isoformat(),
                        attempt_deadline=(start + timedelta(seconds=TIMEOUT + 60)).isoformat(),
-                       preexisting_ids=[clone_id(r.get("id")) for r in existing
-                                        if r.get("name") in {a["server_name"], a["requested_name"]}])
+                       # Every campaign that existed before the POST, whatever its name: a later
+                       # rename must not turn an unrelated campaign into a recovery candidate.
+                       preexisting_ids=[clone_id(r.get("id")) for r in existing])
         man.save()
         path = f"/api/admin/campaigns/{a['source_campaign_id']}/clone/"
         try:
@@ -4784,13 +4785,30 @@ def clone_teardown(client, man, confirm):
             todo.append((section, entry["key"], child))
     if not confirm():
         raise CampaignAdminError("teardown not confirmed (pass --yes)")
-    todo.append(("campaign", "campaign", path))
     for section, key, target in todo:
         man.mark(section, key, status="deleting")
         status, _ = client.request("DELETE", target, clone_decode=True)
         if status not in (200, 202, 204, 404):
             raise CampaignAdminError(f"clone DELETE returned {status}; resume teardown" + auth_hint(status, "DELETE", target))
         man.mark(section, key, status="deleted")
+    # Deleting the campaign cascades through everything under it, so anything the run
+    # does not own must be gone first. Refuse rather than take a dashboard addition with it.
+    leftover = []
+    for section, part in CLONE_COLLECTIONS.items():
+        owned = {e.get("id") for e in man.data[section]}
+        for row in clone_list(client, path + part + "/"):
+            if section == "offers" and row.get("is_removed") is True:
+                continue
+            if row.get("id") not in owned:
+                leftover.append(f"{part}/{row.get('id')}")
+    if leftover:
+        raise CampaignAdminError("clone campaign " + str(cid) + " not deleted: it still holds objects this run does not own ("
+                                 + ", ".join(leftover) + "). Remove them in the dashboard, then run teardown again.")
+    man.mark("campaign", "campaign", status="deleting")
+    status, _ = client.request("DELETE", path, clone_decode=True)
+    if status not in (200, 202, 204, 404):
+        raise CampaignAdminError(f"clone DELETE returned {status}; resume teardown" + auth_hint(status, "DELETE", path))
+    man.mark("campaign", "campaign", status="deleted")
     man.data["torn_down_at"] = utcnow()
     man.save()
 

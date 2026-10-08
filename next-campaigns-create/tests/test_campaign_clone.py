@@ -297,12 +297,33 @@ class Clone(unittest.TestCase):
         self.interrupt_inventory()
         self.state["offers"][101][77] = dict(self.state["offers"][101][4], id=77, name="Dashboard offer")
         self.state["packages"][101][43] = dict(self.state["packages"][101][42], id=43, product_variant_id=89)
-        self.assertEqual(self.lifecycle("teardown", "--yes"), 0)
+        # Owned children go; the campaign stays because deleting it would cascade
+        # through the dashboard additions the run does not own.
+        self.assertEqual(self.lifecycle("teardown", "--yes"), 1)
         deleted = [c[1] for c in self.writes() if c[0] == "DELETE"]
         self.assertTrue(any(p.endswith("/offers/4/") for p in deleted))
         self.assertFalse(any(p.endswith("/offers/77/") or p.endswith("/packages/43/") for p in deleted))
+        self.assertFalse(any(p.endswith("/campaigns/101/") for p in deleted))
+        self.assertIn(101, self.state["campaigns"])
         self.assertEqual([e["id"] for e in self.man().data["offers"]], [4])
         self.assertEqual([e["id"] for e in self.man().data["packages"]], [42])
+        self.assertNotIn("torn_down_at", self.man().data)
+        # Once the operator removes them in the dashboard, teardown finishes.
+        del self.state["offers"][101][77]
+        del self.state["packages"][101][43]
+        self.assertEqual(self.lifecycle("teardown", "--yes"), 0)
+        self.assertNotIn(101, self.state["campaigns"])
+
+    def test_recovery_excludes_renamed_preexisting_campaign(self):
+        self.state["campaigns"][98] = dict(self.state["campaigns"][7], id=98, name="Unrelated", created_at=ca.utcnow())
+        self.t.lose.add(("POST", "/api/admin/campaigns/7/clone/"))
+        self.assertEqual(self.run_clone(), 1)
+        self.assertIn(98, self.man().data["clone_request"]["preexisting_ids"])
+        del self.state["campaigns"][101]
+        self.state["campaigns"][98]["name"] = "Synthetic original-COPY"
+        self.assertEqual(self.run_clone(resume=True), 1)
+        self.assertNotIn("id", self.man().data["campaign"])
+        self.assertEqual(self.post_count(), 1)
 
     def test_verify_without_source_and_missing_currency_price(self):
         self.assertEqual(self.run_clone(), 0)
