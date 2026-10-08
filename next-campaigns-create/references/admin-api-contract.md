@@ -27,8 +27,8 @@ Token permissions:
 | `store:read` | `discover` (`GET /store/`, its first request) |
 | `catalogue:read` | `discover` (`GET /products/`, the variant ids packages point at) |
 | `gateways:read` | `discover` (`GET /gateway-groups/`) |
-| `campaigns:read` | every GET under `/campaigns/`: `discover`, `plan --check-store`, `apply`, `verify`, `teardown`, `adopt`, `diff`, `update` |
-| `campaigns:write` | every write under `/campaigns/`: `apply`, `teardown`, `update` |
+| `campaigns:read` | every GET under `/campaigns/`: `discover`, `plan --check-store`, `apply`, `verify`, `teardown`, `edit` (including `--undo` and finishing or rolling back an interrupted edit), `adopt`, `diff`, `update` |
+| `campaigns:write` | every write under `/campaigns/`: `apply`, `edit` (including `--undo` and a rollback), `teardown`, `update` |
 | `metadata:read` | the metadata audit in `discover` |
 | `metadata:write` | `metadata --apply` |
 
@@ -38,21 +38,25 @@ token may call it. Source for every scope above: the 2024-04-01 OpenAPI file at
 from the engine names the scope the failing request needed (`scope_for()` and
 `auth_hint()` in the engine).
 
-The update path is narrower than the create path, because every request it sends
-is on `/api/admin/campaigns/`:
+Every command that changes a campaign which already exists is narrower than the
+create path, because every request it sends is on `/api/admin/campaigns/`:
 
 | Command | Requests it sends | Permissions it needs |
 |---|---|---|
+| `edit` | GET the campaign, GET the offers list, GET each package or offer it will write, then PATCH packages, PATCH offers and POST an added offer | `campaigns:read`, `campaigns:write` |
+| `edit --undo` | the same reads and the same two write methods: the inverse edit restores values and pauses an offer the edit added, and never deletes one | `campaigns:read`, `campaigns:write` |
 | `adopt` | GET the campaign, its packages, its shipping methods, each offer by id | `campaigns:read` |
 | `diff` | the same GETs, then writes files locally | `campaigns:read` |
 | `update` | those GETs, then PATCH, POST, PUT and DELETE on the same prefix | `campaigns:read`, `campaigns:write` |
 
-None of the three reads the store settings, the catalogue, the gateway groups or
-the metadata definitions, so none of them needs `store:read`, `catalogue:read`,
-`gateways:read` or either metadata scope. This narrows nothing about the create
-path: `discover` still needs all seven, and that is the key an operator makes.
-The same key works for `adopt`, `diff` and `update` with nothing added, so
-taking over and updating an existing campaign never means a second key.
+Finishing or rolling back an interrupted `edit` sends the same methods on the
+same prefix and needs the same two permissions. None of these reads the store
+settings, the catalogue, the gateway groups or the metadata definitions, so none
+of them needs `store:read`, `catalogue:read`, `gateways:read` or either metadata
+scope. This narrows nothing about the create path: `discover` still needs all
+seven, and that is the key an operator makes. The same key works for `edit`,
+`adopt`, `diff` and `update` with nothing added, so changing a campaign, or
+taking one over, never means a second key.
 
 The Cart API used by `verify` is a different host, `https://campaigns.apps.29next.com`.
 It takes the campaign `api_key` raw in `Authorization`, with no `Bearer` prefix and
@@ -334,12 +338,19 @@ What the update path (`adopt`, `diff`, `update`) relies on, field by field.
   the fields it omits: an `any` condition sent without `value` reads back with
   `value: null`. A benefit merges field by field, so `edit` sends only what
   changes there and `update` sends the whole benefit, which comes to the same
-  thing. `price_rounding` is sent as a value or an explicit `null`.
+  thing. `price_rounding` is sent as a value or an explicit `null`, never left
+  out: a benefit body that omits it keeps whatever rounding the store has, so
+  omitting it on a candidate that cleared the rounding would promote a plan
+  saying the rounding was gone while every discounted price stayed rounded.
 - **Offer names and voucher codes are unique per campaign, at every step.** A
   final state that is valid is not enough: `diff` walks the ops in the order
   `update` sends them against the names and codes still live at that point and
   refuses an intermediate collision. Swapping two offer names is the standard
-  case, and it needs 2 updates through a temporary name.
+  case, and it needs 2 updates through a temporary name. The walk follows what
+  an op gives up as well as what it takes: an earlier op that renames an offer
+  or drops its voucher code (by making it an automatic offer) frees that name or
+  code for a later op in the same change set. Reverse the order and the same
+  pair refuses, because at that step the first offer still holds it.
 - **`available` retires an offer without deleting it.** It is a boolean,
   defaults to true, is modelled in the plan, and is sent on create and update.
   An offer set to false keeps its id and stops firing. Per-customer limits and
@@ -480,7 +491,7 @@ write-capable store to settle.
 | the accepted clearing values | `[]` for the three campaign code lists, `null` for `additional_currencies`, `statement_descriptor` and `paypal_account_id`. A store that rejects one of them fails that op with the store's own message, and `update --settle` closes the run |
 | whether an offer create honours `available: false` | the create path refuses a plan that pauses an offer it would have to create, and `edit` creates an added offer live and pauses it with a separate PATCH that is read back. Only `update` can POST an offer the plan marks paused, and `verify`'s `available` row is what would catch a store that ignored it |
 | a combined offer PATCH | benefit, condition and `available` in one body has not been observed on a live store. The read-back after the write is what catches a field that did not land |
-| whether `price_rounding: null` clears rounding | the fake clears it. A store that ignored the null would fail the read-back and stop the edit rather than leave the plan and the store disagreeing |
+| whether `price_rounding: null` clears rounding | the fake clears it, and both write paths send the null rather than omit the key: `edit` when the field changes, `update` on every benefit PATCH. A store that ignored the null would fail `edit`'s read-back and stop that edit; on the update path it fails `verify`'s `benefit.price_rounding` row and the next `diff` says it kept the store's rounding, so it surfaces rather than passing silently |
 | a package DELETE while an offer still references it | a 400, so `diff` refuses the delete before sending it and names the offers to deal with first. If the platform instead cascades, the refusal is merely conservative: the operator removes or narrows those offers in their own update |
 
 Until a live write check passes, treat an update or an edit as reviewed and

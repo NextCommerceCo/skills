@@ -149,7 +149,7 @@ hand-craft either one.
 |---|---|
 | `store:read` | the store's enabled currencies and languages; the first request `discover` sends |
 | `campaigns:read` | reading existing campaigns and reading back what a run created |
-| `campaigns:write` | creating the campaign, packages, package images, shipping methods and offers; teardown deletes |
+| `campaigns:write` | creating the campaign, packages, package images, shipping methods and offers; the in-place edits and their undo; the update path's PATCH, POST, PUT and DELETE; teardown deletes |
 | `catalogue:read` | the product and variant ids the packages point at |
 | `gateways:read` | gateway groups and the payment method codes a campaign may enable |
 | `metadata:read` | the metadata definition audit in `discover` |
@@ -161,14 +161,15 @@ needs no permission of its own. A 401 or 403 from the engine names the
 permission the failing request needed. Permission reference:
 https://developers.nextcommerce.com/docs/admin-api/permissions
 
-The update path needs less than that, because every request it sends is on
-`/api/admin/campaigns/`: `adopt` and `diff` need `campaigns:read` alone, and
-`update` needs `campaigns:read` and `campaigns:write`. None of the three touches
+Changing a campaign that already exists needs less than that, because every
+request those commands send is on `/api/admin/campaigns/`: `adopt` and `diff`
+need `campaigns:read` alone, and `edit` (its undo and a rollback included) and
+`update` need `campaigns:read` and `campaigns:write`. None of the four touches
 the store settings, the catalogue, the gateway groups or the metadata
 definitions. This does not loosen anything above: `discover` still needs all
 seven, so that is the key an operator creates, and it already covers everything
-`adopt`, `diff` and `update` send. Never ask for a second key to take over or
-change a campaign. The per-command breakdown is in
+`edit`, `adopt`, `diff` and `update` send. Never ask for a second key to take
+over or change a campaign. The per-command breakdown is in
 `references/admin-api-contract.md`.
 
 ## Platform uniqueness rules
@@ -195,7 +196,7 @@ confirmation that covers it:
 |---|---|---|
 | 1 | `POST /api/admin/campaigns/` (create the campaign) | Phase 4 plan review + `apply --yes --plan-sha256` |
 | 2 | `POST /api/admin/campaigns/{id}/packages/` (one per variant) | same |
-| 3 | `PUT /api/admin/campaigns/{id}/packages/{id}/image/` (only when the plan sets an override, only on a package the manifest owns) | same; on a campaign that already exists it is a PUT op in the change set, under the same gate as rows 10 to 19 |
+| 3 | `PUT /api/admin/campaigns/{id}/packages/{id}/image/` (only when the plan sets an override, only on a package the manifest owns) | same; on a campaign that already exists it is a PUT op in the change set, under the same gate as rows 13 to 22 |
 | 4 | `POST /api/admin/campaigns/{id}/shipping-methods/` | same |
 | 5 | `POST /api/admin/campaigns/{id}/offers/` (tiers and vouchers) | same |
 | 6 to 9 | `DELETE` offers, shipping methods, packages, campaign | teardown only: manifest-bound, identity read-back, `--yes`; refused on an adopted campaign |

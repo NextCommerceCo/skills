@@ -4041,11 +4041,20 @@ def drop_stale_advisory_rows(plan: dict, gone_packages=(), gone_offers=()) -> li
 
 
 def _live_offer_n(lo: dict, key_of_package) -> dict:
-    """A normalised live offer in plan space: its scope as package keys."""
+    """A normalised live offer in plan space: its scope as package keys.
+
+    `all_packages` rides along although no plan can hold it, because every reader of
+    this view has to be able to see it. A dashboard switch to the whole campaign
+    widens an approved discount over packages nobody reviewed, and leaving the field
+    out of the field space made that expansion invisible to the resume read-back:
+    the scope's package list is untouched by it, so offer against offer the two read
+    as identical. `OFFER_DIFF_FIELDS` does not name it, so it still produces no op of
+    its own; `diff` refuses a live all_packages offer outright instead."""
     cond, ben = lo["condition"], lo["benefit"]
     return {"name": lo["name"], "offer_type": lo["offer_type"], "code": lo["code"],
             "available": lo["available"], "condition_type": cond["type"],
             "condition_value": cond["value"],
+            "all_packages": cond["all_packages"],
             "package_keys": sorted(key_of_package[i] for i in cond["package_ids"]),
             "benefit_type": ben["type"], "benefit_value": ben["value"],
             "price_rounding": ben["price_rounding"]}
@@ -4505,7 +4514,14 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
             if {"condition_type", "condition_value", "package_keys"} & set(changed):
                 built["condition"] = full["condition"]
             if {"benefit_type", "benefit_value", "price_rounding"} & set(changed):
-                built["benefit"] = full["benefit"]
+                # A PATCH MERGES `benefit`: a field the body leaves out keeps the
+                # value the store has. offer_body omits `price_rounding` when there
+                # is none, which a create may do (no rounding is the API's own
+                # default) but an update may not: omitting it would leave the old
+                # rounding live while this change set promoted a plan that said it
+                # was cleared. A benefit PATCH names it every time, null included.
+                built["benefit"] = dict(full["benefit"])
+                built["benefit"].setdefault("price_rounding", None)
         return (None, built, keys) if deferred else (built, None, None)
 
     if camp_changed:
@@ -4609,6 +4625,13 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
                                   ("code", held_codes, "voucher code")):
             want = sent.get(field)
             if not want:
+                if field in sent:
+                    # The op names the field and sends nothing for it, which is how a
+                    # voucher code is given up (an offer that stops being a voucher
+                    # releases its code). From this step on the code is free, so a
+                    # later op in the same change set may take it; keeping the old
+                    # value held here refused a sequence the API accepts.
+                    held.pop(oid, None)
                 continue
             clash = sorted(i for i, v in held.items() if v == want and i != oid)
             if clash:
@@ -4948,8 +4971,12 @@ def _op_body(op: dict, plan: dict, package_ids: dict):
     full = offer_body(o, {k: package_ids[k] for k in keys})
     tmpl = op.get("body_template")
     if op["method"] == "PATCH" and isinstance(tmpl, dict):
-        # Send exactly the fields the operator reviewed, with the scope's ids filled in.
-        return {f: (full[f] if f in ("condition", "benefit") else v) for f, v in tmpl.items()}
+        # Send exactly the fields the operator reviewed, with the scope's ids filled
+        # in. `condition` is the only one that holds ids; `benefit` goes as reviewed,
+        # because rebuilding it from the plan would drop an explicit
+        # `price_rounding: null` the way offer_body does and the PATCH's merge would
+        # leave the old rounding live.
+        return {f: (full[f] if f == "condition" else v) for f, v in tmpl.items()}
     return full
 
 

@@ -458,7 +458,10 @@ Then it checks the **whole** campaign against the state this update left: the
 change set's reviewed baseline with the `after` of every completed op applied.
 Any other difference, on any object or field, refuses and names it. That is what
 catches an edit made in the dashboard while the update was not running, before
-the resume could overwrite it.
+the resume could overwrite it. An offer's `all_packages` is compared there too,
+although no plan can hold it: switching an offer to the whole campaign leaves
+its package list untouched, so no other field would show the change, and the
+discount would go on to cover packages nobody reviewed.
 
 ### `update --settle`
 

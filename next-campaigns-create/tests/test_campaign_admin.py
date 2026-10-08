@@ -7400,5 +7400,238 @@ class PlanOnlyChanges(_UpdatableRun):
                          ['voucher_codes: [{"offer_key": "%s", "code": "KEEP10"}] -> []' % key])
 
 
+def seed_rounded_campaign(state):
+    """A live campaign whose count offer rounds the discounted unit price. Clearing
+    that rounding is the one benefit change a merging PATCH cannot say by omission."""
+    cid = seed_live_campaign(state)
+    oid = sorted(state["offers"][cid])[0]
+    state["offers"][cid][oid]["benefit"]["price_rounding"] = "0.95"
+    return cid
+
+
+class ClearingOfferRounding(_ResumableRun):
+    """An offer PATCH merges `benefit`: a field the body leaves out keeps whatever the
+    store has. The op body was built from `offer_body`, which carries
+    `price_rounding` only when it is truthy, so a candidate that cleared the rounding
+    sent a benefit without the key. The API kept the old rounding, update promoted a
+    plan that said it was gone, and every discounted price stayed rounded."""
+
+    def seed(self, state):
+        return seed_rounded_campaign(state)
+
+    def cleared(self):
+        """The candidate that drops the rounding, diffed."""
+        cand = self.cand()
+        self.assertEqual(cand["offers"][0]["benefit"]["price_rounding"], "0.95")
+        cand["offers"][0]["benefit"]["price_rounding"] = None
+        self.assertEqual(self.diff(cand), 0, self.out())
+        return cand
+
+    def live_offer(self):
+        return self.state["offers"][self.cid][self.ids("offers")[self.offer_keys[0]]]
+
+    def test_the_patch_says_price_rounding_is_null_and_the_store_agrees(self):
+        self.cleared()
+        self.assertEqual(self.ops(), [("PATCH", "offers", self.offer_keys[0])])
+        op = self.change_set()["ops"][0]
+        self.assertEqual(op["before"]["price_rounding"], "0.95")
+        self.assertIsNone(op["after"]["price_rounding"])
+        self.assertIn("price_rounding", op["body"]["benefit"])
+        self.assertIsNone(op["body"]["benefit"]["price_rounding"])
+        self.assertEqual(self.update(), 0, self.out())
+        self.assertIsNone(self.live_offer()["benefit"]["price_rounding"])
+        # the promoted plan is the truth about the store now, so the next diff of it
+        # has nothing left to say
+        self.assertEqual(self.diff(self.plan_now(), plan_path=self.dir / "again.json"),
+                         0, self.out())
+        self.assertIn("no changes", self.out())
+
+    def test_a_cleared_rounding_whose_response_was_lost_resumes_through_after(self):
+        self.cleared()
+        self.interrupt(lose=[1])
+        self.assertEqual(self.journal(), [(1, "in_flight")])
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertEqual(self.sent(), [], "an op already at its after value is not re-sent")
+        self.assertIsNone(self.plan_now()["offers"][0]["benefit"]["price_rounding"])
+
+    def test_verify_agrees_once_the_rounding_is_cleared(self):
+        self.cleared()
+        self.assertEqual(self.update(), 0, self.out())
+
+        def calc(path, body):
+            return 200, {"total": "0.00", "lines": []}
+        cart_t = FakeTransport({("POST", "/api/v1/carts/calculate/"): calc})
+        cart = ca.Client(ca.CART_API_ORIGIN, "k", auth_scheme="raw", send_version_header=False,
+                         transport=cart_t, clock=FakeClock(), sleep=lambda s: None)
+        admin = make_client(DynamicTransport(self.disc, self.state))
+        with mock.patch.object(ca, "_client_for", lambda slug: admin), \
+                mock.patch.object(ca, "Client", lambda *a, **k: cart), \
+                mock.patch.object(ca, "print", lambda *a, **k: None):
+            rc = ca.main(["verify", "--manifest", str(self.manifest_path),
+                          "--plan", str(self.base_path)])
+        report = json.loads((self.dir / "verify-report.json").read_text())
+        rows = {x["check"]: x for x in report["admin_checks"]}
+        self.assertEqual(rows[f"offer {self.offer_keys[0]} benefit.price_rounding"]["result"],
+                         "PASS", json.dumps(report, indent=1))
+        self.assertEqual((rc, report["result"]), (0, "PASS"))
+
+    def test_a_deferred_offer_patch_still_sends_the_cleared_rounding(self):
+        """An offer whose scope names a package this same change set creates has no
+        body until that POST answers, so the body is built at run time. Rebuilding
+        the benefit from the merged plan there dropped the explicit null again."""
+        cand = self.cand()
+        cand["packages"].append({"key": "pkg-900", "role": "bump", "name": "New Bump",
+                                 "variant_title": "v900", "product_id": 22,
+                                 "product_variant_ids": [900], "price": "9.95"})
+        cand["offers"][0]["condition"]["package_keys"] = ["pkg-801", "pkg-900"]
+        cand["offers"][0]["benefit"]["price_rounding"] = None
+        self.assertEqual(self.diff(cand), 0, self.out())
+        patch = next(o for o in self.change_set()["ops"] if o["section"] == "offers")
+        self.assertIsNone(patch["body"], "the new package has no id yet")
+        self.assertIsNone(patch["body_template"]["benefit"]["price_rounding"])
+        self.assertEqual(self.update(), 0, self.out())
+        sent = next(b for m, p, b in self.bodies() if m == "PATCH" and "/offers/" in p)
+        self.assertIn("price_rounding", sent["benefit"])
+        self.assertIsNone(sent["benefit"]["price_rounding"])
+        self.assertEqual(sorted(sent["condition"]["package_ids"]),
+                         sorted([self.ids("packages")["pkg-801"],
+                                 self.ids("packages")["pkg-900"]]))
+        self.assertIsNone(self.live_offer()["benefit"]["price_rounding"])
+
+    def test_changing_the_percentage_alone_leaves_the_live_rounding_alone(self):
+        cand = self.cand()
+        cand["offers"][0]["benefit"]["value"] = "60.00"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        op = self.change_set()["ops"][0]
+        self.assertEqual(op["body"]["benefit"],
+                         {"type": "package_percentage", "value": "60.00", "price_rounding": "0.95"})
+        self.assertNotIn("price_rounding", op["after"])
+        self.assertEqual(self.update(), 0, self.out())
+        self.assertEqual(self.live_offer()["benefit"]["price_rounding"], "0.95")
+        self.assertEqual(self.plan_now()["offers"][0]["benefit"]["price_rounding"], "0.95")
+
+
+class LiveScopeExpansion(_ResumableRun):
+    """`all_packages` is the one live value a plan cannot hold: an offer scoped to the
+    whole campaign also covers packages created later, so the discount it carries was
+    never approved for them. Every path that reads a live offer has to see it. The
+    resume read-back did not: it compared offers in a field space that left
+    `all_packages` out, so a dashboard expansion during an interruption passed as no
+    change and the rest of the update went out on top of it."""
+
+    def expand(self, key):
+        """The dashboard widens one owned offer to the whole campaign. Its package
+        list is left as it was, which is what made the expansion invisible."""
+        oid = self.ids("offers")[key]
+        self.state["offers"][self.cid][oid]["condition"]["all_packages"] = True
+        return oid
+
+    def test_an_expansion_during_an_interruption_refuses_the_resume(self):
+        key = self.offer_keys[0]
+        self.four_patches()
+        self.interrupt(stop_after=1)
+        self.expand(key)
+        self.refuse_resume(needle=f"offers {key}: all_packages is")
+
+    def test_an_expansion_of_an_offer_no_pending_op_touches_also_refuses(self):
+        key = self.offer_keys[1]  # free shipping: no op of this change set names it
+        self.four_patches()
+        self.interrupt(stop_after=1)
+        self.expand(key)
+        self.refuse_resume(needle=f"offers {key}: all_packages is")
+
+    def test_the_baseline_hash_carries_all_packages(self):
+        norm = ca.normalize_snapshot(ca.snapshot_live(make_client(
+            DynamicTransport(self.disc, self.state)), self.cid), "USD")
+        before = ca.baseline_sha256(norm)
+        self.expand(self.offer_keys[0])
+        after = ca.baseline_sha256(ca.normalize_snapshot(ca.snapshot_live(make_client(
+            DynamicTransport(self.disc, self.state)), self.cid), "USD"))
+        self.assertNotEqual(before, after)
+
+    def test_an_expansion_between_diff_and_update_refuses_on_the_baseline(self):
+        self.four_patches()
+        self.expand(self.offer_keys[0])
+        self.refuse_update(needle="campaign changed since you reviewed the diff")
+
+    def test_a_plain_diff_refuses_a_live_all_packages_offer(self):
+        key = self.offer_keys[0]
+        oid = self.expand(key)
+        self.refuse(self.cand(), needle=f"offer {key} (id {oid}) is scoped to all_packages")
+
+    def test_settle_closes_the_update_and_the_next_diff_refuses_the_expansion(self):
+        key = self.offer_keys[0]
+        self.four_patches()
+        self.interrupt(stop_after=1)
+        oid = self.expand(key)
+        # --settle sends nothing, so it is still the way out of a stuck update; the
+        # expansion is the next diff's problem, and that diff refuses to touch it
+        self.assertEqual(self.update("--settle"), 0, self.out())
+        self.assertNotIn("active_update", self.manifest())
+        self.assertEqual(self.sent(), [], "--settle sends nothing to the store")
+        self.refuse(self.cand(), needle=f"offer {key} (id {oid}) is scoped to all_packages")
+
+
+class ReleasedOfferIdentifiers(_UpdatableRun):
+    """Offer names and voucher codes are unique per campaign, so a change set has to
+    be legal at every step, not only at the end. The walk that proves that recorded
+    what each op TAKES and never what one gives up: an op that explicitly cleared a
+    voucher code left the offer holding it, and a later op reusing that code was
+    refused for a collision that could not happen."""
+
+    def seed(self, state):
+        return seed_voucher_campaign(state)
+
+    def offer(self, cand, name):
+        return next(o for o in cand["offers"] if o["name"] == name)
+
+    def live_offers(self):
+        return {o["name"]: o for o in self.state["offers"][self.cid].values()}
+
+    def test_a_code_released_by_an_earlier_op_is_free_for_a_later_one(self):
+        cand = self.cand()
+        a, b = self.offer(cand, "Exit ten"), self.offer(cand, "Exit twenty")
+        self.assertLess(cand["offers"].index(a), cand["offers"].index(b),
+                        "the release has to be the earlier op")
+        a["offer_type"], a["code"] = "offer", None   # released here
+        b["code"] = "SAVE10"                         # and taken here
+        self.assertEqual(ca.validate_plan(cand), [])
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual([o["key"] for o in self.change_set()["ops"]], [a["key"], b["key"]])
+        self.assertEqual(self.update(), 0, self.out())
+        live = self.live_offers()
+        self.assertIsNone(live["Exit ten"]["code"])
+        self.assertEqual(live["Exit ten"]["offer_type"], "offer")
+        self.assertEqual(live["Exit twenty"]["code"], "SAVE10")
+
+    def test_a_code_only_a_later_op_releases_still_refuses(self):
+        cand = self.cand()
+        a, b = self.offer(cand, "Exit ten"), self.offer(cand, "Exit twenty")
+        a["code"] = "SAVE20"                         # step 1 would take it
+        b["offer_type"], b["code"] = "offer", None   # step 2 lets it go
+        self.assertEqual(ca.validate_plan(cand), [])
+        msg = self.refuse(cand, needle="would set the voucher code")
+        self.assertIn("Do it as 2 updates through a temporary name", msg)
+
+    def test_a_name_released_by_an_earlier_rename_is_free_for_a_later_one(self):
+        cand = self.cand()
+        a, b = self.offer(cand, "Exit ten"), self.offer(cand, "Exit twenty")
+        a["name"], b["name"] = "Exit zero", "Exit ten"
+        self.assertEqual(ca.validate_plan(cand), [])
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.update(), 0, self.out())
+        self.assertEqual(sorted(self.live_offers()), sorted(
+            ["Dashboard Bracelet - Buy 2", "Dashboard Bracelet - Free Shipping",
+             "Exit zero", "Exit ten"]))
+
+    def test_a_name_only_a_later_op_releases_still_refuses(self):
+        cand = self.cand()
+        a, b = self.offer(cand, "Exit ten"), self.offer(cand, "Exit twenty")
+        a["name"], b["name"] = "Exit twenty", "Exit nothing"
+        self.assertEqual(ca.validate_plan(cand), [])
+        msg = self.refuse(cand, needle="would set the name")
+        self.assertIn("Do it as 2 updates through a temporary name", msg)
+
+
 if __name__ == "__main__":
     unittest.main()
