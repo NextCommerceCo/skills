@@ -125,7 +125,7 @@ manifest.
 `adopt` also prints a role table:
 
 ```
-Roles (a heuristic from the offers; correct one in your edited copy, and it lands with your next update):
+Roles (a heuristic from the offers; correct one in your edited copy and diff it. A role correction lands on its own, with nothing sent to the store):
   pkg-801        variant 801 (v801)  hero
   pkg-802        variant 802 (v802)  bump
 ```
@@ -134,9 +134,11 @@ Roles (a heuristic from the offers; correct one in your edited copy, and it land
 op. It drives `verify`'s hero and free-shipping logic, so a wrong role is worth
 correcting. Correct it in the copy (U3), not in `campaign-plan.json`: editing
 the canonical plan in place breaks its hash and `diff` refuses the run. A
-role-only edit produces no ops and no preserved values, so `diff` reports no
-changes and writes nothing. A role correction therefore lands when it travels
-with a real change, which the merged plan then carries.
+role-only edit lands on its own. `diff` decides whether there is anything to do
+by comparing the merged plan with the base plan, not by counting requests, so a
+role correction gives a change set with 0 ops and one `plan_only` line, and
+`update` promotes the merged plan without sending anything. It can travel with a
+real change too; neither is a precondition for the other.
 
 What an adopted plan does not know, because nothing on the store says it:
 
@@ -251,6 +253,11 @@ What `diff` prints, and how to read it:
 - `Kept from the store (the candidate did not touch these)`: every preserved
   value. Read these out: they are changes someone made in the dashboard that
   this update is deliberately keeping.
+- `Plan only, nothing sent (...)`: every way the merged plan differs from the
+  base plan that no request carries, one line each as `what: before -> after`.
+  A `role` correction, a value the candidate and the dashboard converged on, an
+  advisory row dropped with the object it priced. Also in `change-set.json` as
+  `plan_only`.
 - `Warnings`: a dropped `image.src`; a DELETE of an object the store changed that
   `--delete-changed` authorised; a `landed_prices` or `voucher_codes` row dropped
   because the offer or package it names is being deleted; and, on a campaign that
@@ -265,9 +272,15 @@ What `diff` prints, and how to read it:
   hash and `--allow-delete` when it is needed.
 
 `diff` exits 0 with ops, 0 with "no changes: the candidate plan matches both the
-base plan and the store", and 1 on any refusal. A change set with 0 ops and some
-preserved values is still worth applying: `update` sends nothing and promotes
-the merged plan so the plan matches the store again.
+base plan and the store", and 1 on any refusal. "No changes" means the merged
+plan equals the base plan, value for value once both are parsed, and nothing is
+written. Anything else is written, including a change set with 0 ops: values
+preserved from the store, a plan-only field such as `role`, a value the
+candidate and the dashboard reached independently, an advisory row dropped with
+the object it priced. `update` on one of those sends nothing and promotes the
+merged plan, so the canonical plan is the current state again. A diff with
+warnings and no change prints the warnings anyway, because a warning is about
+the candidate rather than about the change.
 
 Then get an explicit go/no-go with `AskUserQuestion`. Call the DELETE steps out
 by name; never fold them into a count:
@@ -557,9 +570,14 @@ neither writes to the store at all.
   dashboard. The engine does not send `recalculate_prices`: it would convert
   every other currency from the one being sent and overwrite a price someone set
   by hand.
-- **The update path has not been exercised against a live store.** The reads
-  behind it were confirmed read-only against live stores on 2026-10-08. The
-  write shapes (the PATCH bodies, package DELETE while an offer references it,
-  the accepted clearing values) are implemented from the published contract and
-  proven against the offline fake only. `admin-api-contract.md` lists exactly
-  what is still unverified.
+- **No write on the update path has been sent to a live store by this engine.**
+  Not a PATCH, not a POST, not a PUT, not a DELETE on a campaign that already
+  exists. The write shapes (the PATCH bodies, a package DELETE while an offer
+  references it, the accepted clearing values) are implemented from the
+  published contract and proven against the offline fake only.
+  `admin-api-contract.md` lists exactly what is still unverified.
+- **The read side's response shapes were observed with GET requests on
+  2026-10-08.** That is a separate, narrower statement, and it says nothing
+  about any write. The record of what was read, what it does and does not
+  settle, and how to repeat it on your own store is in
+  `admin-api-contract.md`, "Read-only checks, 2026-10-08".

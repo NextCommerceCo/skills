@@ -25,7 +25,10 @@ Token permissions:
 | Permission | Used by |
 |---|---|
 | `store:read` | `discover` (`GET /store/`, its first request) |
-| `campaigns:read`, `campaigns:write`, `catalogue:read`, `gateways:read` | `discover`, `plan --check-store`, `apply`, `verify`, `teardown`, `adopt`, `diff`, `update` (`adopt` and `diff` only read) |
+| `catalogue:read` | `discover` (`GET /products/`, the variant ids packages point at) |
+| `gateways:read` | `discover` (`GET /gateway-groups/`) |
+| `campaigns:read` | every GET under `/campaigns/`: `discover`, `plan --check-store`, `apply`, `verify`, `teardown`, `adopt`, `diff`, `update` |
+| `campaigns:write` | every write under `/campaigns/`: `apply`, `teardown`, `update` |
 | `metadata:read` | the metadata audit in `discover` |
 | `metadata:write` | `metadata --apply` |
 
@@ -34,6 +37,22 @@ token may call it. Source for every scope above: the 2024-04-01 OpenAPI file at
 <https://developers.nextcommerce.com/api/admin/2024-04-01.yaml>. A 401 or 403
 from the engine names the scope the failing request needed (`scope_for()` and
 `auth_hint()` in the engine).
+
+The update path is narrower than the create path, because every request it sends
+is on `/api/admin/campaigns/`:
+
+| Command | Requests it sends | Permissions it needs |
+|---|---|---|
+| `adopt` | GET the campaign, its packages, its shipping methods, each offer by id | `campaigns:read` |
+| `diff` | the same GETs, then writes files locally | `campaigns:read` |
+| `update` | those GETs, then PATCH, POST, PUT and DELETE on the same prefix | `campaigns:read`, `campaigns:write` |
+
+None of the three reads the store settings, the catalogue, the gateway groups or
+the metadata definitions, so none of them needs `store:read`, `catalogue:read`,
+`gateways:read` or either metadata scope. This narrows nothing about the create
+path: `discover` still needs all seven, and that is the key an operator makes.
+The same key works for `adopt`, `diff` and `update` with nothing added, so
+taking over and updating an existing campaign never means a second key.
 
 The Cart API used by `verify` is a different host, `https://campaigns.apps.29next.com`.
 It takes the campaign `api_key` raw in `Authorization`, with no `Bearer` prefix and
@@ -333,15 +352,25 @@ What the update path (`adopt`, `diff`, `update`) relies on, field by field.
 
 ## Read-only checks, 2026-10-08
 
-A point-in-time observation, not a verification of the update path. On
-2026-10-08 the response shapes below were read off 2 campaigns on live stores.
-Every request was a GET; nothing was written, so nothing here says that an
-update works, that a PATCH body is accepted, or that any write behaves as
+A point-in-time observation, not a verification of the update path. This section
+is the record: SKILL.md and `update-path.md` state the bare fact in a line and
+point here, and everything about what it does and does not settle lives only
+here. A dated read is a record, never an assurance about a write, so neither of
+those files may lean on it as one.
+
+On 2026-10-08 the response shapes below were read off 2 campaigns on live
+stores. Every request was a GET; nothing was written, so nothing here says that
+an update works, that a PATCH body is accepted, or that any write behaves as
 assumed. What it settles is narrower: these fields were present, in these
 shapes, on that date, on those 2 campaigns. A different store, a different
 platform release or a later date can read back differently, and the open points
-in "Not yet verified against a live store" below are all still open. No store,
-campaign or key is named here: this repository is public.
+in "Not yet verified against a live store" below are all still open.
+
+No store, campaign or key is named, because this repository is public. That also
+means you cannot check the record against the stores it was read from. You do
+not have to: the reads are `discover`, `adopt` and the GETs `diff` sends, so
+anyone with a `campaigns:read` key can repeat every one of them against a
+campaign on their own store and see the same fields or find that they differ.
 
 | What was read | What came back on 2026-10-08 | Effect on the design |
 |---|---|---|

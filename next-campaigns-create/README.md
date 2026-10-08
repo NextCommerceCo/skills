@@ -21,7 +21,9 @@ that campaign has to change.
   and read and write metadata. You don't need to give it full access. If the
   key doesn't work, your assistant tells you which permission is missing. A key
   that is missing a permission has to be created again with all seven; trying
-  the same key again won't help.
+  the same key again won't help. Changing a campaign that already exists uses
+  the same key and only its campaign permissions, so there is nothing extra to
+  create for that.
 - **The Campaigns App** installed on your store.
 - **A computer with Python 3.9 or newer and a bash shell.** On Windows, use
   WSL, or ask your assistant to run the Python program directly.

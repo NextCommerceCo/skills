@@ -4064,6 +4064,65 @@ class VerifyReadBackAdditions(unittest.TestCase):
         report, _ = self._run(plan, after_apply=drop)
         self.assertEqual(self._checks(report)[f"package {key} interval_count"]["result"], "FAIL")
 
+    def test_a_recurring_charge_on_a_package_the_plan_prices_once_fails(self):
+        """The recurring rows above run only when the plan asked for a subscription.
+        Verification has to make the opposite claim too, or a monthly charge nobody
+        planned reads back as PASS on a supposedly one-off package."""
+        plan = ca.recommend(self.disc, ns())
+        key = plan["packages"][0]["key"]
+        report, _ = self._run(plan)
+        self.assertEqual(self._checks(report)[f"package {key} not_recurring"]["result"], "PASS")
+        self.assertEqual(report["result"], "PASS", json.dumps(report, indent=1))
+
+        def make_it_recurring(state, man, cid, t):
+            pid = next(e["id"] for e in man.data["packages"] if e["key"] == key)
+            pkg = state["packages"][cid][pid]
+            pkg.update(is_recurring=True, interval="month", interval_count=1)
+            pkg["prices"][0]["price_recurring"] = pkg["prices"][0]["price"]
+
+        report, _ = self._run(plan, after_apply=make_it_recurring)
+        row = self._checks(report)[f"package {key} not_recurring"]
+        self.assertEqual(row["result"], "FAIL", json.dumps(report, indent=1))
+        self.assertIn("price_recurring", row["detail"])
+        self.assertEqual(report["result"], "FAIL")
+
+    def test_a_recurring_price_alone_fails_even_with_the_flag_unset(self):
+        plan = ca.recommend(self.disc, ns())
+        key = plan["packages"][0]["key"]
+
+        def price_only(state, man, cid, t):
+            pid = next(e["id"] for e in man.data["packages"] if e["key"] == key)
+            state["packages"][cid][pid]["prices"][0]["price_recurring"] = "9.95"
+
+        report, _ = self._run(plan, after_apply=price_only)
+        self.assertEqual(self._checks(report)[f"package {key} not_recurring"]["result"], "FAIL")
+
+    def test_a_store_that_reports_neither_recurring_field_reads_as_one_off(self):
+        """Absent is not recurring: a store whose package read-back carries no
+        `is_recurring` and no `price_recurring` row passes this check rather than
+        failing on a field it never reports."""
+        plan = ca.recommend(self.disc, ns())
+        key = plan["packages"][0]["key"]
+
+        def strip(state, man, cid, t):
+            pid = next(e["id"] for e in man.data["packages"] if e["key"] == key)
+            pkg = state["packages"][cid][pid]
+            pkg.pop("is_recurring", None)
+            for row in pkg["prices"]:
+                row.pop("price_recurring", None)
+
+        report, _ = self._run(plan, after_apply=strip)
+        self.assertEqual(self._checks(report)[f"package {key} not_recurring"]["result"], "PASS")
+        self.assertEqual(report["result"], "PASS", json.dumps(report, indent=1))
+
+    def test_a_subscription_package_gets_no_not_recurring_row(self):
+        plan = ca.recommend(self.disc, ns())
+        key = plan["packages"][0]["key"]
+        plan["packages"][0].update(price_recurring="19.95", interval="month", interval_count=1)
+        report, _ = self._run(plan)
+        self.assertNotIn(f"package {key} not_recurring", self._checks(report))
+        self.assertEqual(self._checks(report)[f"package {key} price_recurring"]["result"], "PASS")
+
     def test_same_percentage_shipping_instead_of_package_discount_is_caught(self):
         """The benefit value row alone passes this: 50% is 50%. Only the type row
         sees that the discount moved from the product to the shipping."""
@@ -4928,13 +4987,21 @@ class DiffMatrix(_AdoptedRun):
         self.assertEqual(self.ops(), [("PATCH", "campaign", "campaign"),
                                       ("DELETE", "offers", key)])
 
-    def test_the_store_already_at_the_candidates_value_is_a_noop(self):
+    def test_the_store_already_at_the_candidates_value_sends_nothing_but_is_written(self):
+        """A value the candidate and the dashboard reached independently needs no
+        request, and the plan still has to move: the base plan is the only record of
+        what the campaign is, and leaving it behind makes every later diff re-report
+        the same convergence."""
         self.state["packages"][self.cid][self.ids("packages")["pkg-801"]]["prices"][0]["price"] = "29.95"
         cand = self.cand()
         cand["packages"][0]["price"] = "29.95"
         self.assertEqual(self.diff(cand), 0, self.out())
-        self.assertIn("no changes", self.out())
-        self.assertFalse((self.dir / CHANGE_SET).exists())
+        self.assertNotIn("no changes", self.out())
+        cs = self.change_set()
+        self.assertEqual(cs["ops"], [])
+        self.assertEqual(cs["plan_only"], ['package pkg-801.price: "24.95" -> "29.95"'])
+        self.assertIn("Plan only, nothing sent", self.out())
+        self.assertEqual(cs["merged_plan"]["packages"][0]["price"], "29.95")
 
     def test_a_changed_image_src_is_a_put_and_a_removed_one_is_a_warning(self):
         man = self.manifest()
@@ -6721,6 +6788,248 @@ class ResumeAfterAPostThatLanded(_ResumableRun):
                          ("set", "https://cdn.example/extra.png"))
 
 
+class OwnershipAndTheOpCommitTogether(_ResumableRun):
+    """Recording that this run owns an object and marking the op that produced it
+    `done` is ONE manifest save, for every op kind. Two saves left a window where the
+    manifest owned a POST's object while its op was still `in_flight`, and both
+    `--resume` and `--settle` read that as a duplicate and refused: the run was stuck
+    with no way out that did not involve editing the manifest by hand."""
+
+    def crash_committing(self, n):
+        """Kill the run at the manifest write that marks op `n` done, the way a killed
+        process does: the data in hand never reaches the file."""
+        real = ca.Manifest.save
+
+        def wrapper(man):
+            if any(o.get("n") == n and o.get("status") == "done"
+                   for o in man.data.get("ops") or []):
+                raise _Interrupted(f"the process died committing op {n}")
+            real(man)
+        return mock.patch.object(ca.Manifest, "save", wrapper)
+
+    def kill_at(self, n, *extra):
+        with self.crash_committing(n), self.assertRaises(_Interrupted):
+            self.update(*extra)
+        self.assertEqual(dict(self.journal())[n], "in_flight",
+                         f"op {n} is the one left in flight\n{self.out()}")
+        return self.manifest()
+
+    def new_package(self, cand=None, *, image=None):
+        cand = cand if cand is not None else self.cand()
+        p = {"key": "pkg-903", "role": "bump", "name": "Extra", "variant_title": "v903",
+             "product_id": 22, "product_variant_ids": [903], "price": "9.95"}
+        if image:
+            p["image"] = {"src": image}
+        cand["packages"].append(p)
+        return cand
+
+    def assertClosed(self):
+        man = self.manifest()
+        self.assertNotIn("active_update", man)
+        self.assertNotIn("ops", man)
+
+    # -- POST: the op kind the two-save window actually blocked --------------- #
+
+    def test_a_package_post_killed_at_its_commit_resumes(self):
+        self.assertEqual(self.diff(self.new_package()), 0, self.out())
+        self.assertEqual(self.ops(), [("POST", "packages", "pkg-903")])
+        man = self.kill_at(1)
+        self.assertNotIn("pkg-903", {e["key"] for e in man["packages"]},
+                         "the ownership never landed on its own")
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertClosed()
+        self.assertIsNotNone(self.ids("packages").get("pkg-903"))
+        self.assertEqual(len(self.state["packages"][self.cid]), 3,
+                         "the package the interrupted POST created is claimed, not duplicated")
+
+    def test_a_package_post_killed_at_its_commit_settles(self):
+        self.assertEqual(self.diff(self.new_package()), 0, self.out())
+        self.kill_at(1)
+        self.assertEqual(self.update("--settle"), 0, self.out())
+        self.assertNotIn("active_update", self.manifest())
+        self.assertEqual([p["key"] for p in self.plan_now()["packages"]],
+                         ["pkg-801", "pkg-802", "pkg-903"])
+
+    def test_a_shipping_post_killed_at_its_commit_resumes(self):
+        cand = self.cand()
+        cand["shipping_methods"].append({"shipping_method": "express", "price": "12.95"})
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.kill_at(1)
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertClosed()
+        self.assertIsNotNone(self.ids("shipping_methods").get("express"))
+        self.assertEqual(len(self.state["shipping-methods"][self.cid]), 2)
+
+    def test_an_offer_post_killed_at_its_commit_resumes(self):
+        cand = self.cand()
+        cand["offers"].append({
+            "key": "offer-new", "name": "Extra", "offer_type": "offer", "code": None,
+            "condition": {"type": "any", "value": None, "package_keys": ["pkg-802"]},
+            "benefit": {"type": "package_percentage", "value": "15.00", "price_rounding": None}})
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.kill_at(1)
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertClosed()
+        self.assertIsNotNone(self.ids("offers").get("offer-new"))
+        self.assertEqual(len(self.state["offers"][self.cid]), 3)
+
+    # -- a manifest already in the state the old engine could leave ---------- #
+
+    def _stranded_post(self):
+        """The manifest an engine that saved the ownership before the completed op
+        leaves behind: the POST's object is `created` with its live id, and the op
+        that created it is still `in_flight`."""
+        self.assertEqual(self.diff(self.new_package()), 0, self.out())
+        man = self.kill_at(1)
+        pid = next(x["id"] for x in self.state["packages"][self.cid].values()
+                   if x["product_variant_id"] == 903)
+        man["packages"].append({"key": "pkg-903", "status": "created", "id": pid,
+                                "name": "Extra - v903", "product_variant_id": 903,
+                                "intent": None})
+        ca.atomic_write_json(self.manifest_path, man)
+        return pid
+
+    def test_resume_reads_a_stranded_post_as_landed_not_as_a_duplicate(self):
+        pid = self._stranded_post()
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertEqual(self.sent(), [], "the POST had landed: nothing is re-sent")
+        self.assertClosed()
+        self.assertEqual(self.ids("packages")["pkg-903"], pid)
+        self.assertEqual(len(self.state["packages"][self.cid]), 3)
+        self.assertEqual([p["key"] for p in self.plan_now()["packages"]],
+                         ["pkg-801", "pkg-802", "pkg-903"])
+
+    def test_settle_closes_a_stranded_post(self):
+        pid = self._stranded_post()
+        self.assertEqual(self.update("--settle"), 0, self.out())
+        self.assertEqual(self.sent(), [])
+        self.assertNotIn("active_update", self.manifest())
+        self.assertEqual(self.ids("packages")["pkg-903"], pid)
+        self.assertEqual([p["key"] for p in self.plan_now()["packages"]],
+                         ["pkg-801", "pkg-802", "pkg-903"])
+
+    def test_a_stranded_post_whose_object_holds_other_values_is_still_refused(self):
+        """Tolerating the window is not a licence to claim anything: the read-back is
+        the same full one the lost-response path does, and a mismatch stops the run."""
+        self._stranded_post()
+        pid = next(x["id"] for x in self.state["packages"][self.cid].values()
+                   if x["product_variant_id"] == 903)
+        self.state["packages"][self.cid][pid]["prices"][0]["price"] = "19.95"
+        self.assertEqual(self.update("--resume"), 1, self.out())
+        self.assertIn("was not created by this run", self.out())
+
+    # -- the other op kinds, for the same window ----------------------------- #
+
+    def test_a_campaign_patch_killed_at_its_commit_resumes(self):
+        cand = self.cand()
+        cand["campaign"]["name"] = "Renamed campaign"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        man = self.kill_at(1)
+        self.assertEqual(man["campaign"]["name"], "Dashboard Bracelet",
+                         "the refreshed name never landed without its op")
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertClosed()
+        self.assertEqual(self.plan_now()["campaign"]["name"], "Renamed campaign")
+        self.assertEqual(self.manifest()["campaign"]["name"], "Renamed campaign")
+
+    def test_a_package_patch_killed_at_its_commit_resumes(self):
+        cand = self.cand()
+        cand["packages"][0]["name"] = "Renamed hero"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.kill_at(1)
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertClosed()
+        self.assertEqual(self.plan_now()["packages"][0]["name"], "Renamed hero")
+
+    def test_an_offer_patch_killed_at_its_commit_resumes(self):
+        cand = self.cand()
+        cand["offers"][0]["name"] = "Renamed offer"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.kill_at(1)
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertClosed()
+        self.assertEqual(self.plan_now()["offers"][0]["name"], "Renamed offer")
+
+    def test_an_offer_delete_killed_at_its_commit_resumes(self):
+        key = self.offer_keys[1]
+        oid = self.ids("offers")[key]
+        cand = self.cand()
+        cand["offers"] = [o for o in cand["offers"] if o["key"] != key]
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops(), [("DELETE", "offers", key)])
+        man = self.kill_at(1, "--allow-delete")
+        self.assertEqual([e["key"] for e in man["offers"] if e["status"] == "deleting"], [key],
+                         "the entry is still `deleting`: the receipt never landed alone")
+        self.assertNotIn(oid, self.state["offers"][self.cid])
+        self.assertEqual(self.update("--resume", "--allow-delete"), 0, self.out())
+        self.assertClosed()
+        self.assertEqual([r["key"] for r in self.manifest()["removed"]], [key])
+        self.assertEqual([o["key"] for o in self.plan_now()["offers"]], [self.offer_keys[0]])
+
+    def test_a_package_delete_killed_at_its_commit_resumes(self):
+        key = "pkg-802"
+        cand = self.cand()
+        cand["packages"] = [p for p in cand["packages"] if p["key"] != key]
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops(), [("DELETE", "packages", key)])
+        self.kill_at(1, "--allow-delete")
+        self.assertEqual(self.update("--resume", "--allow-delete"), 0, self.out())
+        self.assertClosed()
+        self.assertEqual([r["key"] for r in self.manifest()["removed"]], [key])
+        self.assertEqual([p["key"] for p in self.plan_now()["packages"]], ["pkg-801"])
+
+    def test_a_shipping_delete_killed_at_its_commit_settles(self):
+        """A plan needs one shipping method, so the method this deletes is one an
+        earlier update added."""
+        cand = self.cand()
+        cand["shipping_methods"].append({"shipping_method": "express", "price": "12.95"})
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.update(), 0, self.out())
+        cand = self.plan_now()
+        cand["shipping_methods"] = [s for s in cand["shipping_methods"]
+                                    if s["shipping_method"] != "express"]
+        self.assertEqual(self.diff(cand, plan_path=self.dir / "campaign-plan.two.json"),
+                         0, self.out())
+        self.assertEqual(self.ops(), [("DELETE", "shipping_methods", "express")])
+        self.kill_at(1, "--allow-delete")
+        self.assertEqual(self.update("--settle"), 0, self.out())
+        self.assertNotIn("active_update", self.manifest())
+        self.assertEqual([s["shipping_method"] for s in self.plan_now()["shipping_methods"]],
+                         ["standard"])
+        self.assertEqual([r["key"] for r in self.manifest()["removed"]], ["express"])
+
+    def test_an_image_put_killed_at_its_commit_resumes(self):
+        man = self.manifest()
+        man["packages"][0]["image_src"] = "https://cdn.example/old.png"
+        ca.atomic_write_json(self.manifest_path, man)
+        cand = self.cand()
+        cand["packages"][0]["image"] = {"src": "https://cdn.example/new.png"}
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops(), [("PUT", "packages", "pkg-801")])
+        man = self.kill_at(1)
+        e = next(x for x in man["packages"] if x["key"] == "pkg-801")
+        self.assertEqual(e["image_status"], "pending",
+                         "the image receipt never landed without its op")
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertClosed()
+        e = next(x for x in self.manifest()["packages"] if x["key"] == "pkg-801")
+        self.assertEqual((e["image_status"], e["image_src"]),
+                         ("set", "https://cdn.example/new.png"))
+
+    def test_the_post_of_a_package_and_its_image_put_both_resume(self):
+        self.assertEqual(self.diff(self.new_package(image="https://cdn.example/extra.png")),
+                         0, self.out())
+        self.assertEqual(self.ops(), [("POST", "packages", "pkg-903"),
+                                      ("PUT", "packages", "pkg-903")])
+        self.kill_at(2)
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertClosed()
+        e = next(x for x in self.manifest()["packages"] if x["key"] == "pkg-903")
+        self.assertEqual((e["image_status"], e["image_src"]),
+                         ("set", "https://cdn.example/extra.png"))
+        self.assertEqual(self.state["packages"][self.cid][e["id"]]["image"], OVERRIDE_IMAGE)
+
+
 class ResumeAfterARenameThatLanded(_ResumableRun):
     """A rename that landed moves the live name, and the manifest records the live
     form. Normalising the live name back into plan space has to read the NEW name, or
@@ -6900,6 +7209,165 @@ class MultiCurrencyPriceWarning(_AdoptedRun):
         cand["packages"][0]["name"] = "Renamed hero"
         self.assertEqual(self.diff(cand), 0, self.out())
         self.assertEqual(self.change_set()["warnings"], [])
+
+
+class PlanOnlyChanges(_UpdatableRun):
+    """A change set is worth writing whenever the MERGED plan differs from the base
+    plan, ops or no ops. Deciding it by counting ops and preserved rows discarded the
+    merged plan whenever the only differences were ones no request carries: a
+    plan-only field such as `role`, a value the candidate and the dashboard reached
+    independently, an advisory row dropped with the object it priced. The canonical
+    plan was then left stale and a role correction could not land on its own."""
+
+    def plan_only(self):
+        return self.change_set()["plan_only"]
+
+    def test_a_role_only_correction_lands_with_nothing_sent(self):
+        cand = self.cand()
+        self.assertEqual(cand["packages"][1]["role"], "bump")
+        cand["packages"][1]["role"] = "upsell"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops(), [])
+        self.assertEqual(self.plan_only(), ['package pkg-802.role: "bump" -> "upsell"'])
+        self.assertIn("Plan only, nothing sent", self.out())
+        old_sha = self.manifest()["plan_sha256"]
+        self.assertEqual(self.update(), 0, self.out())
+        self.assertEqual(self.sent(), [], "a role correction sends nothing")
+        self.assertEqual(self.plan_now()["packages"][1]["role"], "upsell")
+        man = self.manifest()
+        self.assertEqual(man["plan_sha256"], self.change_set()["merged_plan_sha256"])
+        self.assertNotIn("active_update", man)
+        self.assertEqual(ca.sha256_file(self.dir / f"campaign-plan.{old_sha[:8]}.json"), old_sha)
+        # and the correction is the baseline now: the next diff has nothing to say
+        self.assertEqual(self.diff(self.plan_now(), plan_path=self.dir / "again.json"),
+                         0, self.out())
+        self.assertIn("no changes", self.out())
+
+    def test_a_convergent_campaign_rename_is_written_with_no_requests(self):
+        self.state["campaigns"][self.cid]["name"] = "Both sides agree"
+        cand = self.cand()
+        cand["campaign"]["name"] = "Both sides agree"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops(), [])
+        self.assertEqual(self.plan_only(),
+                         ['campaign.name: "Dashboard Bracelet" -> "Both sides agree"'])
+        self.assertEqual(self.update(), 0, self.out())
+        self.assertEqual(self.sent(), [])
+        self.assertEqual(self.plan_now()["campaign"]["name"], "Both sides agree")
+        self.assertEqual(self.diff(self.plan_now(), plan_path=self.dir / "again.json"),
+                         0, self.out())
+        self.assertIn("no changes", self.out())
+
+    def test_a_convergent_package_rename_is_written_with_no_requests(self):
+        pid = self.ids("packages")["pkg-801"]
+        self.state["packages"][self.cid][pid]["name"] = "Agreed hero - v801"
+        cand = self.cand()
+        cand["packages"][0]["name"] = "Agreed hero"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops(), [])
+        self.assertEqual(self.plan_only(),
+                         ['package pkg-801.name: "Photo Bracelet" -> "Agreed hero"'])
+        self.assertEqual(self.update(), 0, self.out())
+        self.assertEqual(self.sent(), [])
+        self.assertEqual(self.plan_now()["packages"][0]["name"], "Agreed hero")
+        self.assertEqual(self.diff(self.plan_now(), plan_path=self.dir / "again.json"),
+                         0, self.out())
+        self.assertIn("no changes", self.out())
+
+    def test_a_convergent_offer_rename_is_written_with_no_requests(self):
+        key = self.offer_keys[0]
+        oid = self.ids("offers")[key]
+        self.state["offers"][self.cid][oid]["name"] = "Agreed offer"
+        cand = self.cand()
+        cand["offers"][0]["name"] = "Agreed offer"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops(), [])
+        self.assertEqual(self.plan_only(),
+                         [f'offer {key}.name: "Dashboard Bracelet - Buy 2" -> "Agreed offer"'])
+        self.assertEqual(self.update(), 0, self.out())
+        self.assertEqual(self.sent(), [])
+        self.assertEqual(self.plan_now()["offers"][0]["name"], "Agreed offer")
+        self.assertEqual(self.diff(self.plan_now(), plan_path=self.dir / "again.json"),
+                         0, self.out())
+        self.assertIn("no changes", self.out())
+
+    def test_a_value_preserved_from_the_store_is_not_listed_twice(self):
+        """A preserved value moves the plan without a request too, so it would show up
+        here. It has its own block, which says more about it, so it does not."""
+        self.state["campaigns"][self.cid]["name"] = "Renamed in the dashboard"
+        self.assertEqual(self.diff(self.cand()), 0, self.out())
+        cs = self.change_set()
+        self.assertEqual(cs["ops"], [])
+        self.assertEqual(cs["plan_only"], [])
+        self.assertTrue(any("Renamed in the dashboard" in x for x in cs["preserved"]),
+                        cs["preserved"])
+        self.assertNotIn("Plan only, nothing sent", self.out())
+        self.assertIn("Kept from the store", self.out())
+
+    def test_a_field_a_request_does_carry_is_not_called_plan_only(self):
+        cand = self.cand()
+        cand["campaign"]["name"] = "Renamed"
+        cand["packages"][0]["price"] = "29.95"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.plan_only(), [])
+
+    def test_an_unchanged_copy_of_an_adopted_plan_is_still_no_changes(self):
+        self.assertEqual(self.diff(self.cand()), 0, self.out())
+        self.assertIn("no changes", self.out())
+        self.assertFalse((self.dir / CHANGE_SET).exists())
+
+    def test_a_candidate_that_drops_image_src_is_written_and_then_goes_quiet(self):
+        """The merged plan no longer carries the image, so it differs from the base
+        plan and is written. The warning is the point of the change set: there is no
+        delete-image route, so the store keeps the picture. Once the merged plan is
+        the baseline the next diff has nothing to write, and the warning is still
+        said out loud rather than swallowed with the change set."""
+        # the run already PUT this image: the base plan asks for it and the manifest
+        # records the src that landed
+        base = json.loads(self.base_path.read_text())
+        base["packages"][0]["image"] = {"src": "https://cdn.example/old.png"}
+        ca.atomic_write_json(self.base_path, base)
+        man = self.manifest()
+        man["packages"][0]["image_src"] = "https://cdn.example/old.png"
+        man["plan_sha256"] = ca.sha256_file(self.base_path)
+        ca.atomic_write_json(self.manifest_path, man)
+        self.assertEqual(self.diff(self.cand()), 0, self.out())
+        self.assertIn("no changes", self.out(), "an unchanged image src is not a change")
+
+        cand = self.cand()
+        cand["packages"][0].pop("image")
+        self.assertEqual(self.diff(cand, plan_path=self.dir / "dropped.json"), 0, self.out())
+        cs = self.change_set()
+        self.assertEqual(cs["ops"], [])
+        self.assertEqual(cs["plan_only"],
+                         ['package pkg-801.image.src: "https://cdn.example/old.png" -> null'])
+        self.assertTrue(any("dropped image.src" in w for w in cs["warnings"]), cs["warnings"])
+        self.assertEqual(self.update(), 0, self.out())
+        self.assertEqual(self.sent(), [])
+        self.assertNotIn("image", self.plan_now()["packages"][0])
+        # the manifest still records what this run PUT, which is the truth about the
+        # store, and the next diff is quiet about it apart from the same warning
+        e = next(x for x in self.manifest()["packages"] if x["key"] == "pkg-801")
+        self.assertEqual(e["image_src"], "https://cdn.example/old.png")
+        self.assertEqual(self.diff(self.plan_now(), plan_path=self.dir / "again.json"),
+                         0, self.out())
+        self.assertIn("no changes", self.out())
+        self.assertIn("dropped image.src", self.out())
+
+    def test_an_advisory_row_dropped_with_its_offer_is_a_plan_only_difference(self):
+        key = self.offer_keys[0]
+        base = json.loads(self.base_path.read_text())
+        base["voucher_codes"] = [{"offer_key": key, "code": "KEEP10"}]
+        ca.atomic_write_json(self.base_path, base)
+        man = self.manifest()
+        man["plan_sha256"] = ca.sha256_file(self.base_path)
+        ca.atomic_write_json(self.manifest_path, man)
+        cand = json.loads(self.base_path.read_text())
+        cand["offers"] = [o for o in cand["offers"] if o["key"] != key]
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops(), [("DELETE", "offers", key)])
+        self.assertEqual(self.change_set()["plan_only"],
+                         ['voucher_codes: [{"offer_key": "%s", "code": "KEEP10"}] -> []' % key])
 
 
 if __name__ == "__main__":

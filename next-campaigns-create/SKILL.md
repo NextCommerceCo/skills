@@ -149,6 +149,16 @@ needs no permission of its own. A 401 or 403 from the engine names the
 permission the failing request needed. Permission reference:
 https://developers.nextcommerce.com/docs/admin-api/permissions
 
+The update path needs less than that, because every request it sends is on
+`/api/admin/campaigns/`: `adopt` and `diff` need `campaigns:read` alone, and
+`update` needs `campaigns:read` and `campaigns:write`. None of the three touches
+the store settings, the catalogue, the gateway groups or the metadata
+definitions. This does not loosen anything above: `discover` still needs all
+seven, so that is the key an operator creates, and it already covers everything
+`adopt`, `diff` and `update` send. Never ask for a second key to take over or
+change a campaign. The per-command breakdown is in
+`references/admin-api-contract.md`.
+
 ## Platform uniqueness rules
 
 A campaign takes **one package per variant** and **one campaign shipping
@@ -488,6 +498,10 @@ The full procedure, with every plan edit and every refusal, is in
   a conflict and refuses. It writes `change-set.json` and the merged plan, prints
   every request in order with before and after, and prints the exact `update`
   command. Get a go/no-go with `AskUserQuestion`, naming each DELETE step.
+  "No changes" means the merged plan is the base plan; anything else is written,
+  including a change set with 0 requests. A plan-only correction such as `role`
+  lands that way, under "Plan only, nothing sent", with nothing sent to the
+  store.
 - **U5 Update.** `update --plan <merged> --manifest <m> --change-set <file>
   --yes --change-set-sha256 <hash>`, plus `--allow-delete` for any DELETE. Both
   are hard gates: without them nothing is sent. The store is re-read first and a
@@ -508,13 +522,20 @@ what landed. While an update is journalled, `diff`, `verify`, `teardown` and
 update --resume". One command at a time per run directory: each takes an
 exclusive `.run.lock`.
 
-The reads behind this path were confirmed against live stores on 2026-10-08.
-Its **writes have not been run against a live store yet**: the PATCH body
-shapes, a package DELETE while an offer references it, and the accepted clearing
-values are implemented from the published contract and proven against the
-offline fake. See "Not yet verified against a live store" in
-`references/admin-api-contract.md`, tell the operator before the first update on
-a campaign that matters, and read the store back with `verify` after every one.
+Two separate statements about this path, in this order:
+
+1. **No write on the update path has been sent to a live store by this engine.**
+   Not a PATCH, not a POST, not a PUT, not a DELETE on a campaign that already
+   exists. The PATCH body shapes, a package DELETE while an offer references it,
+   and the accepted clearing values are implemented from the published contract
+   and proven against the offline fake.
+2. **The response shapes the read side depends on were observed with GET
+   requests on 2026-10-08.** That says nothing about any write.
+
+See "Not yet verified against a live store" and "Read-only checks, 2026-10-08"
+in `references/admin-api-contract.md`, which holds the record of both. Tell the
+operator statement 1 before the first update on a campaign that matters, and
+read the store back with `verify` after every one.
 
 Phases 3 to 6 below are the create path.
 

@@ -2449,15 +2449,29 @@ def torn_down_entries(man: Manifest) -> list:
     return torn
 
 
-def _put_image(client: Client, man: Manifest, cid, p: dict, e: dict, st: dict) -> None:
+def _put_image(client: Client, man: Manifest, cid, p: dict, e: dict, st: dict,
+               done_op=None) -> None:
     """One package's image override, journalled. `st` is the state the caller keeps
     across packages: `unsupported` (this store has no image endpoint), `set_ok` (one
     PUT has already landed, so a 404 is about this package alone) and `failures`
     (lines for the caller's report). Shared by `apply` and `update`, so an approved
-    image op behaves exactly as it does on the create path."""
+    image op behaves exactly as it does on the create path.
+
+    `done_op` is the change-set op number this PUT belongs to, on the update path
+    only. Every terminal state is written together with that op's completion in one
+    manifest save, so no interruption can leave the package finished and its op still
+    in flight."""
     img = image_body(p)
     if img is None:
         return
+
+    def settle(**fields):
+        """A terminal image state and, on an update, the op that reached it: one save."""
+        _set_entry(man, "packages", p["key"], **fields)
+        if done_op is not None:
+            _set_op(man, done_op, "done")
+        man.save()
+
     st_img = e.get("image_status")
     if st_img in ("set", "unsupported", "failed"):
         # Terminal. `unsupported` means the endpoint is absent; `failed` means the
@@ -2468,7 +2482,7 @@ def _put_image(client: Client, man: Manifest, cid, p: dict, e: dict, st: dict) -
             st["failures"].append(f"{p['key']}: {e.get('image_error')}")
         return
     if st["unsupported"]:
-        man.mark("packages", p["key"], image_status="unsupported", image_intent=None)
+        settle(image_status="unsupported", image_intent=None)
         return
 
     man.mark("packages", p["key"], image_status="pending", image_intent=img)
@@ -2479,15 +2493,14 @@ def _put_image(client: Client, man: Manifest, cid, p: dict, e: dict, st: dict) -
         # endpoint while nothing has proved otherwise; once one PUT has landed, the
         # route demonstrably exists and a 404 is about that package alone.
         if status == 405 or not st["set_ok"]:
-            man.mark("packages", p["key"], image_status="unsupported", image_intent=None)
+            settle(image_status="unsupported", image_intent=None)
             st["unsupported"] = True
         else:
             # `unsupported` would be a lie here — it is documented as "this store has
             # no image endpoint", and one has already answered. This is a per-package
             # failure: terminal like any other, reported, and never store-wide.
             detail = "404 after another package's image landed; the package id is likely gone"
-            man.mark("packages", p["key"], image_status="failed", image_intent=None,
-                     image_error=detail)
+            settle(image_status="failed", image_intent=None, image_error=detail)
             st["failures"].append(f"{p['key']}: {detail}; not retried")
     elif status is None or status == 429 or status >= 500:
         # Not a verdict on the request: the write may well have landed. Every 5xx
@@ -2499,12 +2512,12 @@ def _put_image(client: Client, man: Manifest, cid, p: dict, e: dict, st: dict) -
         st["failures"].append(f"{p['key']}: no answer from the image endpoint "
                               f"(left pending, --resume will retry): {_short(resp)}")
     elif status != 200 or not isinstance(resp, dict) or not resp.get("image"):
-        man.mark("packages", p["key"], image_status="failed", image_intent=None, image_error=_short(resp))
+        settle(image_status="failed", image_intent=None, image_error=_short(resp))
         st["failures"].append(f"{p['key']}: PUT returned {status}: {_short(resp)}"
                               + auth_hint(status, "PUT", f"/api/admin/campaigns/{cid}/packages/{e['id']}/image/"))
     else:
-        man.mark("packages", p["key"], image_status="set", image_intent=None,
-                 image=resp.get("image"), image_src=img["src"], image_error=None)
+        settle(image_status="set", image_intent=None, image=resp.get("image"),
+               image_src=img["src"], image_error=None)
         st["set_ok"] = True
         print(f"set image on package {e['id']} {p['key']!r}")
 
@@ -3093,6 +3106,18 @@ def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: st
                   f"{live_p.get('interval')} vs {p.get('interval', 'month')}")
             check(f"package {e['key']} interval_count", live_p.get("interval_count") == p.get("interval_count", 1),
                   f"{live_p.get('interval_count')} vs {p.get('interval_count', 1)}")
+        else:
+            # The other half of the same claim: a plan that prices a package once
+            # asserts the package is NOT recurring. Without this row a monthly charge
+            # left on a supposedly one-off package reads back as PASS, because the
+            # rows above only run when the plan asked for a subscription. Fields a
+            # store does not report are absent rather than false, and absent is not
+            # recurring.
+            recurring = next((x.get("price_recurring") for x in live_prices
+                              if x.get("currency") == c["currency"]), None)
+            check(f"package {e['key']} not_recurring",
+                  not live_p.get("is_recurring") and _finite(_num(recurring)) is None,
+                  f"is_recurring {live_p.get('is_recurring')}, price_recurring {recurring}")
         check(f"package {e['key']} purchasable", live_p.get("product_purchase_availability") == "available", str(live_p.get("product_purchase_availability")))
         # Presence covers every package, not just overridden ones: package create
         # inherits the catalogue image and swallows a failed fetch, so this row is the
@@ -3504,7 +3529,9 @@ def baseline_sha256(norm: dict) -> str:
 def derive_role(pkg_id, offers: list) -> str:
     """The `role` an adopted package gets, from the offers that scope it. A fixed
     heuristic, printed by `adopt` so the operator can correct it: role is plan-only
-    and is never sent, so changing it is never an op."""
+    and is never sent, so changing it is never an op. It still lands on its own,
+    because `diff` writes a change set whenever the merged plan differs from the base
+    plan, ops or no ops, and `update` then promotes it without a request."""
     mine = [o for o in offers if pkg_id in (o["condition"]["package_ids"] or [])]
     if any(o["condition"]["type"] == "count" and o["benefit"]["type"] == "package_percentage"
            for o in mine):
@@ -3652,7 +3679,8 @@ def adopt(client: Client, slug: str, cid, out: Path, *, convert_scope=()) -> tup
           f"on {slug_to_origin(slug)}")
     print(f"  {len(plan['packages'])} package(s), {len(plan['shipping_methods'])} shipping method(s), "
           f"{len(plan['offers'])} offer(s)")
-    print("Roles (a heuristic from the offers; correct one in your edited copy, and it lands with your next update):")
+    print("Roles (a heuristic from the offers; correct one in your edited copy and diff it. "
+          "A role correction lands on its own, with nothing sent to the store):")
     for p in plan["packages"]:
         print(f"  {p['key']:<14} variant {p['product_variant_ids'][0]} "
               f"({p.get('variant_title')})  {p['role']}")
@@ -3874,6 +3902,88 @@ def _live_offer_n(lo: dict, key_of_package) -> dict:
             "price_rounding": ben["price_rounding"]}
 
 
+# Plan field -> the name an op's `before`/`after` uses for it, per section. A plan
+# field absent from this map cannot produce a request at all (`role`,
+# `variant_title`, a package's `image.alt`), so a difference in one is plan-only by
+# construction.
+_OP_FIELD = {
+    "campaign": {f: f for f in (CAMPAIGN_SCALARS + CAMPAIGN_NULLABLE + CAMPAIGN_CODE_LISTS
+                                + ("additional_currencies",))},
+    "packages": dict({f: f for f in PACKAGE_DIFF_FIELDS}, **{"image.src": "image_src"}),
+    "shipping_methods": {"price": "price"},
+    "offers": {"name": "name", "offer_type": "offer_type", "code": "code",
+               "available": "available", "condition.type": "condition_type",
+               "condition.value": "condition_value",
+               "condition.package_keys": "package_keys", "benefit.type": "benefit_type",
+               "benefit.value": "benefit_value", "benefit.price_rounding": "price_rounding"},
+}
+
+
+def _flat_plan_obj(o) -> dict:
+    """One plan object with its `condition`, `benefit` and `image` sub-objects
+    flattened to `parent.field`, so two of them compare field by field and a field
+    present on only one side still shows up."""
+    out = {}
+    for f, v in (o if isinstance(o, dict) else {}).items():
+        if f in ("condition", "benefit", "image") and isinstance(v, dict):
+            for g, w in v.items():
+                out[f"{f}.{g}"] = w
+        else:
+            out[f] = v
+    return out
+
+
+def plan_only_differences(base: dict, merged: dict, ops: list, kept=()) -> list:
+    """Everything the merged plan says differently from the base plan that no request
+    carries: a plan-only field such as `role`, a value the candidate and the dashboard
+    independently converged on, an advisory row dropped with the object it priced.
+
+    This is what makes a change set worth writing with 0 ops. Deciding "no changes" by
+    counting ops instead discarded the merged plan whenever the only differences were
+    these, which left the canonical baseline stale and made a role correction
+    impossible to land on its own.
+
+    `kept` is the (section, key, field) of every value the merge preserved from the
+    store. Those move the plan without a request too, but they have their own block in
+    the printout, so they are not repeated here."""
+    sent = set(kept or ())
+    for op in ops or []:
+        for f in (op.get("after") or {}):
+            sent.add((op["section"], op["key"], f))
+        if op["method"] in ("POST", "DELETE"):
+            sent.add((op["section"], op["key"], None))  # the whole object is the change
+    out = []
+    sections = ("campaign", "packages", "shipping_methods", "offers")
+    for f in sorted(set(base) | set(merged)):
+        if f in sections:
+            continue
+        if base.get(f) != merged.get(f):
+            out.append(f"{f}: {_show(base.get(f))} -> {_show(merged.get(f))}")
+    bc, mc = _flat_plan_obj(base.get("campaign")), _flat_plan_obj(merged.get("campaign"))
+    for f in sorted(set(bc) | set(mc)):
+        if bc.get(f) != mc.get(f) and ("campaign", "campaign", _OP_FIELD["campaign"].get(f)) \
+                not in sent:
+            out.append(f"campaign.{f}: {_show(bc.get(f))} -> {_show(mc.get(f))}")
+    for section, label in (("packages", "package"), ("shipping_methods", "shipping"),
+                           ("offers", "offer")):
+        def key_of(x, section=section):
+            return ship_key(x) if section == "shipping_methods" else x.get("key")
+        b = {key_of(x): x for x in base.get(section) or [] if isinstance(x, dict)}
+        m = {key_of(x): x for x in merged.get(section) or [] if isinstance(x, dict)}
+        for key in sorted(set(b) | set(m), key=str):
+            if (section, key, None) in sent:
+                continue
+            if key not in b or key not in m:
+                out.append(f"{label} {key} is only in the "
+                           + ("merged plan" if key in m else "base plan"))
+                continue
+            bo, mo = _flat_plan_obj(b[key]), _flat_plan_obj(m[key])
+            for f in sorted(set(bo) | set(mo)):
+                if bo.get(f) != mo.get(f) and (section, key, _OP_FIELD[section].get(f)) not in sent:
+                    out.append(f"{label} {key}.{f}: {_show(bo.get(f))} -> {_show(mo.get(f))}")
+    return out
+
+
 def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=()) -> dict:
     """The reviewed change set for one update: base (the canonical plan), candidate
     (the edited copy) and live, merged in plan space.
@@ -3999,15 +4109,20 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
     key_of_package = {pid: key for (section, pid), key in key_by_id.items() if section == "packages"}
     authorised = set(delete_changed or [])
     preserved, warnings, conflicts = [], list(advisory), []
+    kept_at = set()
 
-    def merge(label, b, c, l, *, force_op=False):
-        """One field, three ways. Returns (the merged plan's value, whether it is an op)."""
+    def merge(label, b, c, l, *, force_op=False, at=None):
+        """One field, three ways. Returns (the merged plan's value, whether it is an op).
+        `at` is the field's (section, key, field) so a value preserved from the store is
+        recorded once, for the one block that prints it."""
         if force_op:
             return c, True
         if c == b:
             if l == b:
                 return b, False
             preserved.append(f"{label}: the store's {_show(l)} is kept (the candidate did not change it)")
+            if at is not None:
+                kept_at.add(at)
             return l, False
         if l == b:
             return c, True
@@ -4038,7 +4153,8 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
     live_c = {k: v for k, v in live["campaign"].items() if k != "id"}
     merged_c, camp_changed = {}, {}
     for f in CAMPAIGN_SCALARS + CAMPAIGN_NULLABLE + CAMPAIGN_CODE_LISTS + ("additional_currencies",):
-        v, needs = merge(f"campaign.{f}", base_c.get(f), cand_c.get(f), live_c.get(f))
+        v, needs = merge(f"campaign.{f}", base_c.get(f), cand_c.get(f), live_c.get(f),
+                         at=("campaign", "campaign", f))
         merged_c[f] = v
         if needs:
             camp_changed[f] = (live_c.get(f), v)
@@ -4069,7 +4185,8 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
         ln = {f: lp.get(f) for f in PACKAGE_DIFF_FIELDS}
         merged_n, changed = {}, {}
         for f in PACKAGE_DIFF_FIELDS:
-            v, needs = merge(f"package {key}.{f}", bn[f], cn[f], ln[f])
+            v, needs = merge(f"package {key}.{f}", bn[f], cn[f], ln[f],
+                             at=("packages", key, f))
             merged_n[f] = v
             if needs:
                 changed[f] = (ln[f], v)
@@ -4105,7 +4222,7 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
                 f"exists (base {bs.get('shipping_method')!r}, candidate {s.get('shipping_method')!r}); "
                 "add a method on the new code and delete this one")
         v, needs = merge(f"shipping {key}.price", money(D(bs["price"])), money(D(s["price"])),
-                         ls.get("price"))
+                         ls.get("price"), at=("shipping_methods", key, "price"))
         merged = dict(s)
         merged["price"] = v
         merged_shipping.append(merged)
@@ -4141,7 +4258,8 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
             # all_packages is the one live value that is never preserved: the plan
             # cannot hold it, so an approved conversion is always a PATCH.
             v, needs = merge(f"offer {key}.{f}", bn[f], cn[f], ln[f],
-                             force_op=all_pk and f == "package_keys")
+                             force_op=all_pk and f == "package_keys",
+                             at=("offers", key, f))
             merged_n[f] = v
             if needs:
                 changed[f] = (ln[f], v)
@@ -4359,7 +4477,9 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
         "merged_plan_sha256": "", "merged_plan_file": "",
         "baseline_sha256": baseline_sha256(live), "baseline": live,
         "has_deletes": any(o["method"] == "DELETE" for o in ops),
-        "warnings": warnings, "preserved": preserved, "ops": ops, "merged_plan": merged,
+        "warnings": warnings, "preserved": preserved,
+        "plan_only": plan_only_differences(base, merged, ops, kept=kept_at),
+        "ops": ops, "merged_plan": merged,
     }
 
 
@@ -4388,12 +4508,18 @@ def print_change_set(cs: dict) -> None:
         print("Kept from the store (the candidate did not touch these):")
         for x in cs["preserved"]:
             print(f"  - {x}")
+    if cs.get("plan_only"):
+        print("Plan only, nothing sent (the store has no field for these, or is already "
+              "at the value):")
+        for x in cs["plan_only"]:
+            print(f"  - {x}")
     if cs["warnings"]:
         print("Warnings:")
         for x in cs["warnings"]:
             print(f"  - {x}")
     if not cs["ops"]:
-        print("No requests: this change set only records values preserved from the store.")
+        print("No requests: this change set only records values preserved from the store "
+              "and differences no request can carry.")
         return
     print(f"Requests update will send, in order ({len(cs['ops'])}"
           + (", including DELETEs" if cs["has_deletes"] else "") + "):")
@@ -4506,8 +4632,8 @@ def check_change_set(man: Manifest, base: dict, base_sha: str, plan: dict, plan_
             if "id" in op:
                 raise ChangeSetNotApplied(
                     f"op {n}: a POST creates the object, so it cannot name id {op.get('id')!r}")
-            landed = (journal.get(n) or {}).get("status") == "done"
-            if landed:
+            jstat = (journal.get(n) or {}).get("status")
+            if jstat == "done":
                 # This POST already created its object in the update being resumed or
                 # settled: the object is this run's now, and the journal says which id
                 # it got.
@@ -4517,6 +4643,13 @@ def check_change_set(man: Manifest, base: dict, base_sha: str, plan: dict, plan_
                         f"op {n}: the journal records this POST as done with id {got!r}, and the "
                         f"manifest does not own {section} {key} under that id; the manifest and "
                         "the change set are out of step")
+            elif jstat == "in_flight" and (section, key) in active:
+                # A manifest written by an engine that saved the ownership and the
+                # completed op separately, interrupted between the two. The object is
+                # this run's and the op is the one that made it, so this is a POST to
+                # finish, not a duplicate to refuse: `_resolve_in_flight` reads the
+                # object back in full before it trusts it.
+                pass
             elif (section, key) in active:
                 raise ChangeSetNotApplied(
                     f"op {n}: {section} {key} is already an object this run owns (id "
@@ -4591,7 +4724,15 @@ def _set_op(man: Manifest, n, status: str, **fields) -> None:
 
 def _save_op(man: Manifest, n, status: str, **fields) -> None:
     """One op's state, durably. Saved as `in_flight` before its request goes out, so a
-    lost response is never mistaken for an op that was never attempted."""
+    lost response is never mistaken for an op that was never attempted.
+
+    This is also the one write that commits an op as `done`, and everything the op
+    changed about the manifest is mutated in memory before it: `_set_entry`,
+    `_set_op` and `_remove_entry` never save on their own, so an object this run now
+    owns and the op that produced it land in the same file or in neither of them. An
+    interruption between the two would leave a POST's object `created` with the op
+    still `in_flight`, which both `--resume` and `--settle` used to read as a
+    duplicate."""
     _set_op(man, n, status, **fields)
     man.save()
 
@@ -4608,7 +4749,8 @@ def _start_update(man: Manifest, cs: dict, cs_sha: str) -> None:
 
 def _remove_entry(man: Manifest, section: str, key: str, n) -> None:
     """A deleted object's entry leaves the active section and becomes a receipt in
-    `removed[]`, so the section only ever holds what is on the campaign."""
+    `removed[]`, so the section only ever holds what is on the campaign. In memory
+    only: the caller commits it with the op that did the deleting."""
     kept, rec = [], None
     for e in man.data.get(section) or []:
         if e.get("key") == key and rec is None:
@@ -4618,7 +4760,6 @@ def _remove_entry(man: Manifest, section: str, key: str, n) -> None:
     man.data[section] = kept
     if rec is not None:
         man.data.setdefault("removed", []).append(rec)
-    man.save()
 
 
 def _op_route(op: dict, cid, package_ids: dict) -> str:
@@ -4665,11 +4806,13 @@ def _op_body(op: dict, plan: dict, package_ids: dict):
 
 def _refresh_identity(man: Manifest, op: dict, resp: dict, package_ids=None) -> None:
     """The entry's identity and recorded mutable fields, from the response to its own
-    op: a POST is what creates the entry, a PATCH refreshes what it changed."""
+    op: a POST is what creates the entry, a PATCH refreshes what it changed. In memory
+    only, so the caller's `_save_op(..., "done")` writes the ownership and the
+    completed op as one file."""
     section, key, method = op["section"], op["key"], op["method"]
     if section == "campaign":
         if resp.get("name") is not None:
-            man.mark("campaign", "campaign", name=resp.get("name"))
+            _set_entry(man, "campaign", "campaign", name=resp.get("name"))
         return
     if method == "POST":
         fields = {"status": "created", "id": resp.get("id"), "intent": None}
@@ -4680,7 +4823,7 @@ def _refresh_identity(man: Manifest, op: dict, resp: dict, package_ids=None) -> 
             fields.update(shipping_method=resp.get("shipping_method"))
         else:
             fields.update(name=resp.get("name"), code=resp.get("code"))
-        man.mark(section, key, **fields)
+        _set_entry(man, section, key, **fields)
         if section == "packages" and package_ids is not None:
             package_ids[key] = resp.get("id")
         return
@@ -4692,13 +4835,19 @@ def _refresh_identity(man: Manifest, op: dict, resp: dict, package_ids=None) -> 
     if section == "offers" and "code" in e:
         fields["code"] = resp.get("code")
     if fields:
-        man.mark(section, key, **fields)
+        _set_entry(man, section, key, **fields)
 
 
 def _run_op(client: Client, man: Manifest, plan: dict, op: dict, package_ids: dict, cid,
             img_state: dict) -> None:
     """One request from the change set, journalled `in_flight` and durably saved before
-    it goes out and `done` once the response is in."""
+    it goes out and `done` once the response is in.
+
+    Every op kind commits in ONE manifest save: whatever the response says about the
+    object (a POST's id, a refreshed name, a deleted entry moving to `removed[]`, an
+    image receipt) is mutated in memory and written together with the op's `done`.
+    Two saves would leave a window where the manifest owns the object and the op is
+    still `in_flight`, which recovery would have to read as a duplicate."""
     section, key, method, n = op["section"], op["key"], op["method"], op["n"]
     path = _op_route(op, cid, package_ids)
 
@@ -4710,19 +4859,21 @@ def _run_op(client: Client, man: Manifest, plan: dict, op: dict, package_ids: di
                 f"op {n}: package {key} is not an object this run owns, so its image cannot be set")
         # `set` is terminal in the shared image handler, so an approved re-send starts
         # that package's image over.
-        man.mark("packages", key, image_status="pending")
+        _set_entry(man, "packages", key, image_status="pending")
         _save_op(man, n, "in_flight")
-        _put_image(client, man, cid, p, e, img_state)
+        _put_image(client, man, cid, p, e, img_state, done_op=n)
         if (man.entry("packages", key) or {}).get("image_status") == "pending":
             raise CampaignAdminError(
                 "the package image endpoint gave no answer: " + "; ".join(img_state["failures"])
                 + f"\n  Op {n} is left in flight and the image may or may not have landed. Re-run "
                 "the same update with --resume.")
+        # A terminal state the handler reached on an earlier attempt returns without
+        # writing anything, so the op is closed here instead.
         _save_op(man, n, "done")
         return
 
     if method == "DELETE":
-        man.mark(section, key, status="deleting")
+        _set_entry(man, section, key, status="deleting")
         _save_op(man, n, "in_flight")
         status, body = client.request("DELETE", path)
         if status not in (200, 202, 204, 404):
@@ -4942,7 +5093,15 @@ def _resolve_in_flight(client: Client, man: Manifest, plan: dict, cs: dict, snap
         section, key, method, n = op["section"], op["key"], op["method"], op["n"]
         kop = _package_keys_for(norm, _key_map(man))
         if method == "POST":
-            cands = find_pending_candidates(client, man, plan, section, key)
+            e = man.entry(section, key) or {}
+            if e.get("status") == "created" and e.get("id") is not None:
+                # The manifest already owns what this POST creates: a run that saved
+                # the ownership and the completed op separately was interrupted
+                # between the two. The entry names the only candidate, and it is read
+                # back in full below exactly like one found by identity.
+                cands = [{"id": e["id"]}]
+            else:
+                cands = find_pending_candidates(client, man, plan, section, key)
             if not cands:
                 continue  # never left, or never landed: the op is sent below
             if len(cands) > 1:
@@ -5640,8 +5799,18 @@ def _diff_cmd(args, manifest_path: Path) -> int:
     client = _client_for(base["store_slug"])
     snap = snapshot_live(client, man.data["campaign"]["id"])
     cs = diff_change_set(base, cand, man, snap, delete_changed=args.delete_changed or [])
-    if not cs["ops"] and not cs["preserved"]:
+    # Whether there is anything to do is the merged plan against the base plan, not a
+    # count of ops and preserved rows. A plan-only field such as `role`, a value the
+    # candidate and the dashboard converged on and an advisory row dropped with its
+    # object all move the plan without sending a request, and discarding the merged
+    # plan over them left the canonical baseline stale.
+    if not cs["ops"] and cs["merged_plan"] == base:
         print("no changes: the candidate plan matches both the base plan and the store")
+        # A warning is about the candidate, not about the change, so it is still said.
+        if cs["warnings"]:
+            print("Warnings:")
+            for x in cs["warnings"]:
+                print(f"  - {x}")
         return 0
     out = resolve_out_dir(args.out, run_dir)
     plan_path, cs_path = write_change_set(out, cs)
