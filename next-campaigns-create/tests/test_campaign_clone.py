@@ -293,6 +293,28 @@ class Clone(unittest.TestCase):
         self.assert_source_untouched()
         self.assertNotIn(101, self.state["campaigns"])
 
+    def test_interrupted_inventory_never_claims_dashboard_additions(self):
+        self.interrupt_inventory()
+        self.state["offers"][101][77] = dict(self.state["offers"][101][4], id=77, name="Dashboard offer")
+        self.state["packages"][101][43] = dict(self.state["packages"][101][42], id=43, product_variant_id=89)
+        self.assertEqual(self.lifecycle("teardown", "--yes"), 0)
+        deleted = [c[1] for c in self.writes() if c[0] == "DELETE"]
+        self.assertTrue(any(p.endswith("/offers/4/") for p in deleted))
+        self.assertFalse(any(p.endswith("/offers/77/") or p.endswith("/packages/43/") for p in deleted))
+        self.assertEqual([e["id"] for e in self.man().data["offers"]], [4])
+        self.assertEqual([e["id"] for e in self.man().data["packages"]], [42])
+
+    def test_verify_without_source_and_missing_currency_price(self):
+        self.assertEqual(self.run_clone(), 0)
+        del self.state["campaigns"][7]
+        report = ca.clone_verify(self.client, self.man())
+        self.assertEqual(report["result"], "PASS")
+        self.assertTrue(report["source_drift"][0].startswith("source unavailable"))
+        self.state["packages"][101][42]["prices"] = [p for p in self.state["packages"][101][42]["prices"] if p["currency"] != "EUR"]
+        report = ca.clone_verify(self.client, self.man())
+        self.assertEqual(report["result"], "FAIL")
+        self.assertIn("packages.42.currency_coverage", [c["check"] for c in report["admin_checks"] if c["result"] == "FAIL"])
+
     def test_incomplete_inventory_substitute_time_rejected(self):
         self.interrupt_inventory()
         original = self.state["campaigns"][101]["created_at"]

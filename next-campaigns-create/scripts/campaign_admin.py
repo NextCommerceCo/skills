@@ -4260,8 +4260,9 @@ CLONE_COLLECTIONS = {"packages": "packages", "shipping_methods": "shipping-metho
 def clone_get(client, path):
     status, body = client.request("GET", path, clone_decode=True)
     if status != 200 or not isinstance(body, (dict, list)):
-        raise CampaignAdminError(f"clone read failed: GET {path} returned {status}; no response body displayed"
-                                 + auth_hint(status, "GET", path))
+        shape = "no JSON object" if status == 200 else "an error"
+        raise CampaignAdminError(f"clone read failed: GET {path} returned {status} with {shape}; "
+                                 "response body not displayed" + auth_hint(status, "GET", path))
     return body
 
 
@@ -4466,7 +4467,9 @@ def validate_clone(man, client):
     if d.get("plan_sha256") is not None:
         raise CampaignAdminError("clone manifest must not carry a plan hash")
     if check_origin_binding(d, "clone manifest") != client.origin or any(
-            d.get(k) != a.get(k) for k in ("store_slug", "store_origin", "source_campaign_id", "source_name", "source_created_at")):
+            d.get(k) != a.get(k) for k in ("store_slug", "store_origin", "source_campaign_id", "source_name")) or not (
+            d.get("source_created_at") and a.get("source_created_at")
+            and same_instant(d["source_created_at"], a["source_created_at"])):
         raise CampaignAdminError("clone store/source binding differs")
     clone_id(d["source_campaign_id"])
     if d.get("campaign", {}).get("id") == d["source_campaign_id"]:
@@ -4520,9 +4523,14 @@ def clone_compare(expected, actual):
 
 
 def clone_inventory(man, snapshot):
+    """Own only the reference ids the approved source snapshot listed. Anything else
+    under the destination (a dashboard addition after the clone) is never claimed,
+    so teardown cannot delete it; parity reports it as an extra."""
+    approved = man.data["clone_approval"]["snapshot"]
     for section in CLONE_COLLECTIONS:
+        owned = {row["id"] for row in approved[section]}
         man.data[section] = [dict(row, key=f"{section}-{row['id']}", origin="cloned", status="created")
-                             for row in snapshot[section]]
+                             for row in snapshot[section] if row["id"] in owned]
     man.data["inventory_complete"] = True
     man.save()
 
@@ -4683,20 +4691,33 @@ def run_clone(args):
 
 def clone_verify(client, man):
     a = validate_clone(man, client)
-    source, current = clone_read(client, a["source_campaign_id"])
+    source_error = None
+    try:
+        source, current = clone_read(client, a["source_campaign_id"])
+    except CampaignAdminError as exc:
+        # The approval snapshot is the contract; a deleted or unreadable source only
+        # removes the drift report, never the verification of the copy.
+        source, current, source_error = None, None, str(exc)
     dest, snapshot = clone_read(client, clone_id(man.data["campaign"].get("id")))
     checks = clone_compare(a["snapshot"], snapshot)
     for name, match in (("destination identity", clone_identity(dest, man)),
                         ("destination name", dest["name"] == (a["requested_name"] or a["server_name"])),
-                        ("distinct campaign key", dest["api_key"] != source["api_key"] and dest["api_key"] == man.data["campaign"].get("api_key"))):
+                        ("distinct campaign key", dest["api_key"] == man.data["campaign"].get("api_key")
+                         and (source is None or dest["api_key"] != source["api_key"]))):
         checks.append({"check": name, "result": "PASS" if match else "FAIL", "detail": "verified" if match else "mismatch"})
     derived = []
     supported = set(a["snapshot"]["settings"]["additional_currencies"])
+    every = supported | {a["snapshot"]["settings"]["currency"]}
     for section in ("packages", "shipping_methods"):
         for row in a["snapshot"][section]:
             missing = supported - {p["currency"] for p in row["prices"]}
             if missing:
                 derived.append({"section": section, "id": row["id"], "currencies": sorted(missing)})
+        # Every supported currency must be priced on the copy, whether copied or forex-derived.
+        for row in snapshot[section]:
+            absent = every - {p["currency"] for p in row["prices"]}
+            checks.append({"check": f"{section}.{row['id']}.currency_coverage", "result": "FAIL" if absent else "PASS",
+                           "detail": ("missing prices for " + ", ".join(sorted(absent))) if absent else "every supported currency priced"})
     resets = {}
     if "enable_retail_price_and_quantity" in dest:
         match = dest["enable_retail_price_and_quantity"] is False
@@ -4715,9 +4736,12 @@ def clone_verify(client, man):
                 resets[label] = "checked"
             else:
                 resets[label] = "documented server behavior; not exposed by API"
-    drift = [c["check"] for c in clone_compare(a["snapshot"], current) if c["result"] == "FAIL"]
-    if source["name"] != a["source_name"] or not same_instant(source["created_at"], a["source_created_at"]):
-        drift.append("source identity/name")
+    if source is None:
+        drift = ["source unavailable: " + source_error]
+    else:
+        drift = [c["check"] for c in clone_compare(a["snapshot"], current) if c["result"] == "FAIL"]
+        if source["name"] != a["source_name"] or not same_instant(source["created_at"], a["source_created_at"]):
+            drift.append("source identity/name")
     return {"kind": "clone", "result": "FAIL" if any(c["result"] == "FAIL" for c in checks) else "PASS",
             "admin_checks": checks, "source_drift": drift, "calculate_cases": [],
             "cart_probes": {"status": "skipped", "reason": "No approved plan-derived landed prices for a clone."},
