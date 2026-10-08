@@ -180,7 +180,9 @@ deletes in rows 6 to 9 are gated differently: `teardown` takes
 `--manifest --plan --yes` and no hash argument, computing the plan's hash itself
 and refusing if it does not match the manifest. The edits in rows 14 to 16 are
 refused unless `edit` receives `--yes`, an `--edit-sha256` equal to the hash its
-own preview prints, and `--live-traffic yes` or `no`. That hash covers the plan,
+own preview prints, and `--live-traffic yes` or `no`. Finishing or rolling back
+an edit that stopped partway takes `--yes` and the hash only: it continues under
+the answer already recorded in that edit's receipt. That hash covers the plan,
 the edit file and the live state of every object the edit will write, so a
 change to any of them needs a fresh preview and a fresh approval. Row 11 also
 covers the edit receipts, which hold before-images and no secret.
@@ -862,6 +864,8 @@ recreate:
   variant of the product together.
 - An offer scope that covers some of a row's packages and not others.
 - Two live offers on the same packages at the same percentage.
+- An upsell voucher whose new scope or condition would stop it applying to its
+  own upsell row.
 
 Write the edit file next to the plan as `campaign-edit.json`. This one doubles
 the hero price and resets a four-tier ladder:
@@ -972,8 +976,18 @@ bash <skill-dir>/next-campaigns-create.sh edit \
   --undo ./next-campaigns-create-runs/<subdomain>/edit-<n>-receipt.json
 ```
 
-It previews the reverse change and takes the same approval. Fields go back to
-their saved values. An offer the edit added is paused and kept, because edit
+It previews the reverse change and takes the same approval: ask the operator the
+same question, then run it again with the hash that preview printed.
+
+```bash
+bash <skill-dir>/next-campaigns-create.sh edit \
+  --manifest ./next-campaigns-create-runs/<subdomain>/run-manifest.json \
+  --plan ./next-campaigns-create-runs/<subdomain>/campaign-plan.json \
+  --undo ./next-campaigns-create-runs/<subdomain>/edit-<n>-receipt.json \
+  --yes --edit-sha256 <edit-sha256> --live-traffic <yes|no>
+```
+
+Fields go back to their saved values. An offer the edit added is paused and kept, because edit
 never deletes; `teardown` removes it with everything else. Undo works backwards
 from the most recent edit.
 
@@ -1019,6 +1033,7 @@ from the most recent edit.
 | `changed since it was read`, `returned <status>; not retried`, or `not the intended state` during an edit | the edit stopped partway; it never retries a write | read the message to the operator, then either re-run the same `edit` to finish or `edit --undo <receipt>` to roll back (Phase 7) |
 | `an in-place edit of this run is unfinished` | `verify`, `--resume` or a second edit while one is half done | finish or undo that edit first |
 | `neither its saved before-image nor this edit's result` on `--undo` | someone changed the object after the edit stopped | rollback will not guess: set it by hand to one or the other in the dashboard, then re-run the undo |
+| `another edit is running in this run directory` | an `edit.lock` file is in the run directory: a second edit is in flight, or one was cut short | wait for the other edit; if none is running, delete `edit.lock` and re-run the same command to finish or undo |
 | `its receipt cannot be read` | the `edit-<n>-receipt.json` of an unfinished edit is missing | restore the file to the run directory; it holds the before-images and the identity of anything the edit created |
 | `offer ... journalled` fails | apply stopped partway through the offers, so later ones were never created | `apply ... --resume <manifest>` |
 | `offer ... free-shipping coverage` fails | no landed row sits at the threshold or just below it, another free-shipping offer would free those carts anyway, or the shipping price is too small for calculate to tell free from paid | add the missing landed row, drop the overlapping offer, or prove the threshold with your own calculate probes |

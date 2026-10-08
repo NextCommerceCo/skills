@@ -3241,6 +3241,11 @@ def reland(plan: dict) -> list:
                         f"landed row {tag!r} has no voucher in the plan, so its price cannot be recomputed")
                 out.append(row)
                 continue
+            if not _voucher_applies(up, keys, qty):
+                raise CampaignAdminError(
+                    f"landed row {tag!r}: voucher {up['key']!r} would no longer apply to it (its scope must "
+                    f"cover {keys} and its condition must be met at quantity {qty}), so the upsell would sell "
+                    f"at the package price under a discounted label. That needs a fresh recommend ({RECREATE})")
             pct = D(up["benefit"]["value"])
             unit = check_rounding_discount(f"{up['name']} ({keys[0]})", anchor, pct,
                                            up["benefit"].get("price_rounding"))
@@ -3516,6 +3521,14 @@ def _offer_vs_plan(n: dict, o: dict, package_ids: dict, need_condition: bool, ne
     messages. need_* demand that the store actually sent the field, because a
     write is about to depend on it."""
     out = []
+    # What the percentage means depends on these three, so a live offer that
+    # differs here is not the offer the plan prices, whatever its value.
+    if n["benefit"]["type"] != o["benefit"]["type"]:
+        out.append(f"benefit.type is {n['benefit']['type']} live, {o['benefit']['type']} in the plan")
+    if n["offer_type"] != o.get("offer_type", "offer"):
+        out.append(f"offer_type is {n['offer_type']} live, {o.get('offer_type', 'offer')} in the plan")
+    if o.get("offer_type", "offer") == "voucher" and n["code"] != o.get("code"):
+        out.append(f"code is {n['code']} live, {o.get('code')} in the plan")
     if n["benefit"]["value"] != money(D(o["benefit"]["value"])):
         out.append(f"benefit.value is {n['benefit']['value']} live, {o['benefit']['value']} in the plan")
     if n["benefit"]["price_rounding"] != (o["benefit"].get("price_rounding") or None):
@@ -3970,6 +3983,12 @@ def rollback_execute(client: Client, man: Manifest, plan_path: Path, receipt: di
         if label in by_label:
             obj = by_label[label]
             if action == "restore":
+                # Same rule as a forward write: re-read just before it, and never
+                # overwrite a state this edit did not leave.
+                if _read_object(client, obj) != obj["expected"]:
+                    raise CampaignAdminError(
+                        f"{label} (id {obj['id']}) changed since the rollback preview read it; nothing was "
+                        "written to it. Re-run the undo to see where it stands.")
                 status, resp = client.request("PATCH", obj["path"], obj["restore"])
                 if status != 200:
                     raise CampaignAdminError(f"PATCH {obj['path']} returned {status}: {_short(resp)}; not "
@@ -4040,6 +4059,46 @@ def print_rollback(prep: dict, man: Manifest, receipt: dict) -> None:
     print("Rollback never creates or deletes anything. An offer the edit created is kept and paused.")
 
 
+EDIT_LOCK_NAME = "edit.lock"
+
+
+def _unchanged_under_lock(man: Manifest) -> None:
+    """With the lock held, the manifest on disk must still be the one this
+    command read and previewed from; another edit may have finished in between."""
+    if load_json(man.path) != man.data:
+        raise CampaignAdminError("the run manifest changed while this edit was being prepared (another "
+                                 "edit ran); nothing was written. Preview again.")
+
+
+class EditLock:
+    """One edit at a time in a run directory. Two approved edits started together
+    would otherwise pick the same receipt number and overwrite each other's
+    journal. The lock is a file created exclusively; a run that dies leaves it
+    behind, and the message says how to clear it."""
+
+    def __init__(self, run_dir: Path):
+        self.path = Path(run_dir) / EDIT_LOCK_NAME
+
+    def __enter__(self):
+        try:
+            fd = os.open(str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            raise CampaignAdminError(
+                f"another edit is running in this run directory ({self.path} exists). If none is, a "
+                "previous edit was cut short: delete that file, then re-run the same command to finish "
+                "or undo it.")
+        with os.fdopen(fd, "w") as f:
+            f.write(f"{os.getpid()} {utcnow()}\n")
+        return self
+
+    def __exit__(self, *exc):
+        try:
+            os.unlink(self.path)
+        except OSError:
+            pass
+        return False
+
+
 def run_edit(args) -> int:
     plan_path = Path(args.plan).expanduser()
     if plan_path.is_symlink():
@@ -4084,7 +4143,9 @@ def run_edit(args) -> int:
             print(f"Edit SHA-256: {sha}")
             if not gate(sha, f"{base} --undo {args.undo}"):
                 return 2
-            rollback_execute(client, man, plan_path, receipt, prep)
+            with EditLock(man_path.parent):
+                _unchanged_under_lock(man)
+                rollback_execute(client, man, plan_path, receipt, prep)
             print(f"\nDONE: edit {receipt['edit']} rolled back; plan and manifest are in line")
             return 0
         if pe:
@@ -4115,7 +4176,9 @@ def run_edit(args) -> int:
         resume = base + (f" --changes {args.changes}" if args.changes else "")
         if not gate(receipt["edit_sha256"], resume, " This continues the edit that was already approved."):
             return 2
-        edit_run(client, man, plan_path, receipt)
+        with EditLock(man_path.parent):
+            _unchanged_under_lock(man)
+            edit_run(client, man, plan_path, receipt)
         print(f"\nDONE: edit {receipt['edit']} finished; plan and manifest are in line. Run verify.")
         return 0
     else:
@@ -4131,7 +4194,9 @@ def run_edit(args) -> int:
               "right now with --live-traffic yes or --live-traffic no; the answer is recorded in the receipt.",
               file=sys.stderr)
         return 2
-    edit_apply(client, man, plan_path, plan_text, prep, args.live_traffic == "yes", undoes=undoes)
+    with EditLock(man_path.parent):
+        _unchanged_under_lock(man)
+        edit_apply(client, man, plan_path, plan_text, prep, args.live_traffic == "yes", undoes=undoes)
     n = man.data["edits"][-1]["edit"]
     print(f"\nDONE: edit {n} applied; plan and manifest are in line. Run verify.")
     print(f"  undo with: {base} --undo {man_path.parent / man.data['edits'][-1]['receipt']}")

@@ -256,6 +256,31 @@ class EditGateAndOwnership(EditHarness):
         self.assertIn("benefit.value is 51.00 live, 50.00 in the plan", self.error())
         self.assertEqual(self.writes(), [])
 
+    def test_live_offer_of_another_kind_is_refused(self):
+        op = [{"op": "set_offer_benefit", "offer_key": "tier-1", "value": "46"}]
+        self.offer("tier-1")["benefit"]["type"] = "order_percentage"
+        self.assertEqual(self.cli("--changes", self.spec(op)), 1)
+        self.assertIn("benefit.type is order_percentage live", self.error())
+        self.offer("tier-1")["benefit"]["type"] = "package_percentage"
+        self.offer("exit-pop")["code"] = "OTHER10"
+        self.assertEqual(self.cli("--changes", self.spec(
+            [{"op": "set_offer_benefit", "offer_key": "exit-pop", "value": "12"}])), 1)
+        self.assertIn("code is OTHER10 live", self.error())
+        self.assertEqual(self.writes(), [])
+
+    def test_second_edit_in_the_same_run_directory_is_locked_out(self):
+        sp = self.spec(self.ladder_ops())
+        self.assertEqual(self.cli("--changes", sp), 2)
+        sha = self.sha()
+        (self.dir / ca.EDIT_LOCK_NAME).write_text("held")
+        self.assertEqual(self.cli("--changes", sp, "--yes", "--edit-sha256", sha, "--live-traffic", "no"), 1)
+        self.assertIn("another edit is running", self.error())
+        self.assertEqual(self.writes(), [])
+        self.assertTrue((self.dir / ca.EDIT_LOCK_NAME).exists())  # not ours to remove
+        (self.dir / ca.EDIT_LOCK_NAME).unlink()
+        self.assertEqual(self.cli("--changes", sp, "--yes", "--edit-sha256", sha, "--live-traffic", "no"), 0)
+        self.assertFalse((self.dir / ca.EDIT_LOCK_NAME).exists())
+
     def test_drift_between_preview_and_apply_is_refused(self):
         sp = self.spec(self.ladder_ops())
         self.assertEqual(self.cli("--changes", sp), 2)
@@ -595,6 +620,16 @@ class Reland(unittest.TestCase):
             ca.build_edit(plan, {"operations": [{"op": "set_offer_available", "offer_key": voucher, "available": False}]})
         self.assertIn("unobserved", str(cm.exception))
 
+    def test_upsell_voucher_that_stops_applying_is_refused(self):
+        plan = ca.recommend(self.disc, ns(hero=10, ctc="high", anchor_price="189.95", upsell=["16:39.95:50"]))
+        voucher = next(l["offer_key"] for l in plan["landed_prices"] if l["kind"] == "upsell")
+        hero = next(p["key"] for p in plan["packages"] if p["role"] == "hero")
+        for op in ({"op": "set_offer_condition", "offer_key": voucher, "type": "count", "value": 2},
+                   {"op": "set_offer_scope", "offer_key": voucher, "package_keys": [hero]}):
+            with self.assertRaises(ca.CampaignAdminError) as cm:
+                ca.build_edit(plan, {"operations": [op]})
+            self.assertIn("would no longer apply", str(cm.exception))
+
     def test_exit_voucher_out_of_scope_is_not_applied_in_cart_cases(self):
         plan = ca.recommend(self.disc, ns(bump=["7:9.95"], exit_code="SAVE10"))
         ids = {p["key"]: i for i, p in enumerate(plan["packages"], start=1)}
@@ -882,6 +917,18 @@ class EditRecovery(EditHarness):
         ca.teardown(self.client(), self.reload(), plan, sha, lambda: True)
         self.assertEqual(self.state["offers"][self.cid], {})
         self.assertEqual(self.state["campaigns"], {})
+
+    def test_rollback_rereads_just_before_it_restores(self):
+        self.t.fail_on[("PATCH", self.offer_path("tier-2"))] = 500
+        self.assertEqual(self.edit(self.OPS), 1)
+        receipt = self.dir / "edit-1-receipt.json"
+        self.assertEqual(self.cli("--undo", receipt), 2)
+        sha = self.sha()
+        self.offer("tier-1")["benefit"]["value"] = "48.00"  # a dashboard change after the preview
+        writes = len(self.writes())
+        self.assertEqual(self.cli("--undo", receipt, "--yes", "--edit-sha256", sha), 1)
+        self.assertEqual(len(self.writes()), writes)
+        self.assertEqual(self.offer("tier-1")["benefit"]["value"], "48.00")
 
     def test_rollback_refuses_an_object_in_neither_state(self):
         self.t.fail_on[("PATCH", self.offer_path("tier-2"))] = 500

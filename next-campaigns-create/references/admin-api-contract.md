@@ -286,7 +286,10 @@ The checks around each write:
   `prices[]`; an offer: id, name, type, code, `available`, the condition and the
   benefit). That reduced read is saved in the receipt and hashed.
 - **The store must agree with the plan.** A live value that differs from the plan
-  is refused: the plan's landed prices would be wrong either way.
+  is refused: the plan's landed prices would be wrong either way. That covers the
+  offer's type, benefit type and voucher code as well as the fields being edited.
+- **One edit at a time.** `edit` holds an `edit.lock` file in the run directory
+  while it writes and checks the manifest is unchanged since its preview.
 - **The read must carry what the write depends on.** A condition write replaces
   the whole condition, so the read has to show `type`, `value` and the packages.
   A pause needs `available`. When the store's read omits one, the edit is refused
@@ -433,8 +436,9 @@ has one `upsell` row per variant package, so `verify` probes each variant with
 the code. An upsell row's `package_keys` may name a hero or bump package when
 the upsell reused it.
 
-`available` on an offer is optional and only ever `false`: `edit` writes it when
-it pauses an offer and removes it when it resumes one. A paused offer is left out
+`available` on an offer is optional. `edit` writes `false` when it pauses an offer
+and removes the field when it resumes one; a hand-written `true` is accepted and
+means the same as leaving it out. A paused offer is left out
 of the landed-price and free-shipping calculations. A fresh `apply` refuses a
 plan with a paused offer, because every offer is created live; `--resume` accepts
 one whose manifest entry is already `created`. After an edit the plan file is
