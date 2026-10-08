@@ -2233,13 +2233,20 @@ def print_plan(plan: dict, plan_path: Path | None) -> None:
         print("Waivers recorded:")
         for w in plan["waivers"]:
             print(f"  - {w}")
-    print("Requests apply will send, in order:")
+    # An adopted plan describes a campaign that already exists: apply would refuse it,
+    # so the request list is shown as a description and no apply command is offered.
+    adopted = plan.get("origin") == "adopted"
+    print("What this campaign holds, as the requests that would create it:" if adopted
+          else "Requests apply will send, in order:")
     for i, (m, path, body) in enumerate(render_requests(plan), 1):
         print(f"  {i:>2}. {m} {path}  {json.dumps(body)}")
     if plan_path:
         sha = sha256_file(plan_path)
         print(f"Plan SHA-256: {sha}")
-        print(f"Approve with: {PROG} apply --plan {plan_path} --yes --plan-sha256 {sha}")
+        if adopted:
+            print(f"This campaign was adopted, so nothing here is sent. Change it with {PROG} diff and update.")
+        else:
+            print(f"Approve with: {PROG} apply --plan {plan_path} --yes --plan-sha256 {sha}")
 
 
 # --------------------------------------------------------------------------- #
@@ -3633,7 +3640,7 @@ def adopt(client: Client, slug: str, cid, out: Path, *, convert_scope=()) -> tup
           f"on {slug_to_origin(slug)}")
     print(f"  {len(plan['packages'])} package(s), {len(plan['shipping_methods'])} shipping method(s), "
           f"{len(plan['offers'])} offer(s)")
-    print("Roles (a heuristic from the offers; correct them in the plan before the first diff):")
+    print("Roles (a heuristic from the offers; correct one in your edited copy, and it lands with your next update):")
     for p in plan["packages"]:
         print(f"  {p['key']:<14} variant {p['product_variant_ids'][0]} "
               f"({p.get('variant_title')})  {p['role']}")

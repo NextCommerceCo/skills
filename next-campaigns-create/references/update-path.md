@@ -115,16 +115,17 @@ bash <skill-dir>/next-campaigns-create.sh plan \
 the shipping methods and the offers with their conditions and benefits. Read it
 with the operator before asking what they want changed.
 
-Two things in that output do not apply here. The request list is headed
-"Requests apply will send, in order" and the last line is an `apply` approval
-command: both are the create-path rendering of the same plan. Do not run them.
-`apply` refuses a directory that already holds a manifest, and `apply --resume`
-refuses an adopted manifest outright.
+For an adopted campaign the request list is headed "What this campaign holds,
+as the requests that would create it" and the last line says nothing is sent.
+It is a description, not a to-do list. For a campaign this skill created, the
+same command still ends with the `apply` approval line from the create path;
+do not run it again, because `apply` refuses a directory that already holds a
+manifest.
 
 `adopt` also prints a role table:
 
 ```
-Roles (a heuristic from the offers; correct them in the plan before the first diff):
+Roles (a heuristic from the offers; correct one in your edited copy, and it lands with your next update):
   pkg-801        variant 801 (v801)  hero
   pkg-802        variant 802 (v802)  bump
 ```

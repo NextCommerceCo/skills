@@ -6348,7 +6348,7 @@ class RunLock(_UpdatableRun):
     def test_the_read_only_commands_are_not_locked(self):
         self.hold()
         self.assertEqual(self._run(["plan", "--plan", str(self.base_path)]), 0, self.out())
-        self.assertIn("Requests", self.out())
+        self.assertIn("What this campaign holds", self.out())
 
 
 class EndToEndUpdate(unittest.TestCase):
