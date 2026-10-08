@@ -305,7 +305,8 @@ class EditGateAndOwnership(EditHarness):
         self.assertEqual(seen["live_price"], "49.99")
         obj = next(o for o in seen["receipt"]["objects"] if o["key"] == first)
         self.assertEqual(obj["before"]["prices"], [{"currency": "USD", "price": "49.99"}])
-        self.assertEqual(obj["restore"], {"prices": [{"currency": "USD", "price": "49.99"}]})
+        self.assertEqual(obj["restore"], {"prices": [{"currency": "USD", "price": "49.99", "price_recurring": None}]})
+        self.assertEqual(obj["patch"], {"prices": [{"currency": "USD", "price": "99.98", "price_recurring": None}]})
         self.assertEqual(seen["pending"]["objects"][f"packages:{first}"], "sending")
         self.assertEqual(seen["receipt"]["old_plan_sha256"], self.original_sha)
         self.assertFalse(seen["receipt"]["live_traffic_acknowledged"])
@@ -736,6 +737,29 @@ class EditAddOffer(EditHarness):
         self.assertFalse(self.offer("loyalty")["available"])
         self.assert_in_line()
 
+    def test_changed_added_offer_is_not_paused_on_rerun(self):
+        sp = self.spec([self.add_op(available=False)])
+        self.t.fail_on[("PATCH", self.new_offer_path())] = 500
+        self.assertEqual(self.approve("--changes", sp), 1)
+        self.offer("loyalty")["benefit"]["value"] = "25.00"  # changed in the dashboard meanwhile
+        writes = len(self.writes())
+        self.assertEqual(self.approve("--changes", sp, live=None), 1)
+        self.assertIn("not paused or changed", self.error())
+        self.assertEqual(len(self.writes()), writes)
+        self.assertTrue(self.offer("loyalty")["available"])
+
+    def test_add_offer_input_is_checked_by_name(self):
+        for change, text in (({"condition": {"type": "any", "value": 2, "package_keys": self.heroes()}}, "takes no value"),
+                             ({"benefit": {"type": "package_percentage", "value": "150"}}, "percentage in (0, 100]"),
+                             ({"benefit": {"type": "package_percentage", "value": "5", "price_rounding": "0.50"}},
+                              "price_rounding")):
+            op = self.add_op()
+            op["offer"].update(change)
+            with self.assertRaises(ca.CampaignAdminError) as cm:
+                ca.build_edit(self.original, {"operations": [op]})
+            self.assertIn("add_offer", str(cm.exception))
+            self.assertIn(text, str(cm.exception))
+
     def test_teardown_mid_edit_takes_the_new_offer_identity_from_the_receipt(self):
         sp = self.spec([self.add_op(available=False)])
         self.t.fail_on[("PATCH", self.new_offer_path())] = 500
@@ -815,6 +839,20 @@ class EditRecovery(EditHarness):
         self.assertEqual(man.data["plan_sha256"], self.original_sha)
         self.assertEqual(ca.sha256_file(self.plan_path), man.data["pending_edit"]["new_plan_sha256"])
         self.assertEqual(self.approve("--changes", sp, live=None), 0, self.out[-3:])
+        self.assert_in_line()
+
+    def test_rerun_rechecks_objects_it_already_verified(self):
+        sp = self.spec(self.OPS)
+        self.t.fail_on[("PATCH", self.offer_path("tier-2"))] = 500
+        self.assertEqual(self.approve("--changes", sp), 1)
+        self.offer("tier-1")["benefit"]["value"] = "47.00"  # verified earlier, changed since
+        self.assertEqual(self.approve("--changes", sp, live=None), 1)
+        self.assertIn("has changed again since", self.error())
+        self.assertEqual(ca.sha256_file(self.plan_path), self.original_sha)
+
+    def test_receipt_left_by_an_edit_that_never_started_does_not_block(self):
+        (self.dir / "edit-1-receipt.json").write_text("{}")
+        self.assertEqual(self.edit(self.OPS), 0, self.out[-3:])
         self.assert_in_line()
 
     def test_undo_restores_before_images_and_the_old_landed_prices(self):

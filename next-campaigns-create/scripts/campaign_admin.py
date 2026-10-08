@@ -3451,11 +3451,16 @@ def build_edit(plan: dict, spec: dict) -> tuple:
                 raise CampaignAdminError(f"{tag}: offer key {src['key']!r} is already in the plan")
             if cond.get("all_packages"):
                 raise _not_editable(tag, "offer.condition.all_packages")
+            if cond.get("type") == "any" and cond.get("value") is not None:
+                raise CampaignAdminError(f"{tag}: an 'any' condition takes no value")
+            if ben.get("price_rounding") not in PRICE_ROUNDINGS:
+                raise CampaignAdminError(f"{tag}: price_rounding {ben.get('price_rounding')!r} must be null or "
+                                         f"one of {', '.join(PRICE_ROUNDINGS[1:])}")
             o = {"key": src["key"], "name": src.get("name"), "offer_type": src.get("offer_type", "offer"),
                  "code": src.get("code"),
                  "condition": {"type": cond.get("type"), "value": cond.get("value") if cond.get("type") == "count" else None,
                                "package_keys": list(cond.get("package_keys") or [])},
-                 "benefit": {"type": ben.get("type"), "value": ben.get("value"),
+                 "benefit": {"type": ben.get("type"), "value": _pct_value(tag, ben.get("value")),
                              "price_rounding": ben.get("price_rounding")}}
             if "available" in op:
                 if type(op["available"]) is not bool:
@@ -3684,10 +3689,13 @@ def edit_prepare(client: Client, man: Manifest, plan: dict, plan_sha: str, spec:
                     f"package {key} (id {e['id']}): its {currency} price is {live_price} live, {old_price} in "
                     "the plan. It was changed outside this skill; put it back or " + RECREATE)
 
-            def rows(price):
-                return [dict(r, price=price) if r["currency"] == currency else dict(r) for r in before["prices"]]
-            obj.update(before=before, expected=dict(before, prices=rows(new_price)),
-                       patch={"prices": rows(new_price)}, restore={"prices": rows(old_price)},
+            def rows(price, source):
+                return [dict(r, price=price) if r.get("currency") == currency else dict(r) for r in source]
+            # The request resends the rows as the store returned them, so a field
+            # on a price row this tool does not model goes back untouched.
+            raw = [r for r in x.get("prices") or [] if isinstance(r, dict)]
+            obj.update(before=before, expected=dict(before, prices=rows(new_price, before["prices"])),
+                       patch={"prices": rows(new_price, raw)}, restore={"prices": rows(old_price, raw)},
                        diff=[["price", old_price, new_price]])
         else:
             before = norm_offer(x)
@@ -3784,9 +3792,10 @@ def edit_apply(client: Client, man: Manifest, plan_path: Path, plan_text: str, p
     writes."""
     n = len(man.data.get("edits", [])) + 1
     name = f"edit-{n}-receipt.json"
+    # A file already at this name belongs to an edit that stopped before it was
+    # journalled, so it wrote nothing: the number is only taken once an edit is
+    # recorded in the manifest, and the run-directory lock keeps two apart.
     path = man.path.parent / name
-    if path.exists():
-        raise CampaignAdminError(f"{path} already exists; refusing to overwrite an edit receipt")
     receipt = {
         "edit": n, "kind": prep["kind"], "undoes": undoes, "run_id": man.data["run_id"], "created_at": utcnow(),
         "store_origin": man.data["store_origin"], "campaign_id": prep["campaign_id"],
@@ -3815,7 +3824,20 @@ def _pause_added(client: Client, man: Manifest, cid, a: dict, package_ids: dict,
     obj = {"section": "offers", "key": a["key"], "id": e["id"],
            "path": f"/api/admin/campaigns/{cid}/offers/{e['id']}/"}
     live = _read_object(client, obj)
+
+    def problems_with(read, paused):
+        found = _offer_vs_plan(read, dict(a["offer"], available=not paused), package_ids, True, expect_paused)
+        if read["name"] != a["offer"]["name"]:
+            found.append(f"name is {read['name']!r}, not the {a['offer']['name']!r} that was sent")
+        return found
+
     if expect_paused and live["available"] is not False:
+        # Identity and fields first: nothing is written to an offer that is not
+        # the one this edit created, as it was created.
+        early = problems_with(live, False)
+        if early:
+            raise CampaignAdminError(f"offer {a['key']} (id {e['id']}) is not what this edit created; it was "
+                                     "not paused or changed:\n  - " + "\n  - ".join(early))
         status, resp = client.request("PATCH", obj["path"], {"available": False})
         if status != 200:
             raise CampaignAdminError(
@@ -3823,10 +3845,7 @@ def _pause_added(client: Client, man: Manifest, cid, a: dict, package_ids: dict,
                 f"{_short(resp)}; not retried. Re-run the same edit to try the pause again."
                 + auth_hint(status, "PATCH", obj["path"]))
         live = _read_object(client, obj)
-    want = dict(a["offer"], available=not expect_paused)
-    problems = _offer_vs_plan(live, want, package_ids, True, expect_paused)
-    if live["name"] != a["offer"]["name"] or live["offer_type"] != a["offer"].get("offer_type", "offer"):
-        problems.append(f"name or offer_type is not what was sent ({live['name']!r}, {live['offer_type']})")
+    problems = problems_with(live, expect_paused)
     if problems:
         raise CampaignAdminError(f"offer {a['key']} (id {e['id']}) was created but its read-back is not what "
                                  "was intended; stopped, not retried:\n  - " + "\n  - ".join(problems))
@@ -3843,9 +3862,15 @@ def edit_run(client: Client, man: Manifest, plan_path: Path, receipt: dict) -> N
                 f"{man.path.parent / pe['receipt']}"
     for obj in receipt["objects"]:
         label = f"{obj['section']}:{obj['key']}"
-        if pe["objects"].get(label) == "verified":
-            continue
         live = _read_object(client, obj)
+        if pe["objects"].get(label) == "verified":
+            # Written and proven on an earlier run. It is read again so the plan
+            # is never committed over a store that has moved since.
+            if live != obj["expected"]:
+                raise CampaignAdminError(
+                    f"{label} (id {obj['id']}) was edited and verified, and has changed again since. The "
+                    "plan was not rewritten." + undo_hint)
+            continue
         if live != obj["expected"]:
             if live != obj["before"]:
                 raise CampaignAdminError(
