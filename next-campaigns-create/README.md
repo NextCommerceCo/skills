@@ -9,7 +9,11 @@ At the end you get the campaign key and the package IDs your funnel pages need.
 
 Use it when a new product or offer needs a campaign to exist on your store
 before the funnel is built, and later when a price, an offer or a setting on
-that campaign has to change.
+that campaign has to change. A quick change to a campaign it built, such as a
+price, an offer's percentage, which products an offer covers, pausing an offer
+or adding one, it makes in place. For a campaign someone else built, or for the
+campaign's own settings, its shipping prices, or adding and removing packages,
+it takes the campaign over first and then works from a reviewed list of changes.
 
 ## What You Need
 
@@ -201,9 +205,19 @@ Four things to know before you ask:
 - **It only touches the campaign you pointed it at.** It keeps its own record of
   the campaign it created or that you handed over, and it refuses to touch
   anything that record does not cover, including anything added to the campaign
-  from elsewhere.
+  from elsewhere. An offer you added yourself in the dashboard is listed and
+  left exactly as it is.
+- **Changes are approved the same way.** Before changing a campaign it shows
+  each value before and after, and the prices your customers will pay before and
+  after. A quick in-place change also asks whether shoppers are on the campaign
+  right now, and keeps a record of the old values so it can be undone.
+- **The campaign keeps its key and its IDs**, so your funnel pages keep working.
+  A few things cannot be changed at all, such as the currency or which product a
+  package sells. For those it tells you which one, and that the campaign would
+  have to be removed and created again.
 - **Deletions are a separate approval**, and the campaign itself is never
-  deleted by an update.
+  deleted by a change. An in-place change never deletes anything: an offer is
+  paused instead.
 - **An interrupted run can be recovered.** It can pick up where it left off
   without creating anything twice, or remove only what it created. An update
   that stopped halfway checks the campaign against what it had already done
@@ -221,13 +235,19 @@ Four things to know before you ask:
 Ask your assistant which version you have. It can read it from the skill
 itself.
 
-Version 1.0.0 added the ability to change a campaign that already exists: taking
-over a campaign built in the dashboard, showing you a reviewed list of changes,
-and applying it behind its own approval. Everything the earlier versions did is
-unchanged, and an existing campaign created by this skill keeps working with the
-files already on your machine. It is a major version because the skill can now
-change and delete things on a campaign it previously only created, which is a
-change to what it is allowed to do rather than a new convenience.
+Version 0.8.0 added in-place edits: a price, an offer's percentage, an offer's
+condition or scope, pausing an offer or adding one, on a campaign this skill
+built, with a record of the old values so the change can be undone.
+
+Version 1.0.0 builds on that and adds the ability to change a campaign the skill
+did not build: taking over a campaign made in the dashboard, showing you a
+reviewed list of changes, and applying it behind its own approval. In-place
+edits are unchanged and are still the quick route for a campaign this skill
+built. Everything the earlier versions did is unchanged too, and an existing
+campaign created by this skill keeps working with the files already on your
+machine. It is a major version because the skill can now change and delete
+things on a campaign someone else created, which is a change to what it is
+allowed to do rather than a new convenience.
 
 If you installed from a copy of the skills repository, update that copy and run
 the installer's status check. It marks the skill as out of date when a newer

@@ -316,7 +316,7 @@
       "version": "1.0.0",
       "path": "next-campaigns-create/SKILL.md",
       "domain": "campaigns",
-      "description": "Create and update a Campaigns App campaign over the Admin API: packages, shipping, quantity Buy 1/2/3, buy-X-get-Y and gift-with-purchase on create, then adopt, three-way diff and update on a campaign that already exists, each behind a hash approval gate.",
+      "description": "Create and update a Campaigns App campaign over the Admin API: packages, shipping, quantity Buy 1/2/3, buy-X-get-Y and gift-with-purchase on create, then edit a field in place on a campaign this skill built, or adopt, diff and update one that already exists, each behind a hash approval gate.",
       "related_skills": [
         {
           "id": "next-campaigns-setup",
@@ -335,7 +335,10 @@
         "campaign packages and offers",
         "update a campaign",
         "change a package price",
+        "change the campaign price",
+        "change the tier percentages",
         "change the shipping price",
+        "pause an offer",
         "retire an offer",
         "add a bump to an existing campaign",
         "adopt an existing campaign"
@@ -351,7 +354,7 @@
         "requires_approval": true,
         "network": "next-admin-api; github-raw read-only (check-update)",
         "token_env": "NEXT_ADMIN_API_TOKEN",
-        "notes": "check-update reads the public skills.json from GitHub at most once a day with no credentials, caches it under ~/.cache/next-skills, never installs anything and always exits 0 (NEXT_SKILLS_NO_UPDATE_CHECK=1 skips it). Creates a campaign, its packages, shipping methods and offers only under apply --yes --plan-sha256 <hash of the reviewed plan>; creates missing metadata definitions only under metadata --apply; teardown deletes only what the run manifest owns, after identity read-back, and refuses an adopted campaign. Changes an existing campaign only under update --yes --change-set-sha256 <hash of the reviewed change set>, with --allow-delete required on top for any DELETE; adopt and diff send no writes. A campaign the run manifest does not own is never touched: ownership is taken only by adopt --store <sub> --campaign <id>, by id. Never edits a metadata definition that already exists. verify calls the Campaign Cart API calculate endpoint with the campaign key and creates nothing. The run manifest holds the campaign api_key (mode 600, and the run directory must be gitignored inside a repository). The update path's reads were confirmed against live stores on 2026-10-08; its writes have not been run against a live store yet."
+        "notes": "check-update reads the public skills.json from GitHub at most once a day with no credentials, caches it under ~/.cache/next-skills, never installs anything and always exits 0 (NEXT_SKILLS_NO_UPDATE_CHECK=1 skips it). Creates a campaign, its packages, shipping methods and offers only under apply --yes --plan-sha256 <hash of the reviewed plan>; creates missing metadata definitions only under metadata --apply; teardown deletes only what the run manifest owns, after identity read-back, and refuses an adopted campaign. edit changes only packages and offers the run manifest owns (package price, offer benefit, condition, scope and availability, or one added offer), under edit --yes --edit-sha256 <hash of the previewed change> --live-traffic yes|no, after the same identity read-back; it saves each before-image to a receipt before the first write, never retries a write, never deletes, and refuses an adopted campaign. Changes a campaign the skill did not create only under update --yes --change-set-sha256 <hash of the reviewed change set>, with --allow-delete required on top for any DELETE; adopt and diff send no writes. A campaign the run manifest does not own is never touched: ownership is taken only by adopt --store <sub> --campaign <id>, by id. Never edits a metadata definition that already exists. verify calls the Campaign Cart API calculate endpoint with the campaign key and creates nothing. The run manifest holds the campaign api_key (mode 600, and the run directory must be gitignored inside a repository). The update path's reads were confirmed against live stores on 2026-10-08; the update and edit writes have not been run against a live store yet."
       }
     }
   ]

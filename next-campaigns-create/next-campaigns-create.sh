@@ -45,6 +45,9 @@ Create a campaign:
   next-campaigns-create.sh apply     --plan <dir>/campaign-plan.json --yes --plan-sha256 <plan-sha256>
                                     [--resume <dir>/run-manifest.json] [--out <dir>]
   next-campaigns-create.sh verify    --manifest <dir>/run-manifest.json --plan <dir>/campaign-plan.json
+  next-campaigns-create.sh edit      --manifest <dir>/run-manifest.json --plan <dir>/campaign-plan.json
+                                    --changes <dir>/campaign-edit.json | --undo <dir>/edit-<n>-receipt.json
+                                    [--yes --edit-sha256 <edit-sha256> --live-traffic yes|no]
   next-campaigns-create.sh teardown  --manifest <dir>/run-manifest.json --plan <dir>/campaign-plan.json --yes
 
 Update a campaign that already exists (adopt and diff send no writes):
@@ -70,6 +73,7 @@ Run files:
   discover writes ./next-campaigns-create-runs/<store>/discovery.json and adopt writes
   ./next-campaigns-create-runs/<store>-<campaign id>/. recommend, apply and verify write
   next to the file they read, and diff into the manifest's run directory; --out overrides.
+  edit rewrites the plan in place and writes its receipts next to the manifest.
   Inside a git repository the run directory must be gitignored: add
   "next-campaigns-create-runs/" to .gitignore. One command at a time per run directory:
   each holds a .run.lock while it runs.
@@ -85,8 +89,9 @@ Environment:
   NEXT_SKILLS_CHECK_TIMEOUT     seconds before check-update gives up (default: 10)
 
 Exit codes:
-  0 success. 1 refused or failed. 2 usage error, the apply or update gate, or no usable
-  Python. Every exit 2 means nothing was sent to the store. check-update always exits 0.
+  0 success. 1 refused or failed. 2 usage error, or the apply, edit or update gate, or no
+  usable Python. Every exit 2 means nothing was sent to the store. check-update always
+  exits 0.
 
 Without bash (Windows): run python3 <skill-dir>/scripts/campaign_admin.py with the same
 arguments and the token set in the environment.

@@ -810,11 +810,18 @@ def offer_condition(state, cond):
     return out
 
 
-def offer_benefit(benefit):
+def offer_benefit(benefit, previous=None):
     """An offer benefit as the live API returns it: `price_rounding` is always a
-    key, `description` is ignored by everything that reads it."""
-    return {"type": benefit["type"], "value": benefit["value"],
-            "price_rounding": benefit.get("price_rounding"), "description": ""}
+    key, `description` is ignored by everything that reads it. A PATCH body merges
+    onto the benefit already there, so a field it does not carry is kept; a create
+    body has no previous benefit and sets all of it."""
+    out = {"type": None, "value": None, "price_rounding": None, "description": ""}
+    for f in ("type", "value", "price_rounding"):
+        if previous and f in previous:
+            out[f] = previous[f]
+        if f in benefit:
+            out[f] = benefit[f]
+    return out
 
 
 def _live_name(state, bare, item):
@@ -961,13 +968,22 @@ class DynamicTransport(FakeTransport):
         self.state = state
         self.fail_on = fail_on or {}
         self.image_url = image_url
+        # One-shot knobs for the edit tests, keyed like fail_on by (method, path):
+        # `before` runs a callable just ahead of the request (a dashboard change
+        # landing mid-run); `lose` performs the request and then answers 502, the
+        # shape of a response lost on the way back; `ignore_patch` answers a
+        # PATCH 200 without changing anything.
+        self.before = {}
+        self.lose = set()
+        self.ignore_patch = set()
         self.routes, self.child_create, self.child_list = store_routes(disc, state)
 
     def _patch(self, cid, kind, item, body):
         """PATCH semantics per section, as the Admin API documents them: a package
         merges `prices` per currency and re-suffixes a sent name, a shipping method
         merges prices the same way (and refuses a code another method on the campaign
-        uses), and an offer's `condition` and `benefit` are replaced wholly."""
+        uses), an offer's `condition` is replaced wholly and its `benefit` merges
+        field by field."""
         if kind == "packages":
             item["prices"] = _package_prices(body, item.get("prices"), self.state)
             if "name" in body:
@@ -998,7 +1014,7 @@ class DynamicTransport(FakeTransport):
                 if f == "condition":
                     item["condition"] = offer_condition(self.state, v)
                 elif f == "benefit":
-                    item["benefit"] = offer_benefit(v)
+                    item["benefit"] = offer_benefit(v, item.get("benefit"))
                 else:
                     item[f] = v
             return 200, {}, json.dumps(item)
@@ -1012,9 +1028,19 @@ class DynamicTransport(FakeTransport):
         base = path.split("?")[0]
         parts = base.strip("/").split("/")
         key = (method, base)
+        if key in self.before:
+            self.before.pop(key)()
         if key in self.fail_on:
             st = self.fail_on.pop(key)
             return st, {}, json.dumps({"detail": "injected"})
+        if key in self.lose:
+            self.lose.discard(key)
+            self._handle(method, path, base, parts, body)
+            return 502, {}, json.dumps({"detail": "response lost"})
+        return self._handle(method, path, base, parts, body)
+
+    def _handle(self, method, path, base, parts, body):
+        key = (method, base)
         if key in self.routes:
             st, resp = self.routes[key](path, body)
             return st, {}, json.dumps(resp)
@@ -1062,6 +1088,8 @@ class DynamicTransport(FakeTransport):
                 if method == "PATCH":
                     if item is None:
                         return 404, {}, "{}"
+                    if key in self.ignore_patch:
+                        return 200, {}, json.dumps(item)
                     return self._patch(cid, kind, item, body or {})
                 if method == "DELETE":
                     if kind == "packages" and not self.state.get("cascade_on_package_delete"):
@@ -3836,19 +3864,21 @@ class SchemaAdditions(unittest.TestCase):
         o["available"] = True
         self.assertIs(ca.offer_body(o, ids)["available"], True)
 
-    def test_an_unavailable_offer_is_still_created_and_journalled(self):
+    def test_a_fresh_apply_refuses_a_plan_that_pauses_an_offer(self):
+        """A create always lands live, so `available: false` can only come from a
+        pause after the fact. A fresh run says so and sends nothing rather than
+        leave the operator guessing whether the offer fires."""
         plan = ca.recommend(self.disc, ns(free_shipping=True))
         fs = next(o for o in plan["offers"] if o["key"] == "free-shipping")
         fs["available"] = False
         with tempfile.TemporaryDirectory() as d:
             pp = Path(d) / "campaign-plan.json"
             ca.atomic_write_json(pp, plan)
-            state = fresh_state()
-            t = DynamicTransport(self.disc, state)
-            man = ca.apply(make_client(t), plan, ca.sha256_file(pp), Path(d) / "run-manifest.json", None)
-            cid = man.data["campaign"]["id"]
-            oid = next(e["id"] for e in man.data["offers"] if e["key"] == "free-shipping")
-            self.assertIs(state["offers"][cid][oid]["available"], False)
+            t = DynamicTransport(self.disc, fresh_state())
+            with self.assertRaises(ca.CampaignAdminError) as cm:
+                ca.apply(make_client(t), plan, ca.sha256_file(pp), Path(d) / "run-manifest.json", None)
+            self.assertIn("creates every offer live", str(cm.exception))
+            self.assertEqual([c for c in t.calls if c[0] != "GET"], [])
 
 
 class AvailableFilter(unittest.TestCase):

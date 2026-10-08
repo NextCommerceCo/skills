@@ -14,6 +14,32 @@ The update path never touches a campaign the run manifest does not own, and it
 never takes ownership on its own: `adopt` is how an operator hands a campaign
 over, after confirming its id.
 
+## This path or `edit`?
+
+`edit` (SKILL.md Phase 7) is the other way to change a campaign, and it is the
+first thing to reach for when both would work. It takes a short list of field
+operations on a campaign a run of this skill **created**, previews each value old
+to new, writes a receipt of the before-images and takes `--undo`. Its scope is
+narrow: a package price, an offer's percentage or rounding, an offer's condition
+or scope, pausing or resuming an offer, and adding one offer.
+
+This path is the one to use when:
+
+- the campaign was built elsewhere, or its run directory was lost (`edit` refuses
+  a manifest whose `origin` is `adopted`, because it proves a change by
+  recomputing the plan's landed prices and an adopted plan has none);
+- the change is to the campaign's own settings, a shipping method's price, or
+  adding or removing a package or a shipping method;
+- the change is a delete;
+- `edit` refuses the change for any other reason, naming the field.
+
+The two never run at once. While an edit is journalled and unfinished, `diff` and
+`update` refuse with "an in-place edit of this run is unfinished"; while an update
+is journalled, `edit` refuses with "an update is in progress". Both move the
+canonical plan and the manifest's `plan_sha256` together, so either can follow the
+other: a `diff` straight after an edit reads the edited plan as its baseline, and
+an `edit` straight after an update works from the promoted plan.
+
 ```
 adopt   --store <subdomain> --campaign <id> [--out <dir>] [--convert-scope <offer_id>]
 diff    --plan <dir>/campaign-plan.next.json --manifest <dir>/run-manifest.json
@@ -402,7 +428,7 @@ id; it simply stops firing. Say which it was.
 ## Interrupted runs
 
 An interrupted update leaves `active_update` and an op journal on the manifest.
-While it is there, `diff`, `verify`, `teardown` and `apply --resume` all refuse
+While it is there, `diff`, `verify`, `teardown`, `edit` and `apply --resume` all refuse
 with "an update is in progress; finish it with update --resume", and `update`
 itself refuses without `--resume` or `--settle`. That is deliberate: the plan and
 the store do not agree yet, so nothing else can reason about the run.
