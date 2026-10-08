@@ -33,8 +33,9 @@ This path is the one to use when:
 - the change is a delete;
 - `edit` refuses the change for any other reason, naming the field.
 
-The two never run at once. While an edit is journalled and unfinished, `diff` and
-`update` refuse with "an in-place edit of this run is unfinished"; while an update
+The two never run at once. While an edit is journalled and unfinished, `diff`,
+`update`, `verify`, `apply --resume` and any different `edit` refuse with "an
+in-place edit of this run is unfinished" (`teardown` still works); while an update
 is journalled, `edit` refuses with "an update is in progress". Both move the
 canonical plan and the manifest's `plan_sha256` together, so either can follow the
 other: a `diff` straight after an edit reads the edited plan as its baseline, and

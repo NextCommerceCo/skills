@@ -263,9 +263,10 @@ retrieve.
     `benefit.price_rounding` and the offer name back. `condition.value` was
     confirmed readable on 2026-10-08 (see "Read-only checks" below) and comes
     back as a decimal string, so it is compared as a number; a threshold a store
-    does not report is an `UNVERIFIED` row rather than a pass. `available` is
-    absent-means-true on both sides, so an offer the store does not report it
-    for still reads as live. If a live threshold still looks wrong after those
+    does not report is an `UNVERIFIED` row rather than a pass. The offer read
+    returned `available` in the read-only checks below. Should a store omit it,
+    `verify` reads the offer as live, the same default a plan without the field
+    has. If a live threshold still looks wrong after those
     checks, prove it with a hand `carts/calculate` at N and N-1 units rather
     than assuming the plan's number is what the campaign stored.
   - A hand-edited condition is handled the same way. The case that forced this

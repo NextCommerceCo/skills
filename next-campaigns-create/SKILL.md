@@ -528,8 +528,10 @@ language, gateway group, payment methods, shipping countries, statement
 descriptor), shipping method prices, adding or removing a package or a shipping
 method, and any delete. `edit` refuses an adopted manifest, because it proves a
 change against the plan's landed prices and an adopted plan has none. While an
-edit is journalled and unfinished, `diff` and `update` refuse until it is
-finished or undone; while an update is journalled, `edit` refuses the same way.
+edit is journalled and unfinished, `diff`, `update`, `verify`, `apply --resume`
+and any different `edit` refuse until it is finished or undone; `teardown` still
+works, reading the edit's receipt. While an update is journalled, `edit` refuses
+the same way.
 
 A second campaign on the same store is a create, in its own run directory. Do
 not adopt a campaign you created in this session: its run directory already
