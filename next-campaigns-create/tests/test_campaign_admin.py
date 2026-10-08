@@ -41,6 +41,10 @@ ORIGIN = "https://teststore.29next.store"
 # never the source URL that was uploaded or fetched.
 CATALOGUE_IMAGE = "https://cdn.test/media/thumbnails/catalogue.webp"
 OVERRIDE_IMAGE = "https://cdn.test/media/thumbnails/override.webp"
+# The fake store's campaign currency, and the rates it converts an additional
+# currency at when a write asks it to recalculate.
+BASE_CURRENCY = "USD"
+FOREX = {"EUR": "0.90", "GBP": "0.80"}
 
 
 def load_fixture(name):
@@ -834,26 +838,64 @@ def _recurring_fields(item, body):
         item["interval"], item["interval_count"] = "", None
 
 
-def _package_prices(body, previous=None):
+def _forex_price(price, currency, state=None):
+    """`price` converted into `currency` at the fake store's fixed rate, or None when
+    there is no rate for it. Only `recalculate_prices: true` reaches this."""
+    rate = ((state or {}).get("forex") or FOREX).get(currency)
+    if rate is None or price is None:
+        return None
+    return ca.money(ca.D(price) * ca.D(rate))
+
+
+def _merge_prices(previous, sent, fields, recalculate, state):
+    """Per-currency merge, as the published PATCH contract describes `prices`:
+    "Currencies not included are left unchanged". `recalculate_prices: true` converts
+    the currencies the body does not name from the campaign-currency price it does
+    send, by forex, instead of leaving them alone."""
+    out = [dict(x) for x in previous or []]
+    by_currency = {x.get("currency"): x for x in out}
+    named = set()
+    for s in sent:
+        currency = s.get("currency", BASE_CURRENCY)
+        named.add(currency)
+        row = by_currency.get(currency)
+        if row is None:
+            row = {"currency": currency}
+            out.append(row)
+            by_currency[currency] = row
+        for f in fields:
+            row[f] = s.get(f)
+    if recalculate and BASE_CURRENCY in named:
+        src = by_currency[BASE_CURRENCY]
+        for row in out:
+            if row.get("currency") in named:
+                continue
+            for f in fields:
+                row[f] = _forex_price(src.get(f), row.get("currency"), state)
+    return out
+
+
+def _package_prices(body, previous=None, state=None):
     """A package `prices` list in the read-back shape, from a create or PATCH body.
-    Create sends `price` (plus `price_recurring` on a subscription package); PATCH
-    sends the whole `prices` list."""
+    Create sends `price` (plus `price_recurring` on a subscription package); a PATCH
+    sends `prices`, which is merged per currency."""
     if "prices" in body:
-        return [{"currency": x.get("currency", "USD"), "price": x.get("price"),
-                 "price_recurring": x.get("price_recurring")} for x in body["prices"] or []]
+        return _merge_prices(previous, body["prices"] or [], ("price", "price_recurring"),
+                             body.get("recalculate_prices"), state)
     if "price" in body:
-        return [{"currency": "USD", "price": body["price"],
+        return [{"currency": BASE_CURRENCY, "price": body["price"],
                  "price_recurring": body.get("price_recurring")}]
     return previous or []
 
 
-def _shipping_prices(body, previous=None):
-    """A campaign shipping method's `prices` list in the read-back shape."""
+def _shipping_prices(body, previous=None, state=None):
+    """A campaign shipping method's `prices` list in the read-back shape. A PATCH
+    merges per currency, the way the package endpoint does."""
     if "prices" in body:
-        return [{"currency": x.get("currency", "USD"), "price": x.get("price")}
-                for x in body["prices"] or []]
+        return _merge_prices(previous, body["prices"] or [], ("price",),
+                             body.get("recalculate_prices"), state)
     if "price" in body:
-        return [{"currency": "USD", "price": body["price"]}]
+        return [{"currency": BASE_CURRENCY, "price": body["price"]}]
     return previous or []
 
 
@@ -923,15 +965,16 @@ class DynamicTransport(FakeTransport):
 
     def _patch(self, cid, kind, item, body):
         """PATCH semantics per section, as the Admin API documents them: a package
-        takes a whole `prices` list and re-suffixes a sent name, a shipping method
-        takes prices (and refuses a code another method on the campaign uses), and
-        an offer's `condition` and `benefit` are replaced wholly."""
+        merges `prices` per currency and re-suffixes a sent name, a shipping method
+        merges prices the same way (and refuses a code another method on the campaign
+        uses), and an offer's `condition` and `benefit` are replaced wholly."""
         if kind == "packages":
-            item["prices"] = _package_prices(body, item.get("prices"))
+            item["prices"] = _package_prices(body, item.get("prices"), self.state)
             if "name" in body:
                 item["name"] = _live_name(self.state, body["name"], item)
             for f, v in body.items():
-                if f not in ("prices", "price", "price_recurring", "name", "interval", "interval_count"):
+                if f not in ("prices", "price", "price_recurring", "recalculate_prices",
+                             "name", "interval", "interval_count"):
                     item[f] = v
             _recurring_fields(item, body)
             return 200, {}, json.dumps(item)
@@ -942,9 +985,9 @@ class DynamicTransport(FakeTransport):
                 return 400, {}, json.dumps({"shipping_method": [
                     f"Shipping method code '{code}' already exists on this campaign. "
                     "Use an offer to charge a different price."]})
-            item["prices"] = _shipping_prices(body, item.get("prices"))
+            item["prices"] = _shipping_prices(body, item.get("prices"), self.state)
             for f, v in body.items():
-                if f not in ("prices", "price"):
+                if f not in ("prices", "price", "recalculate_prices"):
                     item[f] = v
             return 200, {}, json.dumps(item)
         if kind == "offers":
@@ -1052,10 +1095,16 @@ def fresh_state():
     return {"seq": 100, "campaigns": {}, "packages": {}, "shipping-methods": {}, "offers": {}}
 
 
-def seed_live_campaign(state, *, all_packages=False, value_readable=True, recurring=False):
+def seed_live_campaign(state, *, all_packages=False, value_readable=True, recurring=False,
+                       extra_currency=None):
     """Seed a campaign nobody's run created: 2 packages, 1 shipping method, and 2
     offers (a count discount on the hero and free shipping), written straight into
-    `state` in the shapes the live API reads back. Returns the campaign id."""
+    `state` in the shapes the live API reads back. Returns the campaign id.
+
+    `extra_currency` makes it a campaign that prices in a second currency: the code
+    lands in `additional_currencies` and every package and shipping method carries a
+    converted row beside the USD one, the way a campaign created with additional
+    currencies reads back."""
     state["offer_value_readable"] = value_readable
     state["seq"] += 1
     cid = state["seq"]
@@ -1063,19 +1112,29 @@ def seed_live_campaign(state, *, all_packages=False, value_readable=True, recurr
         "id": cid, "name": "Dashboard Bracelet", "currency": "USD", "language": "en",
         "payment_gateway_group_id": 1, "api_key": "KEY-" + "x" * 20 + "9999",
         "created_at": "2026-08-01T09:00:00+00:00", "statement_descriptor": "",
-        "paypal_account_id": None, "additional_currencies": [],
+        "paypal_account_id": None,
+        "additional_currencies": [extra_currency] if extra_currency else [],
         "available_payment_methods": [{"code": "card"}],
         "available_express_payment_methods": [],
         "available_shipping_countries": [{"code": "US"}],
     }
+
+    def priced(price, recurs=False):
+        rows = [{"currency": BASE_CURRENCY, "price": price,
+                 "price_recurring": price if recurs else None}]
+        if extra_currency:
+            other = _forex_price(price, extra_currency, state)
+            rows.append({"currency": extra_currency, "price": other,
+                         "price_recurring": other if recurs else None})
+        return rows
+
     pkg_ids = []
     for title, vid, price in (("Photo Bracelet", 801, "24.95"), ("Charm Add-on", 802, "12.95")):
         state["seq"] += 1
         recurs = recurring and not pkg_ids  # the hero only, so one of each shape is seeded
         item = {"id": state["seq"], "product_id": 22, "product_variant_id": vid,
                 "product_variant_name": "v" + str(vid), "name": f"{title} - v{vid}",
-                "prices": [{"currency": "USD", "price": price,
-                            "price_recurring": price if recurs else None}],
+                "prices": priced(price, recurs),
                 "is_recurring": recurs, "interval": "month" if recurs else "",
                 "interval_count": 1 if recurs else None,
                 "product_purchase_availability": "available",
@@ -1085,7 +1144,8 @@ def seed_live_campaign(state, *, all_packages=False, value_readable=True, recurr
     state["seq"] += 1
     state["shipping-methods"].setdefault(cid, {})[state["seq"]] = {
         "id": state["seq"], "shipping_method": "standard",
-        "prices": [{"currency": "USD", "price": "6.95"}]}
+        "prices": [{k: v for k, v in row.items() if k != "price_recurring"}
+                   for row in priced("6.95")]}
     for name, cond, ben in (
             ("Dashboard Bracelet - Buy 2",
              {"type": "count", "value": 2, "package_ids": [] if all_packages else [pkg_ids[0]],
@@ -1202,6 +1262,48 @@ class FakeApiContract(unittest.TestCase):
                                        {"name": "Bare"})
         self.assertEqual((st, resp["name"]), (200, "Bare"))
         self.assertEqual(resp["prices"][0]["price"], "29.95")  # a name-only PATCH keeps the price
+
+    def test_a_price_patch_leaves_the_currencies_it_does_not_name_alone(self):
+        # The published PATCH contract for packages and shipping methods says of
+        # `prices`: currencies not included are left unchanged, and
+        # `recalculate_prices` is what converts them instead.
+        cid, pids, _, sids = self.seed(extra_currency="EUR")
+        pkg = f"/api/admin/campaigns/{cid}/packages/{pids[0]}/"
+        self.assertEqual([x["price"] for x in self.client.get_ok(pkg)["prices"]],
+                         ["24.95", "22.46"])
+        st, resp = self.client.request("PATCH", pkg,
+                                       {"prices": [{"currency": "USD", "price": "29.95",
+                                                    "price_recurring": None}]})
+        self.assertEqual(st, 200)
+        self.assertEqual([(x["currency"], x["price"]) for x in resp["prices"]],
+                         [("USD", "29.95"), ("EUR", "22.46")])
+        ship = f"/api/admin/campaigns/{cid}/shipping-methods/{sids[0]}/"
+        st, resp = self.client.request("PATCH", ship,
+                                       {"prices": [{"currency": "USD", "price": "8.95"}]})
+        self.assertEqual((st, [(x["currency"], x["price"]) for x in resp["prices"]]),
+                         (200, [("USD", "8.95"), ("EUR", "6.26")]))
+
+    def test_recalculate_prices_converts_the_currencies_the_body_omits(self):
+        cid, pids, _, sids = self.seed(extra_currency="EUR")
+        st, resp = self.client.request(
+            "PATCH", f"/api/admin/campaigns/{cid}/packages/{pids[0]}/",
+            {"prices": [{"currency": "USD", "price": "29.95", "price_recurring": None}],
+             "recalculate_prices": True})
+        self.assertEqual((st, [(x["currency"], x["price"]) for x in resp["prices"]]),
+                         (200, [("USD", "29.95"), ("EUR", "26.96")]))
+        st, resp = self.client.request(
+            "PATCH", f"/api/admin/campaigns/{cid}/shipping-methods/{sids[0]}/",
+            {"prices": [{"currency": "USD", "price": "8.95"}], "recalculate_prices": True})
+        self.assertEqual((st, [(x["currency"], x["price"]) for x in resp["prices"]]),
+                         (200, [("USD", "8.95"), ("EUR", "8.06")]))
+
+    def test_a_price_patch_in_another_currency_adds_that_row(self):
+        cid, pids, _, _ = self.seed()
+        st, resp = self.client.request(
+            "PATCH", f"/api/admin/campaigns/{cid}/packages/{pids[0]}/",
+            {"prices": [{"currency": "GBP", "price": "19.95", "price_recurring": None}]})
+        self.assertEqual((st, [(x["currency"], x["price"]) for x in resp["prices"]]),
+                         (200, [("USD", "24.95"), ("GBP", "19.95")]))
 
     def test_shipping_patch_sets_prices_and_refuses_another_methods_code(self):
         cid, _, _, sids = self.seed()
@@ -5434,6 +5536,13 @@ class UpdateGate(_UpdatableRun):
                           if b[0] == "POST" and b[1].endswith("/offers/"))
         self.assertEqual(offer_post[2]["condition"]["package_ids"], [new_id])
 
+    def test_the_ownership_read_back_exits_1_not_2(self):
+        # the gate family is exit 2; the ownership check is not a gate, and it runs
+        # before the baseline hash is recomputed, so this is what the operator sees
+        pid = self.ids("packages")["pkg-801"]
+        self.state["packages"][self.cid][pid]["product_variant_id"] = 999
+        self.refuse_update(needle="ownership check failed; refusing to update", code=1)
+
     def test_an_active_update_refuses_a_fresh_update(self):
         man = self.manifest()
         man["active_update"] = {"change_set_sha256": "x", "merged_plan_sha256": "y",
@@ -6482,6 +6591,316 @@ class EndToEndUpdate(unittest.TestCase):
         self.assertEqual(self.state["campaigns"], {})
         self.assertEqual([m for m, _p in self.writes()],
                          ["DELETE"] * len(self.writes()))
+
+# --------------------------------------------------------------------------- #
+# Review round four: the resume and settle paths, and multi-currency prices
+# --------------------------------------------------------------------------- #
+
+class ResumeAfterAPostThatLanded(_ResumableRun):
+    """A POST that landed is journalled `done` and its object is in the manifest's
+    active section from that moment. Re-binding the change set has to read it as the
+    object this update created, not as a key a POST would duplicate, or the run is
+    stuck: neither `--resume` nor `--settle` can get past the binding check."""
+
+    def _with_a_new_package(self, image=None, cand=None):
+        cand = cand if cand is not None else self.cand()
+        p = {"key": "pkg-903", "role": "bump", "name": "Extra", "variant_title": "v903",
+             "product_id": 22, "product_variant_ids": [903], "price": "9.95"}
+        if image:
+            p["image"] = {"src": image}
+        cand["packages"].append(p)
+        return cand
+
+    def package_post_then_an_offer_patch(self):
+        cand = self._with_a_new_package()
+        cand["offers"][0]["benefit"]["value"] = "60.00"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops(), [("POST", "packages", "pkg-903"),
+                                      ("PATCH", "offers", self.offer_keys[0])])
+        return cand
+
+    def assertFinished(self, *keys):
+        man = self.manifest()
+        self.assertNotIn("active_update", man)
+        self.assertNotIn("ops", man)
+        for key in keys:
+            self.assertIsNotNone(self.ids("packages").get(key), man)
+
+    def test_resume_finishes_after_a_package_post_that_landed(self):
+        self.package_post_then_an_offer_patch()
+        self.interrupt(stop_after=1)
+        self.assertEqual(self.journal(), [(1, "done"), (2, "in_flight")])
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertFinished("pkg-903")
+        self.assertEqual(self.plan_now()["offers"][0]["benefit"]["value"], "60.00")
+        self.assertEqual(len(self.state["packages"][self.cid]), 3)
+
+    def test_resume_finishes_when_the_op_behind_the_post_lost_its_answer(self):
+        self.package_post_then_an_offer_patch()
+        self.interrupt(lose=[2])
+        self.assertEqual(self.journal(), [(1, "done"), (2, "in_flight")])
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertEqual(self.sent(), [], "the PATCH had landed: resume re-sends nothing")
+        self.assertFinished("pkg-903")
+        self.assertEqual(self.plan_now()["offers"][0]["benefit"]["value"], "60.00")
+
+    def test_resume_finishes_after_the_op_behind_the_post_was_rejected(self):
+        self.package_post_then_an_offer_patch()
+        oid = self.ids("offers")[self.offer_keys[0]]
+        t = DynamicTransport(self.disc, self.state, fail_on={
+            ("PATCH", f"/api/admin/campaigns/{self.cid}/offers/{oid}/"): 400})
+        self.assertEqual(self.update(transport=t), 1, self.out())
+        self.assertEqual(self.journal(), [(1, "done"), (2, "in_flight")])
+        # the cause is fixed on the store's side: the same change set resumes
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertFinished("pkg-903")
+        self.assertEqual(self.plan_now()["offers"][0]["benefit"]["value"], "60.00")
+
+    def test_settle_closes_a_run_after_a_package_post_that_landed(self):
+        self.package_post_then_an_offer_patch()
+        oid = self.ids("offers")[self.offer_keys[0]]
+        t = DynamicTransport(self.disc, self.state, fail_on={
+            ("PATCH", f"/api/admin/campaigns/{self.cid}/offers/{oid}/"): 400})
+        self.assertEqual(self.update(transport=t), 1, self.out())
+        self.assertEqual(self.journal(), [(1, "done"), (2, "in_flight")])
+        self.assertEqual(self.update("--settle"), 0, self.out())
+        self.assertNotIn("active_update", self.manifest())
+        plan = self.plan_now()
+        self.assertEqual([p["key"] for p in plan["packages"]], ["pkg-801", "pkg-802", "pkg-903"])
+        self.assertEqual(plan["offers"][0]["benefit"]["value"], "55.00")
+
+    def test_resume_finishes_after_a_shipping_post_that_landed(self):
+        cand = self.cand()
+        cand["shipping_methods"].append({"shipping_method": "express", "price": "12.95"})
+        cand["offers"][0]["benefit"]["value"] = "60.00"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops(), [("POST", "shipping_methods", "express"),
+                                      ("PATCH", "offers", self.offer_keys[0])])
+        self.interrupt(stop_after=1)
+        self.assertEqual(self.journal(), [(1, "done"), (2, "in_flight")])
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertNotIn("active_update", self.manifest())
+        self.assertIsNotNone(self.ids("shipping_methods").get("express"))
+
+    def test_resume_finishes_after_an_offer_post_that_landed(self):
+        cand = self.cand()
+        for n in ("one", "two"):
+            cand["offers"].append({
+                "key": f"offer-new-{n}", "name": f"Extra {n}", "offer_type": "offer",
+                "code": None,
+                "condition": {"type": "any", "value": None, "package_keys": ["pkg-802"]},
+                "benefit": {"type": "package_percentage", "value": "15.00",
+                            "price_rounding": None}})
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops(), [("POST", "offers", "offer-new-one"),
+                                      ("POST", "offers", "offer-new-two")])
+        self.interrupt(stop_after=1)
+        self.assertEqual(self.journal(), [(1, "done"), (2, "in_flight")])
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertNotIn("active_update", self.manifest())
+        self.assertEqual(sorted(x["name"] for x in self.state["offers"][self.cid].values())[:2],
+                         ["Dashboard Bracelet - Buy 2", "Dashboard Bracelet - Free Shipping"])
+        self.assertEqual(len(self.state["offers"][self.cid]), 4)
+
+    def test_resume_finishes_the_image_put_of_a_package_it_just_created(self):
+        self._with_a_new_package(image="https://cdn.example/extra.png")
+        cand = self._with_a_new_package(image="https://cdn.example/extra.png")
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops(), [("POST", "packages", "pkg-903"),
+                                      ("PUT", "packages", "pkg-903")])
+        self.interrupt(stop_after=1)
+        self.assertEqual(self.journal(), [(1, "done"), (2, "in_flight")])
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertNotIn("active_update", self.manifest())
+        pid = self.ids("packages")["pkg-903"]
+        # the override is what the operator approved: the catalogue image a create
+        # attaches is not the PUT landing
+        self.assertEqual(self.state["packages"][self.cid][pid]["image"], OVERRIDE_IMAGE)
+        e = next(x for x in self.manifest()["packages"] if x["key"] == "pkg-903")
+        self.assertEqual((e["image_status"], e["image_src"]),
+                         ("set", "https://cdn.example/extra.png"))
+
+
+class ResumeAfterARenameThatLanded(_ResumableRun):
+    """A rename that landed moves the live name, and the manifest records the live
+    form. Normalising the live name back into plan space has to read the NEW name, or
+    a resume reads the applied rename as drift and refuses what it did itself."""
+
+    def rename_then_a_later_op(self):
+        cand = self.cand()
+        cand["packages"][0]["name"] = "Renamed hero"
+        cand["offers"][0]["benefit"]["value"] = "60.00"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops(), [("PATCH", "packages", "pkg-801"),
+                                      ("PATCH", "offers", self.offer_keys[0])])
+        return cand
+
+    def test_resume_finishes_after_a_package_rename_landed(self):
+        self.rename_then_a_later_op()
+        self.interrupt(stop_after=1)
+        self.assertEqual(self.journal(), [(1, "done"), (2, "in_flight")])
+        pid = self.ids("packages")["pkg-801"]
+        self.assertEqual(self.state["packages"][self.cid][pid]["name"], "Renamed hero - v801")
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertNotIn("active_update", self.manifest())
+        self.assertEqual(self.plan_now()["packages"][0]["name"], "Renamed hero")
+        self.assertEqual(self.plan_now()["offers"][0]["benefit"]["value"], "60.00")
+
+    def test_settle_carries_the_rename_that_landed_into_the_plan(self):
+        self.rename_then_a_later_op()
+        oid = self.ids("offers")[self.offer_keys[0]]
+        t = DynamicTransport(self.disc, self.state, fail_on={
+            ("PATCH", f"/api/admin/campaigns/{self.cid}/offers/{oid}/"): 400})
+        self.assertEqual(self.update(transport=t), 1, self.out())
+        self.assertEqual(self.update("--settle"), 0, self.out())
+        self.assertEqual(self.plan_now()["packages"][0]["name"], "Renamed hero")
+        self.assertEqual(self.plan_now()["offers"][0]["benefit"]["value"], "55.00")
+
+    def test_a_completed_rename_leaves_nothing_for_the_next_diff(self):
+        cand = self.rename_then_a_later_op()
+        self.assertEqual(self.update(), 0, self.out())
+        self.assertEqual(self.plan_now()["packages"][0]["name"], "Renamed hero")
+        again = self.dir / "campaign-plan.again.json"
+        self.assertEqual(self.diff(self.plan_now(), plan_path=again), 0, self.out())
+        self.assertIn("no changes", self.out())
+
+    def test_resume_finishes_after_a_campaign_and_an_offer_rename_landed(self):
+        cand = self.cand()
+        cand["campaign"]["name"] = "Renamed campaign"
+        cand["offers"][0]["name"] = "Renamed offer"
+        cand["offers"][1]["benefit"]["value"] = "90.00"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops(), [("PATCH", "campaign", "campaign"),
+                                      ("PATCH", "offers", self.offer_keys[0]),
+                                      ("PATCH", "offers", self.offer_keys[1])])
+        self.interrupt(stop_after=2)
+        self.assertEqual(self.journal(), [(1, "done"), (2, "done"), (3, "in_flight")])
+        self.assertEqual(self.update("--resume"), 0, self.out())
+        self.assertNotIn("active_update", self.manifest())
+        plan = self.plan_now()
+        self.assertEqual(plan["campaign"]["name"], "Renamed campaign")
+        self.assertEqual([o["name"] for o in plan["offers"]][0], "Renamed offer")
+        self.assertEqual(plan["offers"][1]["benefit"]["value"], "90.00")
+
+
+class AdvisoryRowsOfADeletedObject(_CreatedRun):
+    """`landed_prices` and `voucher_codes` are the operator's receipt of what the cart
+    engine should charge, never desired state. Deleting the offer or package a row
+    names leaves that row stale, and neither the merge nor a settle may fail
+    validation over one: the row is dropped and said out loud."""
+
+    def _delete_an_offer_a_landed_row_names(self):
+        cand = self.cand()
+        cand["offers"] = [o for o in cand["offers"] if o["key"] != "tier-3"]
+        return cand
+
+    def test_diff_drops_a_landed_row_naming_a_deleted_offer_and_warns(self):
+        self.assertEqual(self.diff(self._delete_an_offer_a_landed_row_names()), 0, self.out())
+        self.assertEqual(self.ops(), [("DELETE", "offers", "tier-3")])
+        cs = self.change_set()
+        self.assertEqual([l["tier"] for l in cs["merged_plan"]["landed_prices"]],
+                         ["Buy 1", "Buy 2"])
+        self.assertTrue(any("tier-3" in w and "landed_prices" in w for w in cs["warnings"]),
+                        cs["warnings"])
+
+    def test_update_of_that_change_set_promotes_the_pruned_plan(self):
+        self.assertEqual(self.diff(self._delete_an_offer_a_landed_row_names()), 0, self.out())
+        self.assertEqual(self.update("--allow-delete"), 0, self.out())
+        self.assertEqual([l["tier"] for l in self.plan_now()["landed_prices"]], ["Buy 1", "Buy 2"])
+        self.assertEqual(self.verify(), 0, json.dumps(self.verify_report(), indent=1))
+
+    def test_settle_after_a_delete_landed_and_a_later_op_failed(self):
+        cand = self._delete_an_offer_a_landed_row_names()
+        cand["packages"][0]["price"] = "59.95"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops(), [("DELETE", "offers", "tier-3"),
+                                      ("PATCH", "packages", "hero-23")])
+        pid = self.ids("packages")["hero-23"]
+        t = DynamicTransport(self.disc, self.state, fail_on={
+            ("PATCH", f"/api/admin/campaigns/{self.cid}/packages/{pid}/"): 400})
+        self.assertEqual(self.update("--allow-delete", transport=t), 1, self.out())
+        self.assertEqual([(o["n"], o["status"]) for o in self.manifest()["ops"]],
+                         [(1, "done"), (2, "in_flight")])
+        self.assertEqual(self.update("--settle"), 0, self.out())
+        self.assertNotIn("active_update", self.manifest())
+        plan = self.plan_now()
+        self.assertEqual([o["key"] for o in plan["offers"]], ["tier-1", "tier-2", "exit-pop"])
+        self.assertEqual([l["tier"] for l in plan["landed_prices"]], ["Buy 1", "Buy 2"])
+        self.assertEqual(plan["packages"][0]["price"], self.base["packages"][0]["price"])
+        self.assertIn("landed_prices", self.out())
+
+    def test_settle_after_a_package_and_its_offers_were_deleted(self):
+        # every offer scopes every hero package, so the package can only go once they
+        # have: the DELETEs land and the price PATCH behind them is rejected
+        cand = self.cand()
+        cand["packages"] = [p for p in cand["packages"] if p["key"] != "hero-26"]
+        cand["offers"] = []
+        cand["packages"][0]["price"] = "59.95"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.ops()[-1], ("PATCH", "packages", "hero-23"))
+        self.assertIn(("DELETE", "packages", "hero-26"), self.ops())
+        pid = self.ids("packages")["hero-23"]
+        t = DynamicTransport(self.disc, self.state, fail_on={
+            ("PATCH", f"/api/admin/campaigns/{self.cid}/packages/{pid}/"): 400})
+        self.assertEqual(self.update("--allow-delete", transport=t), 1, self.out())
+        self.assertEqual(self.update("--settle"), 0, self.out())
+        plan = self.plan_now()
+        self.assertEqual([p["key"] for p in plan["packages"]], ["hero-23", "hero-24", "hero-25"])
+        self.assertEqual(plan["packages"][0]["price"], self.base["packages"][0]["price"])
+        self.assertEqual(plan["landed_prices"], [])
+        self.assertEqual(plan["voucher_codes"], [])
+        self.assertEqual(plan["offers"], [])
+        self.assertIn("voucher_codes row for offer exit-pop", self.out())
+
+    def test_a_row_that_still_resolves_is_never_dropped(self):
+        cand = self.cand()
+        cand["packages"][0]["price"] = "59.95"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        cs = self.change_set()
+        self.assertEqual([l["tier"] for l in cs["merged_plan"]["landed_prices"]],
+                         ["Buy 1", "Buy 2", "Buy 3"])
+        self.assertEqual(cs["merged_plan"]["voucher_codes"], self.base["voucher_codes"])
+        self.assertEqual(cs["warnings"], [])
+
+    def test_a_landed_row_naming_a_key_that_never_existed_is_still_invalid(self):
+        cand = self.cand()
+        cand["landed_prices"][0]["offer_key"] = "tier-9"
+        self.assertEqual(self.diff(cand), 1, self.out())
+        self.assertIn("offer_key 'tier-9' does not resolve", self.out())
+
+
+class MultiCurrencyPriceWarning(_AdoptedRun):
+    """A price PATCH names the campaign currency only, and the update endpoint leaves
+    the currencies it does not name alone. On a campaign that prices in more than one
+    currency the diff has to say so: the other prices stay as they are on the store."""
+
+    seed_kw = {"extra_currency": "EUR"}
+
+    def test_a_package_price_change_warns_about_the_other_currencies(self):
+        cand = self.cand()
+        cand["packages"][0]["price"] = "29.95"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        cs = self.change_set()
+        self.assertEqual(cs["ops"][0]["body"],
+                         {"prices": [{"currency": "USD", "price": "29.95",
+                                      "price_recurring": None}]})
+        self.assertTrue(any("pkg-801" in w and "EUR" in w for w in cs["warnings"]),
+                        cs["warnings"])
+
+    def test_a_shipping_price_change_warns_too(self):
+        cand = self.cand()
+        cand["shipping_methods"][0]["price"] = "8.95"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertTrue(any("standard" in w and "EUR" in w
+                            for w in self.change_set()["warnings"]),
+                        self.change_set()["warnings"])
+
+    def test_a_change_that_is_not_a_price_warns_about_nothing(self):
+        cand = self.cand()
+        cand["packages"][0]["name"] = "Renamed hero"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.change_set()["warnings"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

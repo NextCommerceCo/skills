@@ -173,15 +173,15 @@ confirmation that covers it:
 |---|---|---|
 | 1 | `POST /api/admin/campaigns/` (create the campaign) | Phase 4 plan review + `apply --yes --plan-sha256` |
 | 2 | `POST /api/admin/campaigns/{id}/packages/` (one per variant) | same |
-| 3 | `PUT /api/admin/campaigns/{id}/packages/{id}/image/` (only when the plan sets an override, only on a package the manifest owns) | same, or the update gate for a package already on the campaign |
+| 3 | `PUT /api/admin/campaigns/{id}/packages/{id}/image/` (only when the plan sets an override, only on a package the manifest owns) | same; on a campaign that already exists it is a PUT op in the change set, under the same gate as rows 10 to 19 |
 | 4 | `POST /api/admin/campaigns/{id}/shipping-methods/` | same |
 | 5 | `POST /api/admin/campaigns/{id}/offers/` (tiers and vouchers) | same |
 | 6 to 9 | `DELETE` offers, shipping methods, packages, campaign | teardown only: manifest-bound, identity read-back, `--yes`; refused on an adopted campaign |
 | 10 | `PATCH /api/admin/campaigns/{id}/` (name, language, gateway group, payment and express method lists, shipping countries, additional currencies, statement descriptor, PayPal account id; never `currency`) | U4 change-set review + `update --yes --change-set-sha256` |
-| 11 | `PATCH /api/admin/campaigns/{id}/packages/{id}/` (name, `prices[]`, recurring interval) | same |
+| 11 | `PATCH /api/admin/campaigns/{id}/packages/{id}/` (name, `prices[]` for the campaign currency only, recurring interval) | same |
 | 12 | `POST /api/admin/campaigns/{id}/packages/` on a campaign that already exists | same |
 | 13 | `DELETE /api/admin/campaigns/{id}/packages/{id}/` | same, plus `--allow-delete` |
-| 14 | `PATCH /api/admin/campaigns/{id}/shipping-methods/{id}/` (`prices[]` only) | same as row 10 |
+| 14 | `PATCH /api/admin/campaigns/{id}/shipping-methods/{id}/` (`prices[]` for the campaign currency only) | same as row 10 |
 | 15 | `POST /api/admin/campaigns/{id}/shipping-methods/` on a campaign that already exists | same as row 10 |
 | 16 | `DELETE /api/admin/campaigns/{id}/shipping-methods/{id}/` | same as row 10, plus `--allow-delete` |
 | 17 | `PATCH /api/admin/campaigns/{id}/offers/{id}/` (name, type, code, `available`, and the whole `condition` and `benefit` when either changes) | same as row 10 |
@@ -198,11 +198,11 @@ deletes in rows 6 to 9 are gated differently: `teardown` takes
 `--manifest --plan --yes` and no hash argument, computing the plan's hash itself
 and refusing if it does not match the manifest.
 
-Rows 10 to 19 have two gates. `update` sends nothing without `--yes` and a
-`--change-set-sha256` equal to the hash of the `change-set.json` the operator
-read, and a change set carrying any DELETE needs `--allow-delete` on top of
-that. Both refusals are exit 2 before the first request. `adopt` and `diff`
-send no writes at all.
+Rows 10 to 19, and row 3 on a campaign that already exists, have two gates.
+`update` sends nothing without `--yes` and a `--change-set-sha256` equal to the
+hash of the `change-set.json` the operator read, and a change set carrying any
+DELETE needs `--allow-delete` on top of that. Both refusals are exit 2 before
+the first request. `adopt` and `diff` send no writes at all.
 
 There is no `PUT` or `DELETE` on a package the run manifest does not own, no
 delete-image route in use, and no write that edits an existing metadata
@@ -287,7 +287,7 @@ Exit codes, for every subcommand:
 | Code | Meaning |
 |---|---|
 | 0 | success; `check-update` always exits 0. `diff` also exits 0 when there is nothing to change |
-| 1 | refused or failed: invalid input, credential missing, a store error, a verify FAIL, an `adopt` with blockers, or any `diff` refusal (conflict, unmanaged object, a delete the store changed, a name swap) |
+| 1 | refused or failed: invalid input, credential missing, a store error, a verify FAIL, an `adopt` with blockers, any `diff` refusal (conflict, unmanaged object, a delete the store changed, a name swap), and the `update` refusals that are not gates: the ownership read-back, a manifest the run cannot use, every `--resume` or `--settle` refusal that reads the store, and a write the store rejected |
 | 2 | the argument parser rejected the command, the apply gate or the update gate printed `NOT APPLIED`, or a launcher precondition failed |
 
 Every exit 2 means nothing was sent to the store. The update gate's exit 2 is
@@ -296,7 +296,10 @@ change set bound to another run, campaign or plan, an op whose route or id the
 manifest does not own, a `--plan` that is not the merged plan the change set
 names, a DELETE without `--allow-delete`, the baseline drift refusal
 (`campaign changed since you reviewed the diff`), and a `--resume` or
-`--settle` naming the wrong change set.
+`--settle` naming the wrong change set. The ownership read-back is **not** in
+that family: it exits 1, with nothing sent.
+`references/update-path.md` (Refusals) states the code for every refusal by
+message and is the authority; this table summarises it.
 
 ---
 
@@ -489,7 +492,10 @@ The full procedure, with every plan edit and every refusal, is in
   --yes --change-set-sha256 <hash>`, plus `--allow-delete` for any DELETE. Both
   are hard gates: without them nothing is sent. The store is re-read first and a
   campaign that moved since the diff refuses. Each op is journalled before it is
-  sent, and the merged plan becomes the run's canonical plan at the end.
+  sent, and the merged plan becomes the run's canonical plan at the end. Read the
+  change set's warnings to the operator: a price op on a campaign with extra
+  currencies leaves those prices alone, and a deleted offer or package takes its
+  `landed_prices` and `voucher_codes` rows with it.
 - **U6 Verify and hand off.** `verify --manifest <m> --plan <canonical plan>`.
   Then tell the funnel owner every id a POST created and every id a DELETE
   removed, because those pages have to be repointed. The campaign api_key does
@@ -1150,7 +1156,7 @@ holding a live secret.
 | `teardown` | GET, DELETE | read-back, then rows 6 to 9 of the write inventory |
 | `adopt` | GET | `/api/admin/campaigns/{id}/`, its `packages/`, `shipping-methods/` and `offers/` lists, then `/api/admin/campaigns/{id}/offers/{offerId}/` for each offer's scope. No writes |
 | `diff` | GET | the same reads as `adopt`. No writes |
-| `update` | PATCH, POST, PUT, DELETE, GET | rows 10 to 19 of the write inventory, after the same reads and again at the end to refresh the manifest |
+| `update` | PATCH, POST, PUT, DELETE, GET | rows 10 to 19 of the write inventory, plus row 3 (the image PUT) for any package whose image the change set sets, after the same reads and again at the end to refresh the manifest |
 
 API version: `2024-04-01`. The metadata POST is the one request sent without the
 version header; the API gotcha in `references/offer-doctrine.md` explains why.

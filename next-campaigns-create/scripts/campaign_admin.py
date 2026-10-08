@@ -2137,9 +2137,13 @@ def campaign_patch_body(live_n: dict, desired_n: dict) -> dict:
 
 
 def package_patch_body(live_n: dict, desired: dict, currency: str) -> dict:
-    """A package PATCH: the changed name, the whole `prices` list when either price
-    moved, and the recurring pair when it changed. `prices` is a list because the
-    package update endpoint replaces it; `price` on its own is create-only."""
+    """A package PATCH: the changed name, one `prices` row for the campaign currency
+    when either price moved, and the recurring pair when it changed. `prices` is a
+    list because prices are per currency and the endpoint merges them (the published
+    spec: currencies not included are left unchanged); `price` on its own is
+    create-only. `recalculate_prices` is never sent: it would convert every other
+    currency from this one by forex and overwrite prices someone set by hand, so
+    `diff` warns about the untouched currencies instead."""
     want = plan_package_n(desired)
     body = {}
     if want["name"] != live_n.get("name"):
@@ -2154,9 +2158,11 @@ def package_patch_body(live_n: dict, desired: dict, currency: str) -> dict:
 
 
 def shipping_patch_body(live_n: dict, desired: dict, currency: str) -> dict:
-    """A campaign shipping method PATCH: prices only. Its store code is its identity
-    and sending another method's code is a 400, so the diff refuses a code change
-    instead of trying to send one."""
+    """A campaign shipping method PATCH: one `prices` row for the campaign currency.
+    Its store code is its identity and sending another method's code is a 400, so the
+    diff refuses a code change instead of trying to send one. `prices` merges per
+    currency the way a package's does, and `recalculate_prices` is not sent here
+    either."""
     want = money(D(desired["price"]))
     if want == live_n.get("price"):
         return {}
@@ -3389,13 +3395,17 @@ def _entries_by_id(man, section: str) -> dict:
 def _bare_package_name(live_name, variant_name, plan_p=None, man_name=None):
     """A live package name in plan space. Package create and update append
     " - {variant}" to the name they are sent, so the plan holds the bare name and the
-    live one has to be stripped before the two can be compared. In order: the name
-    this run journalled (the plan's own name is then the bare form), the plan's
-    `name - variant_title`, and the live `product_variant_name` suffix."""
+    live one has to be stripped before the two can be compared. In order: the live
+    name equals the plan's, the plan's `name - variant_title`, the live
+    `product_variant_name` suffix, and last the name this run journalled (the plan's
+    own name is then the bare form).
+
+    The journalled name comes last on purpose. A rename that landed refreshes that
+    field from the response, so it holds the NEW live name while the plan still holds
+    the old one: matching on it first would read the applied rename back as the old
+    name, and a resume would refuse the rename it had just made itself as drift."""
     plan_name = (plan_p or {}).get("name")
     if plan_name:
-        if man_name is not None and live_name == man_name:
-            return plan_name
         if live_name == plan_name:
             return plan_name
         vt = (plan_p or {}).get("variant_title")
@@ -3405,6 +3415,8 @@ def _bare_package_name(live_name, variant_name, plan_p=None, man_name=None):
         suffix = f" - {variant_name}"
         if live_name.endswith(suffix):
             return live_name[: -len(suffix)]
+    if plan_name and man_name is not None and live_name == man_name:
+        return plan_name
     return live_name
 
 
@@ -3791,6 +3803,66 @@ def _apply_campaign_n(c: dict, n: dict) -> dict:
     return out
 
 
+def _plan_keys(plan: dict, section: str) -> set:
+    """Every key one section of a plan carries, read tolerantly: this runs before
+    `validate_plan` has had a chance to reject a malformed file."""
+    out = set()
+    raw = plan.get(section) if isinstance(plan, dict) else None
+    for x in raw if isinstance(raw, list) else []:
+        if isinstance(x, dict):
+            k = ship_key(x) if section == "shipping_methods" else x.get("key")
+            if k is not None:
+                out.add(k)
+    return out
+
+
+def drop_stale_advisory_rows(plan: dict, gone_packages=(), gone_offers=()) -> list:
+    """Advisory rows naming a package or offer key a change deletes are dropped from
+    `plan`, with one note per row.
+
+    `landed_prices` and `voucher_codes` are receipts: what the cart engine should
+    charge and which code belongs to which offer. Nothing is ever sent from either,
+    and `verify` is their only reader. Deleting the object a row names makes the row
+    stale rather than wrong, so it is dropped and said out loud: refusing instead
+    would make the operator hand-edit advice to get a delete through. A row that
+    still resolves is untouched, and a row naming a key that never existed is left
+    for `validate_plan` to reject as the mistake it is."""
+    gone_pk, gone_of = set(gone_packages), set(gone_offers)
+    notes = []
+    if not (gone_pk or gone_of):
+        return notes
+    rows = plan.get("landed_prices")
+    if isinstance(rows, list):
+        kept = []
+        for row in rows:
+            if not isinstance(row, dict):
+                kept.append(row)
+                continue
+            pk = sorted(set(row.get("package_keys") or []) & gone_pk)
+            of = row.get("offer_key") if row.get("offer_key") in gone_of else None
+            if not pk and of is None:
+                kept.append(row)
+                continue
+            named = ([f"package(s) {', '.join(pk)}"] if pk else []) + ([f"offer {of}"] if of else [])
+            notes.append(
+                f"landed_prices row {row.get('tier')!r} names {' and '.join(named)}, which this "
+                "change deletes: the row is dropped from the plan. It is pricing advice, never "
+                f"desired state, so nothing is sent for it and {PROG} verify prices one row fewer.")
+        if len(kept) != len(rows):
+            plan["landed_prices"] = kept
+    rows = plan.get("voucher_codes")
+    if isinstance(rows, list):
+        kept = [r for r in rows
+                if not (isinstance(r, dict) and r.get("offer_key") in gone_of)]
+        for r in rows:
+            if isinstance(r, dict) and r.get("offer_key") in gone_of:
+                notes.append(f"voucher_codes row for offer {r.get('offer_key')} is dropped from the "
+                             "plan: this change deletes that offer, so the code it records is gone.")
+        if len(kept) != len(rows):
+            plan["voucher_codes"] = kept
+    return notes
+
+
 def _live_offer_n(lo: dict, key_of_package) -> dict:
     """A normalised live offer in plan space: its scope as package keys."""
     cond, ben = lo["condition"], lo["benefit"]
@@ -3812,6 +3884,15 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
     sent; all three differ, so it is a conflict and the whole diff refuses. Per key:
     only in the candidate is a POST, only in the base is a DELETE, and a live object
     in neither plan is unmanaged and refuses."""
+    # The merged plan is built from the candidate, so the candidate's own advisory
+    # rows are pruned here, before it is validated: a row that prices an object this
+    # change deletes is stale advice, not an invalid plan. The caller's dict is left
+    # as it was.
+    cand = json.loads(json.dumps(cand))
+    advisory = drop_stale_advisory_rows(
+        cand,
+        _plan_keys(base, "packages") - _plan_keys(cand, "packages"),
+        _plan_keys(base, "offers") - _plan_keys(cand, "offers"))
     errs = validate_plan(cand)
     if errs:
         raise CampaignAdminError("candidate plan is invalid:\n  - " + "\n  - ".join(errs))
@@ -3917,7 +3998,7 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
                    for section in ("packages", "shipping_methods", "offers") for x in live[section]}
     key_of_package = {pid: key for (section, pid), key in key_by_id.items() if section == "packages"}
     authorised = set(delete_changed or [])
-    preserved, warnings, conflicts = [], [], []
+    preserved, warnings, conflicts = [], list(advisory), []
 
     def merge(label, b, c, l, *, force_op=False):
         """One field, three ways. Returns (the merged plan's value, whether it is an op)."""
@@ -4086,6 +4167,24 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
                 f"package {key} (id {lp['id']}) cannot be deleted while live offer(s) "
                 f"{', '.join(sorted(refs))} scope it; the API refuses that delete. Narrow or delete "
                 "those offers in their own update first, then delete the package")
+
+    # A package or shipping price PATCH carries the campaign currency only, and the
+    # update endpoints leave a currency they are not sent unchanged. Create fills the
+    # additional currencies by forex; an update does not, and `recalculate_prices`
+    # would overwrite a price someone set by hand, so the engine never sends it and
+    # says what it is leaving behind instead.
+    others = sorted(set(live["campaign"].get("additional_currencies") or [])
+                    | set(merged_c.get("additional_currencies") or []))
+    if others:
+        repriced = [f"package {k}" for k, changed, _n in pkg_patches
+                    if {"price", "price_recurring"} & set(changed)]
+        repriced += [f"shipping {k}" for k, _changed, _m in ship_patches]
+        for what in repriced:
+            warnings.append(
+                f"{what}: the price op sets {currency} only. This campaign also prices in "
+                f"{', '.join(others)}, and the update endpoint leaves a currency it is not sent "
+                "unchanged, so those prices stay as they are on the store. Set them in the "
+                "dashboard after this update.")
 
     if conflicts:
         raise CampaignAdminError(
@@ -4382,6 +4481,10 @@ def check_change_set(man: Manifest, base: dict, base_sha: str, plan: dict, plan_
     base_keys["offers"] = {o.get("key") for o in base.get("offers") or []}
     removed_by_op = {x.get("op"): x for x in man.data.get("removed") or []}
     by_n = {o.get("n"): o for o in cs.get("ops") or []}
+    # On a resume or a settle the journal says which ops have already landed. A POST
+    # that landed owns an object in the active section from that moment, so without
+    # the journal the duplicate checks below would reject the very op that created it.
+    journal = {x.get("n"): x for x in man.data.get("ops") or []} if resume else {}
 
     for n, op in enumerate(cs.get("ops") or [], 1):
         if op.get("n") != n:
@@ -4403,11 +4506,22 @@ def check_change_set(man: Manifest, base: dict, base_sha: str, plan: dict, plan_
             if "id" in op:
                 raise ChangeSetNotApplied(
                     f"op {n}: a POST creates the object, so it cannot name id {op.get('id')!r}")
-            if (section, key) in active:
+            landed = (journal.get(n) or {}).get("status") == "done"
+            if landed:
+                # This POST already created its object in the update being resumed or
+                # settled: the object is this run's now, and the journal says which id
+                # it got.
+                created, got = active.get((section, key)), (journal.get(n) or {}).get("id")
+                if created is None or (got is not None and created != got):
+                    raise ChangeSetNotApplied(
+                        f"op {n}: the journal records this POST as done with id {got!r}, and the "
+                        f"manifest does not own {section} {key} under that id; the manifest and "
+                        "the change set are out of step")
+            elif (section, key) in active:
                 raise ChangeSetNotApplied(
                     f"op {n}: {section} {key} is already an object this run owns (id "
                     f"{active[(section, key)]}); a POST would duplicate it")
-            if key in base_keys[section]:
+            elif key in base_keys[section]:
                 raise ChangeSetNotApplied(
                     f"op {n}: {section} {key} is in the canonical plan already; a POST would "
                     "duplicate it")
@@ -4880,8 +4994,16 @@ def _resolve_in_flight(client: Client, man: Manifest, plan: dict, cs: dict, snap
             continue
 
         if method == "PUT":
-            x = live_raw["packages"].get(op.get("id") or (man.entry("packages", key) or {}).get("id"))
+            e = man.entry("packages", key) or {}
+            x = live_raw["packages"].get(op.get("id") or e.get("id"))
             if x is None:
+                continue
+            if op.get("depends_on") and e.get("image_status") != "set":
+                # The package was created by this same change set, so `before.image`
+                # was null when the operator reviewed the op and the create attached
+                # the catalogue image by itself: the live thumbnail says nothing about
+                # whether this PUT went out. A PUT replaces the image, so it is sent
+                # again rather than recording the catalogue image as the override.
                 continue
             if (x.get("image") or None) == (op.get("before") or {}).get("image"):
                 continue  # the PUT never landed: it is re-sent below
@@ -4989,11 +5111,11 @@ def _resume_check(man: Manifest, cs: dict, norm: dict, journal: dict) -> None:
               "fresh diff.")
 
 
-def _settled_plan(base: dict, plan: dict, cs: dict, applied: set) -> dict:
-    """The base plan with the `after` of every op that landed: keys an applied POST
-    created are added from the merged plan, keys an applied DELETE removed are dropped,
-    and nothing else moves. This is the plan that describes the campaign after an
-    update that cannot finish."""
+def _settled_plan(base: dict, plan: dict, cs: dict, applied: set) -> tuple:
+    """(plan, notes) for an update that cannot finish: the base plan with the `after`
+    of every op that landed. Keys an applied POST created are added from the merged
+    plan, keys an applied DELETE removed are dropped, advisory rows that priced a
+    dropped key go with them (one note each), and nothing else moves."""
     out = json.loads(json.dumps(base))
     pk = {p["key"]: p for p in out.get("packages") or []}
     sm = {ship_key(s): s for s in out.get("shipping_methods") or []}
@@ -5042,7 +5164,8 @@ def _settled_plan(base: dict, plan: dict, cs: dict, applied: set) -> dict:
                 if (ship_key(x) if section == "shipping_methods" else x.get("key"))
                 not in drop[section]]
         out[section] = kept + [merged[section][k] for k in add[section] if k in merged[section]]
-    return out
+    notes = drop_stale_advisory_rows(out, drop["packages"], drop["offers"])
+    return out, notes
 
 
 def _settle(client: Client, man: Manifest, base: dict, base_path: Path, plan: dict, cs: dict,
@@ -5066,7 +5189,7 @@ def _settle(client: Client, man: Manifest, base: dict, base_path: Path, plan: di
     outcomes = [{"n": o["n"], "method": o["method"], "section": o["section"], "key": o["key"],
                  "outcome": "applied" if o["n"] in applied else "not applied"}
                 for o in cs.get("ops") or []]
-    settled = _settled_plan(base, plan, cs, applied)
+    settled, advisory = _settled_plan(base, plan, cs, applied)
     errs = validate_plan(settled)
     if errs:
         raise CampaignAdminError(
@@ -5087,6 +5210,8 @@ def _settle(client: Client, man: Manifest, base: dict, base_path: Path, plan: di
           f"op(s) had landed; nothing was sent to the store")
     for o in outcomes:
         print(f"  {o['n']:>2}. {o['method']:<6} {o['section']} {o['key']}  {o['outcome']}")
+    for note in advisory:
+        print(f"  note: {note}")
     print(f"this run's plan is now {archive.name}'s bytes, as {PLAN_NAME}")
     print("Run diff again for the work that is left.")
     return man

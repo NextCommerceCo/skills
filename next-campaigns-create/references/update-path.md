@@ -204,6 +204,15 @@ What cannot be changed, and why:
 | `shipping_method` on an existing shipping key | the store code is the method's identity, and sending another method's code is a 400 | add a method on the new code and delete this one |
 | `all_packages` scope | a plan holds package keys, so it cannot express it | name the packages, or keep the offer out of the plan's reach |
 | removing an `image` | the API has no delete-image route | `diff` emits a warning and no op; change the image in the dashboard |
+| a price in any currency but the campaign's | the plan carries one price per package, in the campaign currency | set the other currencies in the dashboard; `diff` warns when a price op leaves them behind |
+
+`landed_prices` and `voucher_codes` need no editing when an offer or a package
+goes. They are advice, not desired state: nothing is ever sent from either, and
+`verify` is their only reader. A row that prices an object the change deletes is
+dropped from the merged plan by `diff` itself, with a warning naming the row, and
+`update --settle` does the same when a DELETE landed but the update could not
+finish. A row naming a key that never existed is still an invalid plan, so a
+typo in one is reported rather than quietly removed.
 
 A new package's key must be one the canonical plan does not use and the manifest
 does not own, or `update` refuses the POST as a duplicate. Keep the engine's own
@@ -242,8 +251,12 @@ What `diff` prints, and how to read it:
 - `Kept from the store (the candidate did not touch these)`: every preserved
   value. Read these out: they are changes someone made in the dashboard that
   this update is deliberately keeping.
-- `Warnings`: a dropped `image.src`, or a DELETE of an object the store changed
-  that `--delete-changed` authorised.
+- `Warnings`: a dropped `image.src`; a DELETE of an object the store changed that
+  `--delete-changed` authorised; a `landed_prices` or `voucher_codes` row dropped
+  because the offer or package it names is being deleted; and, on a campaign that
+  prices in more than one currency, every price op that leaves the other
+  currencies alone. Read these out: the last two are the ones an operator is
+  surprised by afterwards.
 - `Requests update will send, in order (N)`, with `, including DELETEs` when any
   op is a DELETE. Each line is the method, the section, the key, the exact path
   and the exact body, with `before` and `after` underneath.
@@ -306,9 +319,13 @@ merged plan file that diff wrote, byte for byte.
 Before the first request, in this order: the change set is bound to this run
 (run id, store, campaign id, the canonical plan's hash, every op's route and
 owned id, the embedded merged plan against `--plan`); the DELETE approval is
-checked; the store is re-read and the baseline hash recomputed, and a mismatch
-refuses with "campaign changed since you reviewed the diff; re-run diff"; the
-ownership read-back runs. All of those are exit 2 or exit 1 with nothing sent.
+checked; the store is read; the ownership read-back runs on the immutable
+fields; and last the baseline hash is recomputed, a mismatch refusing with
+"campaign changed since you reviewed the diff; re-run diff". Nothing is sent if
+any of them refuses. The ownership check comes before the baseline hash on
+purpose: a campaign whose ids have moved is not drift, it is the wrong
+campaign, and it says so instead. Which code each one exits with is in Refusals
+below; that table is the only place this skill states it.
 
 Then it sends, in this order: the campaign PATCH, offer DELETEs, package DELETEs,
 package PATCHes with any image PUT behind them, package POSTs each followed by
@@ -390,8 +407,13 @@ It resolves every op left `in_flight` by reading the store. A PATCH is at
 refuses by name. A DELETE whose object is gone is done. A POST is matched by
 identity, read back in full, and only claimed when every field equals the op's
 `after`: a same-named object with different contents is never claimed, and more
-than one candidate refuses. An image PUT is re-sent only when the live thumbnail
-still equals the one the diff recorded.
+than one candidate refuses. A POST that had already landed and been journalled is
+left alone: its object is this run's from that moment, and the op is not re-sent.
+An image PUT on a package that already existed is re-sent only when the live
+thumbnail still equals the one the diff recorded, so an image changed in the
+dashboard during the interruption is kept. On a package this same change set
+created, the thumbnail proves nothing (the create attaches the catalogue image by
+itself), so the PUT is simply sent again.
 
 Then it checks the **whole** campaign against the state this update left: the
 change set's reviewed baseline with the `after` of every completed op applied.
@@ -407,10 +429,12 @@ a rejected write would leave the run behind `active_update` forever.
 
 `--settle` sends nothing. It reads back every op left in flight, writes the plan
 that describes what actually landed (the base plan plus the `after` of every
-applied op, created keys added and deleted keys dropped), validates it, promotes
-it the same way a completed update does, records each op's outcome in the
-manifest's `history[]`, and clears `active_update`. It prints how many of the
-ops had landed and one line per op. The operator then runs a fresh `diff` for
+applied op, created keys added and deleted keys dropped, and any `landed_prices`
+or `voucher_codes` row that priced a dropped key dropped with it), validates it,
+promotes it the same way a completed update does, records each op's outcome in
+the manifest's `history[]`, and clears `active_update`. It prints how many of the
+ops had landed, one line per op, and a `note:` line for every advisory row it
+dropped. The operator then runs a fresh `diff` for
 the work that is left.
 
 An op the engine cannot resolve to either state refuses: the operator has to put
@@ -430,35 +454,80 @@ still running.
 
 ## Refusals
 
-Every refusal below sends nothing. Exit 2 is the gate family (`update`'s own
-checks); everything else exits 1.
+This is the one place that says which exit code each refusal uses; `SKILL.md`'s
+exit-code table is a summary of it. Every refusal here sends nothing, with one
+exception named below: a write the store rejected mid-run, where the ops before
+it had already gone out.
 
-| Message (abbreviated) | Cause | Fix |
-|---|---|---|
-| `another next-campaigns-create.sh command holds this run directory` | a second command on the same run, or a lock left by a killed process | wait for it; if the pid is gone, delete `.run.lock` by hand after confirming nothing is running |
-| `an update is in progress; finish it with update --resume` | `active_update` on the manifest | `update --resume`, or `update --settle` if it cannot finish |
-| `campaign changed since you reviewed the diff; re-run diff` | the store moved between the diff and the update | re-run `diff`, review the new change set, approve that one |
-| `conflicting edits: the store changed what you changed` | base, candidate and store all differ on one field | set the candidate to the store's value to keep it, or put the store back to the base value, then diff again |
-| `the campaign carries object(s) this run does not own` | a package, shipping method or offer added outside this run | remove it in the dashboard, or adopt the campaign into a fresh run directory and edit that plan |
-| `cannot be deleted: the store changed it since the base plan` | the object to be deleted is not what the plan recorded | review the printed values, then re-run `diff --delete-changed <section>:<key>` |
-| `cannot be deleted while live offer(s) ... scope it` | a package a surviving offer still covers; the API refuses that delete | narrow or delete those offers in their own update first, then delete the package |
-| `would set the name ... which live offer N still holds at that point` | two offers swapping a name or a voucher code | do it as 2 updates through a temporary name, or reorder so the offer holding it changes first |
-| `is scoped to all_packages` (adopt) | a live offer a plan cannot represent | re-run `adopt` with the printed `--convert-scope <offer_id>`, or narrow the offer in the dashboard |
-| `is a count offer whose threshold reads back as ...` (adopt) | a threshold that is missing or not a whole number | read it in the dashboard and correct the offer there, then adopt again |
-| `this change set deletes object(s) ... and --allow-delete was not passed` | the DELETE approval | re-read the DELETE steps, then add `--allow-delete` to the same command |
-| `this change set has already been applied` | the same change set run twice | run `diff` again for the next change |
-| `was written against plan ... and this run is on plan ...` | a stale change set from before another update | re-run `diff` |
-| `the canonical plan has been edited in place` | `campaign-plan.json` was edited directly | restore it (the archives in the run directory are byte copies), then diff again; edits belong in the copy |
-| `--plan is the canonical plan itself` | `diff` was given the base plan | pass the edited copy |
-| `campaign currency cannot change once the campaign exists` | a currency edit | a different currency needs a new campaign |
-| `product_id and product_variant_ids cannot change on a package that exists` | a variant edit on an existing key | new key for the new variant, delete the old package |
-| `the store code cannot change on a campaign shipping method that exists` | a code edit on an existing key | add a method on the new code, delete this one |
-| `the merged plan (your edits plus the values preserved from the store) is invalid` | a preserved dashboard change collides with an edit (two offers now share a name, say) | reconcile them in the candidate and diff again |
-| `the campaign is not in the state this interrupted update left it in` | the campaign was edited while the update was not running | review the named values, then `update --settle` and run a fresh diff |
-| `op N: ... returned 4xx` | the store rejected that write; nothing after it was sent | fix the cause and `update --resume`, or close it with `update --settle` |
-| `this run's plan promotion was interrupted and the merged plan it promotes to ... is gone` | the merged archive was deleted mid-promotion | restore that file (the change set names it in `merged_plan_file`) and run the command again |
-| `teardown deletes what this run created` | `teardown` on an adopted campaign | reduce an adopted campaign with `update --allow-delete`; the campaign itself is deleted in the dashboard |
-| `was adopted from an existing campaign, not created by a run` | `apply --resume` on an adopted manifest | change an adopted campaign with `diff` and `update` |
+`update` exits 2 for the gate family: everything it checks about the paperwork
+before it looks at the store.
+
+- A missing `--yes`, or a `--change-set-sha256` that is not the hash of the
+  change set file.
+- A DELETE in the change set without `--allow-delete`.
+- Any binding check: the change set was written for another run, store or
+  campaign; it was written against a different canonical plan (including "this
+  change set has already been applied"); `campaign-plan.json` on disk no longer
+  hashes to what it was written against; `--plan` is not the merged plan the
+  change set names, byte for byte; an op is out of order, carries a method this
+  engine does not send, names a route or an id the manifest does not own, or is
+  a POST on a key this run already owns.
+- An `active_update` on the manifest without `--resume` or `--settle`, a
+  `--resume` or `--settle` naming a different change set, one with no update in
+  progress at all, and both flags together.
+- Baseline drift: "campaign changed since you reviewed the diff; re-run diff".
+  The store is re-read and nothing has been written at that point, so it is a
+  gate like the others.
+
+`update` exits 1 for everything else:
+
+- The ownership read-back: "ownership check failed; refusing to update". It
+  compares the immutable fields (ids, `created_at`, `product_variant_id`, store
+  codes) against the store, so a failure means the manifest does not describe
+  that campaign any more. Nothing is sent, and it is still exit 1: it is a
+  statement about the campaign, not about the operator's paperwork.
+- A manifest this run cannot use: a campaign entry that is not `created`, an
+  entry left `pending` by an unfinished `apply`, a torn-down run, a tampered
+  `store_slug` or `store_origin`, a journal that does not describe this change
+  set's ops, or a promotion whose merged archive is gone.
+- Every `--resume` and `--settle` refusal that reads the store: an op left in
+  flight that is at neither its `before` nor its `after`, a campaign that is not
+  in the state the interrupted update left it in, an object this run cannot
+  prove it created, a settled plan that does not validate.
+- Any store rejection once sending has begun (`op N: ... returned 4xx`) and an
+  image override that did not land. This is the one case where requests before
+  the refusal did go out; the journal says which, and `--resume` or `--settle`
+  takes it from there.
+
+`diff` and `adopt` exit 1 on every refusal: neither has a gate of its own and
+neither writes to the store at all.
+
+| Message (abbreviated) | Code | Cause | Fix |
+|---|---|---|---|
+| `another next-campaigns-create.sh command holds this run directory` | 1 | a second command on the same run, or a lock left by a killed process | wait for it; if the pid is gone, delete `.run.lock` by hand after confirming nothing is running |
+| `an update is in progress; finish it with update --resume` | 1, or 2 from `update` | `active_update` on the manifest | `update --resume`, or `update --settle` if it cannot finish |
+| `campaign changed since you reviewed the diff; re-run diff` | 2 | the store moved between the diff and the update | re-run `diff`, review the new change set, approve that one |
+| `conflicting edits: the store changed what you changed` | 1 | base, candidate and store all differ on one field | set the candidate to the store's value to keep it, or put the store back to the base value, then diff again |
+| `the campaign carries object(s) this run does not own` | 1 | a package, shipping method or offer added outside this run | remove it in the dashboard, or adopt the campaign into a fresh run directory and edit that plan |
+| `cannot be deleted: the store changed it since the base plan` | 1 | the object to be deleted is not what the plan recorded | review the printed values, then re-run `diff --delete-changed <section>:<key>` |
+| `cannot be deleted while live offer(s) ... scope it` | 1 | a package a surviving offer still covers; the API refuses that delete | narrow or delete those offers in their own update first, then delete the package |
+| `would set the name ... which live offer N still holds at that point` | 1 | two offers swapping a name or a voucher code | do it as 2 updates through a temporary name, or reorder so the offer holding it changes first |
+| `is scoped to all_packages` (adopt) | 1 | a live offer a plan cannot represent | re-run `adopt` with the printed `--convert-scope <offer_id>`, or narrow the offer in the dashboard |
+| `is a count offer whose threshold reads back as ...` (adopt) | 1 | a threshold that is missing or not a whole number | read it in the dashboard and correct the offer there, then adopt again |
+| `this change set deletes object(s) ... and --allow-delete was not passed` | 2 | the DELETE approval | re-read the DELETE steps, then add `--allow-delete` to the same command |
+| `this change set has already been applied` | 2 | the same change set run twice | run `diff` again for the next change |
+| `was written against plan ... and this run is on plan ...` | 2 | a stale change set from before another update | re-run `diff` |
+| `the canonical plan has been edited in place` | 1 from `diff`, 2 from `update` | `campaign-plan.json` was edited directly | restore it (the archives in the run directory are byte copies), then diff again; edits belong in the copy |
+| `--plan is the canonical plan itself` | 1 | `diff` was given the base plan | pass the edited copy |
+| `campaign currency cannot change once the campaign exists` | 1 | a currency edit | a different currency needs a new campaign |
+| `product_id and product_variant_ids cannot change on a package that exists` | 1 | a variant edit on an existing key | new key for the new variant, delete the old package |
+| `the store code cannot change on a campaign shipping method that exists` | 1 | a code edit on an existing key | add a method on the new code, delete this one |
+| `the merged plan (your edits plus the values preserved from the store) is invalid` | 1 | a preserved dashboard change collides with an edit (two offers now share a name, say) | reconcile them in the candidate and diff again |
+| `the campaign is not in the state this interrupted update left it in` | 1 | the campaign was edited while the update was not running | review the named values, then `update --settle` and run a fresh diff |
+| `op N: ... returned 4xx` | 1 | the store rejected that write; nothing after it was sent | fix the cause and `update --resume`, or close it with `update --settle` |
+| `this run's plan promotion was interrupted and the merged plan it promotes to ... is gone` | 1 | the merged archive was deleted mid-promotion | restore that file (the change set names it in `merged_plan_file`) and run the command again |
+| `teardown deletes what this run created` | 1 | `teardown` on an adopted campaign | reduce an adopted campaign with `update --allow-delete`; the campaign itself is deleted in the dashboard |
+| `was adopted from an existing campaign, not created by a run` | 1 | `apply --resume` on an adopted manifest | change an adopted campaign with `diff` and `update` |
 
 ---
 
@@ -479,6 +548,15 @@ checks); everything else exits 1.
   read and adopted like any other.
 - **`available: false` is the retirement mechanism.** Per-customer limits and
   date ranges are not offer fields at all.
+- **Only the campaign currency is priced.** A plan holds one price per package
+  and per shipping method. On a campaign with `additional_currencies`, a price
+  PATCH names the campaign currency and the endpoint leaves the others
+  unchanged, so they keep whatever they were (a campaign create fills them by
+  forex; an update does not). `diff` warns for every price op on such a
+  campaign, naming the op and the currencies, and the operator sets those in the
+  dashboard. The engine does not send `recalculate_prices`: it would convert
+  every other currency from the one being sent and overwrite a price someone set
+  by hand.
 - **The update path has not been exercised against a live store.** The reads
   behind it were confirmed read-only against live stores on 2026-10-08. The
   write shapes (the PATCH bodies, package DELETE while an offer references it,

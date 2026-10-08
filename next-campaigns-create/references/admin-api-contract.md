@@ -62,10 +62,10 @@ token that has been pasted into a chat or a ticket once the work is done.
 | GET/POST | `/api/admin/campaigns/` | list (cursor paginated) / create |
 | GET/PATCH/DELETE | `/api/admin/campaigns/{id}/` | retrieve (returns `api_key`) / update the campaign's settings (`update`) / delete |
 | GET/POST | `/api/admin/campaigns/{id}/packages/` | list / create |
-| GET/PATCH/DELETE | `/api/admin/campaigns/{id}/packages/{packageId}/` | retrieve one (teardown's identity read-back, and a resumed update's full read-back) / update name, `prices[]` and the recurring fields / delete |
+| GET/PATCH/DELETE | `/api/admin/campaigns/{id}/packages/{packageId}/` | retrieve one (teardown's identity read-back, and a resumed update's full read-back) / update name, the recurring fields, and `prices[]` per currency (currencies the body omits are left unchanged) / delete |
 | PUT | `/api/admin/campaigns/{id}/packages/{packageId}/image/` | replace the package image (optional override) |
 | GET/POST | `/api/admin/campaigns/{id}/shipping-methods/` | list / create |
-| GET/PATCH/DELETE | `/api/admin/campaigns/{id}/shipping-methods/{id}/` | retrieve one (same two readers) / update `prices[]` / delete |
+| GET/PATCH/DELETE | `/api/admin/campaigns/{id}/shipping-methods/{id}/` | retrieve one (same two readers) / update `prices[]` per currency, same rule as a package / delete |
 | GET/POST | `/api/admin/campaigns/{id}/offers/` | list / create |
 | GET/PATCH/DELETE | `/api/admin/campaigns/{id}/offers/{offerId}/` | retrieve (the only read that carries the scope) / update name, type, code, `available`, `condition`, `benefit` / delete |
 | POST | `campaigns.apps.29next.com/api/v1/carts/calculate/` | pricing truth (verify); `?upsell=true` for upsell carts |
@@ -282,15 +282,30 @@ What the update path (`adopt`, `diff`, `update`) relies on, field by field.
   empties for the same absence (`""` for the descriptor, `null` for the PayPal
   id, `[]` or `null` for the extra currencies), so the normaliser collapses
   `""` and `null` to one value before anything is compared.
-- **A package PATCH sends `prices[]`.** `prices: [{currency, price,
-  price_recurring}]` replaces the price list; the create-only `price` field is
-  not an update field. A changed `name`, `interval` or `interval_count` goes in
-  the same body.
+- **A package PATCH sends `prices[]`, and prices merge per currency.**
+  `prices: [{currency, price, price_recurring}]`; the create-only `price` field
+  is not an update field. The published spec says of `prices` on both the
+  package and the shipping-method PATCH: "Per-currency prices to update ...
+  Currencies not included are left unchanged", with a separate
+  `recalculate_prices` flag described as "Whether to recalculate prices for
+  currencies not included in `prices`, via forex conversion". So a PATCH does
+  **not** replace the price list. A changed `name`, `interval` or
+  `interval_count` goes in the same body.
+- **Only the campaign currency is priced, and the others are left as they are.**
+  A plan carries one price per package and per shipping method, so a price op
+  names the campaign currency only. On a campaign with `additional_currencies`
+  that leaves the other currencies at the prices they already had: a campaign
+  create fills them by forex, an update does not. The engine never sends
+  `recalculate_prices`, because it would convert every other currency from the
+  one being sent and overwrite a price someone set by hand. `diff` puts a line
+  in `warnings[]` for every price op on such a campaign, naming the op and the
+  currencies, and the operator sets those prices in the dashboard.
 - **A shipping PATCH sends prices only.** The store code is that method's
   identity. Sending `shipping_method` with a code another method on the campaign
   uses answers 400 on releases that validate duplicates, so `diff` refuses a
   code change on an existing shipping key and tells the operator to add a method
-  on the new code and delete the old one.
+  on the new code and delete the old one. Its `prices` merge per currency the way
+  a package's do.
 - **An offer PATCH replaces `condition` and `benefit` wholly.** When either
   changes, the complete object is sent, scope included. A partial condition
   would drop the fields it omits.
@@ -318,10 +333,17 @@ What the update path (`adopt`, `diff`, `update`) relies on, field by field.
 
 ## Read-only checks, 2026-10-08
 
-Confirmed read-only against live stores (2 campaigns, GET only, no writes). No
-store, campaign or key is named here: this repository is public.
+A point-in-time observation, not a verification of the update path. On
+2026-10-08 the response shapes below were read off 2 campaigns on live stores.
+Every request was a GET; nothing was written, so nothing here says that an
+update works, that a PATCH body is accepted, or that any write behaves as
+assumed. What it settles is narrower: these fields were present, in these
+shapes, on that date, on those 2 campaigns. A different store, a different
+platform release or a later date can read back differently, and the open points
+in "Not yet verified against a live store" below are all still open. No store,
+campaign or key is named here: this repository is public.
 
-| Check | Result | Effect on the design |
+| What was read | What came back on 2026-10-08 | Effect on the design |
 |---|---|---|
 | offer retrieve returns `condition.value` | yes: `"2.00"` for a `count` condition, `null` for `any`. The list carries it too, without `packages` | thresholds are readable, so `adopt` never has to ask for one. A `count` offer whose value is missing or not a whole number is a plain blocker |
 | offer retrieve fields | `id, name, offer_type, code, available, condition{type, value, all_packages, packages[{id, ...}], description}, benefit{type, value, price_rounding, description}` | the `description` fields are ignored by the normaliser |
@@ -331,14 +353,16 @@ store, campaign or key is named here: this repository is public.
 
 ## Not yet verified against a live store
 
-The reads above were checked live. **No write on the update path has been.** The
-four points below are implemented from the published contract and proven against
-the offline fake only, and each needs a write-capable store to settle.
+The reads above were checked live on one date. **No write on the update path has
+been checked at all.** The points below are implemented from the published
+contract and proven against the offline fake only, and each needs a
+write-capable store to settle.
 
 | Open point | The engine's current assumption |
 |---|---|
 | the PATCH body shapes | campaign: changed fields plus the explicit clearing values above. Package: `name`, `prices: [{currency, price, price_recurring}]`, `interval`, `interval_count`. Shipping: `prices` only. Offer: changed `name`, `offer_type`, `code`, `available`, plus the whole `condition` and `benefit` when either changes |
-| whether a package PATCH re-appends `" - {variant}"` to `name` | the fake re-appends it, as create does. The normaliser strips the suffix before comparing (by the name this run journalled, by the plan's `name - variant_title`, then by the live `product_variant_name`), so a diff is 0 ops whichever the store does |
+| that `prices` merges per currency | the spec's wording ("currencies not included are left unchanged") is what the engine and the fake both implement, so a price op is assumed to leave the additional currencies alone rather than delete them. A store that replaced the whole list instead would drop them, which is why `diff` warns on every price op on a multi-currency campaign |
+| whether a package PATCH re-appends `" - {variant}"` to `name` | the fake re-appends it, as create does. The normaliser strips the suffix before comparing: the live name equals the plan's, the plan's `name - variant_title`, the live `product_variant_name` suffix, and only last the name this run journalled. A diff is 0 ops whichever the store does. The journalled name comes last because a rename that landed refreshes it to the new live name while the plan still holds the old one, and matching on it first made a resume read its own applied rename back as drift |
 | the accepted clearing values | `[]` for the three campaign code lists, `null` for `additional_currencies`, `statement_descriptor` and `paypal_account_id`. A store that rejects one of them fails that op with the store's own message, and `update --settle` closes the run |
 | a package DELETE while an offer still references it | a 400, so `diff` refuses the delete before sending it and names the offers to deal with first. If the platform instead cascades, the refusal is merely conservative: the operator removes or narrows those offers in their own update |
 
@@ -466,6 +490,13 @@ Several `landed_prices` rows may share one `offer_key`: a grouped upsell voucher
 has one `upsell` row per variant package, so `verify` probes each variant with
 the code. An upsell row's `package_keys` may name a hero or bump package when
 the upsell reused it.
+
+Both lists are advice, not desired state, which is what makes an update able to
+prune them: when a change deletes the offer or package a row names, `diff` drops
+that row from the merged plan with a line in `warnings[]`, and `update --settle`
+does the same for a DELETE that landed inside an update that could not finish.
+Rows that still resolve are untouched, and a row naming a key that never existed
+stays a `validate_plan` error, because that is a typo rather than a deletion.
 
 `offer_kind` is written by `recommend` (`quantity` when `--offer-type` is omitted)
 and is optional for `validate_plan`. Package `role` is not schema-checked;
