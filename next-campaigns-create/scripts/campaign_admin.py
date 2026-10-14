@@ -7974,9 +7974,21 @@ def _reland_cmd(args) -> int:
         before = plan.get("landed_prices", [])
         plan["landed_prices"] = reland(plan)
         changed = sum(1 for a, b in zip(before, plan["landed_prices"]) if not _rows_agree([a], [b]))
+        # The refusal above only sees a manifest beside the plan. A run applied
+        # with --out elsewhere keeps its manifest there and still records this
+        # file's hash, so the approved bytes are kept before the rewrite: copying
+        # them back restores the plan that run was created from.
+        # Named by the bytes' own hash, so a second reland never overwrites the
+        # copy an earlier one kept.
+        original = path.read_bytes()
+        backup = path.with_name(f"{path.stem}.before-reland-{hashlib.sha256(original).hexdigest()[:12]}{path.suffix}")
+        if not backup.exists():
+            atomic_write_bytes(backup, original)
         atomic_write_json(path, plan)
     print_plan(plan, path)
     print(f"relanded {path}: {changed} of {len(plan['landed_prices'])} landed row(s) changed")
+    print(f"the previous plan (SHA-256 {hashlib.sha256(original).hexdigest()}) is saved as {backup}; if a run "
+          "was already applied from it with --out elsewhere, copy it back over the plan")
     return 0
 
 

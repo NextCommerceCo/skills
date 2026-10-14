@@ -1027,7 +1027,12 @@ refuses that plan, telling you to run `reland --plan <file>`, so a store never
 receives discounted rows it will not charge. `reland` refuses an adopted plan,
 which has no landed rows, and refuses once a `run-manifest.json` sits beside
 the plan, because that plan is bound to the run: after `apply`, switch offers
-on or off with `edit set_offer_available` (Phase 7).
+on or off with `edit set_offer_available` (Phase 7). It cannot see a manifest
+that `apply --out` put in another directory, so before rewriting it saves the
+previous bytes as `campaign-plan.before-reland-<first 12 of its SHA-256>.json`
+(never overwritten, so every earlier version survives) and prints the full
+SHA-256. If a run was already applied from the old plan, copy the copy whose
+hash the run's manifest records back over the plan.
 
 If there are blockers, stop and clear them (see Failure modes), then re-run
 `recommend` and `plan`. The engine will not apply a plan with blockers.
@@ -1484,6 +1489,7 @@ from the most recent edit.
 | `--offers-available cannot apply` from `recommend` | the discovery says this store answers 404/405 on the offers endpoint, so the plan carries no offers to switch off | drop the flag; the offers are a dashboard hand-off on this store, so switch them off in the dashboard |
 | `landed prices still describe them as live` from `apply`, or the same warning from `plan` | an offer's `available` was set to false by hand and the landed rows were not recomputed | `reland --plan <file>`, show the operator the new tables, approve the new hash |
 | `already holds a run` and `changes only through edit (set_offer_available)` from `reland` | the plan is bound to a run, so rewriting it would break `--resume`, `verify` and `teardown` | change availability after apply with `edit set_offer_available` (Phase 7) |
+| any other `landed row ...` refusal from `apply`, `plan` or `reland` on a plan with offers switched off | the plan's rows cannot be recomputed in place at all (hand-edited prices, a scope covering part of a row, two offers tied on one row), independent of availability | fix the named row's offers or packages in the plan, or start over with a fresh `recommend`; `reland` will not guess |
 | `this store ignored available=false on create (build predates campaigns-app 604); paused with a PATCH and read back` | the store's build created the offer live despite `available: false`; the backstop PATCH switched it off and the manifest records `available_patched: true` | nothing to fix for this run; tell the operator the offer was briefly live. The store needs a build with the fix |
 | `was created and is LIVE, but pausing it returned <status>` | the store ignored `available: false` on create and the backstop PATCH failed | the offer is taking orders at its discount: re-run `apply --resume` (or the same `edit`) to try the pause again, or switch it off in the dashboard at once |
 | image PUT returns 404/405 | store's build predates package images | everything is created; packages keep the catalogue image, set overrides in the dashboard |
@@ -1622,8 +1628,9 @@ file; `diff` writes into the run directory. `clone` writes to
 `./next-campaigns-create-runs/<subdomain>/clone-<source_id>/`, with its
 verification report beside the manifest. `--out` overrides each. `edit`
 rewrites the canonical plan in place and writes its receipts next to the
-manifest. `reland` rewrites the plan file it is given in place, and refuses
-when a `run-manifest.json` sits beside that plan.
+manifest. `reland` rewrites the plan file it is given in place, keeps the
+previous bytes as `<plan>.before-reland-<sha12>.json` beside it, and refuses when a
+`run-manifest.json` sits beside that plan.
 
 | File | Written by | Holds |
 |---|---|---|
