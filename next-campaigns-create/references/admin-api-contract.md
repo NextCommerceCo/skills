@@ -901,13 +901,14 @@ must match identity and approved content before adoption. This is still not
 server-backed proof: another operator can create an identical copy in that window.
 
 A valid success response (200 or 201 with a campaign detail body) immediately
-journals the destination ID, name, creation instant and key. That response is
-trusted as-is: `preexisting_ids` and the attempt window are consulted only on
-recovery, so a confirmed response that named a different real campaign with a
-plausible name would be recorded and renamed. Identity read-back and parity do
-not catch it either, because identity comes from that same response and an
-existing identical copy matches on content. The API offers no request marker to
-close this. Only the protected mode-600 manifest holds that key; the source key is never
+journals the destination ID, name, creation instant and key. A response naming
+the source or any campaign in `preexisting_ids` is refused and the request stays
+`uncertain` for recovery. The attempt window is consulted only on recovery, so a
+confirmed response naming a campaign created by someone else after the POST,
+with a plausible name, would still be recorded and renamed. Identity read-back
+and parity do not catch that, because identity comes from the same response and
+an identical copy matches on content. The API offers no request marker to close
+this. Only the protected mode-600 manifest holds that key; the source key is never
 persisted. `rename` records `name` and `status: pending|done|skipped`. Resume first
 reads the destination, so a rename already applied needs no second PATCH.
 
