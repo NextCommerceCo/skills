@@ -195,6 +195,13 @@ Four things to know before you ask:
 > nothing on your store changes. If the campaign is in a shape the skill cannot describe safely,
 > such as two offers with the same name, it stops and tells you what to fix in
 > the dashboard first.
+>
+> The dashboard adds one product per variant and reuses it in every offer, which
+> is the shape the skill expects. An older campaign may sell one variant as
+> several packages, such as separate 1x, 2x and 3x packages. The skill cannot
+> describe that campaign. Check with whoever built your funnel pages before you
+> remove any of those packages, because a page that points at a removed package
+> stops selling it.
 
 > [!IMPORTANT]
 > One thing cannot be changed at all: the campaign's currency. That is fixed

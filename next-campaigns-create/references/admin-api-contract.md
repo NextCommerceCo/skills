@@ -168,8 +168,10 @@ retrieve.
     (`for_create=False`) so a run created earlier stays verifiable. Before the
     rule, one code could carry several campaign methods at different prices (a
     paid-shipping ladder); new plans cannot.
-  - The dashboard's campaign form lists each store shipping method as one row
-    with a campaign price, so a second row on a code cannot be added there.
+  - The dashboard's Shipping table (on Create Campaign and in the campaign's
+    Settings tab) lists each store shipping method once, with its Store Price,
+    a Campaign Price and an Enabled switch, so a second campaign method on one
+    code cannot be added there.
   - Campaigns App releases that validate duplicates answer a shipping create on
     a code the campaign already uses with a 400:
     `{"shipping_method": ["Shipping method code '<code>' already exists on this
@@ -477,7 +479,10 @@ Landed prices after an edit are recomputed from the plan's packages and offers,
 not carried over. For a checkout row, the live automatic `package_percentage`
 offers whose scope covers the row's packages and whose condition the quantity
 meets are compared and the highest percentage wins; `price_rounding` is applied
-to the winner, never used to choose it. No such offer means the package price,
+to the winner, never used to choose it. The engine itself picks the offer with
+the bigger minimum quantity first, which is the same offer on a ladder where a
+higher count always carries a deeper percentage (offer doctrine, Rounding and
+stacking). No such offer means the package price,
 with `offer_key` null, which is also what a row gets when its only offer is
 switched off. An upsell row is priced by its own voucher. A row whose own
 `offer_key` names an offer that exists but is switched off (an upsell voucher

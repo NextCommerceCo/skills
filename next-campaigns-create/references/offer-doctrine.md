@@ -80,15 +80,18 @@ variants. Which unit is "free" is not a merchant choice. Cheapest-free would
 save `min(prices)`; this saves `% × sum(prices)`.
 
 The offer does not repeat per extra qualifying set. Extra units above `X + Y`
-still get the same percentage, because the engine picks the highest matching
-automatic `package_percentage` and applies it to all in-scope units. A true
-repeating BOGO cannot be encoded: a lower percentage at count `X + Y + 1`
-cannot beat the deal rate. `recommend` adds a landed row at `X + Y + 1` so
+still get the same percentage, because one automatic `package_percentage`
+offer prices every in-scope unit. A true repeating BOGO cannot be encoded. A
+second offer at count `X + Y + 1` would win, because the engine prefers the
+offer with the bigger minimum quantity, and its percentage would then apply to
+every unit in the cart. `recommend` adds a landed row at `X + Y + 1` so
 the operator sees the over-discount before approving.
 
-`--offer-type bxgy` cannot take `--tiers`. A Buy 1 percentage on the same
-packages would mask a lower BXGY rate (for example Buy 1 at 50% plus buy 2 get
-1 free at 33.33%: quantity 3 would take 50%). Buy 1 at list (no offer) plus
+`--offer-type bxgy` cannot take `--tiers`. A Buy 1 percentage above the BXGY
+rate on the same packages (for example Buy 1 at 50% plus buy 2 get 1 free at
+33.33%) is a non-monotonic mix. The engine gives quantity 3 the BXGY rate, the
+offer with the bigger minimum, while the skill's landed-price forecast assumes
+the deepest matching percentage wins, so the plan would misstate the price. Buy 1 at list (no offer) plus
 the BXGY offer is the default encode. A deeper percentage at a higher count
 than `X + Y` is allowed if the operator hand-authors it; `recommend` will not
 emit a non-monotonic mix.
@@ -207,6 +210,9 @@ The Campaigns App has two offer types, and they work on different pages:
 |---|---|---|---|
 | Site `offer` | Checkout page only | Automatically, by quantity conditions | Tiered quantity pricing on the main checkout |
 | `voucher` (coupon) | Every page: checkout, upsell, downsell, exit pop | A code | Upsell discounts, the exit pop, any discount off the checkout page |
+
+In the dashboard's offer editor these are the two **Type** choices, **Offer**
+and **Code**.
 
 Rules:
 
@@ -384,10 +390,16 @@ Stacking:
   bump, add nothing to its base and are left alone by it.
 - Stacking is multiplicative. A 50 percent offer plus a 50 percent voucher is 75
   percent off, not free.
-- Multiple automatic `package_percentage` offers do not stack with each other.
-  The engine keeps the highest matching percentage and applies it to every
-  in-scope unit. That is why a 50% Buy 1 cannot sit next to a 33.33% BOGO on
-  the same packages.
+- Two automatic offers of the same discount type never combine. One automatic
+  `package_percentage` offer prices a line and applies to every in-scope unit.
+  When several match, the engine picks the one with the bigger minimum
+  quantity, then an exact-count condition, then the bigger percentage; a tie
+  goes to the oldest offer. On a ladder where a higher count always carries a
+  deeper percentage, that is also the highest matching percentage, which is
+  what the skill's landed-price forecasts assume. That is why `recommend`
+  refuses a 50% Buy 1 next to a 33.33% BOGO on the same packages. Automatic
+  shipping offers follow the same rule: one applies. Codes stack on top of
+  any of them.
 - The voucher discount is computed per unit and rounded to cents, and the line
   total is quantity times that unit. A cart total can therefore differ from a
   literal percentage of the total by a few cents. That is expected.

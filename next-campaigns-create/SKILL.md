@@ -1,6 +1,6 @@
 ---
 name: next-campaigns-create
-version: 1.2.0
+version: 1.2.1
 description: |
   Create and update a Campaigns App campaign over the NEXT Admin API. Create:
   read the store's catalogue, gateway groups and shipping methods, recommend a
@@ -748,9 +748,12 @@ min-spend condition, and no way to discount a different product than the one
 that qualified. B and C are labeled compositions inside those limits. Numbers
 and the mixed-price / repeat cases are in `references/worked-examples.md`.
 
-Refuse a non-monotonic mix on the same hero packages: "Buy 1 at 50% plus buy 2
-get 1 free" cannot be encoded, because the engine keeps the highest matching
-`package_percentage` and quantity 3 would take 50%. Allowed: Buy 1 at list plus
+Refuse a non-monotonic mix on the same hero packages, such as "Buy 1 at 50% plus
+buy 2 get 1 free". One automatic `package_percentage` offer prices a line. The
+engine picks the matching offer with the bigger minimum quantity, while the
+skill's landed-price forecast assumes the deepest matching percentage wins. Those
+agree only when a higher count always carries a deeper percentage, so on a
+non-monotonic mix the plan would misstate the price. Allowed: Buy 1 at list plus
 BOGO; BOGO plus a deeper percentage at a higher count; quantity tiers plus a
 gift (different package keys). `--tiers` with `--offer-type bxgy` is an error.
 
@@ -1117,7 +1120,11 @@ every problem listed together. The campaign is real and usable at that point, so
 read the message rather than assuming a rollback:
 
 - Offers answering 404/405 means this store does not take offers over the API.
-  Everything else exists; build the offers in the dashboard (Offers & Discounts).
+  Everything else exists; build the offers in the campaign's **Offers** tab in
+  the dashboard. The offer editor's Products picker reuses the packages this run
+  created, so their IDs do not change. A product picked there that the campaign
+  does not have yet becomes a new package when the offer is saved, and this run
+  does not own it.
 - Package images answering 404 or 405 on the first attempt means the store's build
   predates them. Packages keep whatever image the catalogue supplied; set overrides
   in the dashboard. A 404 on one package *after* another has succeeded is read as
@@ -1495,7 +1502,7 @@ from the most recent edit.
 | `this run was torn down` | `--resume` on a manifest that teardown started or finished | re-run `teardown` if it was interrupted, then start a fresh run with `recommend --out <new dir>` |
 | `not gitignored` | the run directory is inside a git repository that does not ignore it | add `next-campaigns-create-runs/` to `.gitignore`, or pass `--out` outside the repository |
 | `cannot confirm ... is safe to write` | a `.git` directory was found but git could not be asked | install git, or pass `--out` outside the repository |
-| offers POST returns 404/405 | store's Offers API not live | campaign, packages and shipping are created; build offers in the dashboard |
+| offers POST returns 404/405 | store's Offers API not live | campaign, packages and shipping are created; build offers in the campaign's Offers tab in the dashboard |
 | `--offers-available cannot apply` from `recommend` | the discovery says this store answers 404/405 on the offers endpoint, so the plan carries no offers to switch off | drop the flag; the offers are a dashboard hand-off on this store, so switch them off in the dashboard |
 | `landed prices still describe them as live` from `apply`, or the same warning from `plan` | an offer's `available` was set to false by hand and the landed rows were not recomputed | `reland --plan <file>`, show the operator the new tables, approve the new hash |
 | `already holds a run` and `changes only through edit (set_offer_available)` from `reland` | the plan is bound to a run, so rewriting it would break `--resume`, `verify` and `teardown` | change availability after apply with `edit set_offer_available` (Phase 7) |
@@ -1533,7 +1540,7 @@ Update path (full refusal table with the engine's own wording in
 | `an update is in progress; finish it with update --resume` | `active_update` is on the manifest, so `diff`, `verify`, `teardown`, `edit` and `apply --resume` all refuse | `update --resume` with the same change set and hash, or `update --settle` when it cannot finish |
 | `campaign changed since you reviewed the diff; re-run diff` | the store moved between the diff and the update, a dashboard image change included | re-run `diff`, review the new change set, approve that one |
 | `conflicting edits: the store changed what you changed` | base, candidate and store all differ on one field | set the candidate to the store's value to keep it, or put the store back to the base value, then diff again |
-| `the campaign carries object(s) this run does not own` | a package, shipping method or offer added outside this run | remove it in the dashboard, or adopt the campaign into a fresh run directory and edit that plan |
+| `the campaign carries object(s) this run does not own` | a package, shipping method or offer added outside this run. Saving an offer in the dashboard adds a package for each product it selects that the campaign did not have | remove it in the dashboard, or adopt the campaign into a fresh run directory and edit that plan |
 | `cannot be deleted: the store changed it since the base plan` | the object to be deleted is not what the plan recorded, so the baseline hash would not have caught it | review the printed values with the operator, then re-run `diff --delete-changed <section>:<key>` |
 | `cannot be deleted while live offer(s) ... scope it` | a package a surviving offer still covers; the API refuses that delete | narrow or delete those offers in their own update first, then delete the package |
 | `would set the name ... which live offer N still holds at that point` | two offers swapping a name or a voucher code; they are unique per campaign | do it as 2 updates through a temporary name, or reorder so the offer holding it changes first |

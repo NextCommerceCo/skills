@@ -1241,7 +1241,7 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
 
     offers_supported = discovery.get("offers_supported", "unknown")
     if offers_supported is False:
-        handoff.append("Offers API not available on this store: create tier/voucher offers in the dashboard (Offers & Discounts).")
+        handoff.append("Offers API not available on this store: create tier/voucher offers in the dashboard (the campaign's Offers tab).")
 
     def whole_pct(x, what):
         try:
@@ -1672,7 +1672,7 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
             # offer can never be folded back into this plan; it is proven by hand.
             probe = "1 unit" if min_qty is None else f"{min_qty - 1} and {min_qty} units"
             handoff.append(f"Free shipping requested ({rule}): create the automatic 100% shipping offer on the "
-                           "hero packages in the dashboard (Offers & Discounts), then prove it with "
+                           "hero packages in the dashboard (the campaign's Offers tab), then prove it with "
                            f"carts/calculate probes at {probe}.")
             rationale.append(f"Free shipping ({rule}) is not in this plan because the Offers API is unavailable; "
                              "verify will expect paid shipping on every checkout case, so the dashboard offer "
@@ -2775,7 +2775,7 @@ def apply(client: Client, plan: dict, plan_sha: str, manifest_path: Path, resume
         problems.append(
             "offers endpoint answered 404/405: this store does not accept offers over the API yet. "
             "Campaign, packages and shipping are created and journalled (offers marked unsupported); "
-            "create the offers in the dashboard (Offers & Discounts), or teardown. A --resume will "
+            "create the offers in the dashboard (the campaign's Offers tab), or teardown. A --resume will "
             "not retry the unsupported offers.")
     if images_unsupported:
         problems.append(
