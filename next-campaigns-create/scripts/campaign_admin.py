@@ -6609,11 +6609,12 @@ def _settle_availability(client: Client, man: Manifest, cid, a: dict, package_id
                 f"offer {a['key']} (id {e['id']}) was created and is LIVE, but pausing it returned {status}: "
                 f"{_short(resp)}; not retried. {retry_hint}"
                 + auth_hint(status, "PATCH", obj["path"]))
-        if requested_off:
-            man.mark("offers", a["key"], available_patched=True)
         live = _read_object(client, obj)
         problems = problems_with(live, expect_paused)
         if not problems and requested_off:
+            # Journalled only once the read-back proves the pause, so the manifest
+            # never claims a settle that did not happen.
+            man.mark("offers", a["key"], available_patched=True)
             print(f"offer {a['key']} (id {e['id']}): this store ignored available=false on create (build "
                   "predates campaigns-app 604); paused with a PATCH and read back")
     else:

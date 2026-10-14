@@ -4068,6 +4068,25 @@ class SchemaAdditions(unittest.TestCase):
             self.assertEqual((e["pause_pending"], e["available_patched"]), (False, True))
             self.assertFalse(state["offers"][101][offer_id]["available"])
 
+    def test_an_unproven_backstop_pause_is_not_journalled_as_patched(self):
+        """A backstop PATCH that answers 200 but leaves the offer live stops the
+        run, and the manifest does not claim a settle that never happened."""
+        plan = self._one_offer_plan()
+        state = fresh_state()
+        state["ignore_create_available"] = True
+        t = DynamicTransport(self.disc, state)
+        offer_id = 100 + 1 + len(plan["packages"]) + len(plan["shipping_methods"]) + 1
+        cid = 101
+        offer_path = f"/api/admin/campaigns/{cid}/offers/{offer_id}/"
+        t.routes[("PATCH", offer_path)] = lambda path, body: (200, dict(state["offers"][cid][offer_id]))
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(ca.CampaignAdminError) as cm:
+                self._apply(plan, d, transport=t)
+            self.assertIn("read-back is not what was intended", str(cm.exception))
+            e = ca.Manifest.load(Path(d) / "run-manifest.json").entry("offers", "tier-1")
+            self.assertTrue(e["pause_pending"])
+            self.assertNotIn("available_patched", e)
+
     def test_a_store_that_ignores_available_on_create_is_patched_and_reported(self):
         plan = self._one_offer_plan()
         state = fresh_state()

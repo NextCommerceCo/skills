@@ -389,8 +389,8 @@ For an offer the plan switches off it then sends one GET and checks that
 `available` reads back false. That read is the proof; a 201 is not. Only when
 the read shows the offer live, which means the store's build predates
 campaigns-app 604, does it send `PATCH .../offers/{id}/` `{"available": false}`,
-read the offer back again, set `available_patched: true` on the manifest entry
-and print
+read the offer back again and, only once that read proves the whole offer
+switched off, set `available_patched: true` on the manifest entry and print
 `offer <key> (id N): this store ignored available=false on create (build predates campaigns-app 604); paused with a PATCH and read back`.
 The offer is journalled with `pause_pending` from its POST until that proof, so
 an interrupted run resumes the settle step with `apply --resume` and never
