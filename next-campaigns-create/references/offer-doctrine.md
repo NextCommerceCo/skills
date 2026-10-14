@@ -91,8 +91,8 @@ the operator sees the over-discount before approving.
 rate on the same packages (for example Buy 1 at 50% plus buy 2 get 1 free at
 33.33%) is a non-monotonic mix. The engine gives quantity 3 the BXGY rate, the
 offer with the bigger minimum, while the skill's landed-price forecast assumes
-the deepest matching percentage wins, so the plan would misstate the price. Buy 1 at list (no offer) plus
-the BXGY offer is the default encode. A deeper percentage at a higher count
+the deepest matching percentage wins, so the plan would misstate the price.
+The default encode is Buy 1 at list (no offer) plus the BXGY offer. A deeper percentage at a higher count
 than `X + Y` is allowed if the operator hand-authors it; `recommend` will not
 emit a non-monotonic mix.
 

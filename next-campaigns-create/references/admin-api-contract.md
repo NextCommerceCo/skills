@@ -170,8 +170,8 @@ retrieve.
     paid-shipping ladder); new plans cannot.
   - The dashboard's Shipping table (on Create Campaign and in the campaign's
     Settings tab) lists each store shipping method once, with its Store Price,
-    a Campaign Price and an Enabled switch, so a second campaign method on one
-    code cannot be added there.
+    a Campaign Price and an Enabled switch, so a second campaign shipping method on
+    one code cannot be added there.
   - Campaigns App releases that validate duplicates answer a shipping create on
     a code the campaign already uses with a 400:
     `{"shipping_method": ["Shipping method code '<code>' already exists on this
@@ -478,11 +478,13 @@ The checks around each write:
 Landed prices after an edit are recomputed from the plan's packages and offers,
 not carried over. For a checkout row, the live automatic `package_percentage`
 offers whose scope covers the row's packages and whose condition the quantity
-meets are compared and the highest percentage wins; `price_rounding` is applied
-to the winner, never used to choose it. The engine itself picks the offer with
-the bigger minimum quantity first, which is the same offer on a ladder where a
-higher count always carries a deeper percentage (offer doctrine, Rounding and
-stacking). No such offer means the package price,
+meets are compared and the skill's forecast takes the highest percentage;
+`price_rounding` is applied to the winner, never used to choose it. The engine
+picks the offer with the bigger minimum quantity first. On a ladder where a
+higher count always carries a deeper percentage both pick the same offer, which
+is why `recommend` emits only those ladders; on a hand-authored non-monotonic
+mix the forecast can differ from the store, and `verify` catches it against the
+Cart API (offer doctrine, Rounding and stacking). No such offer means the package price,
 with `offer_key` null, which is also what a row gets when its only offer is
 switched off. An upsell row is priced by its own voucher. A row whose own
 `offer_key` names an offer that exists but is switched off (an upsell voucher

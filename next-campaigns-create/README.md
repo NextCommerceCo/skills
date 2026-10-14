@@ -196,7 +196,7 @@ Four things to know before you ask:
 > such as two offers with the same name, it stops and tells you what to fix in
 > the dashboard first.
 >
-> The dashboard adds one product per variant and reuses it in every offer, which
+> The dashboard adds one package per variant and reuses it in every offer, which
 > is the shape the skill expects. An older campaign may sell one variant as
 > several packages, such as separate 1x, 2x and 3x packages. The skill cannot
 > describe that campaign. Check with whoever built your funnel pages before you

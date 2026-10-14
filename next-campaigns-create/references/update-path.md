@@ -110,7 +110,7 @@ campaign is not adopted and nothing else can run against it.
 
 | Blocker | What the operator does |
 |---|---|
-| two packages on one product variant | an older campaign: the dashboard now reuses one package per variant. Find which package the funnel pages use, remove the other in the campaign's Products tab, then adopt again. If the other one is a legacy multi-unit package (a 2x or 3x of the variant), move any page that sells it to the single package and a quantity offer before removing it |
+| two packages on one product variant | the dashboard reuses one package per variant, so an extra one is non-canonical (left from an older campaign or created over the Admin API). Find which package the funnel pages use, remove the other in the campaign's Products tab, then adopt again. If the other one is a legacy multi-unit package (a 2x or 3x of the variant), move any page that sells it to the single package and a quantity offer before removing it |
 | two campaign shipping methods on one store code | remove one in the dashboard, then adopt again |
 | two offers with the same name | rename one in the dashboard, then adopt again |
 | a `count` offer whose threshold does not read back as a whole number | read the threshold in the dashboard, correct the offer there, then adopt again |
