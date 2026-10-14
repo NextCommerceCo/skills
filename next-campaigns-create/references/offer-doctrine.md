@@ -308,6 +308,44 @@ Scoping rules:
   generated `{SHORT NAME}{PCT}` code is meant for that; pass `--exit-code` only
   when the operator wants something else, such as `SAVE10`.
 
+## Offer availability
+
+Every offer has an `available` flag. `true` means it is enabled and fires when
+the cart meets its condition (or, for a voucher, when its code is entered).
+`false` means it is disabled: it exists, keeps its id, name and code, and gives
+no discount. The create request may carry the flag; left out, the API creates
+the offer enabled.
+
+Creating an offer is not activating it. A campaign can be built in full, with
+every package, shipping method and offer in place and every id handed to the
+funnel, while its offers stay switched off until the merchant is ready. Build
+it that way whenever the operator says the discounts should not run yet: "all
+offers disabled", "don't make the discounts available yet", a draft, an
+inactive or unpublished campaign, "not live yet".
+`recommend --offers-available false` switches every offer off. When the
+operator says it is ready to go, or says nothing about it, leave the flag out
+and the offers are created enabled. When only some discounts should wait
+("don't make the exit discount available yet"), switch those offers off in the
+plan and reland it.
+Never create an offer live and switch it off afterwards: shoppers can reach it
+in between.
+
+Campaign reachability and offer availability are different things. The
+campaign exists, and its api_key works, from the moment it is created; this
+skill models no campaign status and sets none. Offers are on or off one at a
+time. A campaign that exists, or that a funnel already points at, says nothing
+about its offers, so never assume they are all on.
+
+Landed prices are the prices a shopper pays now. While an offer is off its
+discount is not in them: its rows take the best offer still on, or the package
+price when none is left, and shipping a switched-off free-shipping offer would
+have covered is charged. Switching off one quantity tier therefore moves that
+row to the tier below it, not to full price. The plan gate
+shows a second table with the prices once the offers are resumed, so the
+operator can approve both the switched-off campaign and the discounts it will
+carry. Resuming is one `edit set_offer_available` per offer, and a fresh
+`verify` after it is what proves the discounts.
+
 ## Rounding and stacking
 
 The Cart API `calculate` call is the source of truth for what a cart costs. A

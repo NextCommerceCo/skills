@@ -95,7 +95,7 @@ def ns(**kw):
                 language=None, countries=None, offer_type="quantity", paid_qty=None, free_qty=None,
                 gift=None, gift_mode="auto", tiers=None, exit=None, exit_code=None, bump=None,
                 upsell=None, short_name=None, free_shipping=False, free_shipping_min_qty=None, rounding=None,
-                statement_descriptor=None)
+                statement_descriptor=None, offers_available=None)
     base.update(kw)
     return argparse.Namespace(**base)
 
@@ -946,7 +946,9 @@ def store_routes(disc, state):
             if kind == "offers":
                 item["condition"] = offer_condition(state, body["condition"])
                 item["benefit"] = offer_benefit(body["benefit"])
-                item["available"] = body.get("available", True)
+                # A store on a build before campaigns-app 604 ignores `available` on
+                # create and makes every offer live: state["ignore_create_available"].
+                item["available"] = True if state.get("ignore_create_available") else body.get("available", True)
                 item["code"] = body.get("code")
             if kind == "shipping-methods":
                 item["prices"] = _shipping_prices(body)
@@ -1161,8 +1163,64 @@ def fresh_state():
     (False hides a count offer's threshold on read-back, default True),
     `patch_appends_suffix` (False leaves a sent package name bare, default True),
     `cascade_on_package_delete` (True lets a package an offer scopes be deleted,
-    default False: the live API answers 400)."""
+    default False: the live API answers 400), `ignore_create_available` (True
+    creates every offer live whatever the POST says, as a store before
+    campaigns-app 604 did)."""
     return {"seq": 100, "campaigns": {}, "packages": {}, "shipping-methods": {}, "offers": {}}
+
+
+def live_engine(state, cid):
+    """A fake carts/calculate that prices from what the fake store holds now,
+    not from the plan: the highest-percentage live automatic package offer the
+    cart meets (none in upsell mode), then any entered live voucher, then
+    shipping unless a live 100% shipping offer is met. Because it reads the
+    store, verify passing means the plan and the store agree, including on
+    which offers are switched off."""
+    def scope(o):
+        return {p["id"] for p in o["condition"]["packages"]}
+
+    def calc(path, body):
+        upsell = path.endswith("?upsell=true")
+        packages = state["packages"][cid]
+        live = [o for o in state["offers"].get(cid, {}).values() if o.get("available", True)]
+        lines = [(l["package_id"], l["quantity"]) for l in body["lines"]]
+
+        def met(o):
+            # The store reports a count threshold as a decimal string ("2.00").
+            need = o["condition"].get("value") if o["condition"]["type"] == "count" else 1
+            return sum(q for i, q in lines if i in scope(o)) >= Decimal(str(need or 1))
+
+        def pct(o, kind):
+            return o.get("offer_type", "offer") == kind and o["benefit"]["type"] == "package_percentage"
+
+        total = Decimal(0)
+        for i, q in lines:
+            unit = Decimal(next(r["price"] for r in packages[i]["prices"] if r["currency"] == "USD"))
+            autos = [] if upsell else [o for o in live if pct(o, "offer") and i in scope(o) and met(o)]
+            if autos:
+                best = max(autos, key=lambda o: Decimal(o["benefit"]["value"]))
+                unit = ca.landed_unit(unit, Decimal(best["benefit"]["value"]), best["benefit"].get("price_rounding"))
+            for code in body.get("vouchers", []):
+                v = next((o for o in live if pct(o, "voucher") and o.get("code") == code), None)
+                if v and i in scope(v) and met(v):
+                    unit = ca.landed_unit(unit, Decimal(v["benefit"]["value"]), v["benefit"].get("price_rounding"))
+            total += unit * q
+        if "shipping_method" in body:
+            free = any(o.get("offer_type", "offer") == "offer" and o["benefit"]["type"] == "shipping_percentage"
+                       and Decimal(o["benefit"]["value"]) == 100 and met(o) for o in live)
+            if not free:
+                method = state["shipping-methods"][cid][body["shipping_method"]]
+                total += Decimal(next(r["price"] for r in method["prices"] if r["currency"] == "USD"))
+        return 200, {"total": str(total), "lines": []}
+    return calc
+
+
+def verify_live(transport, state, man, plan, sha):
+    """verify `plan` against the fake store, with carts priced by live_engine."""
+    tt = FakeTransport({("POST", "/api/v1/carts/calculate/"): live_engine(state, man.data["campaign"]["id"])})
+    cart = ca.Client(ca.CART_API_ORIGIN, "k", auth_scheme="raw", send_version_header=False,
+                     transport=tt, clock=FakeClock(), sleep=lambda s: None)
+    return ca.verify(make_client(transport), cart, man, plan, sha), tt
 
 
 def seed_live_campaign(state, *, all_packages=False, value_readable=True, recurring=False,
@@ -3906,21 +3964,138 @@ class SchemaAdditions(unittest.TestCase):
         o["available"] = True
         self.assertIs(ca.offer_body(o, ids)["available"], True)
 
-    def test_a_fresh_apply_refuses_a_plan_that_pauses_an_offer(self):
-        """A create always lands live, so `available: false` can only come from a
-        pause after the fact. A fresh run says so and sends nothing rather than
-        leave the operator guessing whether the offer fires."""
-        plan = ca.recommend(self.disc, ns(free_shipping=True))
-        fs = next(o for o in plan["offers"] if o["key"] == "free-shipping")
-        fs["available"] = False
-        with tempfile.TemporaryDirectory() as d:
-            pp = Path(d) / "campaign-plan.json"
+    # -- creating offers switched off (campaigns-app 604) ------------------- #
+    def _apply(self, plan, d, state=None, resume=False, transport=None):
+        """apply `plan` from a run directory `d`; returns (transport, manifest, sha)."""
+        pp = Path(d) / "campaign-plan.json"
+        if not pp.exists():
             ca.atomic_write_json(pp, plan)
-            t = DynamicTransport(self.disc, fresh_state())
+        sha = ca.sha256_file(pp)
+        t = transport or DynamicTransport(self.disc, state if state is not None else fresh_state())
+        mp = Path(d) / "run-manifest.json"
+        man = ca.apply(make_client(t), plan, sha, mp, mp if resume else None)
+        return t, man, sha
+
+    @staticmethod
+    def _offer_item_calls(t, method=None):
+        """Calls on one offer by id (/offers/<id>/), as (method, path, body)."""
+        return [(c[0], c[1], c[2]) for c in t.calls
+                if "/offers/" in c[1] and not c[1].endswith("/offers/") and (method is None or c[0] == method)]
+
+    def _one_offer_plan(self, **kw):
+        """A plan whose only offer is Buy 1 at 50%, switched off."""
+        return ca.recommend(self.disc, ns(tiers="50", exit="0", offers_available="false", **kw))
+
+    def test_a_fresh_apply_creates_a_paused_offer_switched_off(self):
+        """campaigns-app 604: the create POST honours `available`, so a plan
+        that switches offers off reaches the store that way in one request each,
+        proven by one read-back, with no PATCH."""
+        plan = ca.recommend(self.disc, ns(free_shipping=True, offers_available="false"))
+        state = fresh_state()
+        with tempfile.TemporaryDirectory() as d:
+            t, man, sha = self._apply(plan, d, state)
+            posts = [c[2] for c in t.calls if c[0] == "POST" and c[1].endswith("/offers/")]
+            self.assertEqual(len(posts), len(plan["offers"]))
+            self.assertTrue(all(b["available"] is False for b in posts), posts)
+            self.assertEqual([c for c in t.calls if c[0] == "PATCH"], [])
+            ids = {e["key"]: e["id"] for e in man.data["offers"]}
+            gets = [c[1] for c in self._offer_item_calls(t, "GET")]
+            self.assertEqual(sorted(gets), sorted(f"/api/admin/campaigns/{man.data['campaign']['id']}/offers/{i}/"
+                                                  for i in ids.values()))
+            for e in man.data["offers"]:
+                self.assertEqual((e["status"], e.get("pause_pending")), ("created", False), e)
+                self.assertNotIn("available_patched", e)
+            cid = man.data["campaign"]["id"]
+            self.assertTrue(all(o["available"] is False for o in state["offers"][cid].values()))
+            report, _ = verify_live(t, state, man, plan, sha)
+            self.assertEqual(report["result"], "PASS", json.dumps(report, indent=1))
+            checks = {c["check"]: c["result"] for c in report["admin_checks"]}
+            self.assertTrue(all(checks[f"offer {k} available"] == "PASS" for k in ids))
+            # Switched off, the campaign charges package prices: no case expects a
+            # discount, and no paused voucher code is ever submitted.
+            anchor = Decimal(plan["packages"][0]["price"])
+            self.assertTrue(report["calculate_cases"])
+            for c in report["calculate_cases"]:
+                self.assertNotIn("vouchers", c["request"])
+                self.assertEqual(Decimal(c["expected_total"]) - Decimal(c["expected_shipping"] or "0"),
+                                 anchor * c["units"], c["case"])
+
+    def test_resume_creates_a_paused_offer_switched_off(self):
+        plan = ca.recommend(self.disc, ns(offers_available="false"))
+        state = fresh_state()
+        t = DynamicTransport(self.disc, state)
+        with tempfile.TemporaryDirectory() as d:
+            # the run stops at its first offer: that POST never reaches the store
+            cid = 101
+            t.fail_on[("POST", f"/api/admin/campaigns/{cid}/offers/")] = 500
+            with self.assertRaises(ca.CampaignAdminError):
+                self._apply(plan, d, transport=t)
+            t.calls.clear()
+            _, man, _ = self._apply(plan, d, resume=True, transport=t)
+            posts = [c[2] for c in t.calls if c[0] == "POST" and c[1].endswith("/offers/")]
+            self.assertEqual(len(posts), len(plan["offers"]))
+            self.assertTrue(all(b["available"] is False for b in posts))
+            self.assertEqual([c for c in t.calls if c[0] == "PATCH"], [])
+            self.assertTrue(all(o["available"] is False for o in state["offers"][101].values()))
+            self.assertTrue(all(e.get("pause_pending") is False for e in man.data["offers"]))
+
+    def test_resume_finishes_an_unproven_pause(self):
+        """A store that ignored available=false, and a backstop PATCH that failed:
+        the offer is LIVE, the journal says so, and apply --resume finishes the
+        pause without creating anything again."""
+        plan = self._one_offer_plan()
+        state = fresh_state()
+        state["ignore_create_available"] = True
+        t = DynamicTransport(self.disc, state)
+        offer_id = 100 + 1 + len(plan["packages"]) + len(plan["shipping_methods"]) + 1
+        cid = 101
+        offer_path = f"/api/admin/campaigns/{cid}/offers/{offer_id}/"
+        t.fail_on[("PATCH", offer_path)] = 500
+        with tempfile.TemporaryDirectory() as d:
             with self.assertRaises(ca.CampaignAdminError) as cm:
-                ca.apply(make_client(t), plan, ca.sha256_file(pp), Path(d) / "run-manifest.json", None)
-            self.assertIn("creates every offer live", str(cm.exception))
-            self.assertEqual([c for c in t.calls if c[0] != "GET"], [])
+                self._apply(plan, d, transport=t)
+            self.assertIn("is LIVE", str(cm.exception))
+            self.assertIn("apply --resume", str(cm.exception))
+            man = ca.Manifest.load(Path(d) / "run-manifest.json")
+            e = man.entry("offers", "tier-1")
+            self.assertEqual((e["id"], e["status"], e["pause_pending"]), (offer_id, "created", True))
+            self.assertTrue(state["offers"][101][offer_id]["available"])
+            state["ignore_create_available"] = False
+            t.calls.clear()
+            _, man, _ = self._apply(plan, d, resume=True, transport=t)
+            self.assertEqual([(c[0], c[2]) for c in t.calls if c[0] != "GET"], [("PATCH", {"available": False})])
+            e = man.entry("offers", "tier-1")
+            self.assertEqual((e["pause_pending"], e["available_patched"]), (False, True))
+            self.assertFalse(state["offers"][101][offer_id]["available"])
+
+    def test_a_store_that_ignores_available_on_create_is_patched_and_reported(self):
+        plan = self._one_offer_plan()
+        state = fresh_state()
+        state["ignore_create_available"] = True
+        out, old = [], ca.print
+        ca.print = lambda *a, **k: out.append(" ".join(str(x) for x in a))
+        self.addCleanup(setattr, ca, "print", old)
+        with tempfile.TemporaryDirectory() as d:
+            t, man, sha = self._apply(plan, d, state)
+            seq = [(c[0], c[2]) for c in t.calls if "/offers/" in c[1]
+                   and not (c[0] == "GET" and c[1].endswith("/offers/"))]
+            self.assertEqual([m for m, _ in seq], ["POST", "GET", "PATCH", "GET"])
+            self.assertIs(seq[0][1]["available"], False)
+            self.assertEqual(seq[2][1], {"available": False})
+            e = man.entry("offers", "tier-1")
+            self.assertEqual((e["status"], e["pause_pending"], e["available_patched"]), ("created", False, True))
+            self.assertTrue(any("ignored available=false on create" in l for l in out), out)
+            self.assertFalse(state["offers"][101][e["id"]]["available"])
+            report, _ = verify_live(t, state, man, plan, sha)
+            self.assertEqual(report["result"], "PASS", json.dumps(report, indent=1))
+
+    def test_live_offers_are_never_read_back_during_apply(self):
+        for flag in (None, "true"):
+            with self.subTest(flag), tempfile.TemporaryDirectory() as d:
+                plan = ca.recommend(self.disc, ns(free_shipping=True, offers_available=flag))
+                t, man, _ = self._apply(plan, d)
+                self.assertEqual(self._offer_item_calls(t), [])
+                self.assertTrue(all("pause_pending" not in e for e in man.data["offers"]))
 
 
 class AvailableFilter(unittest.TestCase):
@@ -3956,6 +4131,335 @@ class AvailableFilter(unittest.TestCase):
         self.assertTrue(any("exit voucher" in c.name for c in ca._cart_cases_from_plan(plan, ids)))
         next(o for o in plan["offers"] if o["key"] == "exit-pop")["available"] = False
         self.assertFalse(any("exit voucher" in c.name for c in ca._cart_cases_from_plan(plan, ids)))
+
+
+def capture_print():
+    """Swap ca.print for a list collector; returns (lines, restore)."""
+    out, old = [], ca.print
+    ca.print = lambda *a, **k: out.append(" ".join(str(x) for x in a))
+    return out, (lambda: setattr(ca, "print", old))
+
+
+def stamp_off(plan, keys=None):
+    """Switch the plan's offers (or only `keys`) off, without relanding."""
+    for o in plan["offers"]:
+        if keys is None or o["key"] in keys:
+            o["available"] = False
+    return plan
+
+
+class OffersAvailableFlag(unittest.TestCase):
+    """recommend --offers-available: unset sends nothing, false creates every
+    offer switched off and prices the plan as the cart is then, true is an
+    explicit request for the default."""
+
+    # Captured from HEAD 10fbf56, before the flag existed: sha256 of
+    # json.dumps(render_requests(plan)) + json.dumps(plan["landed_prices"]). A
+    # plan that never mentions availability must stay byte-identical on the wire.
+    GOLDEN = {
+        "quantity": ({}, "be3bdc4a445c1232643d8a0b7f1ab67bc864ea4240f699415cf3926da4cd0c82"),  # public-safety: allow high-entropy: sha256 pin of HEAD output
+        "bxgy": (dict(offer_type="bxgy", paid_qty=2, free_qty=1),
+                 "df2da9b2c4d1091f33a7fb25c2e0b09a21dc54589a090e7f046eabc03b7d5bf9"),  # public-safety: allow high-entropy: sha256 pin of HEAD output
+        "gwp": (dict(offer_type="gwp", gift=["16:19.95"]),
+                "66de8f74097f84d320b7bcadec8e8240591509dfb439a2e1ef0373190e23ffae"),  # public-safety: allow high-entropy: sha256 pin of HEAD output
+    }
+    FULL = dict(free_shipping=True, upsell=["16:39.95:50"])
+
+    def setUp(self):
+        self.disc = load_fixture("discovery.json")
+
+    @staticmethod
+    def _same(a, b):
+        a, b = dict(a), dict(b)
+        a.pop("generated_at"), b.pop("generated_at")
+        return a == b
+
+    def test_unset_emits_no_key_and_is_byte_identical_to_before(self):
+        import hashlib
+        for name, (kw, golden) in self.GOLDEN.items():
+            with self.subTest(name):
+                plan = ca.recommend(self.disc, ns(**kw))
+                self.assertTrue(all("available" not in o for o in plan["offers"]))
+                reqs = ca.render_requests(plan)
+                self.assertTrue(all("available" not in body for _, _, body in reqs))
+                digest = hashlib.sha256((json.dumps(reqs) + json.dumps(plan["landed_prices"])).encode()).hexdigest()
+                self.assertEqual(digest, golden)
+                self.assertEqual(ca.reland(plan), plan["landed_prices"])
+        plan = ca.recommend(self.disc, ns(**self.FULL))
+        self.assertTrue(all("available" not in o for o in plan["offers"]))
+
+    def test_false_stamps_every_offer_and_prices_the_plan_at_package_prices(self):
+        live = ca.recommend(self.disc, ns(**self.FULL))
+        off = ca.recommend(self.disc, ns(offers_available="false", **self.FULL))
+        self.assertEqual({o["key"] for o in off["offers"]},
+                         {"tier-1", "tier-2", "tier-3", "upsell-15-50", "exit-pop", "free-shipping"})
+        self.assertTrue(all(o["available"] is False for o in off["offers"]))
+        prices = {p["key"]: p["price"] for p in off["packages"]}
+        for row in off["landed_prices"]:
+            anchor = prices[row["package_keys"][0]]
+            self.assertEqual((row["anchor"], row["pct"], row["unit_after"]), (anchor, 0, anchor), row["tier"])
+            self.assertEqual(Decimal(row["order_total"]), Decimal(anchor) * row["qty"])
+            if row["kind"] == "upsell":
+                self.assertEqual(row["offer_key"], "upsell-15-50")  # kept, so a resume reprices it
+            else:
+                self.assertIsNone(row["offer_key"])
+        self.assertTrue(ca._rows_agree(ca.reland(off), off["landed_prices"]))
+        self.assertEqual(ca.reland(ca._as_live(off)), live["landed_prices"])
+        self.assertTrue(any("available=false (--offers-available false)" in r for r in off["rationale"]))
+        self.assertEqual(ca.validate_plan(off), [])
+        # Everything but availability, the rows and that one line matches the live plan.
+        strip = json.loads(json.dumps(off))
+        for o in strip["offers"]:
+            o.pop("available")
+        strip["landed_prices"] = live["landed_prices"]
+        strip["rationale"] = [r for r in strip["rationale"] if "--offers-available false" not in r]
+        self.assertTrue(self._same(strip, live))
+        bodies = [b for m, path, b in ca.render_requests(off) if path.endswith("/offers/")]
+        self.assertEqual(len(bodies), len(off["offers"]))
+        self.assertTrue(all(b["available"] is False for b in bodies))
+
+    def test_true_is_written_explicitly_and_changes_no_price(self):
+        live = ca.recommend(self.disc, ns(**self.FULL))
+        on = ca.recommend(self.disc, ns(offers_available="true", **self.FULL))
+        self.assertTrue(all(o["available"] is True for o in on["offers"]))
+        self.assertEqual(on["landed_prices"], live["landed_prices"])
+        self.assertEqual(on["rationale"], live["rationale"])
+        bodies = [b for m, path, b in ca.render_requests(on) if path.endswith("/offers/")]
+        self.assertTrue(all(b["available"] is True for b in bodies))
+
+    def test_bad_value_is_a_usage_error(self):
+        with tempfile.TemporaryDirectory() as d:
+            dp = Path(d) / "discovery.json"
+            dp.write_text(json.dumps(self.disc))
+            argv = ["recommend", "--discovery", str(dp), "--hero", "22", "--ctc", "low", "--anchor-price", "49.95",
+                    "--shipping", "standard:6.95", "--out", d]
+            with mock.patch("sys.stderr", io.StringIO()) as err, self.assertRaises(SystemExit) as cm:
+                ca.main(argv + ["--offers-available", "maybe"])
+            self.assertEqual(cm.exception.code, 2)
+            self.assertIn("--offers-available", err.getvalue())
+            self.assertFalse((Path(d) / ca.PLAN_NAME).exists())
+            with self.assertRaises(ca.CampaignAdminError):
+                ca.recommend(self.disc, ns(offers_available="no"))
+            # the CLI writes the switched-off plan
+            self.assertEqual(ca.main(argv + ["--offers-available", "false"]), 0)
+            written = ca.load_json(Path(d) / ca.PLAN_NAME)
+            self.assertTrue(all(o["available"] is False for o in written["offers"]))
+
+    def test_help_lists_the_flag_and_the_reland_command(self):
+        for argv, text in ((["recommend", "--help"], "--offers-available"), (["reland", "--help"], "--plan")):
+            with mock.patch("sys.stdout", io.StringIO()) as out, self.assertRaises(SystemExit) as cm:
+                ca.main(argv)
+            self.assertEqual(cm.exception.code, 0)
+            self.assertIn(text, out.getvalue())
+
+    def test_an_offerless_store_refuses_the_flag_with_the_dashboard_hand_off(self):
+        disc = json.loads(json.dumps(self.disc))
+        disc["offers_supported"] = False
+        for flag in ("false", "true"):
+            with self.assertRaises(ca.CampaignAdminError) as cm:
+                ca.recommend(disc, ns(offers_available=flag))
+            self.assertIn("--offers-available cannot apply", str(cm.exception))
+            self.assertIn("switch them off in the dashboard", str(cm.exception))
+        plan = ca.recommend(disc, ns())
+        self.assertEqual(plan["offers"], [])
+        self.assertEqual(ca.validate_plan(plan), [])
+
+    def test_the_gate_shows_switched_off_offers_and_the_prices_once_resumed(self):
+        off = ca.recommend(self.disc, ns(offers_available="false", **self.FULL))
+        out, restore = capture_print()
+        try:
+            ca.print_plan(off, None)
+        finally:
+            restore()
+        marked = [l for l in out if l.rstrip().endswith("SWITCHED OFF (created with available=false)")]
+        self.assertEqual(len(marked), len(off["offers"]))
+        i = out.index("Landed prices once the offers are resumed:")
+        now = out[out.index("Landed prices (confirm these):") + 1:i]
+        resumed = out[i + 1:]
+        live = ca.recommend(self.disc, ns(**self.FULL))
+        for row in live["landed_prices"]:
+            line = next(l for l in resumed if l.strip().startswith(row["tier"] + " "))
+            self.assertIn(f"unit {row['unit_after']}  total {row['order_total']}", line)
+        buy2_now = next(l for l in now if l.strip().startswith("Buy 2 "))
+        buy2_resumed = next(l for l in resumed if l.strip().startswith("Buy 2 "))
+        self.assertIn("shipping 6.95", buy2_now)
+        self.assertIn("shipping free", buy2_resumed)
+        self.assertIn("6 of 6 offers are created switched off; resume with: edit set_offer_available", out)
+        self.assertFalse(any(l.startswith("WARNING:") for l in out))
+        # the plan that never mentions availability prints neither
+        out, restore = capture_print()
+        try:
+            ca.print_plan(live, None)
+        finally:
+            restore()
+        self.assertFalse(any("SWITCHED OFF" in l or "once the offers are resumed" in l for l in out))
+
+
+class RelandPaused(unittest.TestCase):
+    """reland expresses a plan whose offers are switched off, so recommend,
+    reland --plan and edit agree on its prices and every offer can be resumed."""
+
+    SHAPES = dict(
+        quantity=dict(free_shipping=True),
+        bxgy=dict(offer_type="bxgy", paid_qty=2, free_qty=1),
+        gwp=dict(offer_type="gwp", gift=["16:19.95"]),
+        upsell=dict(hero=10, ctc="high", anchor_price="189.95", upsell=["16:39.95:50"]),
+    )
+
+    def setUp(self):
+        self.disc = load_fixture("discovery.json")
+
+    def paused(self, kw):
+        """(the live recommend plan, the same plan with every offer off and relanded)"""
+        orig = ca.recommend(self.disc, ns(**kw))
+        p = stamp_off(json.loads(json.dumps(orig)))
+        p["landed_prices"] = ca.reland(p)
+        return orig, p
+
+    def test_every_shape_can_be_switched_off_and_resumed(self):
+        for name, kw in self.SHAPES.items():
+            with self.subTest(name):
+                orig, p = self.paused(kw)
+                prices = {k["key"]: k["price"] for k in p["packages"]}
+                roles = {k["key"]: k["role"] for k in p["packages"]}
+                for row, before in zip(p["landed_prices"], orig["landed_prices"]):
+                    anchor = prices[row["package_keys"][0]]
+                    self.assertEqual((row["pct"], row["unit_after"]), (0, anchor), row["tier"])
+                    if row["kind"] == "upsell" or row.get("paid_qty") is not None:
+                        self.assertEqual(row["offer_key"], before["offer_key"])
+                    if row.get("paid_qty") is not None:
+                        self.assertEqual((row["paid_qty"], row["free_qty"], row["approximation"]),
+                                         (before["paid_qty"], before["free_qty"], True))
+                        self.assertEqual((row["savings"], row["payable"]), ("0.00", row["full_retail"]))
+                    if all(roles[k] == "gift" for k in row["package_keys"]):
+                        self.assertEqual(row["unit_after"], "19.95")
+                self.assertTrue(ca._rows_agree(ca.reland(p), p["landed_prices"]))
+                self.assertEqual(ca.reland(ca._as_live(p)), orig["landed_prices"])
+                # resume one offer at a time; every step is expressible
+                step = json.loads(json.dumps(p))
+                for o in step["offers"]:
+                    o.pop("available")
+                    step["landed_prices"] = ca.reland(step)
+                self.assertEqual(step["landed_prices"], orig["landed_prices"])
+
+    def test_resuming_through_edit_gives_back_the_gift_and_the_deal(self):
+        for name in ("gwp", "bxgy"):
+            with self.subTest(name):
+                orig, p = self.paused(self.SHAPES[name])
+                new = p
+                for o in p["offers"]:
+                    new, _, _ = ca.build_edit(new, {"operations": [
+                        {"op": "set_offer_available", "offer_key": o["key"], "available": True}]})
+                self.assertEqual(new["landed_prices"], orig["landed_prices"])
+        orig, p = self.paused(self.SHAPES["gwp"])
+        new, _, _ = ca.build_edit(p, {"operations": [
+            {"op": "set_offer_available", "offer_key": "gift-free", "available": True}]})
+        gift = next(l for l in new["landed_prices"] if l["tier"].startswith("Gift "))
+        self.assertEqual((gift["offer_key"], gift["pct"], gift["unit_after"]), ("gift-free", 100, "0.00"))
+
+    def test_a_hero_row_at_100_percent_is_still_refused(self):
+        plan = ca.recommend(self.disc, ns())
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.build_edit(plan, {"operations": [{"op": "set_offer_benefit", "offer_key": "tier-1", "value": "100"}]})
+        self.assertIn("non-positive unit price", str(cm.exception))
+
+    def test_repricing_a_paused_buy_x_get_y_plan_keeps_the_row_consistent(self):
+        _, p = self.paused(self.SHAPES["bxgy"])
+        heroes = [k["key"] for k in p["packages"] if k["role"] == "hero"]
+        new, _, _ = ca.build_edit(p, {"operations": [
+            {"op": "set_package_price", "package_keys": heroes, "price": "60.00"}]})
+        for row in (l for l in new["landed_prices"] if l.get("paid_qty") is not None):
+            total = ca.money(Decimal("60.00") * row["qty"])
+            self.assertEqual((row["anchor"], row["unit_after"], row["effective_unit"]), ("60.00",) * 3)
+            self.assertEqual((row["full_retail"], row["payable"], row["order_total"]), (total,) * 3)
+            self.assertEqual((row["savings"], row["effective_pct"], row["offer_key"]), ("0.00", "0.00", "bxgy-2-1"))
+
+    def test_a_paused_upsell_voucher_keeps_its_scope_check(self):
+        orig, p = self.paused(self.SHAPES["upsell"])
+        voucher = next(o for o in p["offers"] if o["key"].startswith("upsell-"))
+        voucher["condition"]["package_keys"] = [k["key"] for k in p["packages"] if k["role"] == "hero"]
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.reland(p)
+        self.assertIn("would no longer apply", str(cm.exception))
+
+    def test_paused_codes_build_no_cart_case(self):
+        _, p = self.paused(self.SHAPES["upsell"])
+        ids = {k["key"]: 300 + i for i, k in enumerate(p["packages"])}
+        cases = ca._cart_cases_from_plan(p, ids)
+        self.assertTrue(cases)
+        self.assertTrue(all(not c.vouchers for c in cases))
+
+
+class RelandCommand(unittest.TestCase):
+    """`reland --plan` rewrites a hand-paused plan's landed prices; apply
+    refuses a hand-paused plan that was not relanded."""
+
+    def setUp(self):
+        self.disc = load_fixture("discovery.json")
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        self.path = self.dir / ca.PLAN_NAME
+        plan = ca.recommend(self.disc, ns())
+        stamp_off(plan, {"tier-2"})  # switched off by hand; the rows still say tier-2
+        ca.atomic_write_json(self.path, plan)
+        self.out, restore = capture_print()
+        self.addCleanup(restore)
+
+    def error(self):
+        return next(l for l in reversed(self.out) if l.startswith("ERROR: "))
+
+    def test_reland_rewrites_the_rows_and_prints_the_new_hash(self):
+        old_sha = ca.sha256_file(self.path)
+        self.assertEqual(ca.main(["plan", "--plan", str(self.path)]), 0)
+        warning = [l for l in self.out if l.startswith("WARNING: ")]
+        self.assertEqual(len(warning), 1)
+        self.assertIn("['tier-2'] off but its landed prices still describe them as live", warning[0])
+        self.assertIn("reland --plan", warning[0])
+        self.out.clear()
+        self.assertEqual(ca.main(["reland", "--plan", str(self.path)]), 0, self.out[-3:])
+        plan, sha = ca.load_json_and_hash(self.path)
+        self.assertNotEqual(sha, old_sha)
+        self.assertIn(f"Plan SHA-256: {sha}", self.out)
+        self.assertFalse(any(l.startswith("WARNING: ") for l in self.out))
+        self.assertEqual(ca.validate_plan(plan), [])
+        buy2 = next(l for l in plan["landed_prices"] if l["tier"] == "Buy 2")
+        self.assertEqual((buy2["offer_key"], buy2["pct"]), ("tier-1", 50))
+        self.assertTrue(ca._rows_agree(ca.reland(plan), plan["landed_prices"]))
+        self.assertFalse((self.dir / ca.RUN_LOCK_NAME).exists())
+
+    def test_an_adopted_plan_is_refused(self):
+        plan = ca.load_json(self.path)
+        plan["origin"] = "adopted"
+        ca.atomic_write_json(self.path, plan)
+        before = self.path.read_bytes()
+        self.assertEqual(ca.main(["reland", "--plan", str(self.path)]), 1)
+        self.assertIn("adopted", self.error())
+        self.assertEqual(self.path.read_bytes(), before)
+
+    def test_a_plan_bound_to_a_run_is_never_rewritten(self):
+        (self.dir / ca.MANIFEST_NAME).write_text("{}")
+        before, sha = self.path.read_bytes(), ca.sha256_file(self.path)
+        self.assertEqual(ca.main(["reland", "--plan", str(self.path)]), 1)
+        self.assertIn("edit (set_offer_available)", self.error())
+        self.assertEqual(self.path.read_bytes(), before)
+        self.assertEqual(ca.sha256_file(self.path), sha)
+
+    def test_apply_refuses_a_hand_paused_plan_until_it_is_relanded(self):
+        plan, sha = ca.load_json_and_hash(self.path)
+        t = DynamicTransport(self.disc, fresh_state())
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.apply(make_client(t), plan, sha, self.dir / ca.MANIFEST_NAME, None)
+        self.assertIn("reland --plan", str(cm.exception))
+        self.assertEqual([c for c in t.calls if c[0] != "GET"], [])
+        self.assertFalse((self.dir / ca.MANIFEST_NAME).exists())
+        self.assertEqual(ca.main(["reland", "--plan", str(self.path)]), 0)
+        plan, sha = ca.load_json_and_hash(self.path)
+        man = ca.apply(make_client(t), plan, sha, self.dir / ca.MANIFEST_NAME, None)
+        tier2 = next(b for m, path, b in [(c[0], c[1], c[2]) for c in t.calls]
+                     if m == "POST" and path.endswith("/offers/") and b["name"].endswith("Buy 2 - 55%"))
+        self.assertIs(tier2["available"], False)
+        self.assertEqual(man.entry("offers", "tier-2")["pause_pending"], False)
 
 
 class ApplyRecordsImageSrc(unittest.TestCase):

@@ -21,49 +21,8 @@ ca = base.ca
 ns = base.ns
 
 
-def live_engine(state, cid):
-    """A fake carts/calculate that prices from what the fake store holds now,
-    not from the plan: the highest-percentage live automatic package offer the
-    cart meets (none in upsell mode), then any entered live voucher, then
-    shipping unless a live 100% shipping offer is met. Because it reads the
-    store, verify passing after an edit means the plan and the store agree."""
-    def scope(o):
-        return {p["id"] for p in o["condition"]["packages"]}
-
-    def calc(path, body):
-        upsell = path.endswith("?upsell=true")
-        packages = state["packages"][cid]
-        live = [o for o in state["offers"].get(cid, {}).values() if o.get("available", True)]
-        lines = [(l["package_id"], l["quantity"]) for l in body["lines"]]
-
-        def met(o):
-            # The store reports a count threshold as a decimal string ("2.00").
-            need = o["condition"].get("value") if o["condition"]["type"] == "count" else 1
-            return sum(q for i, q in lines if i in scope(o)) >= Decimal(str(need or 1))
-
-        def pct(o, kind):
-            return o.get("offer_type", "offer") == kind and o["benefit"]["type"] == "package_percentage"
-
-        total = Decimal(0)
-        for i, q in lines:
-            unit = Decimal(next(r["price"] for r in packages[i]["prices"] if r["currency"] == "USD"))
-            autos = [] if upsell else [o for o in live if pct(o, "offer") and i in scope(o) and met(o)]
-            if autos:
-                best = max(autos, key=lambda o: Decimal(o["benefit"]["value"]))
-                unit = ca.landed_unit(unit, Decimal(best["benefit"]["value"]), best["benefit"].get("price_rounding"))
-            for code in body.get("vouchers", []):
-                v = next((o for o in live if pct(o, "voucher") and o.get("code") == code), None)
-                if v and i in scope(v) and met(v):
-                    unit = ca.landed_unit(unit, Decimal(v["benefit"]["value"]), v["benefit"].get("price_rounding"))
-            total += unit * q
-        if "shipping_method" in body:
-            free = any(o.get("offer_type", "offer") == "offer" and o["benefit"]["type"] == "shipping_percentage"
-                       and Decimal(o["benefit"]["value"]) == 100 and met(o) for o in live)
-            if not free:
-                method = state["shipping-methods"][cid][body["shipping_method"]]
-                total += Decimal(next(r["price"] for r in method["prices"] if r["currency"] == "USD"))
-        return 200, {"total": str(total), "lines": []}
-    return calc
+# The store-driven carts/calculate fake; it lives with the other fakes.
+live_engine = base.live_engine
 
 
 class EditHarness(unittest.TestCase):
@@ -495,27 +454,47 @@ class EditPricing(EditHarness):
         self.assertEqual(self.row("Buy 4")["offer_key"], "tier-4")
         self.assert_in_line()
 
-    def test_paused_plan_resumes_but_a_fresh_apply_refuses_it(self):
+    def test_a_paused_plan_resumes_and_a_fresh_apply_creates_it_switched_off(self):
         self.assertEqual(self.edit([{"op": "set_offer_available", "offer_key": "tier-1", "available": False}]), 0)
         plan, sha = ca.load_json_and_hash(self.plan_path)
         posts = len([c for c in self.t.calls if c[0] == "POST"])
         ca.apply(self.client(), plan, sha, self.manifest, self.manifest)
         self.assertEqual(len([c for c in self.t.calls if c[0] == "POST"]), posts)
-        with self.assertRaises(ca.CampaignAdminError) as cm:
-            ca.apply(self.client(), dict(plan, campaign=dict(plan["campaign"], name="Fresh")), sha,
-                     self.dir / "fresh" / "run-manifest.json", None)
-        self.assertIn("creates every offer live", str(cm.exception))
-        # resume refuses to pause something it would have to create
-        man = self.reload()
-        man.mark("offers", "tier-1", status="absent")
-        with self.assertRaises(ca.CampaignAdminError) as cm:
-            ca.apply(self.client(), plan, sha, self.manifest, self.manifest)
-        self.assertIn("has not created", str(cm.exception))
+        # A fresh run of the same plan creates tier-1 switched off in its one POST.
+        fresh = self.dir / "fresh"
+        fresh.mkdir()
+        self.t.calls.clear()
+        man = ca.apply(self.client(), dict(plan, campaign=dict(plan["campaign"], name="Fresh")), sha,
+                       fresh / "run-manifest.json", None)
+        bodies = {c[2]["name"]: c[2] for c in self.t.calls if c[0] == "POST" and c[1].endswith("/offers/")}
+        self.assertIs(bodies["Photo Bracelet - Buy 1 - 45%"]["available"], False)
+        self.assertTrue(all("available" not in b for n, b in bodies.items() if "Buy 1" not in n))
+        self.assertEqual([c for c in self.t.calls if c[0] == "PATCH"], [])
+        fresh_cid = man.data["campaign"]["id"]
+        self.assertFalse(self.state["offers"][fresh_cid][man.entry("offers", "tier-1")["id"]]["available"])
+        # Resume of this run, with tier-1 gone from the store and the journal,
+        # creates exactly that one offer, switched off.
+        del self.state["offers"][self.cid][self.entry_id("offers", "tier-1")]
+        self.reload().mark("offers", "tier-1", status="absent")
+        self.t.calls.clear()
+        man = ca.apply(self.client(), plan, sha, self.manifest, self.manifest)
+        posts = [c[2] for c in self.t.calls if c[0] == "POST"]
+        self.assertEqual(len(posts), 1)
+        self.assertEqual((posts[0]["name"], posts[0]["available"]), ("Photo Bracelet - Buy 1 - 45%", False))
+        self.assertEqual([c for c in self.t.calls if c[0] == "PATCH"], [])
+        self.assertFalse(self.offer("tier-1")["available"])
+        self.assert_in_line()
 
-    def test_pausing_a_voucher_a_row_depends_on_is_refused(self):
-        self.assertEqual(self.cli("--changes", self.spec(
-            [{"op": "set_offer_available", "offer_key": "exit-pop", "available": False}])), 1)
-        self.assertIn("paused code is unobserved", self.error())
+    def test_pausing_the_exit_voucher_sends_no_code_to_verify(self):
+        """Before campaigns-app 604 a paused code was refused here. The cart's
+        treatment of a submitted paused code is still unobserved, so verify never
+        submits one; what it proves is the read-back and the unchanged rows."""
+        self.assertEqual(self.edit([{"op": "set_offer_available", "offer_key": "exit-pop", "available": False}]), 0)
+        self.assertFalse(self.offer("exit-pop")["available"])
+        self.assertEqual(self.plan()["landed_prices"], self.original["landed_prices"])
+        report = self.assert_in_line()
+        self.assertFalse(any("exit voucher" in c["case"] for c in report["calculate_cases"]))
+        self.assertTrue(all("vouchers" not in c["request"] for c in report["calculate_cases"]))
 
     def test_excluded_requests_are_refused_by_name(self):
         for op, field in ca.NOT_EDITABLE.items():
@@ -553,6 +532,57 @@ class EditPricing(EditHarness):
             ca.build_edit(plan, {"operations": [{"op": "set_package_price", "package_keys": self.heroes(),
                                                  "price": "59.99"}]})
         self.assertIn("handed", str(cm.exception))
+
+
+class _CreateOffResume:
+    """Mixed into an EditHarness whose RECOMMEND creates every offer switched
+    off: verify proves package prices, then each offer is resumed by its own
+    edit and verify proves the discounts."""
+
+    def test_create_off_then_resume_each_offer_then_verify(self):
+        plan = self.plan()
+        self.assertTrue(all(o["available"] is False for o in plan["offers"]))
+        live_kw = dict(self.RECOMMEND)
+        live_kw.pop("offers_available")
+        live = ca.recommend(self.disc, ns(**live_kw))
+        self.assertNotEqual(plan["landed_prices"], live["landed_prices"])
+        prices = {p["key"]: Decimal(p["price"]) for p in plan["packages"]}
+        for row in plan["landed_prices"]:
+            self.assertEqual(Decimal(row["unit_after"]), prices[row["package_keys"][0]], row["tier"])
+        self.assertTrue(all(not o["available"] for o in self.state["offers"][self.cid].values()))
+        report = self.assert_in_line()
+        self.assertTrue(all("vouchers" not in c["request"] for c in report["calculate_cases"]))
+        for o in plan["offers"]:
+            self.assertEqual(self.edit([{"op": "set_offer_available", "offer_key": o["key"], "available": True}],
+                                       f"on-{o['key']}.json"), 0, self.out[-3:])
+            self.assertTrue(self.offer(o["key"])["available"])
+            self.assert_in_line()
+        self.assertEqual(self.plan()["landed_prices"], live["landed_prices"])
+        report = self.assert_in_line()
+        if any(p["role"] == "gift" for p in plan["packages"]):
+            gift = next(l for l in self.plan()["landed_prices"] if l["tier"].startswith("Gift "))
+            self.assertEqual((gift["unit_after"], gift["offer_key"]), ("0.00", "gift-free"))
+        return report
+
+
+class CreateOffQuantity(_CreateOffResume, EditHarness):
+    RECOMMEND = dict(EditHarness.RECOMMEND, offers_available="false", free_shipping=True, upsell=["16:39.95:50"])
+
+    def test_create_off_then_resume_each_offer_then_verify(self):
+        report = super().test_create_off_then_resume_each_offer_then_verify()
+        # resumed, the vouchers are probed again
+        self.assertTrue(any(c["request"].get("vouchers") == ["SCOPE10"] for c in report["calculate_cases"]))
+        self.assertTrue(any(c["shipping"] == "none" for c in report["calculate_cases"]))
+
+
+class CreateOffBuyXGetY(_CreateOffResume, EditHarness):
+    RECOMMEND = dict(name="Scope - test", anchor_price="49.99", exit_code="SCOPE10", offer_type="bxgy",
+                     paid_qty=2, free_qty=1, offers_available="false")
+
+
+class CreateOffGift(_CreateOffResume, EditHarness):
+    RECOMMEND = dict(name="Scope - test", anchor_price="49.99", exit_code="SCOPE10", offer_type="gwp",
+                     gift=["16:19.95"], offers_available="false")
 
 
 class EditPricingRounded(EditHarness):
@@ -627,10 +657,19 @@ class Reland(unittest.TestCase):
         self.assertEqual((upsell["package_keys"], upsell["anchor"], upsell["unit_after"]), (["hero-23"], "59.95", "29.97"))
         self.assertEqual(next(l for l in new["landed_prices"] if l["tier"] == "Buy 1")["unit_after"], "29.97")
         self.assertEqual(sorted(k for _, k in changed), sorted(heroes))
-        voucher = next(o["key"] for o in plan["offers"] if o["offer_type"] == "voucher" and o["key"] != "exit-pop")
-        with self.assertRaises(ca.CampaignAdminError) as cm:
-            ca.build_edit(plan, {"operations": [{"op": "set_offer_available", "offer_key": voucher, "available": False}]})
-        self.assertIn("unobserved", str(cm.exception))
+        voucher = next(o for o in plan["offers"] if o["offer_type"] == "voucher" and o["key"] != "exit-pop")
+        new, _, _ = ca.build_edit(plan, {"operations": [
+            {"op": "set_offer_available", "offer_key": voucher["key"], "available": False}]})
+        # The upsell row keeps its voucher and sells at the package price until
+        # the voucher is resumed; verify submits no paused code for it.
+        upsell = next(l for l in new["landed_prices"] if l["kind"] == "upsell")
+        self.assertEqual((upsell["offer_key"], upsell["pct"], upsell["unit_after"], upsell["order_total"]),
+                         (voucher["key"], 0, "49.95", "49.95"))
+        ids = {p["key"]: i for i, p in enumerate(plan["packages"], start=1)}
+        self.assertFalse(any(voucher["code"] in c.vouchers for c in ca._cart_cases_from_plan(new, ids)))
+        back, _, _ = ca.build_edit(new, {"operations": [
+            {"op": "set_offer_available", "offer_key": voucher["key"], "available": True}]})
+        self.assertEqual(back["landed_prices"], plan["landed_prices"])
 
     def test_upsell_voucher_that_stops_applying_is_refused(self):
         plan = ca.recommend(self.disc, ns(hero=10, ctc="high", anchor_price="189.95", upsell=["16:39.95:50"]))
@@ -680,12 +719,20 @@ class EditAddOffer(EditHarness):
         return f"/api/admin/campaigns/{self.cid}/offers/{self.state['seq'] + 1}/"
 
     def test_add_then_pause(self):
+        """The add is created switched off in its POST, proven by a read-back;
+        no PATCH is planned or sent."""
+        self.assertEqual(self.cli("--changes", self.spec([self.add_op(available=False)])), 2)
+        preview = "\n".join(self.out)
+        self.assertIn("created switched off", preview)
+        self.assertIn("then GET to prove available=false", preview)
+        self.assertFalse(any(l.strip()[:1].isdigit() and " PATCH " in l for l in self.out), preview)
         self.assertEqual(self.edit([self.add_op(available=False)]), 0, self.out[-3:])
         kinds = [(c[0], c[2].get("available")) for c in self.writes()]
-        self.assertEqual(kinds, [("POST", None), ("PATCH", False)])
+        self.assertEqual(kinds, [("POST", False)])
         self.assertFalse(self.offer("loyalty")["available"])
         entry = self.reload().entry("offers", "loyalty")
         self.assertEqual((entry["status"], entry["pause_pending"]), ("created", False))
+        self.assertNotIn("available_patched", entry)
         self.assertFalse(next(o for o in self.plan()["offers"] if o["key"] == "loyalty")["available"])
         self.assert_in_line()
 
@@ -742,19 +789,26 @@ class EditAddOffer(EditHarness):
         self.assertFalse([c for c in self.t.calls if c[0] == "DELETE" and c[1].endswith(f"/offers/{other}/")])
 
     def test_stop_between_create_and_pause_finishes_the_pause(self):
+        """A store that ignores available on create, and a backstop PATCH that failed."""
+        self.state["ignore_create_available"] = True
         sp = self.spec([self.add_op(available=False)])
         self.t.fail_on[("PATCH", self.new_offer_path())] = 500
         self.assertEqual(self.approve("--changes", sp), 1)
         self.assertIn("LIVE", self.error())
+        self.assertIn("Re-run the same edit to try the pause again", self.error())
         entry = self.reload().entry("offers", "loyalty")
         self.assertEqual((entry["status"], entry["pause_pending"]), ("created", True))
         self.assertTrue(self.offer("loyalty")["available"])
         self.assertEqual(self.approve("--changes", sp, live=None), 0, self.out[-3:])
         self.assertEqual(len([c for c in self.writes() if c[0] == "POST"]), 1)
         self.assertFalse(self.offer("loyalty")["available"])
+        self.assertTrue(self.reload().entry("offers", "loyalty")["available_patched"])
+        self.assertTrue(any("ignored available=false on create" in l for l in self.out))
         self.assert_in_line()
 
     def test_changed_added_offer_is_not_paused_on_rerun(self):
+        """A store that ignores available on create, and a backstop PATCH that failed."""
+        self.state["ignore_create_available"] = True
         sp = self.spec([self.add_op(available=False)])
         self.t.fail_on[("PATCH", self.new_offer_path())] = 500
         self.assertEqual(self.approve("--changes", sp), 1)
@@ -778,6 +832,8 @@ class EditAddOffer(EditHarness):
             self.assertIn(text, str(cm.exception))
 
     def test_teardown_mid_edit_takes_the_new_offer_identity_from_the_receipt(self):
+        """A store that ignores available on create, and a backstop PATCH that failed."""
+        self.state["ignore_create_available"] = True
         sp = self.spec([self.add_op(available=False)])
         self.t.fail_on[("PATCH", self.new_offer_path())] = 500
         self.assertEqual(self.approve("--changes", sp), 1)
@@ -808,6 +864,10 @@ class EditAddOffer(EditHarness):
         self.assertEqual(self.edit([self.add_op()]), 0)
         self.assertEqual(self.undo(), 0, self.out[-3:])
         self.assertTrue(any("pauses it" in l for l in self.out))
+        # an intentional pause of an offer created live is not the store ignoring a field
+        self.assertFalse(any("ignored available" in l for l in self.out))
+        self.assertNotIn("available_patched", self.reload().entry("offers", "loyalty"))
+        self.assertEqual([c[2] for c in self.writes() if c[0] == "PATCH"], [{"available": False}])
         self.assertFalse([c for c in self.t.calls if c[0] == "DELETE"])
         self.assertFalse(self.offer("loyalty")["available"])
         self.assertEqual(self.reload().entry("offers", "loyalty")["status"], "created")
@@ -926,6 +986,16 @@ class EditRecovery(EditHarness):
         self.assertEqual(self.plan()["landed_prices"], self.original["landed_prices"])
         self.assertEqual(self.man.data["edits"][-1]["kept_added_offers"], ["loyalty"])
         self.assert_in_line()
+
+    def test_undo_whose_pause_fails_says_the_offer_is_live_and_how_to_retry(self):
+        new_path = f"/api/admin/campaigns/{self.cid}/offers/{self.state['seq'] + 1}/"
+        self.t.lose.add(("POST", self.offers_path()))
+        self.assertEqual(self.edit([self.add_op()]), 1)
+        self.t.fail_on[("PATCH", new_path)] = 500
+        self.assertEqual(self.undo(live=None), 1)
+        self.assertIn("is LIVE", self.error())
+        self.assertIn("Re-run the same undo to try the pause again", self.error())
+        self.assertTrue(self.state["offers"][self.cid][int(new_path.rstrip("/").rsplit("/", 1)[1])]["available"])
 
     def test_undo_after_a_create_that_never_happened_drops_the_entry(self):
         self.t.fail_on[("POST", self.offers_path())] = 500
