@@ -460,6 +460,85 @@ class Clone(unittest.TestCase):
         self.assertEqual(self.run_clone(resume=True), 0)
         self.assertEqual(self.post_count(), 1)
 
+    def answer_clone_with(self, status, body=None):
+        """Rewrite the clone POST's answer; body None keeps the fake's real campaign detail."""
+        original = self.t._handle
+        def rewrite(method, path, *args):
+            code, headers, real = original(method, path, *args)
+            if method == "POST" and path.endswith("/clone/"):
+                return (status, headers, real if body is None else body)
+            return (code, headers, real)
+        self.t._handle = rewrite
+
+    def test_200_with_valid_body_is_recorded_like_201(self):
+        # The published spec documents 200 for the clone; the server answers 201.
+        self.answer_clone_with(200)
+        self.assertEqual(self.run_clone("Copy for testing"), 0)
+        data = self.man().data
+        cid = data["campaign"]["id"]
+        self.assertNotEqual(cid, 7)
+        self.assertEqual(data["clone_request"]["status"], "confirmed")
+        self.assertEqual(data["parity"]["status"], "match")
+        self.assertEqual([(c[0], c[1], c[2]) for c in self.writes()], [
+            ("POST", "/api/admin/campaigns/7/clone/", None),
+            ("PATCH", f"/api/admin/campaigns/{cid}/", {"name": "Copy for testing"})])
+        self.assertEqual(self.post_count(), 1)
+        self.assert_source_untouched()
+
+    def assert_invalid_200_is_uncertain_and_never_reposted(self, body):
+        self.answer_clone_with(200, body)
+        before = self.post_count()
+        output = io.StringIO()
+        with mock.patch.object(ca, "print", builtins.print), mock.patch("sys.stderr", output):
+            self.assertEqual(self.run_clone(), 1)
+        self.assertNotIn("DO-NOT-ECHO", output.getvalue())
+        self.assertEqual(self.man().data["clone_request"]["status"], "uncertain")
+        self.assertNotIn("id", self.man().data["campaign"])
+        self.assertEqual(self.post_count() - before, 1)
+        # Recovery adopts the one copy the server made; it never sends the POST again.
+        self.assertEqual(self.run_clone(resume=True), 0)
+        self.assertEqual(self.post_count() - before, 1)
+        self.assertEqual(self.man().data["clone_request"]["status"], "confirmed")
+        self.assert_source_untouched()
+
+    def test_200_with_non_object_body_is_uncertain(self):
+        self.assert_invalid_200_is_uncertain_and_never_reposted('"ok"')
+
+    def test_200_without_campaign_id_is_uncertain(self):
+        self.assert_invalid_200_is_uncertain_and_never_reposted('{"api_key":"DO-NOT-ECHO"}')
+
+    def assert_bad_id_200_is_uncertain(self, bad):
+        self.answer_clone_with(200, '{"id":' + bad + ',"name":"Synthetic original-COPY",'
+                               '"created_at":"2026-10-14T00:00:00Z","api_key":"DO-NOT-ECHO"}')
+        output = io.StringIO()
+        with mock.patch.object(ca, "print", builtins.print), mock.patch("sys.stderr", output):
+            self.assertEqual(self.run_clone(), 1)
+        self.assertNotIn("DO-NOT-ECHO", output.getvalue())
+        self.assertEqual(self.man().data["clone_request"]["status"], "uncertain")
+        self.assertEqual(self.post_count(), 1)
+
+    def test_zero_campaign_id_leaves_request_uncertain(self):
+        self.assert_bad_id_200_is_uncertain("0")
+
+    def test_negative_campaign_id_leaves_request_uncertain(self):
+        self.assert_bad_id_200_is_uncertain("-3")
+
+    def test_response_naming_a_preexisting_campaign_is_not_adopted(self):
+        # An unrelated campaign that already carries the server's copy name.
+        self.state["campaigns"][50] = dict(self.state["campaigns"][7], id=50, api_key="OTHER-KEY",
+                                           name="Synthetic original-COPY", created_at="2026-10-01T00:00:00Z")
+        self.state["packages"][50], self.state["shipping-methods"][50], self.state["offers"][50] = {}, {}, {}
+        self.answer_clone_with(201, '{"id":50,"name":"Synthetic original-COPY",'
+                               '"created_at":"2026-10-01T00:00:00Z","api_key":"OTHER-KEY"}')
+        output = io.StringIO()
+        with mock.patch.object(ca, "print", builtins.print), mock.patch("sys.stderr", output):
+            self.assertEqual(self.run_clone("Renamed"), 1)
+        data = self.man().data
+        self.assertEqual(data["clone_request"]["status"], "uncertain")
+        self.assertNotIn("id", data["campaign"])
+        self.assertEqual(self.state["campaigns"][50]["name"], "Synthetic original-COPY")
+        self.assertEqual([c[0] for c in self.writes()], ["POST"])
+
     def test_completed_resume_does_not_claim_dashboard_additions(self):
         self.assertEqual(self.run_clone(), 0)
         inventory = self.man().data["offers"]

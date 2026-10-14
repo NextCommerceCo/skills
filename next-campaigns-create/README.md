@@ -214,8 +214,10 @@ requested name is applied to the new campaign in a separate rename request.
 The copy has a new campaign key, but keeps the package and shipping IDs your
 funnel pages use. Offer IDs and codes also stay the same. Paused offers remain
 paused, and removed offers are excluded. The source campaign stays unchanged.
-Your store must have a deployment that supports the clone endpoint. If it does
-not, the assistant stops and asks you to check deployment.
+The clone endpoint has been part of the production Campaigns App since
+2026-10-14. If the store answers that the clone route is unavailable, the
+assistant stops and asks you to check the store's release and that the source
+campaign still exists.
 
 If the connection fails after sending, keep the run directory. The assistant
 can resume a known copy or recover a unique matching copy within the saved
