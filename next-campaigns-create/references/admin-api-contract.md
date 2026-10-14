@@ -84,7 +84,7 @@ token that has been pasted into a chat or a ticket once the work is done.
 | POST | `/api/admin/metadata/` | create a missing metadata definition (`metadata --apply`; sent without the version header) |
 | GET/POST | `/api/admin/campaigns/` | list (cursor paginated) / create |
 | GET/PATCH/DELETE | `/api/admin/campaigns/{id}/` | retrieve (returns `api_key`) / update the campaign's settings (`update`), or rename a clone destination (`clone --name`) / delete |
-| POST | `/api/admin/campaigns/{id}/clone/` | bodyless clone request, availability depends on store deployment |
+| POST | `/api/admin/campaigns/{id}/clone/` | bodyless clone request, in production since 2026-10-14; 404/405 means the route is unavailable or the source is gone |
 | GET/POST | `/api/admin/campaigns/{id}/packages/` | list / create |
 | GET/PATCH/DELETE | `/api/admin/campaigns/{id}/packages/{packageId}/` | retrieve one (teardown's identity read-back, an edit's before-image, and a resumed update's full read-back) / update name, the recurring fields, and `prices[]` per currency (currencies the body omits are left unchanged) / delete |
 | PUT | `/api/admin/campaigns/{id}/packages/{packageId}/image/` | replace the package image (optional override) |
@@ -841,8 +841,12 @@ anything, so a lost response never duplicates.
 ## Clone contract and journal
 
 `POST /api/admin/campaigns/{source_id}/clone/` takes no request body and needs
-`campaigns:write`. A body cannot set a name. The 201 response is a campaign
+`campaigns:write`. A body cannot set a name. The success response is a campaign
 detail object, including a new `id` and `api_key`, with no nested resources.
+The server answers 201, while the published 2024-04-01 OpenAPI spec documents
+200. The engine accepts either status and trusts the body only after
+validating it: a JSON object with a new positive `id`, `api_key`, `created_at`
+and the expected name.
 The server names it `{source name}-COPY`. The optional rename uses
 `PATCH /api/admin/campaigns/{new_id}/` with only `{"name": "<requested name>"}`.
 This is the only campaign PATCH the clone command sends; currency is immutable.
@@ -859,9 +863,16 @@ prices can be derived by forex. Usage counters reset to zero and
 server behavior unless the response actually exposes them.
 
 The server clones in one transaction, but supplies no idempotency key or revision
-precondition. A lost response may mean the complete copy exists. Store deployment
-determines route availability: 404/405 after a successful source read means
-check deployment. Do not infer store availability from source-control status.
+precondition. A lost response may mean the complete copy exists. The endpoint
+was released to production on 2026-10-14 and is documented at
+https://developers.nextcommerce.com/docs/admin-api/reference/campaigns/campaignsCloneCreate.
+A 404 or 405 after a successful source read is not proof of an older release:
+a source deleted between the final read and the POST also answers 404. Either
+way the run stops as rejected with deployment guidance, and the operator checks
+the store's release and that the source campaign still exists. This skill has
+not yet run the clone POST or the rename PATCH against a live store; both are
+implemented from the published contract and the server source, and proven
+against the offline fake only.
 401/403 uses the normal token/scope guidance. No campaign response body is
 printed in clone errors.
 
@@ -889,8 +900,14 @@ zero candidates or multiple candidates stops for manual resolution. One candidat
 must match identity and approved content before adoption. This is still not
 server-backed proof: another operator can create an identical copy in that window.
 
-A valid 201 immediately journals the destination ID, name, creation instant and
-key. Only the protected mode-600 manifest holds that key; the source key is never
+A valid success response (200 or 201 with a campaign detail body) immediately
+journals the destination ID, name, creation instant and key. That response is
+trusted as-is: `preexisting_ids` and the attempt window are consulted only on
+recovery, so a confirmed response that named a different real campaign with a
+plausible name would be recorded and renamed. Identity read-back and parity do
+not catch it either, because identity comes from that same response and an
+existing identical copy matches on content. The API offers no request marker to
+close this. Only the protected mode-600 manifest holds that key; the source key is never
 persisted. `rename` records `name` and `status: pending|done|skipped`. Resume first
 reads the destination, so a rename already applied needs no second PATCH.
 

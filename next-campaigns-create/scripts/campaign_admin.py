@@ -7194,7 +7194,9 @@ def clone_finish(client, man):
         path = f"/api/admin/campaigns/{a['source_campaign_id']}/clone/"
         try:
             status, body = client.request("POST", path, body=None, clone_decode=True)
-            if status == 201:
+            # The server answers 201; the published 2024-04-01 spec documents 200. Accept
+            # either: clone_record validates the body, which is what is actually trusted.
+            if status in (200, 201):
                 clone_record(man, body)
             else:
                 request["status"] = "rejected" if status is not None and 400 <= status < 500 else "uncertain"
