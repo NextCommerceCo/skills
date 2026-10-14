@@ -321,7 +321,11 @@ API supplies no request marker or idempotency key to prove ownership.
 
 The protected manifest saves the destination ID immediately after a valid
 success response. The server answers 201 and the published spec documents 200;
-either is accepted only with a campaign detail body carrying a new id and key.
+either is accepted only when the body is a campaign detail with a positive id
+that is neither the source nor any campaign that existed before the POST, the
+expected name (the server's `-COPY` name or the requested one), a parseable
+`created_at` and a nonempty `api_key`. Anything else leaves the request
+uncertain for recovery.
 A later resource read failure leaves incomplete inventory, which resume can
 refresh without another POST. If enumeration succeeds but parity fails, the
 copy remains recorded and can be torn down. Report the mismatch to the operator.

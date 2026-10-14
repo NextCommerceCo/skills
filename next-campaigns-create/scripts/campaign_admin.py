@@ -7205,7 +7205,8 @@ def clone_finish(client, man):
                 request["status"] = "rejected" if status is not None and 400 <= status < 500 else "uncertain"
                 man.save()
                 if status in (404, 405):
-                    raise CampaignAdminError("clone endpoint unavailable on this store; check its deployment")
+                    raise CampaignAdminError(f"clone POST returned {status}: the clone route is unavailable or the source campaign "
+                                             "no longer exists; check the store's deployment and the source campaign")
                 raise CampaignAdminError(f"clone POST returned {status}; {request['status']}; POST will not be repeated"
                                          + auth_hint(status, "POST", path))
         except Exception:
