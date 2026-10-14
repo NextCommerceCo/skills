@@ -216,9 +216,11 @@ only, and `diff` never promotes it. `diff` refuses a `--plan` that is the canoni
 | a different quantity threshold | that offer's `condition.value`, with `condition.type: "count"` |
 | the offer to cover different packages | that offer's `condition.package_keys` |
 | retire an offer without deleting it | `"available": false` on that offer |
+| resume a switched-off offer | remove `available` from that offer, or set it to `true` |
+| create or add an offer switched off | the new `offers[]` entry (below) with `"available": false`; the POST carries it and the store creates the offer disabled |
 | a different voucher code | that offer's `code` (unique per campaign, `A-Z0-9`) |
 | add a bump package | a new `packages[]` entry: a fresh `key`, `role: "bump"`, `name`, `variant_title`, `product_id`, `product_variant_ids` (a variant no other package uses), `price` |
-| add an offer | a new `offers[]` entry: a fresh `key`, `name`, `offer_type`, `condition`, `benefit`, and `code` for a voucher |
+| add an offer | a new `offers[]` entry: a fresh `key`, `name`, `offer_type`, `condition`, `benefit`, and `code` for a voucher; leave `available` out for an enabled offer |
 | set or replace a package image | `"image": {"src": "https://...", "file_name": "hero"}` on that package |
 | remove a package | delete its `packages[]` entry (a DELETE: see U4 and `--allow-delete`) |
 | remove an offer | delete its `offers[]` entry (a DELETE) |
@@ -234,6 +236,12 @@ What cannot be changed, and why:
 | `all_packages` scope | a plan holds package keys, so it cannot express it | name the packages, or keep the offer out of the plan's reach |
 | removing an `image` | the API has no delete-image route | `diff` emits a warning and no op; change the image in the dashboard |
 | a price in any currency but the campaign's | the plan carries one price per package, in the campaign currency | set the other currencies in the dashboard; `diff` warns when a price op leaves them behind |
+
+On a campaign a run of this skill created, switching an offer on or off is
+`edit set_offer_available` (SKILL.md Phase 7), which recomputes the landed
+prices. `diff` does not recompute `landed_prices`, so an availability change
+made here leaves rows that still price the offer as it was, and `verify` checks
+carts against those rows.
 
 `landed_prices` and `voucher_codes` need no editing when an offer or a package
 goes. They are advice, not desired state: nothing is ever sent from either, and
@@ -441,7 +449,11 @@ wrong most easily:
   its id, so the funnel needs no change for a price edit.
 
 An offer the update retired with `available: false` still exists and keeps its
-id; it simply stops firing. Say which it was.
+id; it simply stops firing. An offer the update created with
+`available: false` exists from its POST, switched off, and has a new id. Say
+which it was. A campaign stays reachable through its api_key whatever its
+offers say, so never tell the funnel owner the campaign is off because its
+offers are.
 
 ---
 
@@ -640,8 +652,11 @@ neither writes to the store at all.
   they fail on that read and the update path cannot be used at all. `discover`
   probes for the endpoint. Where it is live, offers built in the dashboard are
   read and adopted like any other.
-- **`available: false` is the retirement mechanism.** Per-customer limits and
-  date ranges are not offer fields at all.
+- **`available: false` is the retirement mechanism.** It switches an existing
+  offer off, and on a POST it creates the offer switched off (honoured since
+  campaigns-app 604, 2026-10-14). `update` does not read a created offer back
+  for it, so `verify`'s `available` row is the proof on this path. Per-customer
+  limits and date ranges are not offer fields at all.
 - **Only the campaign currency is priced.** A plan holds one price per package
   and per shipping method. On a campaign with `additional_currencies`, a price
   PATCH names the campaign currency and the endpoint leaves the others

@@ -90,7 +90,7 @@ token that has been pasted into a chat or a ticket once the work is done.
 | PUT | `/api/admin/campaigns/{id}/packages/{packageId}/image/` | replace the package image (optional override) |
 | GET/POST | `/api/admin/campaigns/{id}/shipping-methods/` | list / create |
 | GET/PATCH/DELETE | `/api/admin/campaigns/{id}/shipping-methods/{id}/` | retrieve one (same two readers) / update `prices[]` per currency, same rule as a package / delete |
-| GET/POST | `/api/admin/campaigns/{id}/offers/` | list / create |
+| GET/POST | `/api/admin/campaigns/{id}/offers/` | list / create (optional `available`, default true) |
 | GET/PATCH/DELETE | `/api/admin/campaigns/{id}/offers/{offerId}/` | retrieve (the only read that carries the scope) / update name, type, code, `available`, `condition`, `benefit` / delete |
 | POST | `campaigns.apps.29next.com/api/v1/carts/calculate/` | pricing truth (verify); `?upsell=true` for upsell carts |
 
@@ -224,6 +224,17 @@ retrieve.
   `recommend --gift` emits `package_percentage` `100.00` with `condition: any`
   scoped only to gift packages, and omits `price_rounding` so charm rounding
   cannot bring a 100% line back to 0.95.
+- Offer create takes an optional boolean `available`, default `true`
+  (`campaignsOffersCreate` in the developer docs). `true` creates the offer
+  enabled and `false` creates it disabled. Until campaigns-app issue 604,
+  deployed on 2026-10-14, the endpoint ignored the field and every offer was
+  created live. The engine sends `available` only when the plan offer carries
+  it, so a plan without the field produces the same body as before and takes the
+  default. A store on a build older than that fix can still ignore it, which is
+  why `apply` and `edit` read a switched-off offer back once after its POST and
+  send `PATCH {"available": false}` only when the read shows it live (see
+  "Offer availability on create" below). Never create an offer live and PATCH it
+  off as the normal route: the PATCH is a backstop.
 - Offer scope read-back: the offers list omits `condition.packages`; only the
   per-offer retrieve carries the scope. `verify`, `adopt` and `diff` all
   retrieve each offer by id for that reason.
@@ -354,9 +365,10 @@ What the update path (`adopt`, `diff`, `update`) relies on, field by field.
   code for a later op in the same change set. Reverse the order and the same
   pair refuses, because at that step the first offer still holds it.
 - **`available` retires an offer without deleting it.** It is a boolean,
-  defaults to true, is modelled in the plan, and is sent on create and update.
-  An offer set to false keeps its id and stops firing. Per-customer limits and
-  date ranges are not fields at all.
+  defaults to true, is modelled in the plan, and is sent on create and update
+  when the plan carries it. Create has honoured it since 2026-10-14. An offer
+  set to false keeps its id and stops firing. Per-customer limits and date
+  ranges are not fields at all.
 - **A package an offer still scopes cannot be deleted.** The API answers 400
   rather than narrowing the offer, so `diff` refuses that delete before anything
   is sent and names the offers holding the package.
@@ -370,6 +382,35 @@ What the update path (`adopt`, `diff`, `update`) relies on, field by field.
   offer's id. Names, prices and codes are mutable, so drift in them is the
   three-way merge's business, not an ownership failure.
 
+## Offer availability on create
+
+`apply` sends each offer's `available` on its POST when the plan carries it.
+For an offer the plan switches off it then sends one GET and checks that
+`available` reads back false. That read is the proof; a 201 is not. Only when
+the read shows the offer live, which means the store's build predates
+campaigns-app 604, does it send `PATCH .../offers/{id}/` `{"available": false}`,
+read the offer back again and, only once that read proves the whole offer
+switched off, set `available_patched: true` on the manifest entry and print
+`offer <key> (id N): this store ignored available=false on create (build predates campaigns-app 604); paused with a PATCH and read back`.
+The offer is journalled with `pause_pending` from its POST until that proof, so
+an interrupted run resumes the settle step with `apply --resume` and never
+POSTs the offer twice. A failed backstop PATCH stops the run, naming the offer
+as LIVE and pointing at `apply --resume`. Offers the plan leaves on are not read
+back during `apply`.
+
+`edit add_offer` follows the same steps. Its warning appears only when the POST
+body itself carried `available: false`, so a receipt written by an older
+version, which sent the offer without the field and paused it afterwards, never
+reports a store as ignoring it. An undo that pauses an offer the edit added is
+an intentional pause and never sets `available_patched`.
+
+What `verify` proves on a switched-off campaign: the `available` read-back of
+every offer, and that switched-off automatic offers do not fire, since their
+rows expect the package price. It sends no case carrying a switched-off
+voucher's code (see "Not yet verified against a live store"). The campaign
+itself has no status in this skill's model: it exists and answers its api_key
+whatever its offers say.
+
 ## In-place edits
 
 `edit` changes objects the run manifest records and nothing else. The request
@@ -381,7 +422,7 @@ bodies, and the PATCH behaviour they are built around:
 | offer percentage, rounding | `PATCH .../offers/{id}/` `{"benefit": {"value", "price_rounding"}}` | the benefit is merged: a field that is not sent is kept. `price_rounding` is sent only when it changes, as a value or `null` |
 | offer condition or scope | `PATCH .../offers/{id}/` `{"condition": {"type", "value", "all_packages": false, "package_ids"}}` | the condition is replaced whole: an `any` condition sent without `value` reads back with `value: null`. The engine therefore always sends all of it |
 | pause or resume | `PATCH .../offers/{id}/` `{"available": false}` | a plain field |
-| add an offer | `POST .../offers/` then, to pause, `PATCH {"available": false}` | the create body never carries `available`, so whether a store honours it there does not matter here: the offer is created live and paused by its own PATCH, which is read back |
+| add an offer | `POST .../offers/` with `available` when the edit sets it; for a switched-off add, one GET, then `PATCH {"available": false}` only if the store ignored the field | the create honours `available` (campaigns-app 604). The read-back after the POST is what catches a store on an older build, and the backstop PATCH is read back too |
 
 All changes to one offer go in one PATCH. A combined body (benefit, condition
 and `available` together) has not been observed on a live store; the read-back
@@ -437,7 +478,13 @@ not carried over. For a checkout row, the live automatic `package_percentage`
 offers whose scope covers the row's packages and whose condition the quantity
 meets are compared and the highest percentage wins; `price_rounding` is applied
 to the winner, never used to choose it. No such offer means the package price,
-with `offer_key` null. An upsell row is priced by its own voucher. The engine
+with `offer_key` null, which is also what a row gets when its only offer is
+switched off. An upsell row is priced by its own voucher. A row whose own
+`offer_key` names an offer that exists but is switched off (an upsell voucher
+row, a buy-X-get-Y row) keeps that `offer_key` and its kind fields and is priced
+at the package price: 0%, the unit at the anchor, the total at anchor times
+quantity. A gift row whose packages are all `role: gift` may be priced back to
+100% off when its offer is resumed; any other 100% result is still refused. The engine
 refuses shapes those rows cannot express: a row whose packages no longer share a
 price, a scope covering part of a row, and two eligible offers at the same
 percentage.
@@ -491,7 +538,8 @@ write-capable store to settle.
 | that `prices` merges per currency | the spec's wording ("currencies not included are left unchanged") is what the engine and the fake both implement, so a price op is assumed to leave the additional currencies alone rather than delete them. A store that replaced the whole list instead would drop them, which is why `diff` warns on every price op on a multi-currency campaign |
 | whether a package PATCH re-appends `" - {variant}"` to `name` | the fake re-appends it, as create does. The normaliser strips the suffix before comparing: the live name equals the plan's, the plan's `name - variant_title`, the live `product_variant_name` suffix, and only last the name this run journalled. A diff is 0 ops whichever the store does. The journalled name comes last because a rename that landed refreshes it to the new live name while the plan still holds the old one, and matching on it first made a resume read its own applied rename back as drift |
 | the accepted clearing values | `[]` for the three campaign code lists, `null` for `additional_currencies`, `statement_descriptor` and `paypal_account_id`. A store that rejects one of them fails that op with the store's own message, and `update --settle` closes the run |
-| whether an offer create honours `available: false` | the create path refuses a plan that pauses an offer it would have to create, and `edit` creates an added offer live and pauses it with a separate PATCH that is read back. Only `update` can POST an offer the plan marks paused, and `verify`'s `available` row is what would catch a store that ignored it |
+| an offer POST with `available: false` on the update path | `apply` and `edit` read a switched-off offer back after its POST and patch it off if the store ignored the field; `update` has no such read-back, so `verify`'s `available` row is what catches a store on a build older than campaigns-app 604 |
+| how the cart treats a submitted paused voucher code | never observed. `verify` never sends a switched-off voucher's code to `carts/calculate`, so on a campaign whose vouchers are off it proves the read-back and the automatic offers only |
 | a combined offer PATCH | benefit, condition and `available` in one body has not been observed on a live store. The read-back after the write is what catches a field that did not land |
 | whether `price_rounding: null` clears rounding | the fake clears it, and both write paths send the null rather than omit the key: `edit` when the field changes, `update` on every benefit PATCH. A store that ignored the null would fail `edit`'s read-back and stop that edit; on the update path it fails `verify`'s `benefit.price_rounding` row and the next `diff` says it kept the store's rounding, so it surfaces rather than passing silently |
 | a package DELETE while an offer still references it | a 400, so `diff` refuses the delete before sending it and names the offers to deal with first. If the platform instead cascades, the refusal is merely conservative: the operator removes or narrows those offers in their own update |
@@ -545,6 +593,8 @@ Files live in a run directory:
 - `adopt` defaults to `./next-campaigns-create-runs/<slug>-<campaign_id>/`.
 - `recommend` writes next to the discovery file it reads.
 - `apply` and `verify` write next to the plan file.
+- `reland` rewrites the plan file it is given, in place, and refuses when a
+  `run-manifest.json` sits beside it.
 - `diff` writes into the run directory of the manifest it is given.
 - `--out` overrides the directory for any of them.
 
@@ -646,15 +696,35 @@ does the same for a DELETE that landed inside an update that could not finish.
 Rows that still resolve are untouched, and a row naming a key that never existed
 stays a `validate_plan` error, because that is a typo rather than a deletion.
 
-`available` on an offer is optional. `edit` writes `false` when it pauses an
-offer and removes the field when it resumes one; `adopt` writes it for a live
-offer the dashboard switched off; a hand-written `true` is accepted and means the
-same as leaving it out. A paused offer is left out of the landed-price and
-free-shipping calculations and still owned, so `verify` reads it back. A fresh
-`apply` refuses a plan with a paused offer, because every offer it creates is
-live; `--resume` accepts one whose manifest entry is already `created`. After an
-edit, and after a completed update, the plan file is rewritten, so its hash
-changes and the manifest's `plan_sha256` follows it.
+`available` on an offer is optional. `recommend --offers-available false`
+writes `false` on every offer it emits and `--offers-available true` writes an
+explicit `true`; without the flag the field is absent. `edit` writes `false`
+when it pauses an offer and removes the field when it resumes one; `adopt`
+writes it for a live offer the dashboard switched off; a hand-written `true` is
+accepted and means the same as leaving it out. A switched-off offer gives no
+discount in the landed prices or the free-shipping calculation (the rule for
+its rows is under "In-place edits" above) and is still owned, so `verify` reads
+it back. `apply` creates it with `available: false` on the POST, on a fresh run
+and on `--resume` alike.
+
+Landed prices describe the cart as it is now, so a plan with a switched-off
+offer must carry rows priced without it. `recommend` relands its rows when it
+stamps `false`. After a hand edit of `available`, run `reland --plan <file>`:
+it recomputes `landed_prices` from the plan's own offers, rewrites the plan in
+place and prints it with the new hash. It refuses an adopted plan (no rows to
+recompute) and a plan with a `run-manifest.json` beside it, because the
+manifest's recorded hash must not move under it; a plan bound to a run changes
+only through `edit`. `apply` refuses a plan whose offers are switched off but
+whose rows disagree with what `reland` would compute, before any request, and
+`plan` prints the same sentence as a warning. A plan with every offer on is not
+checked, so earlier plans are unaffected. `plan` marks each switched-off offer
+`SWITCHED OFF (created with available=false)` and, after the landed table,
+prints `Landed prices once the offers are resumed:`, computed on a copy of the
+plan with `available` removed from every offer, so its shipping column agrees
+with its merchandise column.
+
+After an edit, and after a completed update, the plan file is rewritten, so its
+hash changes and the manifest's `plan_sha256` follows it.
 
 `offer_kind` is written by `recommend` (`quantity` when `--offer-type` is omitted)
 and is optional for `validate_plan`. Package `role` is not schema-checked;
@@ -676,7 +746,8 @@ so a plan from `recommend` carries none, and a missing value reads as `created`.
 neither `ctc` nor `offer_kind` nor an `image` field. `paypal_account_id` is
 written by `adopt` and can be set by hand; `recommend` does not emit it.
 `offers[].available` is a boolean that defaults to true and is sent on create and
-update; `false` retires the offer without deleting it. The recurring trio on a
+update when present; `false` creates the offer switched off, or retires an
+existing one without deleting it. The recurring trio on a
 package is set or absent as one thing.
 
 ### run-manifest.json
@@ -690,7 +761,7 @@ package is set or absent as one thing.
    "image_src","image_error"}],
  "shipping_methods": [{"key","status","id","shipping_method","price"}],
  "offers": [{"key","status","id","name","code","pause_pending",
-   "scope_conversion_pending"}],
+   "available_patched","scope_conversion_pending"}],
  "edits": [{"edit","kind":"edit|undo|rolled_back","receipt","edit_sha256",
    "old_plan_sha256","new_plan_sha256","applied_at"}],
  "pending_edit": {"edit","kind","receipt","old_plan_sha256","new_plan_sha256",
@@ -715,7 +786,8 @@ The update path's fields:
 | `price` on a shipping entry | `adopt`, refreshed by a completed update | present only on runs that recorded one; a refresh never adds a field the run did not have |
 | `image_src` on a package | `apply` and `update` when an image lands | the `src` this run sent. Images are diffed by intent against this value, never against the server-built thumbnail in `image`. Manifests from 0.8.0 and earlier do not carry it, so for those the diff falls back to the hash-verified base plan's `image.src` for that package, and a completed update records the field |
 | `scope_conversion_pending` on an offer | `adopt --convert-scope` | an approved `all_packages` conversion the first `diff` will send as a PATCH. Cleared once it lands |
-| `pause_pending` on an offer | `edit`, on an offer it added paused | set while the offer is created and not yet paused, cleared when the pause is read back |
+| `pause_pending` on an offer | `apply`, on an offer the plan switches off, and `edit`, on an offer it added paused | set while the offer is created and its `available: false` not yet proven by read-back, cleared once it is. `apply --resume` finishes an entry left set without a second POST |
+| `available_patched` on an offer | `apply` and `edit` | `true` only when the store ignored `available: false` on the POST and the backstop PATCH switched the offer off. Absent otherwise; a rollback's intentional pause never sets it |
 | `edits` | each finished `edit` or `--undo` | one entry per edit: its number, kind, receipt file, approval hash and the plan hashes either side |
 | `pending_edit` | `edit`, before the first write | the journal of an unfinished edit: the receipt, the plan hashes, and per object and per added offer how far it got. It exists only on a run that has been edited, and is removed when the edit completes or is rolled back. While it is present, `verify`, `apply --resume`, `diff` and `update` refuse; `edit` continues or rolls it back; and `teardown` accepts any of the three plan hashes it names (the plan the edit started from, the one it writes, and the one a rollback writes) and takes the identity of an offer the edit created from the receipt |
 | `active_update` | `update`, before the first write | the change set and merged plan this update is applying. While it is present, `diff`, `verify`, `teardown`, `edit` and `apply --resume` refuse, and `update` needs `--resume` or `--settle` |

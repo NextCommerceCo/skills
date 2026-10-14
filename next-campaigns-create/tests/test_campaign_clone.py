@@ -37,7 +37,11 @@ class Clone(unittest.TestCase):
             4: {"id": 4, "name": "Synthetic offer", "code": "SYNTHETIC10", "offer_type": "voucher", "available": False,
                 "condition": {"type": "count", "value": 1, "all_packages": True, "packages": [{"id": 42}]},
                 "benefit": {"type": "package_percentage", "value": "10.00", "price_rounding": None}},
-            5: {"id": 5, "is_removed": True}}
+            5: {"id": 5, "is_removed": True},
+            # A live offer beside the switched-off one: the copy keeps each one's availability.
+            6: {"id": 6, "name": "Synthetic live offer", "code": None, "offer_type": "offer", "available": True,
+                "condition": {"type": "count", "value": 2, "all_packages": False, "packages": [{"id": 42}]},
+                "benefit": {"type": "package_percentage", "value": "20.00", "price_rounding": None}}}
         self.t = base.DynamicTransport({}, self.state)
         self.client = base.make_client(self.t, token="ADMIN-SECRET-DO-NOT-PRINT")
         self.source = copy.deepcopy(self.state)
@@ -114,7 +118,10 @@ class Clone(unittest.TestCase):
         self.assertEqual(self.man().data["offers"][0]["code"], "SYNTHETIC10")
         self.assertFalse(self.man().data["offers"][0]["available"])
         self.assertTrue(self.man().data["offers"][0]["condition"]["all_packages"])
-        self.assertEqual(list(self.state["offers"][cid]), [4])
+        # each copied offer keeps its own availability, switched off and live alike
+        self.assertEqual({e["id"]: e["available"] for e in self.man().data["offers"]}, {4: False, 6: True})
+        self.assertEqual({i: o["available"] for i, o in self.state["offers"][cid].items()}, {4: False, 6: True})
+        self.assertEqual(list(self.state["offers"][cid]), [4, 6])
         self.state["offers"][cid][4]["condition"]["packages"].clear()
         self.assert_source_untouched()
 
@@ -322,10 +329,11 @@ class Clone(unittest.TestCase):
         self.assertEqual(self.lifecycle("teardown", "--yes"), 1)
         deleted = [c[1] for c in self.writes() if c[0] == "DELETE"]
         self.assertTrue(any(p.endswith("/offers/4/") for p in deleted))
+        self.assertTrue(any(p.endswith("/offers/6/") for p in deleted))
         self.assertFalse(any(p.endswith("/offers/77/") or p.endswith("/packages/43/") for p in deleted))
         self.assertFalse(any(p.endswith("/campaigns/101/") for p in deleted))
         self.assertIn(101, self.state["campaigns"])
-        self.assertEqual([e["id"] for e in self.man().data["offers"]], [4])
+        self.assertEqual([e["id"] for e in self.man().data["offers"]], [4, 6])
         self.assertEqual([e["id"] for e in self.man().data["packages"]], [42])
         self.assertNotIn("torn_down_at", self.man().data)
         # Once the operator removes them in the dashboard, teardown finishes.

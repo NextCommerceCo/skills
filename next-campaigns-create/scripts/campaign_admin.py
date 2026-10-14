@@ -8,6 +8,7 @@ Backs the `/next-campaigns-create` skill and is normally run through
     metadata  --store <slug> [--apply]            audit or create the campaign metadata definitions
     recommend --discovery ... --hero ... --ctc ... [--offer-type quantity|bxgy|gwp] build campaign-plan.json
     plan      --plan campaign-plan.json           validate + print requests + hash
+    reland    --plan campaign-plan.json           recompute landed_prices after switching offers off by hand
     apply     --plan ... --yes --plan-sha256 ...  create campaign/packages/shipping/offers
     clone     --store ... --source ...            copy with preserved funnel IDs (gated)
     verify    --manifest ... [--plan ...]         read back + Cart API calculate for creation runs
@@ -1713,7 +1714,18 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
     for pid in sorted(set(short_names) - {v["product_id"] for v in voucher_codes if v["source"] == "short-name"}):
         rationale.append(f"--short-name {pid}:{short_names[pid]} was not used: product {pid} gets no generated "
                          "voucher code in this plan (not an upsell, or not the hero of a generated exit code).")
-    return {
+    # Read before anything is built from it, so an offer-less store is refused
+    # with its own reason rather than by reland further down.
+    offers_available = getattr(a, "offers_available", None)
+    if offers_available is not None:
+        if offers_available not in ("true", "false"):
+            raise CampaignAdminError(f"--offers-available must be true or false; got {offers_available!r}")
+        if offers_supported is False:
+            raise CampaignAdminError(
+                "--offers-available cannot apply: this store answers 404/405 on the offers endpoint, so the plan "
+                "carries no offers (they are a dashboard hand-off) and nothing can be switched off here; switch "
+                "them off in the dashboard instead")
+    result = {
         "store_slug": discovery["store_slug"],
         "store_origin": discovery["store_origin"],
         "generated_at": utcnow(),
@@ -1739,6 +1751,22 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
         "waivers": [],
         "handoff": handoff,
     }
+    if offers_available is not None:
+        # Every pricing gate above ran on the design with its offers live, so the
+        # discounts were proven sound before they are switched off. Omitted, no
+        # offer carries the key and the API default (true) applies.
+        on = offers_available == "true"
+        for o in offers:
+            o["available"] = on
+        if not on:
+            # Landed prices describe the cart as it is now: package prices, until
+            # the offers are resumed. print_plan shows the resumed prices too.
+            result["landed_prices"] = reland(result)
+            rationale.append(
+                "Every offer is created with available=false (--offers-available false): the campaign exists but "
+                "no discount fires until the offers are resumed with edit set_offer_available, so the landed "
+                "prices above are the package prices. The prices once resumed are listed separately.")
+    return result
 
 
 # --------------------------------------------------------------------------- #
@@ -2203,8 +2231,28 @@ def render_requests(plan: dict) -> list:
     return reqs
 
 
+def _print_landed_row(plan: dict, l: dict) -> None:
+    """One landed row as the plan gate prints it; `plan` supplies the offers
+    and shipping methods the shipping column is worked out from."""
+    extra = ""
+    if l.get("paid_qty") is not None and l.get("free_qty") is not None and l.get("full_retail") is not None:
+        extra = (f"  paid {l['paid_qty']} free {l['free_qty']}  retail {l['full_retail']} "
+                 f"payable {l.get('payable')}  save {l.get('savings')}")
+    if l.get("note"):
+        extra += f"  ({l['note']})"
+    print(f"  {l['tier']:<28} qty {l['qty']}  anchor {l['anchor']}  -{l['pct']}%  unit {l['unit_after']}  "
+          f"total {l['order_total']}  {_landed_shipping(plan, l)}{extra}")
+
+
+# What print_plan tolerates from a plan it has not validated (the apply gate
+# prints before apply validates) while it reprices for the resumed table.
+_PREVIEW_ERRORS = (CampaignAdminError, KeyError, TypeError, ValueError, AttributeError, InvalidOperation)
+
+
 def print_plan(plan: dict, plan_path: Path | None) -> None:
     c = plan["campaign"]
+    adopted = plan.get("origin") == "adopted"
+    paused = set(_paused_offer_keys(plan))
     kind = plan.get("offer_kind") or "quantity"
     print(f"Campaign: {c['name']}  {c['currency']}/{c['language']}  gateway group {c['payment_gateway_group_id']}  store {plan['store_origin']}  offer {kind}")
     print(f"  payment methods: {c['available_payment_methods']}  express: {c['available_express_payment_methods']}  countries: {c['available_shipping_countries'] or 'all'}")
@@ -2221,7 +2269,11 @@ def print_plan(plan: dict, plan_path: Path | None) -> None:
         cond = o["condition"]
         crit = f"qty>={cond['value']}" if cond["type"] == "count" else "any"
         code = f" code={o['code']}" if o.get("offer_type") == "voucher" else ""
-        print(f"  {o['key']:<14} {o.get('offer_type','offer'):<7} {o['name']}  {crit} on {cond['package_keys']}  {o['benefit']['type']} {o['benefit']['value']}%{code}")
+        off = ""
+        if o.get("key") in paused:
+            # An adopted campaign's offer was switched off in the dashboard, not created that way.
+            off = "  SWITCHED OFF (available=false)" if adopted else "  SWITCHED OFF (created with available=false)"
+        print(f"  {o['key']:<14} {o.get('offer_type','offer'):<7} {o['name']}  {crit} on {cond['package_keys']}  {o['benefit']['type']} {o['benefit']['value']}%{code}{off}")
     vouchers = [o for o in plan.get("offers", []) if o.get("offer_type") == "voucher"]
     if vouchers:
         print("Voucher codes (override with --short-name <product_id>:<NAME> or --exit-code):")
@@ -2238,14 +2290,25 @@ def print_plan(plan: dict, plan_path: Path | None) -> None:
                   f"short name {name}  source {source}")
     print("Landed prices (confirm these):")
     for l in plan["landed_prices"]:
-        extra = ""
-        if l.get("paid_qty") is not None and l.get("free_qty") is not None and l.get("full_retail") is not None:
-            extra = (f"  paid {l['paid_qty']} free {l['free_qty']}  retail {l['full_retail']} "
-                     f"payable {l.get('payable')}  save {l.get('savings')}")
-        if l.get("note"):
-            extra += f"  ({l['note']})"
-        print(f"  {l['tier']:<28} qty {l['qty']}  anchor {l['anchor']}  -{l['pct']}%  unit {l['unit_after']}  "
-              f"total {l['order_total']}  {_landed_shipping(plan, l)}{extra}")
+        _print_landed_row(plan, l)
+    if paused and not adopted:
+        # The rows above are what the cart charges now, with these offers off.
+        # The same plan with every offer resumed shows what the discounts give.
+        try:
+            stale = _paused_rows_problem(plan)
+        except _PREVIEW_ERRORS as e:
+            stale = f"the landed prices cannot be recomputed from the plan's offers: {e}"
+        if stale:
+            print(f"WARNING: {stale}")
+        print("Landed prices once the offers are resumed:")
+        live = _as_live(plan)
+        try:
+            for l in reland(live):
+                _print_landed_row(live, l)
+        except _PREVIEW_ERRORS as e:
+            print(f"  cannot be recomputed: {e}")
+        print(f"{len(paused)} of {len(plan.get('offers') or [])} offers are created switched off; resume with: "
+              "edit set_offer_available")
     for r in plan.get("rationale", []):
         print(f"  why: {r}")
     if plan.get("blockers"):
@@ -2258,7 +2321,6 @@ def print_plan(plan: dict, plan_path: Path | None) -> None:
             print(f"  - {w}")
     # An adopted plan describes a campaign that already exists: apply would refuse it,
     # so the request list is shown as a description and no apply command is offered.
-    adopted = plan.get("origin") == "adopted"
     print("What this campaign holds, as the requests that would create it:" if adopted
           else "Requests apply will send, in order:")
     for i, (m, path, body) in enumerate(render_requests(plan), 1):
@@ -2454,7 +2516,12 @@ def reconcile(client: Client, man: Manifest, plan: dict) -> None:
 def create_offer(client: Client, man: Manifest, cid, o: dict, package_ids: dict, **journal) -> bool:
     """Journal and POST one planned offer (pending -> created). False when the
     store has no offers endpoint (404/405): the entry is journalled `unsupported`
-    and nothing was created. Shared by apply and edit so both journal alike."""
+    and nothing was created. Shared by apply and edit so both journal alike.
+
+    `available` goes on the POST when the plan offer carries it (offer_body);
+    the caller settles a switched-off offer afterwards with
+    _settle_availability, which proves it off and pauses it only if the store
+    ignored the field."""
     body = offer_body(o, package_ids)
     man.mark("offers", o["key"], status="pending", intent=body, **journal)
     path = f"/api/admin/campaigns/{cid}/offers/"
@@ -2564,9 +2631,13 @@ def apply(client: Client, plan: dict, plan_sha: str, manifest_path: Path, resume
         raise CampaignAdminError("plan is invalid:\n  - " + "\n  - ".join(errs))
     if plan.get("blockers"):
         raise CampaignAdminError("plan has blockers; clear them and re-run recommend:\n  - " + "\n  - ".join(plan["blockers"]))
-    # A new offer is live the moment it is created, so a paused offer can only be
-    # one an edit paused after the fact. apply never creates one.
-    paused = [o["key"] for o in plan.get("offers", []) if o.get("available") is False]
+    # An offer the plan marks `available: false` is created switched off. Its
+    # landed rows must already price it that way, or the approved prices would
+    # describe discounts the store will not give. An adopted plan carries no rows
+    # (and is refused below for what it is).
+    stale = None if plan.get("origin") == "adopted" else _paused_rows_problem(plan)
+    if stale:
+        raise CampaignAdminError(stale)
 
     if resume_path:
         man = Manifest.load(resume_path)
@@ -2596,11 +2667,6 @@ def apply(client: Client, plan: dict, plan_sha: str, manifest_path: Path, resume
             raise CampaignAdminError(PENDING_EDIT_MSG + " before resuming.")
         if man.data["plan_sha256"] != plan_sha:
             raise CampaignAdminError("manifest plan_sha256 does not match this plan file; resume needs the same plan")
-        not_live = [k for k in paused if (man.entry("offers", k) or {}).get("status") != "created"]
-        if not_live:
-            raise CampaignAdminError(
-                f"plan pauses offer(s) {not_live} that this run has not created; resume creates offers "
-                'live. Remove "available": false from them, or finish the build first.')
         torn = torn_down_entries(man)
         if torn:
             # Resume only finishes a build. Re-creating something teardown deleted, or
@@ -2618,10 +2684,6 @@ def apply(client: Client, plan: dict, plan_sha: str, manifest_path: Path, resume
                 raise CampaignAdminError("manifest campaign created_at does not match the live campaign; refusing to resume")
         reconcile(client, man, plan)
     else:
-        if paused:
-            raise CampaignAdminError(
-                f"plan has paused offer(s) {paused}; a fresh run creates every offer live. Remove "
-                '"available": false, create the campaign, then pause with edit.')
         if manifest_path.exists():
             raise CampaignAdminError(f"{manifest_path} already exists; pass --resume {manifest_path} or move it aside")
         q = urllib.parse.urlencode({"name": plan["campaign"]["name"], "page_size": 100})
@@ -2681,17 +2743,28 @@ def apply(client: Client, plan: dict, plan_sha: str, manifest_path: Path, resume
     package_ids = {e["key"]: e["id"] for e in man.data["packages"] if e.get("status") == "created"}
     offers_unsupported = False
     for o in plan.get("offers", []):
+        # A switched-off offer is POSTed with available=false, then read back once
+        # (a pause_pending entry is one whose read-back has not yet proven it off).
+        # Live offers are not read back here; verify reads every offer.
+        want_paused = o.get("available") is False
         e = man.entry("offers", o["key"])
         if e and e.get("status") in ("created", "unsupported"):
             # `unsupported` is terminal: a resume must not re-POST it into the same
             # 404/405, which would loop forever. It stays a dashboard hand-off.
             offers_unsupported = offers_unsupported or (e.get("status") == "unsupported")
+            if e.get("status") == "created" and e.get("pause_pending"):
+                _settle_availability(client, man, cid, {"key": o["key"], "offer": o}, package_ids, want_paused,
+                                     requested_off=want_paused, retry_hint=APPLY_PAUSE_RETRY)
             continue
         if offers_unsupported:
             man.mark("offers", o["key"], status="unsupported", intent=None)
             continue
-        if not create_offer(client, man, cid, o, package_ids):
+        if not create_offer(client, man, cid, o, package_ids, **({"pause_pending": True} if want_paused else {})):
             offers_unsupported = True
+            continue
+        if want_paused:
+            _settle_availability(client, man, cid, {"key": o["key"], "offer": o}, package_ids, True,
+                                 requested_off=True, retry_hint=APPLY_PAUSE_RETRY)
     man.data["completed_at"] = utcnow()
     man.save()
 
@@ -2918,11 +2991,50 @@ def _condition_met(cond: dict, qty: int) -> bool:
     return cond.get("type") == "count" and type(cond.get("value")) is int and cond["value"] <= qty
 
 
+def _voucher_covers(o: dict, keys: list, qty: int) -> bool:
+    """Whether a voucher is shaped to discount a cart of `qty` units drawn from
+    `keys`, availability aside: its scope covers every one of them and its
+    condition is met."""
+    cond = o.get("condition") or {}
+    return set(keys) <= set(cond.get("package_keys") or []) and _condition_met(cond, qty)
+
+
 def _voucher_applies(o: dict, keys: list, qty: int) -> bool:
     """Whether a voucher discounts a cart of `qty` units drawn from `keys`: it
     is live, its scope covers every one of them, and its condition is met."""
-    cond = o.get("condition") or {}
-    return _offer_live(o) and set(keys) <= set(cond.get("package_keys") or []) and _condition_met(cond, qty)
+    return _offer_live(o) and _voucher_covers(o, keys, qty)
+
+
+def _as_live(plan: dict) -> dict:
+    """A deep copy of the plan with every offer resumed (`available` dropped, so
+    each takes the API default of true). The plan gate prices this copy to show
+    what a switched-off campaign charges once its offers are resumed; reland and
+    the shipping column both read it, so the two agree."""
+    live = json.loads(json.dumps(plan))
+    for o in live.get("offers") or []:
+        if isinstance(o, dict):
+            o.pop("available", None)
+    return live
+
+
+def _paused_offer_keys(plan: dict) -> list:
+    """Keys of the plan's offers marked `available: false`, in plan order. Reads
+    defensively because print_plan calls it on plans not yet validated."""
+    return [o.get("key") for o in plan.get("offers") or []
+            if isinstance(o, dict) and o.get("available") is False]
+
+
+def _paused_rows_problem(plan: dict):
+    """The refusal sentence when a plan switches offers off but its landed rows
+    do not match what reland makes of them (an `available` edited by hand
+    without relanding), else None. A plan with every offer live is never
+    checked, so plans that do not mention availability are unaffected. reland's
+    own refusal propagates."""
+    paused = _paused_offer_keys(plan)
+    if not paused or _rows_agree(reland(plan), plan.get("landed_prices", [])):
+        return None
+    return (f"the plan switches offer(s) {paused} off but its landed prices still describe them as live; "
+            "run `reland --plan <file>` (or recommend --offers-available false) and approve the new hash")
 
 
 def _live_package_name_ok(live_name, p: dict) -> bool:
@@ -3041,6 +3153,9 @@ def _cart_cases_from_plan(plan: dict, ids: dict) -> list:
     skipped (the admin read-back has already recorded that failure)."""
     # An offer with `available: false` discounts nothing, so it builds no cart case
     # and never stacks into one (the exit voucher and the upsell lookups below).
+    # The rows themselves are relanded upstream (recommend --offers-available
+    # false, reland, edit) so a row a paused offer used to price carries the
+    # package price, and its tier/single cases prove the paused offer does not fire.
     offers = {o["key"]: o for o in plan.get("offers", []) if _offer_live(o)}
     exit_offer = offers.get("exit-pop")
     free_scopes = [scope for _, _, scope in _free_shipping_offers(plan)]
@@ -5802,8 +5917,17 @@ def reland(plan: dict) -> list:
     quantity meets, the highest percentage wins, and rounding is applied to the
     winner (offer doctrine: Rounding and stacking). No winner means the package
     price. Upsell rows are priced by their own voucher and never enter that
-    contest. Shapes the rows cannot express are refused rather than guessed."""
+    contest. Shapes the rows cannot express are refused rather than guessed.
+
+    Rows describe the cart as it is now, so a switched-off (`available: false`)
+    offer prices nothing. An automatic tier row it priced falls to the next live
+    offer or to the package price with no offer_key. An upsell row whose voucher
+    is switched off, and a buy-X-get-Y row whose own offer is, keep their
+    offer_key and kind fields and are priced at the package price, so resuming
+    that offer prices them again. A gift row (every package role gift) may land
+    at 100% off, which is what resuming a paused gift offer gives back."""
     prices = {p["key"]: D(p["price"]) for p in plan["packages"]}
+    roles = {p["key"]: p.get("role") for p in plan["packages"]}
     offers = {o["key"]: o for o in plan.get("offers", [])}
     auto = [o for o in plan.get("offers", [])
             if o.get("offer_type", "offer") == "offer" and o["benefit"]["type"] == "package_percentage"
@@ -5830,11 +5954,18 @@ def reland(plan: dict) -> list:
                         f"landed row {tag!r} has no voucher in the plan, so its price cannot be recomputed")
                 out.append(row)
                 continue
-            if not _voucher_applies(up, keys, qty):
+            if not _voucher_covers(up, keys, qty):
                 raise CampaignAdminError(
                     f"landed row {tag!r}: voucher {up['key']!r} would no longer apply to it (its scope must "
                     f"cover {keys} and its condition must be met at quantity {qty}), so the upsell would sell "
                     f"at the package price under a discounted label. That needs a fresh recommend ({RECREATE})")
+            if not _offer_live(up):
+                # Switched off: the code discounts nothing, so the upsell sells at
+                # the package price. The row keeps its voucher so a resume reprices it.
+                row.update(anchor=money(anchor), pct=_pct_for_landed(Decimal(0)), unit_after=money(anchor),
+                           order_total=money(anchor * qty))
+                out.append(row)
+                continue
             pct = D(up["benefit"]["value"])
             unit = check_rounding_discount(f"{up['name']} ({keys[0]})", anchor, pct,
                                            up["benefit"].get("price_rounding"))
@@ -5871,6 +6002,18 @@ def reland(plan: dict) -> list:
                     "different percentages or pause one")
             win = winners[0]
         was_bxgy = row.get("paid_qty") is not None
+        own = offers.get(old.get("offer_key")) if old.get("offer_key") else None
+        if was_bxgy and win is None and own is not None and not _offer_live(own):
+            # Its own buy-X-get-Y offer is switched off and nothing else prices the
+            # row: it keeps its deal fields and offer_key, and every price field is
+            # the package price, so a repriced package leaves a consistent row.
+            full = anchor * qty
+            row.update(anchor=money(anchor), full_retail=money(full), pct=_pct_for_landed(Decimal(0)),
+                       unit_after=money(anchor), order_total=money(full), payable=money(full),
+                       savings=money(Decimal(0)), effective_pct=money(Decimal(0)),
+                       effective_unit=money(anchor))
+            out.append(row)
+            continue
         if was_bxgy != (win is not None and win["key"] in bxgy_keys) or (was_bxgy and win["key"] != old.get("offer_key")):
             raise CampaignAdminError(
                 f"landed row {tag!r} would be priced by {win['key'] if win else 'no offer'} instead of "
@@ -5878,7 +6021,11 @@ def reland(plan: dict) -> list:
                 f"fresh recommend ({RECREATE})")
         pct = D(win["benefit"]["value"]) if win else Decimal(0)
         unit = check_rounding_discount(win["name"], anchor, pct, win["benefit"].get("price_rounding")) if win else anchor
-        if unit < 0 or (unit == 0 and _num(old.get("unit_after")) != 0):
+        # 100% off is refused unless the row already landed there or every
+        # package in it is a gift: a gift row priced at its package price while
+        # its offer was switched off goes back to free when it is resumed.
+        gift_row = bool(keys) and all(roles.get(k) == "gift" for k in keys)
+        if unit < 0 or (unit == 0 and _num(old.get("unit_after")) != 0 and not gift_row):
             raise CampaignAdminError(f"landed row {tag!r}: {_pct_for_landed(pct)}% off {money(anchor)} leaves a "
                                      f"non-positive unit price ({unit})")
         if was_bxgy:
@@ -5931,7 +6078,6 @@ def build_edit(plan: dict, spec: dict) -> tuple:
     of = {o["key"]: o for o in new.get("offers", [])}
     rows = plan.get("landed_prices", [])
     bxgy_keys = {l.get("offer_key") for l in rows if l.get("paid_qty") is not None}
-    row_vouchers = {l.get("offer_key") for l in rows if l.get("kind") == "upsell"} | {"exit-pop"}
     added = []
 
     def keys_of(tag, op):
@@ -5952,13 +6098,6 @@ def build_edit(plan: dict, spec: dict) -> tuple:
             raise CampaignAdminError(f"{tag}: offer {k!r} is not in the plan; edit never touches an offer "
                                      "this run did not create")
         return of[k]
-
-    def pause_refusal(tag, o):
-        if o.get("offer_type", "offer") == "voucher" and o["key"] in row_vouchers:
-            raise CampaignAdminError(
-                f"{tag}: pausing voucher {o['key']!r} is not supported in this version: how the cart treats "
-                f"a paused code is unobserved, so its landed price could not be proven. Pause it in the "
-                f"dashboard, or {RECREATE}")
 
     for i, op in enumerate(_edit_ops(spec)):
         tag = f"operations[{i}]"
@@ -6024,7 +6163,8 @@ def build_edit(plan: dict, spec: dict) -> tuple:
             if op["available"]:
                 o.pop("available", None)
             else:
-                pause_refusal(tag, o)
+                # reland prices whatever the paused offer priced at the package
+                # price, and verify never submits a paused code.
                 o["available"] = False
         else:  # add_offer
             src = op.get("offer")
@@ -6055,7 +6195,6 @@ def build_edit(plan: dict, spec: dict) -> tuple:
                 if type(op["available"]) is not bool:
                     raise CampaignAdminError(f"{tag}: available must be true or false")
                 if not op["available"]:
-                    pause_refusal(tag, o)
                     o["available"] = False
             new.setdefault("offers", []).append(o)
             of[o["key"]] = o
@@ -6329,11 +6468,10 @@ def edit_prepare(client: Client, man: Manifest, plan: dict, plan_sha: str, spec:
         obj["before_sha256"] = canonical_sha256(obj["before"])
         objects.append(obj)
 
-    # The create body never carries `available`: an added offer is created live and
-    # paused by its own PATCH afterwards, so the receipt shows the pause as a write
-    # of its own and a store that ignores `available` on create cannot hide it.
-    adds = [{"key": k, "offer": {f: v for f, v in new_of[k].items() if f != "available"},
-             "body": offer_body({f: v for f, v in new_of[k].items() if f != "available"}, package_ids),
+    # The create body carries `available: false` for an offer added switched off.
+    # Its read-back proves it off; a PATCH follows only on a store that ignored
+    # the field on create, so that store cannot leave it live unnoticed.
+    adds = [{"key": k, "offer": new_of[k], "body": offer_body(new_of[k], package_ids),
              "paused": not _offer_live(new_of[k])} for k in added]
     edit_sha = canonical_sha256({"kind": kind, "plan_sha256": plan_sha, "spec": spec,
                                  "before": {f"{o['section']}:{o['key']}": o["before_sha256"] for o in objects}})
@@ -6354,12 +6492,13 @@ def print_edit(prep: dict, plan: dict, man: Manifest) -> None:
         for label, a, b in o["diff"]:
             print(f"  {o['section'][:-1]} {o['key']} (id {o['id']})  {label}: {a} -> {b}")
     if prep["adds"]:
-        print("Offers added (a new offer is live the moment it is created):")
+        print("Offers added (created with the availability shown; an added offer is live unless available "
+              "is false):")
     for a in prep["adds"]:
         o = a["offer"]
         crit = f"qty>={o['condition']['value']}" if o["condition"]["type"] == "count" else "any"
         code = f" code={o['code']}" if o.get("offer_type") == "voucher" else ""
-        note = "  then paused" if a["paused"] else ""
+        note = "  created switched off" if a["paused"] else ""
         print(f"  {o['key']}  {o['name']}  {crit} on {o['condition']['package_keys']}  "
               f"{o['benefit']['type']} {o['benefit']['value']}%{code}{note}")
     print("Landed prices (before -> after):")
@@ -6383,9 +6522,8 @@ def print_edit(prep: dict, plan: dict, man: Manifest) -> None:
         i += 1
         print(f"  {i:>2}. POST /api/admin/campaigns/{prep['campaign_id']}/offers/  {json.dumps(a['body'])}")
         if a["paused"]:
-            i += 1
-            print(f"  {i:>2}. PATCH /api/admin/campaigns/{prep['campaign_id']}/offers/<{a['key']}>/  "
-                  + json.dumps({"available": False}))
+            print('      then GET to prove available=false; PATCH {"available": false} only if the store '
+                  "ignored it on create")
     if prep["adds"]:
         print("Undo of an added offer pauses it; edit never deletes. teardown removes it with the rest.")
     print(f"Edit SHA-256: {prep['edit_sha256']}")
@@ -6428,9 +6566,25 @@ def edit_apply(client: Client, man: Manifest, plan_path: Path, plan_text: str, p
     edit_run(client, man, plan_path, receipt)
 
 
-def _pause_added(client: Client, man: Manifest, cid, a: dict, package_ids: dict, expect_paused: bool) -> None:
-    """Bring a created, edit-added offer to its intended availability and prove
-    the whole offer by read-back."""
+APPLY_PAUSE_RETRY = "Re-run apply --resume to try the pause again."
+EDIT_PAUSE_RETRY = "Re-run the same edit to try the pause again."
+UNDO_PAUSE_RETRY = "Re-run the same undo to try the pause again."
+
+
+def _settle_availability(client: Client, man: Manifest, cid, a: dict, package_ids: dict, expect_paused: bool,
+                         *, requested_off: bool, retry_hint: str) -> None:
+    """Bring a created offer to its intended availability and prove the whole
+    offer by read-back. `a` is {"key", "offer"}: the plan offer as it was sent.
+
+    The create POST carries `available: false` for a switched-off offer, so on
+    a current store the first read already shows it off and nothing is
+    written. Only when the read shows it live is it paused with a PATCH: a
+    store that ignored the field on create (a build before campaigns-app 604),
+    an old edit receipt whose POST never carried it, or rollback pausing an
+    offer that was created live on purpose. `requested_off` says whether the
+    POST asked for available=false; only then is the PATCH journalled as
+    `available_patched` and reported as the store ignoring the field.
+    `retry_hint` is the caller's own way to try the pause again."""
     e = man.entry("offers", a["key"])
     obj = {"section": "offers", "key": a["key"], "id": e["id"],
            "path": f"/api/admin/campaigns/{cid}/offers/{e['id']}/"}
@@ -6453,10 +6607,18 @@ def _pause_added(client: Client, man: Manifest, cid, a: dict, package_ids: dict,
         if status != 200:
             raise CampaignAdminError(
                 f"offer {a['key']} (id {e['id']}) was created and is LIVE, but pausing it returned {status}: "
-                f"{_short(resp)}; not retried. Re-run the same edit to try the pause again."
+                f"{_short(resp)}; not retried. {retry_hint}"
                 + auth_hint(status, "PATCH", obj["path"]))
         live = _read_object(client, obj)
-    problems = problems_with(live, expect_paused)
+        problems = problems_with(live, expect_paused)
+        if not problems and requested_off:
+            # Journalled only once the read-back proves the pause, so the manifest
+            # never claims a settle that did not happen.
+            man.mark("offers", a["key"], available_patched=True)
+            print(f"offer {a['key']} (id {e['id']}): this store ignored available=false on create (build "
+                  "predates campaigns-app 604); paused with a PATCH and read back")
+    else:
+        problems = problems_with(live, expect_paused)
     if problems:
         raise CampaignAdminError(f"offer {a['key']} (id {e['id']}) was created but its read-back is not what "
                                  "was intended; stopped, not retried:\n  - " + "\n  - ".join(problems))
@@ -6517,7 +6679,10 @@ def edit_run(client: Client, man: Manifest, plan_path: Path, receipt: dict) -> N
             elif not create_offer(client, man, cid, a["offer"], package_ids, pause_pending=a["paused"]):
                 raise CampaignAdminError("the offers endpoint answered 404/405: this store does not accept "
                                          "offers over the API, so one cannot be added here." + undo_hint)
-        _pause_added(client, man, cid, a, package_ids, a["paused"])
+        # An old receipt's POST body never carried `available`, so its pause is a
+        # planned PATCH and not a store ignoring the field.
+        _settle_availability(client, man, cid, a, package_ids, a["paused"],
+                             requested_off=a["body"].get("available") is False, retry_hint=EDIT_PAUSE_RETRY)
         _journal(man, "adds", a["key"], "verified")
 
     # Plan first, then the manifest's hash. A stop between the two leaves the new
@@ -6653,7 +6818,9 @@ def rollback_execute(client: Client, man: Manifest, plan_path: Path, receipt: di
                 raise CampaignAdminError(f"offer {a['key']} was live a moment ago and is now gone; re-run the undo")
             man.mark("offers", a["key"], status="created", id=hit["id"], name=hit.get("name"),
                      intent=None, reconciled=True)
-        _pause_added(client, man, cid, a, package_ids, True)
+        # Rollback pauses on purpose, whatever the create asked for.
+        _settle_availability(client, man, cid, a, package_ids, True, requested_off=False,
+                             retry_hint=UNDO_PAUSE_RETRY)
         kept.append(a)
         _journal(man, "adds", a["key"], "paused", scope="rollback")
 
@@ -7494,11 +7661,18 @@ def main(argv=None) -> int:
     r.add_argument("--rounding", help="price_rounding for tier/voucher offers; one of "
                    + ", ".join(PRICE_ROUNDINGS[1:]))
     r.add_argument("--statement-descriptor")
+    r.add_argument("--offers-available", choices=["true", "false"],
+                   help="create every offer switched on (true, explicit) or switched off (false); omit to send "
+                        "no field and take the API default (true)")
     r.add_argument("--out")
 
     p = sub.add_parser("plan", help="validate and print the requests + approval hash")
     p.add_argument("--plan", required=True)
     p.add_argument("--check-store", action="store_true", help="also check the store for a same-named campaign")
+
+    rl = sub.add_parser("reland", help="rewrite landed_prices from the plan's own offers, e.g. after switching "
+                                       "offers off by hand")
+    rl.add_argument("--plan", required=True)
 
     a = sub.add_parser("apply", help="create the campaign (gated)")
     a.add_argument("--plan", required=True)
@@ -7644,6 +7818,9 @@ def _dispatch(args) -> int:
         print_plan(plan, path)
         return 0
 
+    if args.cmd == "reland":
+        return _reland_cmd(args)
+
     if args.cmd == "apply":
         path = Path(args.plan)
         plan, sha = load_json_and_hash(path)
@@ -7762,6 +7939,64 @@ def _dispatch(args) -> int:
         slug = normalize_store(args.store)
         return metadata_provision(_client_for(slug), slug, args.apply)
     return 1  # pragma: no cover
+
+
+def _reland_refusal(run_dir: Path):
+    """The refusal for relanding a plan bound to a run, else None. The run's
+    manifest records this plan's hash, which resume, verify, edit and teardown
+    all require, so an in-place rewrite would strand the campaign."""
+    if not (run_dir / MANIFEST_NAME).exists():
+        return None
+    return (f"{run_dir} already holds a run ({MANIFEST_NAME}); its plan is the only file that can resume or "
+            "tear that campaign down, so reland will not rewrite it. A plan bound to a run changes only "
+            "through edit (set_offer_available).")
+
+
+def _reland_cmd(args) -> int:
+    """`reland --plan`: rewrite a not-yet-applied plan's landed_prices from its
+    own packages and offers (after `available` was edited by hand), then print
+    the plan and its new approval hash."""
+    path = Path(args.plan)
+    run_dir = run_dir_for(path)
+    refusal = _reland_refusal(run_dir)
+    if refusal:
+        raise CampaignAdminError(refusal)
+    plan = load_json(path)
+    if isinstance(plan, dict) and plan.get("origin") == "adopted":
+        raise CampaignAdminError(
+            f"{path} was adopted from an existing campaign; it has no landed rows of this skill's to "
+            f"recompute. Change an adopted campaign with {PROG} diff and update.")
+    errs = validate_plan(plan)
+    if errs:
+        raise CampaignAdminError("plan is invalid:\n  - " + "\n  - ".join(errs))
+    with run_lock(run_dir):
+        # Re-read under the lock: an apply that started meanwhile owns the file now.
+        refusal = _reland_refusal(run_dir)
+        if refusal:
+            raise CampaignAdminError(refusal)
+        plan = load_json(path)
+        errs = validate_plan(plan)
+        if errs:
+            raise CampaignAdminError("plan is invalid:\n  - " + "\n  - ".join(errs))
+        before = plan.get("landed_prices", [])
+        plan["landed_prices"] = reland(plan)
+        changed = sum(1 for a, b in zip(before, plan["landed_prices"]) if not _rows_agree([a], [b]))
+        # The refusal above only sees a manifest beside the plan. A run applied
+        # with --out elsewhere keeps its manifest there and still records this
+        # file's hash, so the approved bytes are kept before the rewrite: copying
+        # them back restores the plan that run was created from.
+        # Named by the bytes' own hash, so a second reland never overwrites the
+        # copy an earlier one kept.
+        original = path.read_bytes()
+        backup = path.with_name(f"{path.stem}.before-reland-{hashlib.sha256(original).hexdigest()[:12]}{path.suffix}")
+        if not backup.exists():
+            atomic_write_bytes(backup, original)
+        atomic_write_json(path, plan)
+    print_plan(plan, path)
+    print(f"relanded {path}: {changed} of {len(plan['landed_prices'])} landed row(s) changed")
+    print(f"the previous plan (SHA-256 {hashlib.sha256(original).hexdigest()}) is saved as {backup}; if a run "
+          "was already applied from it with --out elsewhere, copy it back over the plan")
+    return 0
 
 
 def _diff_cmd(args, manifest_path: Path) -> int:

@@ -55,6 +55,7 @@ never guesses. It works out the rest from your answers.
 | Shipping price and countries | The campaign settings |
 | Whether discounted prices end in .95, .97, .99 or whole dollars, or are left unrounded | Applying it to every discount offer except the free gift and free shipping |
 | Any add-on or upsell products, and their prices | One upsell discount per product covering all its variants, and the order the requests go in |
+| Whether the offers start switched on, or switched off until you're ready (a draft, or "don't make the discounts available yet") | Creating every offer switched off when you ask, and showing you the prices now and the prices once the offers are switched on |
 
 Cost-to-consumer is what your customer pays, not what the product costs you.
 A low-priced product gets Buy 1, Buy 2 and Buy 3 offers, with a bigger
@@ -108,7 +109,10 @@ For a new campaign it walks you through, step by step:
    customers will pay, before anything is created. You can change anything and
    get a fresh plan.
 5. **Live run**: only after you say go. It creates the campaign, then its
-   packages, shipping methods and offers.
+   packages, shipping methods and offers. If you asked for the offers to start
+   switched off, they are created that way: the campaign exists and your funnel
+   can be built against it, but no discount runs until you ask for the offers
+   to be switched on. Creating an offer is not the same as switching it on.
 6. **Verification**: reads everything back from your store and prices test
    carts to the cent, including each tier, a cart with mixed variants, the exit
    voucher and shipping.
@@ -158,6 +162,7 @@ for your yes.
 | "Drop the price of the main package to 22.95" | that package's price |
 | "Shipping is 7.95 now" | the shipping price |
 | "Stop the exit discount from running" | that offer is switched off, but kept, so you can switch it back on |
+| "Switch the Buy 2 discount back on" | that offer starts applying again, and you see the prices before and after |
 | "Add the warranty add-on at 9.95" | a new package, and the funnel page gets a new ID to use |
 | "Add a discount on the add-on" | a new offer |
 | "We also ship to Canada now" | the shipping countries |
@@ -250,6 +255,11 @@ the same way as changing any campaign you already have, described next.
 - **Deletions are a separate approval**, and the campaign itself is never
   deleted by a change. An in-place change never deletes anything: an offer is
   paused instead.
+- **A campaign and its offers are switched on separately.** The campaign exists
+  and can be reached from the moment it is created. Each offer is on or off by
+  itself, so a campaign that exists does not mean its discounts are running.
+  While an offer is off, the prices you approve leave its discount out, and
+  the plan also shows what customers will pay once the offers are on.
 - **An interrupted run can be recovered.** It can pick up where it left off
   without creating anything twice, or remove only what it created. An update
   that stopped halfway checks the campaign against what it had already done

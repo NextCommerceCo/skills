@@ -1,6 +1,6 @@
 ---
 name: next-campaigns-create
-version: 1.1.1
+version: 1.2.0
 description: |
   Create and update a Campaigns App campaign over the NEXT Admin API. Create:
   read the store's catalogue, gateway groups and shipping methods, recommend a
@@ -11,17 +11,21 @@ description: |
   the store, then apply that reviewed change set. Hands back the campaign
   api_key and the package ids the funnel needs. Offer kinds: quantity Buy 1/2/3,
   buy-X-get-Y as a labeled percentage approximation, and gift-with-purchase as
-  a gift package plus a gift-scoped 100% offer. Also clone an existing campaign
-  through a separate approval gate, preserving its funnel reference IDs.
+  a gift package plus a gift-scoped 100% offer. Offers can be created switched
+  on or off; creating an offer is not the same as activating it. Also clone an
+  existing campaign through a separate approval gate, preserving its funnel
+  reference IDs.
 
   Use when: "create a campaign for {store}", "set up the campaign in the
   Campaigns App", "provision a campaign over the API", "recommend a campaign
   structure", "build the offers for {product}", "buy X get Y", "BOGO",
   "gift with purchase", "change the price", "change the tier percentages",
-  "pause that offer", "add an offer", "update a campaign", "change a package
-  price", "change the shipping price", "retire an offer", "add a bump to an
-  existing campaign", "adopt an existing campaign", "clone a campaign", "copy campaign 42", or when a
-  campaign needs to exist, or needs changing, on a store before funnel work starts.
+  "pause that offer", "create the offers switched off", "don't make the
+  discounts available yet", "draft campaign", "add an offer", "update a
+  campaign", "change a package price", "change the shipping price", "retire
+  an offer", "add a bump to an existing campaign", "adopt an existing
+  campaign", "clone a campaign", "copy campaign 42", or when a campaign needs
+  to exist, or needs changing, on a store before funnel work starts.
 allowed-tools:
   - Bash
   - Read
@@ -66,8 +70,9 @@ procedure is in `references/update-path.md`.
 
 This skill creates a campaign, clones one, and changes a campaign it owns. Four paths:
 
-- **Create** (Phases 1 to 6): `discover`, `recommend`, `plan`, `apply`,
-  `verify`, `teardown`.
+- **Create** (Phases 1 to 6): `discover`, `recommend`, `plan`, `reland` (only
+  when offers are switched off by hand before apply), `apply`, `verify`,
+  `teardown`.
 - **Edit in place** (Phase 7): `edit`, on a campaign a run of this skill
   created. One or more field changes, previewed and hashed, with a receipt and
   `--undo`.
@@ -203,11 +208,11 @@ confirmation that covers it:
 | 2 | `POST /api/admin/campaigns/{id}/packages/` (one per variant) | same |
 | 3 | `PUT /api/admin/campaigns/{id}/packages/{id}/image/` (only when the plan sets an override, only on a package the manifest owns) | same; on a campaign that already exists it is a PUT op in the change set, under the same gate as rows 13 to 22 |
 | 4 | `POST /api/admin/campaigns/{id}/shipping-methods/` | same |
-| 5 | `POST /api/admin/campaigns/{id}/offers/` (tiers and vouchers) | same |
+| 5 | `POST /api/admin/campaigns/{id}/offers/` (tiers and vouchers, with `available` on the body when the plan sets it). For an offer created with `available: false`, one GET proves it is off, and `PATCH .../offers/{id}/` `{"available": false}` follows only if the store ignored the field | same |
 | 6 to 9 | `DELETE` offers, shipping methods, packages, campaign | teardown only: manifest-bound, identity read-back, `--yes`; refused on an adopted campaign |
 | 10 | `PATCH /api/admin/campaigns/{id}/packages/{id}/` (the `prices[]` rows, on a package this run created) | Phase 7 edit preview + `edit --yes --edit-sha256 --live-traffic` |
 | 11 | `PATCH /api/admin/campaigns/{id}/offers/{id}/` (benefit value and rounding, the condition, `available`, on an offer this run created) | same |
-| 12 | `POST /api/admin/campaigns/{id}/offers/` (an offer added to a campaign this run created) | same |
+| 12 | `POST /api/admin/campaigns/{id}/offers/` (an offer added to a campaign this run created, with `available` on the body when the edit sets it; the same read-back and backstop PATCH as row 5) | same |
 | 13 | `PATCH /api/admin/campaigns/{id}/` (name, language, gateway group, payment and express method lists, shipping countries, additional currencies, statement descriptor, PayPal account id; never `currency`) | U4 change-set review + `update --yes --change-set-sha256` |
 | 14 | `PATCH /api/admin/campaigns/{id}/packages/{id}/` (name, `prices[]` for the campaign currency only, recurring interval) | same |
 | 15 | `POST /api/admin/campaigns/{id}/packages/` on a campaign that already exists | same |
@@ -418,8 +423,9 @@ next-campaigns-create.sh --version
 next-campaigns-create.sh check-update [--no-cache] [--json]
 next-campaigns-create.sh discover  --store <subdomain> [--out <dir>]
 next-campaigns-create.sh metadata  --store <subdomain> [--apply]
-next-campaigns-create.sh recommend --discovery <dir>/discovery.json --hero <product_id> --ctc low|high --anchor-price <decimal> --shipping <code>:<price>[:<key>] [--shipping ...] [--offer-type quantity|bxgy|gwp] [--paid-qty <n> --free-qty <n>] [--gift <variant_id>:<price>[:<qty>]] [--gift-mode auto|select] [--name <campaign name>] [--gateway-group <id>] [--payment-methods a,b] [--express-methods a,b] [--currency USD] [--language en] [--countries US,CA] [--tiers 50,55,60] [--exit 10] [--exit-code CODE] [--short-name <product_id>:<NAME>] [--bump <variant_id>:<price>] [--upsell <variant_id>:<price>:<pct>] [--free-shipping | --free-shipping-min-qty <n>] [--rounding 0.95] [--statement-descriptor <text>] [--out <dir>]
+next-campaigns-create.sh recommend --discovery <dir>/discovery.json --hero <product_id> --ctc low|high --anchor-price <decimal> --shipping <code>:<price>[:<key>] [--shipping ...] [--offer-type quantity|bxgy|gwp] [--paid-qty <n> --free-qty <n>] [--gift <variant_id>:<price>[:<qty>]] [--gift-mode auto|select] [--name <campaign name>] [--gateway-group <id>] [--payment-methods a,b] [--express-methods a,b] [--currency USD] [--language en] [--countries US,CA] [--tiers 50,55,60] [--exit 10] [--exit-code CODE] [--short-name <product_id>:<NAME>] [--bump <variant_id>:<price>] [--upsell <variant_id>:<price>:<pct>] [--free-shipping | --free-shipping-min-qty <n>] [--rounding 0.95] [--statement-descriptor <text>] [--offers-available true|false] [--out <dir>]
 next-campaigns-create.sh plan      --plan <dir>/campaign-plan.json [--check-store]
+next-campaigns-create.sh reland    --plan <dir>/campaign-plan.json
 next-campaigns-create.sh apply     --plan <dir>/campaign-plan.json --yes --plan-sha256 <plan-sha256> [--resume <dir>/run-manifest.json] [--out <dir>]
 next-campaigns-create.sh verify    --manifest <dir>/run-manifest.json --plan <dir>/campaign-plan.json [--out <dir>]
 next-campaigns-create.sh edit      --manifest <dir>/run-manifest.json --plan <dir>/campaign-plan.json --changes <dir>/campaign-edit.json [--yes --edit-sha256 <edit-sha256> --live-traffic yes|no]
@@ -847,6 +853,32 @@ gift (different package keys). `--tiers` with `--offer-type bxgy` is an error.
   `--bump <variant_id>:<price>`.
 - **Campaign name** (`--name`): the doctrine uses the hero product name. It must
   not match a campaign that already exists on the store.
+- **Offer availability**: whether the offers start switched on or off. Every
+  offer the create path sends can carry `available`: `true` creates it enabled,
+  `false` creates it disabled, and leaving the field out takes the API default,
+  which is enabled. Creating an offer is not activating it. A switched-off offer
+  exists, keeps its id, name and code, and gives no discount until it is
+  resumed. Read the operator's words; never guess:
+
+  | The operator says | Pass |
+  |---|---|
+  | "all offers disabled", "don't make the discounts available yet", draft, inactive, unpublished, "not live yet" | `--offers-available false` |
+  | "ready to go", live, or nothing about it | no flag: no offer carries `available`, and the API default (enabled) applies |
+  | enabled or available in so many words ("create them with available true") | `--offers-available true`, which writes an explicit `true` on every offer |
+  | some offers off and the rest on ("don't make the exit discount available yet") | no flag; switch those offers off in the plan and run `reland` (Phase 4) |
+
+  When the request is unclear ("set it up but hold off"), ask with
+  `AskUserQuestion` rather than pick. `--offers-available false` is refused on
+  a store whose Offers API answers 404 or 405, because that plan carries no
+  offers to switch off; the offers are a dashboard hand-off there, and the
+  operator switches them off in the dashboard.
+
+  Campaign status and offer availability are separate facts. This skill models
+  no campaign status and sets none. A campaign exists, and is reachable through
+  its api_key, from the moment `apply` creates it, whatever its offers say;
+  offers are on or off one at a time. Never tell the operator the campaign is
+  live or off as a whole, and never assume that because a campaign exists or
+  looks active its offers are all on: each offer's `available` says.
 
 ### Quantity (A)
 
@@ -888,8 +920,9 @@ Tell the operator, before they approve:
 `--tiers` with bxgy is an error (Buy 1 % would mask a lower BXGY rate).
 Optional `--gift` is allowed; the gift uses different package keys.
 
-Per-customer limits and date ranges are not offer-create fields. An offer is
-always created live; pausing one is an edit after the campaign exists (Phase 7).
+Per-customer limits and date ranges are not offer-create fields. Whether the
+offers start switched on or off is a separate decision: Offer availability,
+under Shared, every type.
 
 ### Gift with purchase (C)
 
@@ -916,7 +949,9 @@ others are `--exit-code`, `--short-name <product_id>:<NAME>` (the product's
 voucher code name, A-Z0-9, starting with a letter, at most 12 characters, used
 for its upsell and exit codes), `--payment-methods`, `--express-methods` and
 `--statement-descriptor`. Price rounding is not left to its default: it is asked under
-"Shared, every type".
+"Shared, every type". `--offers-available` is unset by default, so no offer
+carries `available` and every offer is created enabled; set it only from the
+Offer availability decision, never as a precaution.
 
 ---
 
@@ -932,7 +967,8 @@ bash <skill-dir>/next-campaigns-create.sh recommend \
   [--offer-type quantity|bxgy|gwp] [--paid-qty <n> --free-qty <n>] \
   [--gift <variant_id>:<price>[:<qty>]] [--gift-mode auto|select] \
   [--bump <variant_id>:<price> ...] [--upsell <variant_id>:<price>:<pct> ...] \
-  [--exit 10] [--rounding 0.95] [--free-shipping | --free-shipping-min-qty <n>]
+  [--exit 10] [--rounding 0.95] [--free-shipping | --free-shipping-min-qty <n>] \
+  [--offers-available true|false]
 ```
 
 Quantity is the default `--offer-type` and still emits Buy 1/2/3 at 50/55/60
@@ -965,6 +1001,49 @@ one of five shipping labels:
 | `shipping partly discounted (not modelled; prove by hand)` | a shipping offer below 100% touches the row; verify expects full shipping there |
 | `no shipping (post-purchase)` | an upsell row, which carries no shipping method |
 
+With `--offers-available false`, every offer `recommend` emits carries
+`"available": false`: the tiers, the buy-X-get-Y offer, the gift's 100% offer,
+the upsell and exit vouchers, and the free-shipping offer. The rationale gains
+a line saying so. `plan` ends each such offer row with
+`SWITCHED OFF (created with available=false)`.
+
+Landed prices always describe the cart as it will be once the campaign exists.
+A switched-off offer gives no discount: a row whose automatic offer is off
+takes the best offer still on, or the package price when none is left; a
+switched-off free-shipping offer leaves shipping charged; and a switched-off
+upsell voucher's row is priced at the package price with its offer kept. With
+`tier-3` off and `tier-2` on, Buy 3 lands at 55%, not at the package price
+(`references/worked-examples.md`, example 6). When any offer is switched off, `plan`
+prints a second table under `Landed prices once the offers are resumed:`, the same rows
+with every offer on, then
+`{n} of {m} offers are created switched off; resume with: edit set_offer_available`.
+Show the operator both tables and say which is which: customers pay the first
+until the offers are resumed.
+
+To switch off only some offers, edit `campaign-plan.json` before `apply`, while
+no `run-manifest.json` exists: set `"available": false` on those offers, then
+run
+
+```bash
+bash <skill-dir>/next-campaigns-create.sh reland \
+  --plan ./next-campaigns-create-runs/<subdomain>/campaign-plan.json
+```
+
+`reland` recomputes `landed_prices` from the plan's own offers, rewrites the
+plan in place and prints it with its new SHA-256, which is the hash to approve.
+Never hand-edit `available` without relanding. `plan` warns when an offer is
+switched off but its landed prices still describe it as live, and `apply`
+refuses that plan, telling you to run `reland --plan <file>`, so a store never
+receives discounted rows it will not charge. `reland` refuses an adopted plan,
+which has no landed rows, and refuses once a `run-manifest.json` sits beside
+the plan, because that plan is bound to the run: after `apply`, switch offers
+on or off with `edit set_offer_available` (Phase 7). It cannot see a manifest
+that `apply --out` put in another directory, so before rewriting it saves the
+previous bytes as `campaign-plan.before-reland-<first 12 of its SHA-256>.json`
+(never overwritten, so every earlier version survives) and prints the full
+SHA-256. If a run was already applied from the old plan, copy the copy whose
+hash the run's manifest records back over the plan.
+
 If there are blockers, stop and clear them (see Failure modes), then re-run
 `recommend` and `plan`. The engine will not apply a plan with blockers.
 
@@ -976,8 +1055,9 @@ whole exit code with `--exit-code`, then re-run `recommend` and `plan`:
 
 > Ready to create campaign "{name}" on {subdomain}.29next.store: {N} requests
 > ({P} packages, {S} shipping methods, {O} offers), price rounding
-> {none | .95 | .97 | .99 | .00}. The request list and the landed prices are
-> above. Proceed?
+> {none | .95 | .97 | .99 | .00}. {When any offer is off: {K} of {O} offers
+> created switched off, so customers pay the first landed table until they are
+> resumed.} The request list and the landed prices are above. Proceed?
 >
 > - A) Yes, create it exactly as planned
 > - B) Change something first (I re-run `recommend` and `plan` and show you the
@@ -1005,6 +1085,23 @@ Emit a `TodoWrite` with the resources being created. The engine journals every
 id the moment it exists in `run-manifest.json` next to the plan, written
 atomically with mode 600. That manifest holds the campaign api_key; never print
 it.
+
+An offer the plan switches off is created switched off: its POST carries
+`"available": false`. The engine never creates an offer live and then switches
+it off. After that POST it reads the offer back once to prove `available` is
+false. Only if the store ignored the field, which a build older than the
+2026-10-14 fix (campaigns-app issue 604) does, it sends
+`PATCH {"available": false}` as a backstop, reads the offer back again, records
+`available_patched: true` on that offer in the manifest, and prints:
+
+```
+offer <key> (id N): this store ignored available=false on create (build predates campaigns-app 604); paused with a PATCH and read back
+```
+
+Tell the operator when that line appears: the offer was live for the moment
+between the two requests, and is off now. If the backstop PATCH itself fails,
+the run stops naming the offer as LIVE; `apply --resume` tries the pause again
+without a second POST. Offers the plan leaves on get no extra read.
 
 Two different failure shapes, and they need different handling:
 
@@ -1112,7 +1209,17 @@ offer's name, `available`, condition type and value, benefit type and rounding.
 Not every row is PASS or FAIL: `UNVERIFIED` marks a field this store does not
 report, such as an offer threshold a read-back omits, and `INFO` marks something
 that could not be proven and is not a defect. Neither changes the verdict, and
-the `VERIFY:` line counts them. On a campaign with no `landed_prices`, which is
+the `VERIFY:` line counts them.
+
+On a campaign created with offers switched off, a PASS proves two things: the
+admin read-back shows `available: false` on every switched-off offer, and the
+switched-off automatic discounts do not fire (the checkout carts are expected,
+and found, at the package price). It does not submit a switched-off voucher
+code to the cart. How the cart treats a paused voucher code has never been
+observed, so no exit or upsell voucher case is sent for one. After resuming the
+offers (Phase 7), run `verify` again: that run is what proves the discounts.
+
+On a campaign with no `landed_prices`, which is
 every adopted campaign, verify prices no carts and prints one INFO row,
 `pricing coverage unproven: no landed rows`. The field read-backs still run, so
 an adopted campaign is proven for its fields and unproven for its prices. Say
@@ -1173,7 +1280,7 @@ What an edit can change, one operation each in an edit file:
 | change the quantity an offer starts at, or between `any` and `count` | `set_offer_condition` | `offer_key`, `type`, `value` |
 | change which packages an offer covers | `set_offer_scope` | `offer_key`, `package_keys` |
 | pause or resume an offer | `set_offer_available` | `offer_key`, `available` |
-| add an offer | `add_offer` | `offer` (shaped like a plan offer), optional `available` |
+| add an offer | `add_offer` | `offer` (shaped like a plan offer), optional `available` (sent on the create) |
 
 What it cannot change. Each is refused with `cannot be edited in place: <field>`.
 Most of these are the update path's business (U3), and the rest need teardown and
@@ -1194,9 +1301,6 @@ recreate or the dashboard:
   under `--allow-delete`, and teardown removes the whole run.
 - The percentage or condition of a buy-X-get-Y offer: both come from its paid
   and free quantities.
-- Pausing a voucher a landed row depends on (the exit voucher, an upsell
-  voucher): how the cart treats a paused code is unobserved, so the price could
-  not be proven.
 
 Three shapes are also refused, because the plan's landed prices could not
 describe them. Each needs a fresh `recommend`, which means teardown and
@@ -1283,9 +1387,38 @@ What the engine does, in order:
    prices, and records the new plan hash in the manifest, so `verify`, `--resume`
    and `teardown` work against the edited campaign.
 
-A new offer is live the moment it is created. `add_offer` with
-`"available": false` creates it and pauses it straight after, and says so if the
-pause fails, because the offer is live until it lands.
+`add_offer` sends the offer's `available` on its POST, so an offer added with
+`"available": false` is created switched off. The preview lists it under
+`Offers added`, marked `created switched off`, followed by the line
+`then GET to prove available=false; PATCH {"available": false} only if the store ignored it on create`.
+That PATCH is the same backstop `apply` uses (Phase 5), with the same
+`ignored available=false on create` warning; if it fails, the edit stops naming
+the offer as LIVE and re-running the same edit tries the pause again. An added
+offer without `available`, or with `true`, is live from its POST.
+
+Pausing a voucher a landed row depends on (an upsell voucher) is an ordinary
+`set_offer_available`: its row keeps its offer and is priced at the package
+price until it is resumed. Pausing or resuming any offer recomputes the landed
+rows the same way the plan gate does.
+
+To resume a campaign created with offers switched off, send one
+`set_offer_available` with `available: true` per offer, all in one edit file or
+one edit at a time:
+
+```json
+{"operations": [
+  {"op": "set_offer_available", "offer_key": "tier-1", "available": true},
+  {"op": "set_offer_available", "offer_key": "tier-2", "available": true},
+  {"op": "set_offer_available", "offer_key": "tier-3", "available": true},
+  {"op": "set_offer_available", "offer_key": "exit-pop", "available": true},
+  {"op": "set_offer_available", "offer_key": "free-shipping", "available": true}
+]}
+```
+
+Use the offer keys the plan holds; the ones above are what `recommend` names a
+quantity campaign's tiers, exit voucher and free-shipping offer. The preview shows the landed rows moving from the package price to the
+discounted price. Each offer goes live as soon as its PATCH lands, so the
+live-traffic question matters here.
 
 Then run `verify` again (Phase 6) and report it. If the campaign carries an offer
 this run does not own, `verify` still fails on `campaign offers match the plan`,
@@ -1363,6 +1496,12 @@ from the most recent edit.
 | `not gitignored` | the run directory is inside a git repository that does not ignore it | add `next-campaigns-create-runs/` to `.gitignore`, or pass `--out` outside the repository |
 | `cannot confirm ... is safe to write` | a `.git` directory was found but git could not be asked | install git, or pass `--out` outside the repository |
 | offers POST returns 404/405 | store's Offers API not live | campaign, packages and shipping are created; build offers in the dashboard |
+| `--offers-available cannot apply` from `recommend` | the discovery says this store answers 404/405 on the offers endpoint, so the plan carries no offers to switch off | drop the flag; the offers are a dashboard hand-off on this store, so switch them off in the dashboard |
+| `landed prices still describe them as live` from `apply`, or the same warning from `plan` | an offer's `available` was set to false by hand and the landed rows were not recomputed | `reland --plan <file>`, show the operator the new tables, approve the new hash |
+| `already holds a run` and `changes only through edit (set_offer_available)` from `reland` | the plan is bound to a run, so rewriting it would break `--resume`, `verify` and `teardown` | change availability after apply with `edit set_offer_available` (Phase 7) |
+| any other `landed row ...` refusal from `apply`, `plan` or `reland` on a plan with offers switched off | the plan's rows cannot be recomputed in place at all (hand-edited prices, a scope covering part of a row, two offers tied on one row), independent of availability | fix the named row's offers or packages in the plan, or start over with a fresh `recommend`; `reland` will not guess |
+| `this store ignored available=false on create (build predates campaigns-app 604); paused with a PATCH and read back` | the store's build created the offer live despite `available: false`; the backstop PATCH switched it off and the manifest records `available_patched: true` | nothing to fix for this run; tell the operator the offer was briefly live. The store needs a build with the fix |
+| `was created and is LIVE, but pausing it returned <status>` | the store ignored `available: false` on create and the backstop PATCH failed | the offer is taking orders at its discount: re-run `apply --resume` (or the same `edit`) to try the pause again, or switch it off in the dashboard at once |
 | image PUT returns 404/405 | store's build predates package images | everything is created; packages keep the catalogue image, set overrides in the dashboard |
 | image PUT rejected (`image_status: failed`) | bad `src`, unreachable URL, wrong type, over 10 MB or 25 MP | terminal: `--resume` cannot help, the hash pins the `src`; fix in the dashboard, or teardown and recreate |
 | `verify` fails `package ... image` | the catalogue image fetch failed silently at create | add an `image.src` override and recreate, or set it in the dashboard and accept the row |
@@ -1450,15 +1589,27 @@ preserves existing offer semantics, including `all_packages`.
   whether shoppers are on the campaign. Never reuse an edit hash.
 - Never retry an edit write, and never delete as part of an edit. An offer is
   paused.
+- Never create live an offer the plan marks off. A switched-off offer goes out
+  with `available: false` on its POST; the PATCH after it is only a backstop
+  for a store that ignored the field, never the way an offer is switched off.
+- Campaign reachability and offer availability are separate facts. A campaign
+  exists and answers its api_key whatever its offers say; never report a
+  campaign as live, or its offers as on, without reading each offer's
+  `available`.
+- Landed prices always describe the cart as it is now. A switched-off offer's
+  discount is not in them; the prices once resumed are a separate table, never
+  the approved landed prices.
 - Keep every `edit-<n>-receipt.json`. It is the before-image an undo replays.
 - Never PUT an image on a package the run manifest does not own, and never use
   the DELETE image route. Removing an image is a dashboard action; `diff` warns
   and sends nothing.
-- Never edit `campaign-plan.json` in place by hand. It is hash-bound to the
-  manifest and is the only record of the state a diff compares against. Operator
-  edits go in a copy, by convention `campaign-plan.next.json`; `edit` and a
-  completed `update` are the only things that rewrite the canonical plan, and
-  both move the manifest's hash with it.
+- Never edit `campaign-plan.json` in place by hand once a run manifest exists.
+  It is hash-bound to the manifest and is the only record of the state a diff
+  compares against. Operator edits go in a copy, by convention
+  `campaign-plan.next.json`; `edit` and a completed `update` are the only things
+  that rewrite the canonical plan, and both move the manifest's hash with it.
+  Before `apply`, a hand edit of an offer's `available` is always followed by
+  `reland --plan`, and the hash it prints is the one approved.
 - Never run `update` with a change-set hash other than the one the latest `diff`
   printed, and never with a `--plan` other than the merged plan file that same
   diff wrote.
@@ -1487,17 +1638,19 @@ file; `diff` writes into the run directory. `clone` writes to
 `./next-campaigns-create-runs/<subdomain>/clone-<source_id>/`, with its
 verification report beside the manifest. `--out` overrides each. `edit`
 rewrites the canonical plan in place and writes its receipts next to the
-manifest.
+manifest. `reland` rewrites the plan file it is given in place, keeps the
+previous bytes as `<plan>.before-reland-<sha12>.json` beside it, and refuses when a
+`run-manifest.json` sits beside that plan.
 
 | File | Written by | Holds |
 |---|---|---|
 | `discovery.json` | `discover` | the store snapshot: catalogue, gateway groups, shipping methods, existing campaigns, the Offers API probe and the metadata audit |
-| `campaign-plan.json` | `recommend`, `adopt`, then every `edit` and `update` | the run's canonical plan: the desired state of the campaign. `recommend` writes what `apply` will create; `adopt` writes what is already live; an `edit` rewrites it with the fields it changed and the landed prices recomputed; a completed `update` promotes the merged plan onto it |
+| `campaign-plan.json` | `recommend`, `adopt`, `reland` (before apply only), then every `edit` and `update` | the run's canonical plan: the desired state of the campaign. `recommend` writes what `apply` will create; `reland` rewrites its landed prices after offers were switched off by hand; `adopt` writes what is already live; an `edit` rewrites it with the fields it changed and the landed prices recomputed; a completed `update` promotes the merged plan onto it |
 | `campaign-plan.next.json` | you, by convention | the operator's working copy, the only file `diff` reads edits from. Input only: nothing promotes it |
 | `campaign-edit.json` | you, in Phase 7 | the operations of one in-place edit |
 | `change-set.json` | `diff` | the reviewed change set: every op in order with its body, before and after, the preserved values, the plan-only differences, the warnings, the baseline snapshot and its hash, and the merged plan (`references/admin-api-contract.md` lists every key). Its own SHA-256 is the approval token for `update` |
 | `campaign-plan.<sha8>.json` | `diff`, and promotion | two kinds, both byte copies: the merged plan `diff` wrote and `update --plan` takes, and the previous canonical plan archived by each promotion. The 8 characters are the start of that plan's SHA-256 |
-| `run-manifest.json` | `apply`, `adopt`, `clone`, `edit`, `update` | every id this run owns and its status, the campaign api_key, and for an adopted run `origin: "adopted"` with `adopted_at` and `adopted_from_campaign_id`. An edit in flight adds `pending_edit`; a finished one adds an `edits[]` entry. An update in flight adds `active_update` and an op journal; a completed one adds a `history[]` entry. A clone run has `kind: "clone"`, `plan_sha256: null`, the approval document, `clone_request`, `rename`, `inventory_complete` and `parity` |
+| `run-manifest.json` | `apply`, `adopt`, `clone`, `edit`, `update` | every id this run owns and its status, the campaign api_key, and for an adopted run `origin: "adopted"` with `adopted_at` and `adopted_from_campaign_id`. An offer the store ignored `available: false` on carries `available_patched: true`. An edit in flight adds `pending_edit`; a finished one adds an `edits[]` entry. An update in flight adds `active_update` and an op journal; a completed one adds a `history[]` entry. A clone run has `kind: "clone"`, `plan_sha256: null`, the approval document, `clone_request`, `rename`, `inventory_complete` and `parity` |
 | `edit-<n>-receipt.json` | `edit` | the before-image of every object the edit wrote, the plan before and after, and the approval it ran under; what `--undo` replays |
 | `edit-<n>-rollback.json` | `edit --undo` on an unfinished edit | what the rollback did and the plan it left |
 | `verify-report.json` | `verify` | every read-back and cart check, with PASS, FAIL, INFO or UNVERIFIED |
@@ -1577,7 +1730,8 @@ holding a live secret.
 |---|---|---|
 | `discover` | GET | `/api/admin/store/`, `/api/admin/gateway-groups/`, `/api/admin/shipping-methods/`, `/api/admin/products/`, `/api/admin/campaigns/`, `/api/admin/campaigns/{id}/offers/` (the Offers API probe), `/api/admin/metadata/` |
 | `metadata --apply` | POST | `/api/admin/metadata/` |
-| `apply` | POST, PUT | rows 1 to 5 of the write inventory |
+| `reland` | none | rewrites the plan's `landed_prices` locally. No requests |
+| `apply` | POST, PUT, GET, PATCH | rows 1 to 5 of the write inventory; the GET and the backstop PATCH only on an offer created with `available: false` |
 | `clone` | GET, POST, PATCH | source read-back, clone POST (row 27), optional destination rename (row 28) |
 | `verify` | GET, POST | campaign read-back, then `/api/v1/carts/calculate/` on the Cart API; a clone run skips the Cart API |
 | `edit` | GET, PATCH, POST | read-back, then rows 10 to 12 of the write inventory |

@@ -139,6 +139,114 @@ funnel never shows that code on the checkout page. An upsell price other than
 `--upsell 23:39.95:50` asks for 19.97, and the error suggests
 `--upsell 23:49.95:60`, which lands at 19.98 on the existing package.
 
+## 6. Create with offers switched off
+
+`--offer-type quantity --ctc low --anchor-price 49.95 --shipping standard:6.95 --free-shipping-min-qty 2 --offers-available false`
+
+The operator asked for the campaign to be set up with "all offers disabled".
+`recommend` emits the same five offers as an enabled campaign and stamps
+`"available": false` on each. `plan` marks every one:
+
+| Offer key | Type | What it does once resumed | Marker |
+|---|---|---|---|
+| `tier-1` | offer | Buy 1, 50% | `SWITCHED OFF (created with available=false)` |
+| `tier-2` | offer | Buy 2, 55% | same |
+| `tier-3` | offer | Buy 3, 60% | same |
+| `exit-pop` | voucher | `BRACELET10`, a further 10% | same |
+| `free-shipping` | offer | free shipping from 2 hero units | same |
+
+The landed table is what the cart charges while the offers are off, so every
+row is at the package price and pays shipping:
+
+| Row | Qty | % | Unit | Total | Shipping |
+|---|---|---|---|---|---|
+| Buy 1 | 1 | 0 | 49.95 | 49.95 | 6.95 |
+| Buy 2 | 2 | 0 | 49.95 | 99.90 | 6.95 |
+| Buy 3 | 3 | 0 | 49.95 | 149.85 | 6.95 |
+
+The second table, `Landed prices once the offers are resumed:`, is the same
+campaign with every offer on. It matches example 1, plus free shipping from 2
+units:
+
+| Row | Qty | % | Unit | Total | Shipping |
+|---|---|---|---|---|---|
+| Buy 1 | 1 | 50 | 24.97 | 24.97 | 6.95 |
+| Buy 2 | 2 | 55 | 22.48 | 44.96 | free |
+| Buy 3 | 3 | 60 | 19.98 | 59.94 | free |
+
+`plan` then prints
+`5 of 5 offers are created switched off; resume with: edit set_offer_available`.
+Each offer request carries the flag, for example:
+
+```text
+POST /api/admin/campaigns/{campaign_id}/offers/
+{"name": "Photo Bracelet - Buy 1 - 50%", "offer_type": "offer",
+ "condition": {"type": "count", "all_packages": false,
+               "package_ids": ["<hero-23>", "<hero-24>", "<hero-25>", "<hero-26>"], "value": 1},
+ "benefit": {"type": "package_percentage", "value": "50.00"},
+ "available": false}
+```
+
+Leave out `--offers-available` (the operator said "ready to go", or nothing)
+and the same request has no `available` key, so the API creates the offer
+enabled. `--offers-available true` writes `"available": true` instead, which
+means the same thing.
+
+After `apply`, the campaign exists and its api_key works; only the discounts
+are off. `verify` proves each offer reads back `available: false` and that
+the checkout carts total at the package price. It sends no case with
+`BRACELET10`, because how the cart treats a paused code has never been
+observed. To resume, write one operation per offer:
+
+```json
+{"operations": [
+  {"op": "set_offer_available", "offer_key": "tier-1", "available": true},
+  {"op": "set_offer_available", "offer_key": "tier-2", "available": true},
+  {"op": "set_offer_available", "offer_key": "tier-3", "available": true},
+  {"op": "set_offer_available", "offer_key": "exit-pop", "available": true},
+  {"op": "set_offer_available", "offer_key": "free-shipping", "available": true}
+]}
+```
+
+Preview and approve it with `edit` (SKILL.md Phase 7), then run `verify` again.
+That second run prices the discounted totals in the second table and the exit
+voucher.
+
+### Some offers off: hand edit and `reland`
+
+The operator wants the campaign ready to go except that Buy 3 and the exit
+discount should not be available yet. Run `recommend` without
+`--offers-available`, then in `campaign-plan.json` (before `apply`, while no
+`run-manifest.json` exists) add `"available": false` to the `tier-3` and
+`exit-pop` offers. `plan` now warns:
+
+```text
+WARNING: the plan switches offer(s) ['tier-3', 'exit-pop'] off but its landed prices still describe them as live; run `reland --plan <file>` (or recommend --offers-available false) and approve the new hash
+```
+
+`apply` refuses the plan in that state. Recompute the rows:
+
+```bash
+bash <skill-dir>/next-campaigns-create.sh reland \
+  --plan ./next-campaigns-create-runs/<subdomain>/campaign-plan.json
+```
+
+`reland` rewrites the plan and prints it with a new SHA-256:
+
+| Row | Live now | Once resumed |
+|---|---|---|
+| Buy 1 | 50%, 24.97 | 50%, 24.97 |
+| Buy 2 | 55%, 44.96, ships free | 55%, 44.96, ships free |
+| Buy 3 | 55%, 67.44, ships free | 60%, 59.94, ships free |
+
+Buy 3 does not fall to the package price. With `tier-3` off, the best live
+offer for 3 units is `tier-2`, whose condition (2 or more) 3 units still meet,
+so the row lands at 55%: 22.48 a unit, 67.44 in all. Tell the operator that
+before approving; switching off one tier is not the same as removing that
+quantity's discount. Approve the hash `reland` printed. After `apply`, resume
+the two offers with `set_offer_available`; `reland` refuses once a manifest
+sits beside the plan.
+
 ## Clone preview and interrupted copy
 
 This example is synthetic. Preview a copy of campaign 42 on `example-store`:
