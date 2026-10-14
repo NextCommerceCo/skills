@@ -7135,8 +7135,11 @@ def clone_inventory(man, snapshot):
 def clone_record(man, campaign):
     a = man.data["clone_approval"]
     clone_require(campaign, ("id", "name", "created_at", "api_key"), "clone response")
-    clone_id(campaign["id"])
-    if (campaign["id"] == a["source_campaign_id"] or not _parse_instant(campaign["created_at"])
+    cid = clone_id(campaign["id"])
+    # A campaign that existed before the POST can never be this run's copy, whatever the
+    # status said; refusing it leaves the request uncertain for recovery to settle.
+    preexisting = set(man.data["clone_request"].get("preexisting_ids") or [])
+    if (cid == a["source_campaign_id"] or cid in preexisting or not _parse_instant(campaign["created_at"])
             or not isinstance(campaign["api_key"], str) or not campaign["api_key"]
             or campaign["name"] not in {a["server_name"], a["requested_name"] or a["server_name"]}):
         raise CampaignAdminError("clone response identity is invalid; resolve uncertain request manually")
@@ -7194,13 +7197,16 @@ def clone_finish(client, man):
         path = f"/api/admin/campaigns/{a['source_campaign_id']}/clone/"
         try:
             status, body = client.request("POST", path, body=None, clone_decode=True)
-            if status == 201:
+            # The server answers 201; the published 2024-04-01 spec documents 200. Accept
+            # either: clone_record validates the body, which is what is actually trusted.
+            if status in (200, 201):
                 clone_record(man, body)
             else:
                 request["status"] = "rejected" if status is not None and 400 <= status < 500 else "uncertain"
                 man.save()
                 if status in (404, 405):
-                    raise CampaignAdminError("clone endpoint unavailable on this store; check its deployment")
+                    raise CampaignAdminError(f"clone POST returned {status}: the clone route is unavailable or the source campaign "
+                                             "no longer exists; check the store's deployment and the source campaign")
                 raise CampaignAdminError(f"clone POST returned {status}; {request['status']}; POST will not be repeated"
                                          + auth_hint(status, "POST", path))
         except Exception:

@@ -72,7 +72,7 @@ class Launcher(unittest.TestCase):
         r = run("--version", cwd=self.root)
         self.assertEqual(r.returncode, 0, r.stderr)
         want = re.search(r"^version:\s*(\S+)", (SKILL_DIR / "SKILL.md").read_text(), re.M).group(1)
-        self.assertEqual(want, "1.1.0")
+        self.assertEqual(want, "1.1.1")
         self.assertEqual(r.stdout.strip(), f"next-campaigns-create {want}")
         catalog = REPO_ROOT / "skills.json"
         if catalog.exists():  # absent in an installed copy, present in the repository

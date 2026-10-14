@@ -1,6 +1,6 @@
 ---
 name: next-campaigns-create
-version: 1.1.0
+version: 1.1.1
 description: |
   Create and update a Campaigns App campaign over the NEXT Admin API. Create:
   read the store's catalogue, gateway groups and shipping methods, recommend a
@@ -285,10 +285,14 @@ read must still match the approved hash. The API has no revision precondition,
 so a change between that read and the clone transaction can still happen;
 verification checks the resulting copy against the approved snapshot.
 
-Route availability depends on the store's deployment. A successful source GET
-does not prove that the clone endpoint exists. An approved POST returning 404
-or 405 stops with deployment guidance. Do not infer availability from a closed
-issue or a merged change, and do not make a trial clone outside the approval gate.
+The clone endpoint was released to production on 2026-10-14
+(https://developers.nextcommerce.com/docs/admin-api/reference/campaigns/campaignsCloneCreate).
+An approved POST returning 404 or 405 stops as rejected with deployment
+guidance. That status means the route is unavailable or the source campaign no
+longer exists, so ask the operator to check the store's release and the source;
+do not assume either cause. Do not make a trial clone outside the approval gate.
+This skill has not yet run the clone POST or the rename PATCH against a live
+store.
 
 A clone gets a new campaign ID and key while preserving the package, shipping
 and offer reference IDs used by funnel pages. Discount codes and package scope
@@ -315,7 +319,13 @@ created after the saved deadline cannot be adopted on a later resume. Another
 operator could create an indistinguishable copy within the same window; the
 API supplies no request marker or idempotency key to prove ownership.
 
-The protected manifest saves the destination ID immediately after a valid 201.
+The protected manifest saves the destination ID immediately after a valid
+success response. The server answers 201 and the published spec documents 200;
+either is accepted only when the body is a campaign detail with a positive id
+that is neither the source nor any campaign that existed before the POST, the
+expected name (the server's `-COPY` name or the requested one), a parseable
+`created_at` and a nonempty `api_key`. Anything else leaves the request
+uncertain for recovery.
 A later resource read failure leaves incomplete inventory, which resume can
 refresh without another POST. If enumeration succeeds but parity fails, the
 copy remains recorded and can be torn down. Report the mismatch to the operator.
