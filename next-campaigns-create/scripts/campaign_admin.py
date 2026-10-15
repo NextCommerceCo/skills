@@ -1277,8 +1277,10 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
         if a.tiers is not None:
             raise CampaignAdminError(
                 "--tiers is the quantity-offer ladder and cannot be combined with --offer-type bxgy: "
-                "the engine applies the highest matching package_percentage, so a Buy 1 percentage "
-                "would mask a lower BXGY rate. Omit --tiers for Buy 1 at list plus the BXGY offer")
+                "a Buy 1 percentage above the BXGY rate is a non-monotonic mix, where the engine "
+                "prefers the offer with the bigger minimum quantity but the landed-price forecast "
+                "assumes the deepest percentage wins, so the plan would misstate the price. "
+                "Omit --tiers for Buy 1 at list plus the BXGY offer")
         if paid_qty is None or free_qty is None:
             raise CampaignAdminError("--offer-type bxgy requires --paid-qty and --free-qty")
         bxgy_percentage(paid_qty, free_qty)
@@ -5912,11 +5914,14 @@ def reland(plan: dict) -> list:
     """landed_prices recomputed from the plan's own packages and offers.
 
     Each existing row keeps its label, quantity and packages; its price is
-    worked out again the way the offer engine works it out: among the live
-    automatic package offers whose scope covers the row and whose condition the
-    quantity meets, the highest percentage wins, and rounding is applied to the
-    winner (offer doctrine: Rounding and stacking). No winner means the package
-    price. Upsell rows are priced by their own voucher and never enter that
+    worked out again by the skill's forecast rule: among the live automatic
+    package offers whose scope covers the row and whose condition the quantity
+    meets, the highest percentage wins, and rounding is applied to the winner
+    (offer doctrine: Rounding and stacking). The engine itself prefers the offer
+    with the bigger minimum quantity. The two agree on the monotonic ladders
+    `recommend` emits; on a hand-authored mix, `verify` catches a difference
+    beyond its 1-cent-per-unit tolerance in the cart cases it builds from the
+    landed rows, not at every quantity. No winner means the package price. Upsell rows are priced by their own voucher and never enter that
     contest. Shapes the rows cannot express are refused rather than guessed.
 
     Rows describe the cart as it is now, so a switched-off (`available: false`)

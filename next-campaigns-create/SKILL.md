@@ -920,7 +920,7 @@ Tell the operator, before they approve:
   with purchase if they want a separate SKU that is free whenever it is in
   the cart (not when the hero qualifies).
 
-`--tiers` with bxgy is an error (Buy 1 % would mask a lower BXGY rate).
+`--tiers` with bxgy is an error (a Buy 1 % above the BXGY rate is a non-monotonic mix the forecast would misprice).
 Optional `--gift` is allowed; the gift uses different package keys.
 
 Per-customer limits and date ranges are not offer-create fields. Whether the
