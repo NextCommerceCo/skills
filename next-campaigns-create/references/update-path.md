@@ -110,12 +110,19 @@ campaign is not adopted and nothing else can run against it.
 
 | Blocker | What the operator does |
 |---|---|
-| two packages on one product variant | remove one in the dashboard, then adopt again |
+| two packages on one product variant | the dashboard reuses one package per variant, so an extra one is non-canonical (left from an older campaign or created over the Admin API). Find which package the funnel pages use, remove the other in the campaign's Products tab, then adopt again. If the other one is a legacy multi-unit package (a 2x or 3x of the variant), move any page that sells it to the single package and a quantity offer before removing it |
 | two campaign shipping methods on one store code | remove one in the dashboard, then adopt again |
 | two offers with the same name | rename one in the dashboard, then adopt again |
 | a `count` offer whose threshold does not read back as a whole number | read the threshold in the dashboard, correct the offer there, then adopt again |
 | an offer scoped to `all_packages` | see `--convert-scope` below |
 | anything the plan validator rejects (a `2x` package name, no shipping method, an unsupported benefit type, an invalid voucher code) | fix it in the dashboard, then adopt again |
+
+The Admin API does not return a package's quantity, so `adopt` reads a legacy
+multi-unit package as a single unit and cannot block on it by itself. Such
+packages exist only on campaigns with **Enable Package Retail Price & Quantity**
+switched on (Settings tab, Advanced, Legacy options). On such a campaign, ask the
+operator to check the Products tab for any quantity above 1 before adopting, and
+treat one as a blocker.
 
 `--convert-scope <offer_id>` is the only blocker with an in-engine answer. A
 plan carries package keys, so it cannot express "every package, including ones
