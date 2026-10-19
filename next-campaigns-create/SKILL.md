@@ -1,6 +1,6 @@
 ---
 name: next-campaigns-create
-version: 1.2.1
+version: 1.2.2
 description: |
   Create and update a Campaigns App campaign over the NEXT Admin API. Create:
   read the store's catalogue, gateway groups and shipping methods, recommend a

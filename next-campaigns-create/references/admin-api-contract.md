@@ -937,9 +937,11 @@ copy, including unavailable ones. Condition package references map to the new
 packages; `all_packages` is preserved. Campaign settings copy, including PayPal
 account, gateway group and payment methods. The new campaign key is distinct.
 Campaign-currency prices copy exactly; missing supported additional-currency
-prices can be derived by forex. Usage counters reset to zero and
-`enable_retail_price_and_quantity` becomes false. These resets are documented
-server behavior unless the response actually exposes them.
+prices can be derived by forex. Usage counters reset to zero. The copy keeps
+`enable_retail_price_and_quantity` only when the source has it on and still has a
+package with `qty` of 2 or more. When the source has it on and the copy does
+not, the copy's package retail prices are cleared. These are documented server behavior unless the
+response actually exposes them.
 
 The server clones in one transaction, but supplies no idempotency key or revision
 precondition. A lost response may mean the complete copy exists. The endpoint
