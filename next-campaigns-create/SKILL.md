@@ -1,6 +1,6 @@
 ---
 name: next-campaigns-create
-version: 1.2.1
+version: 1.2.2
 description: |
   Create and update a Campaigns App campaign over the NEXT Admin API. Create:
   read the store's catalogue, gateway groups and shipping methods, recommend a
@@ -304,7 +304,9 @@ and offer reference IDs used by funnel pages. Discount codes and package scope
 copy unchanged, including `all_packages`. Prices in the campaign currency copy
 exactly. When the source lacks a supported additional-currency price, the server
 can derive it by forex; the report identifies those prices separately. Server
-usage counters reset and retail price/quantity is disabled. The report treats
+usage counters reset. The copy keeps package retail price/quantity only when the
+source has it on and still has a package with quantity 2 or more; when the copy
+turns it off, its retail prices are cleared. The report treats
 unexposed resets as documented behavior, not verified facts.
 
 ### Interrupted clones
