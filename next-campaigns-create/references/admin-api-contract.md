@@ -940,8 +940,8 @@ Campaign-currency prices copy exactly; missing supported additional-currency
 prices can be derived by forex. Usage counters reset to zero. The copy keeps
 `enable_retail_price_and_quantity` only when the source has it on and still has a
 package with `qty` of 2 or more. When the source has it on and the copy does
-not, the copy's package retail prices are cleared. These are documented server behavior unless the
-response actually exposes them.
+not, the copy's package retail prices are cleared. These are documented server
+behavior unless the response actually exposes them.
 
 The server clones in one transaction, but supplies no idempotency key or revision
 precondition. A lost response may mean the complete copy exists. The endpoint
