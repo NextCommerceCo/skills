@@ -5,6 +5,9 @@ Your assistant follows the public [agent setup procedure](https://developers.nex
 records what is known and what still needs deciding, and selects the next tool.
 For a new Page Kit project, this skill scaffolds and configures the campaign.
 For an existing build, it preserves the builder and deployment workflow.
+If the guide is unavailable, the assistant reports that and checks its public
+source. If neither can be read, it can still prepare the observations, brief and
+isolated concept described in the installed skill, but leaves later steps pending.
 
 You can begin without a store API key. The first result is a brief, a proposed
 page flow, a list of commerce dependencies, and a separate local visual concept.

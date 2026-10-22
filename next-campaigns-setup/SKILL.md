@@ -39,6 +39,12 @@ This skill works with any AI coding tool that can load a markdown file as contex
 Start with the public [agent setup procedure](https://developers.nextcommerce.com/agent-setup/prompt.md).
 It owns intake and continuation across tools. This skill owns Page Kit
 scaffolding and first configuration; load only the capability the next step needs.
+If that URL fails or does not return the guide, report the URL and error, then
+read the [same guide in its public source repository](https://github.com/NextCommerceCo/developer-docs/blob/main/content/agent-setup.md)
+and record the revision used. If both are unavailable, continue only the
+observation, brief and isolated static-concept work specified below. Leave
+canonical-guide-dependent transitions pending; do not reconstruct missing
+commerce, Campaigns OS or deployment instructions from memory.
 
 ## Before Scaffolding
 
@@ -132,7 +138,12 @@ session can continue under the same constraint.
 
 ---
 
-## Phase 1 — Scaffold
+## Phase 1 — Configured Setup
+
+Enter this phase only for a new Page Kit campaign with a selected campaign key
+and permission to configure its local runtime. A no-key or no-write task stays
+in the isolated concept procedure above; it does not run the commands below.
+Complete the inputs and checks before creating files or installing dependencies.
 
 ### Step 0: Resolve CPK Root
 
@@ -162,86 +173,7 @@ Reuse supplied choices and ask for only missing business decisions together:
    `landing` is a component library, not a checkout funnel. Re-read the catalog
    rather than offering removed families such as `limos`.
 
----
-
-### Paths
-
-- **Brand folder:** `<CPK_ROOT>/[brand-name]/`
-- **Campaign folder:** `<CPK_ROOT>/[brand-name]/src/[campaign-slug]/`
-- **Starter templates repo:** `https://github.com/NextCommerceCo/campaign-cart-starter-templates` (subfolder: `src/[template-slug]`)
-
----
-
-### Step 2 — Safety Check
-
-If `<CPK_ROOT>/[brand-name]/src/[campaign-slug]/` already exists → **stop and warn the user**. Do not overwrite.
-
-### Step 3 — Create Brand Folder (if needed)
-
-If `<CPK_ROOT>/[brand-name]/` does not exist, create it.
-
-### Step 4 — Scaffold with campaign-init
-
-`campaign-init --non-interactive` (available since `next-campaign-page-kit` v0.1.1) handles the full scaffold in one command: adds npm scripts, creates `_data/campaigns.json`, downloads the starter template, seeds the campaigns.json entry, and installs the AI context file.
-
-**If `package.json` does not exist** in the brand folder, bootstrap first:
-
-```bash
-cd <CPK_ROOT>/[brand-name]
-npm init -y
-npm install --save-exact next-campaign-page-kit
-```
-
-If `package.json` already exists, inspect the project-local Page Kit dependency
-and lockfile first. Install a selected exact version only if missing; do not
-upgrade an existing pinned dependency as part of setup.
-
-**Then run campaign-init.** Resolve the selected campaign key through Step 5
-first and make it available as `CAMPAIGN_API_KEY` through the approved local
-secret mechanism; do not echo it. Set `AI_CONTEXT` to the current agent's
-supported target (`claude`, `codex`, `cursor`, `copilot`, or `none`). The keep
-flag preserves existing context files for every target:
-
-```bash
-cd <CPK_ROOT>/[brand-name]
-npx --no-install campaign-init --non-interactive --json \
-  --template [template-slug] \
-  --slug [campaign-slug] \
-  --name "[Campaign Display Name]" \
-  --api-key "$CAMPAIGN_API_KEY" \
-  --ai-context "$AI_CONTEXT" \
-  --keep-ai-context
-```
-
-Capture the JSON output. On success (`exit 0`) it contains the campaign slug, template used, files extracted, key-write and AI context status. Confirm `writes.api_key_applied` before reporting configured commerce; a successful scaffold alone does not prove a key was bound. Include the extracted file count in the report.
-
-**Exit code handling:**
-
-| Code | Meaning | Action |
-|------|---------|--------|
-| `0` | Success | Continue |
-| `2` | Template not found | Stop — ask user to pick a valid template |
-| `3` | Target slug already exists | Stop — Step 2 should have caught this; warn user |
-| `4` | Upstream fetch failed | Stop — check network, retry once |
-| `5` | Missing required flag | Stop — internal error; report which flag |
-| `6` | Invalid input | Stop — report the validation message |
-| `7` / `8` | Partial write / rollback failed | Stop — report the error; do not attempt Phase 2 |
-
-Do not fall back to manual `degit` + `campaigns.json` patching + `curl CLAUDE.md`. If `campaign-init` fails, surface the error and stop.
-
-### Existing Campaigns OS Packet
-
-If this task already has `campaign-runtime.build.json`, stop the standalone
-scaffold flow and follow `next-campaigns-os-setup` from the matching installed
-Campaigns OS release. Read its Build Context and Assembly Report, preserve the
-selected template and source, and use its documented `record setup` command.
-Never hand-write `setup-handoff.json` or edit OS stage evidence directly.
-
----
-
-## Phase 2 — Configure
-
-### Step 5 — Gather Config Inputs
+### Step 2 — Gather Config Inputs
 
 For a configured campaign, gather only missing inputs together. If the key or
 store binding is unavailable, return to the no-key procedure; do not substitute
@@ -277,6 +209,117 @@ Validate all URLs before writing any files:
 - **Custom analytics endpoint or notes** — record in the report unless the template config already supports a matching custom analytics provider
 
 Do not make the user guess through a wall of tracking surfaces. Ask for GTM/Facebook/custom only when they already have values or the CampaignSpec declares them. If tracking is `unknown` or `not_configured`, leave provider IDs blank/disabled and record that tracking is intentionally not configured yet.
+
+---
+
+### Paths
+
+- **Brand folder:** `<CPK_ROOT>/[brand-name]/`
+- **Campaign folder:** `<CPK_ROOT>/[brand-name]/src/[campaign-slug]/`
+- **Starter templates repo:** `https://github.com/NextCommerceCo/campaign-cart-starter-templates` (subfolder: `src/[template-slug]`)
+
+---
+
+### Step 3 — Safety Check
+
+If `<CPK_ROOT>/[brand-name]/src/[campaign-slug]/` already exists → **stop and warn the user**. Do not overwrite.
+
+### Step 4 — Create Brand Folder (if needed)
+
+If `<CPK_ROOT>/[brand-name]/` does not exist, create it.
+
+### Step 5 — Install and Scaffold with campaign-init
+
+`campaign-init --non-interactive` (available since `next-campaign-page-kit` v0.1.1) handles the full scaffold in one command: adds npm scripts, creates `_data/campaigns.json`, downloads the starter template, seeds the campaigns.json entry, and installs the AI context file.
+
+From the brand folder, inspect `package.json`, the lockfile and install scripts
+before running them. Use the existing dependency manager and lockfile; do not
+upgrade a pinned Page Kit dependency as part of setup.
+
+- If no `package.json` exists, create it with `npm init -y`.
+- If the project does not declare `next-campaign-page-kit`, select a reviewed
+  exact release and install it, for example
+  `npm install --save-exact next-campaign-page-kit@<selected-version>`.
+- If it is declared but not installed, restore dependencies from the existing
+  lockfile with the project's documented install command. If that fails, report
+  the error; do not fall back to an unpinned/global install.
+
+Verify the project-local package and executable before invoking init:
+
+```bash
+cd <CPK_ROOT>/[brand-name]
+node -p "require('./node_modules/next-campaign-page-kit/package.json').version"
+test -x ./node_modules/.bin/campaign-init
+./node_modules/.bin/campaign-init --help
+```
+
+All three must succeed. If they do not, resolve the missing dependency/bin in
+this project before continuing; `npx --no-install` is not an install fallback.
+Check the installed help supports the flags used below.
+
+Use the key resolved in Step 2 as `CAMPAIGN_API_KEY` through the approved local
+secret mechanism; do not echo it. Set `AI_CONTEXT` to the current agent's
+supported target (`claude`, `codex`, `cursor`, `copilot`, or `none`).
+`--keep-ai-context` is a boolean flag accepted by Page Kit 0.3.0: it skips an
+existing target, still creates a missing target, and does nothing for `none`.
+It does not require a value or a pre-existing file.
+
+```bash
+cd <CPK_ROOT>/[brand-name]
+: "${CAMPAIGN_API_KEY:?Selected campaign key is required for configured setup}"
+npx --no-install campaign-init --non-interactive --json \
+  --template [template-slug] \
+  --slug [campaign-slug] \
+  --name "[Campaign Display Name]" \
+  --api-key "$CAMPAIGN_API_KEY" \
+  --ai-context "$AI_CONTEXT" \
+  --keep-ai-context
+```
+
+Capture the JSON output. Page Kit 0.3.0 emits these fields after a successful
+non-dry-run key write (other fields omitted):
+
+```json
+{
+  "status": "ok",
+  "dry_run": false,
+  "writes": { "api_key_applied": true }
+}
+```
+
+The released [init implementation](https://unpkg.com/next-campaign-page-kit@0.3.0/lib/actions/init.js)
+defines this result and the context-file behavior above. Confirm those values
+before reporting the key bound locally; the result does not prove a valid
+campaign or working commerce. If the field is absent, false, or the installed
+release uses a different contract, report binding as unconfirmed and consult
+that release's docs/source rather than guessing success. Include
+`writes.files_extracted` and the context result in the scaffold report.
+
+**Exit code handling:**
+
+| Code | Meaning | Action |
+|------|---------|--------|
+| `0` | Success | Continue |
+| `2` | Template not found | Stop — ask user to pick a valid template |
+| `3` | Target slug already exists | Stop — Step 3 should have caught this; warn user |
+| `4` | Upstream fetch failed | Stop — check network, retry once |
+| `5` | Missing required flag | Stop — internal error; report which flag |
+| `6` | Invalid input | Stop — report the validation message |
+| `7` / `8` | Partial write / rollback failed | Stop — report the error; do not attempt Phase 2 |
+
+Do not fall back to manual `degit` + `campaigns.json` patching + `curl CLAUDE.md`. If `campaign-init` fails, surface the error and stop.
+
+### Existing Campaigns OS Packet
+
+If this task already has `campaign-runtime.build.json`, stop the standalone
+scaffold flow and follow `next-campaigns-os-setup` from the matching installed
+Campaigns OS release. Read its Build Context and Assembly Report, preserve the
+selected template and source, and use its documented `record setup` command.
+Never hand-write `setup-handoff.json` or edit OS stage evidence directly.
+
+---
+
+## Phase 2 — Configure
 
 ### Step 6 — Update config.js
 

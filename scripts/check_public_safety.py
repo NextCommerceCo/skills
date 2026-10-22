@@ -29,6 +29,7 @@ ALLOWED_NEXTCOMMERCE_REPOS = {
     "skills",  # This public catalog and its installation URL.
     "campaign-cart-starter-templates",  # Public campaign template source.
     "campaigns-os",  # Public Campaigns OS package linked by catalog skills.
+    "developer-docs",  # Public source fallback for the campaign entry guide.
     "spark",  # Public Spark starter theme cloned by the greenfield path.
 }
 

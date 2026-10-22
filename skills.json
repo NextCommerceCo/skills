@@ -266,7 +266,9 @@
         "role": "Public campaign entry routing and standalone Page Kit scaffold/configuration; existing Campaigns OS packets follow their bundled setup skill",
         "agent_setup": "https://developers.nextcommerce.com/agent-setup/prompt.md",
         "campaigns_os_source": "https://github.com/NextCommerceCo/campaigns-os",
-        "orchestration_note": "The public agent setup procedure owns intake; next-campaigns-os-setup owns setup directed by a Campaigns OS Build Packet"
+        "orchestration_note": "The public agent setup procedure owns intake; next-campaigns-os-setup owns setup directed by a Campaigns OS Build Packet",
+        "agent_setup_fallback": "https://github.com/NextCommerceCo/developer-docs/blob/main/content/agent-setup.md",
+        "agent_setup_unavailable": "Report the failed fetch and use the public source guide, recording its revision. If both are unavailable, continue only the installed skill's observations, brief and isolated static concept; leave guide-dependent transitions pending."
       },
       "related_skills": [
         {
