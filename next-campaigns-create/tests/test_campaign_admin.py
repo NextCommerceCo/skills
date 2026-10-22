@@ -720,7 +720,18 @@ class HeroVariants(unittest.TestCase):
     def test_subscription_variant_refused(self):
         # A mistyped id lands on a subscription variant: refused at plan time.
         self.assertRefused("hero variant 302 is a subscription variant", "'Quarterly Subscription'",
-                           "one-time variant ids", hero_variants="303,302")
+                           "pick a one-time variant", hero_variants="303,302")
+
+    def test_subscription_variant_refused_in_every_role(self):
+        # Bump, upsell and gift packages are one-time too, so a left-out subscription
+        # variant cannot come back in through them, with or without --hero-variants.
+        for hv in ("303", None):
+            for role, kw in (("bump", dict(bump=["301:20.00"])),
+                             ("upsell", dict(upsell=["301:59.00:50"])),
+                             ("gift", dict(ctc="high", offer_type="gwp", gift=["301:20.00"]))):
+                with self.subTest(role=role, hero_variants=hv):
+                    self.assertRefused(f"{role} variant 301 is a subscription variant", "'Subscription'",
+                                       hero_variants=hv, **kw)
 
     def test_subscription_signal_is_the_option_title(self):
         # A product whose own name says Subscription is not a subscription variant.
@@ -783,10 +794,10 @@ class HeroVariants(unittest.TestCase):
         self.assertEqual(ca.validate_plan(bxgy), [])
         offer = next(o for o in bxgy["offers"] if o["key"].startswith("bxgy-"))
         self.assertEqual(offer["condition"]["package_keys"], ["hero-303", "hero-306"])
-        # A left-out hero variant is free for another role: here the gift.
-        gwp = self.rec(hero_variants="303", ctc="high", offer_type="gwp", gift=["301:20.00"])
+        # A left-out one-time hero variant is free for another role: here the gift.
+        gwp = self.rec(hero_variants="303", ctc="high", offer_type="gwp", gift=["306:20.00"])
         self.assertEqual(ca.validate_plan(gwp), [])
-        self.assertEqual([p["key"] for p in gwp["packages"]], ["hero-303", "gift-301"])
+        self.assertEqual([p["key"] for p in gwp["packages"]], ["hero-303", "gift-306"])
         exit_ = next(o for o in gwp["offers"] if o["key"] == "exit-pop")
         self.assertEqual(exit_["condition"]["package_keys"], ["hero-303"])
 

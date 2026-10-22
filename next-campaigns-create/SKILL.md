@@ -771,8 +771,10 @@ gift (different package keys). `--tiers` with `--offer-type bxgy` is an error.
   a variant of the hero product, an id that is not purchasable
   (`purchase_availability`), an id whose option title names a subscription,
   and an id given twice. Only the named variants are hero packages, so a
-  `--bump`, `--upsell` or `--gift` on a left-out variant of the hero product is
-  accepted as its own package; check it is not a subscription variant.
+  `--bump`, `--upsell` or `--gift` on a left-out one-time variant of the hero
+  product is accepted as its own package. A subscription variant is refused in
+  every one of those roles, with or without `--hero-variants`, because every
+  package `recommend` builds is one-time.
 
   Read the variant titles in the discovery product table before choosing. A
   store that syncs its catalogue from Shopify (Shop Sync) can carry
@@ -874,7 +876,7 @@ gift (different package keys). `--tiers` with `--offer-type bxgy` is an error.
     refused: it would need a second package for that variant, and a bump line
     on the hero package would count toward the hero quantity tiers. With
     `--hero-variants`, only the named variants are hero variants, so a bump on
-    a left-out variant of the hero product is accepted.
+    a left-out one-time variant of the hero product is accepted.
   - Never hand-author a second package for a variant already packaged, and
     never rename or split offers to get past a duplicate offer name or code
     error. That error means the specs belong in one group.
@@ -966,8 +968,8 @@ auto). That choice is a **funnel handoff only**. The Offers API cannot
 auto-add or auto-remove the gift. Min-spend GWP is a platform gap; do not
 fake it.
 
-Refuse an unavailable gift variant (`purchase_availability`) and a gift
-variant that is already a hero, bump or upsell.
+Refuse an unavailable gift variant (`purchase_availability`), a subscription
+variant, and a gift variant that is already a hero, bump or upsell.
 
 ### Defaults
 
@@ -1518,7 +1520,7 @@ from the most recent edit.
 | `bump variant ... is already package ...` or `both use variant` | a bump on a hero variant, or a hand-edited second package for one variant | choose a different variant for the bump; for a hand edit, reuse the one package and set the price with an offer |
 | `--hero-variants: variant ... is not a variant of hero product ...` | the id belongs to another product (the message names it) or is not in the discovery | pass only ids listed under the hero product in the discovery product table; re-run `discover` if the catalogue changed |
 | `--hero-variants: hero variant ... is not purchasable` | the variant's `purchase_availability` is not `available` | drop the id, or make the variant available in the dashboard and re-run `discover` |
-| `--hero-variants: hero variant ... is a subscription variant` | the id's option title names a subscription, usually a Shopify subscription variant synced by Shop Sync, or a mistyped id | pass the one-time variant ids; read the option titles in the discovery product table |
+| `... variant ... is a subscription variant` (from `--hero-variants`, `--bump`, `--upsell` or `--gift`) | the variant's option title names a subscription, usually a Shopify subscription variant synced by Shop Sync, or a mistyped id | pass a one-time variant id; read the option titles in the discovery product table |
 | `--hero-variants expects comma-separated variant ids` or `names variant ... twice` | a non-numeric or empty entry, or a repeated id | pass each variant id once, separated by commas |
 | `upsell variant ... given twice` | the same variant passed to `--upsell` more than once | pass each upsell variant once; variants of one product at the same percentage already share one voucher |
 | `products ... both shorten to voucher code name ...` or `would both get voucher code ...` | two products on this campaign land on the same short name, or the same finished code | ask the operator for a short name and pass `--short-name <product_id>:<NAME>` for one of them; never add a suffix on your own |

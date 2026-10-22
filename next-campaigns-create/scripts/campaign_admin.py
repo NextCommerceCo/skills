@@ -1101,6 +1101,16 @@ def _subscription_option(product: dict, v: dict):
     return option if re.search(r"\bsubscription\b", option, re.I) else None
 
 
+def _refuse_subscription(what: str, product: dict, v: dict) -> None:
+    """Every package recommend builds is one-time (it never sends the recurring
+    fields), so a subscription variant in any role would sell a subscription item
+    at a one-time price."""
+    option = _subscription_option(product, v)
+    if option is not None:
+        raise CampaignAdminError(f"{what} {v['id']} is a subscription variant (option {option!r}); "
+                                 "recommend builds one-time packages only, so pick a one-time variant")
+
+
 def _select_hero_variants(hero: dict, spec: str, products: list) -> list:
     """The hero variants --hero-variants names, in catalogue order. Every id must be
     a purchasable variant of the hero product: a wrong id stops the run instead of
@@ -1129,13 +1139,7 @@ def _select_hero_variants(hero: dict, spec: str, products: list) -> list:
             raise CampaignAdminError(
                 f"--hero-variants: hero variant {vid} ({v.get('title')!r}) is not purchasable "
                 f"(purchase_availability={v.get('purchase_availability')!r}); drop it or pick an available variant")
-        option = _subscription_option(hero, v)
-        if option is not None:
-            # recommend only builds one-time packages, and the flag exists to keep
-            # subscription variants out: a named one is a mistyped id.
-            raise CampaignAdminError(
-                f"--hero-variants: hero variant {vid} is a subscription variant (option {option!r}); "
-                "recommend builds one-time packages only, so pass the one-time variant ids")
+        _refuse_subscription("--hero-variants: hero variant", hero, v)
     return [v for v in hero["variants"] if v["id"] in ids]
 
 
@@ -1242,6 +1246,7 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
         if v.get("purchase_availability", "available") != "available":
             raise CampaignAdminError(f"{role} variant {vid} is not purchasable "
                                      f"(purchase_availability={v.get('purchase_availability')!r}); pick an available variant")
+        _refuse_subscription(f"{role} variant", p, v)
         title = short_name(p["title"])
         price = money(D(parts[1]))
         # Validated here, before the reuse check compares it: NaN or Infinity would
@@ -1636,6 +1641,7 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
             raise CampaignAdminError(
                 f"gift variant {vid} is not purchasable "
                 f"(purchase_availability={v.get('purchase_availability')!r}); pick an available variant")
+        _refuse_subscription("gift variant", p, v)
         used = {x for pkg in packages for x in (pkg.get("product_variant_ids") or [])}
         if vid in used:
             raise CampaignAdminError(
