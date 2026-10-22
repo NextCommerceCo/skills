@@ -574,6 +574,7 @@ teardown later deletes it, as this run's.
 
 | Rule | Source |
 |---|---|
+| Hero packages: every purchasable hero variant, or only the `--hero-variants` ids (each a purchasable variant of the hero whose option title does not name a subscription, given once); every hero-scoped row and offer uses that set | Operator input: SKILL.md Phase 3, Hero product id |
 | Low CTC: one package per variant + Buy 1/2/3 tier offers at 50/55/60 | [Cost-to-consumer decides the structure](offer-doctrine.md#cost-to-consumer-decides-the-structure), [Standard tiers](offer-doctrine.md#standard-tiers) |
 | `--offer-type bxgy`: one count-(X+Y) offer at 100×Y/(X+Y)% off every hero unit | [Buy-X-get-Y approximation](offer-doctrine.md#buy-x-get-y-approximation), [worked-examples.md](worked-examples.md) |
 | `--gift` / `--offer-type gwp`: gift package + 100% offer scoped only to it | [Gift with purchase](offer-doctrine.md#gift-with-purchase) |

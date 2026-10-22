@@ -1088,6 +1088,61 @@ def _resolve_gateway_group(discovery: dict, currency: str, requested):
     raise CampaignAdminError(f"{len(eligible)} gateway groups list {currency}; pass --gateway-group: {opts}")
 
 
+def _subscription_option(product: dict, v: dict):
+    """The variant's option title when it names a subscription, else None.
+
+    A store that syncs from Shopify can carry a product's subscription variants as
+    ordinary variants, with no NEXT subscription price, so the option title is the
+    only signal. The product title is stripped first, so a one-time product whose
+    own name says Subscription does not match."""
+    title = v.get("title") or ""
+    head = f"{product.get('title') or ''} - "
+    option = title[len(head):] if product.get("title") and title.startswith(head) else title
+    return option if re.search(r"\bsubscription\b", option, re.I) else None
+
+
+def _refuse_subscription(what: str, product: dict, v: dict) -> None:
+    """Every package recommend builds is one-time (it never sends the recurring
+    fields), so a subscription variant in any role would sell a subscription item
+    at a one-time price."""
+    option = _subscription_option(product, v)
+    if option is not None:
+        raise CampaignAdminError(f"{what} {v['id']} is a subscription variant (option {option!r}); "
+                                 "recommend builds one-time packages only, so pick a one-time variant")
+
+
+def _select_hero_variants(hero: dict, spec: str, products: list) -> list:
+    """The hero variants --hero-variants names, in catalogue order. Every id must be
+    a purchasable variant of the hero product: a wrong id stops the run instead of
+    quietly packaging fewer variants than the operator asked for."""
+    ids = []
+    for bit in str(spec).split(","):
+        bit = bit.strip()
+        try:
+            vid = int(bit)
+        except ValueError:
+            raise CampaignAdminError(f"--hero-variants expects comma-separated variant ids; got {bit!r}")
+        if vid in ids:
+            raise CampaignAdminError(f"--hero-variants names variant {vid} twice; pass each variant once")
+        ids.append(vid)
+    own = {v["id"]: v for v in hero["variants"]}
+    for vid in ids:
+        v = own.get(vid)
+        if v is None:
+            owner = next((p for p in products for x in p["variants"] if x["id"] == vid), None)
+            where = (f"it belongs to product {owner['id']} ({owner['title']!r})" if owner
+                     else "it is not in the discovery")
+            raise CampaignAdminError(
+                f"--hero-variants: variant {vid} is not a variant of hero product {hero['id']} "
+                f"({hero['title']!r}); {where}. The hero's variants are {sorted(own)}")
+        if v.get("purchase_availability", "available") != "available":
+            raise CampaignAdminError(
+                f"--hero-variants: hero variant {vid} ({v.get('title')!r}) is not purchasable "
+                f"(purchase_availability={v.get('purchase_availability')!r}); drop it or pick an available variant")
+        _refuse_subscription("--hero-variants: hero variant", hero, v)
+    return [v for v in hero["variants"] if v["id"] in ids]
+
+
 def recommend(discovery: dict, a: argparse.Namespace) -> dict:
     check_origin_binding(discovery, "discovery")
     store = discovery["store"]
@@ -1120,9 +1175,13 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
     hero = next((p for p in discovery["products"] if p["id"] == a.hero), None)
     if hero is None:
         raise CampaignAdminError(f"hero product {a.hero} not found in discovery")
-    variants = [v for v in hero["variants"] if v.get("purchase_availability", "available") == "available"]
-    if not variants:
-        raise CampaignAdminError(f"hero product {a.hero} has no purchasable variants")
+    hero_variants_spec = getattr(a, "hero_variants", None)
+    if hero_variants_spec is None:
+        variants = [v for v in hero["variants"] if v.get("purchase_availability", "available") == "available"]
+        if not variants:
+            raise CampaignAdminError(f"hero product {a.hero} has no purchasable variants")
+    else:
+        variants = _select_hero_variants(hero, hero_variants_spec, discovery["products"])
     hero_title = short_name(hero["title"])
     short_names = _parse_short_names(getattr(a, "short_name", None), discovery["products"])
     # The API appends " - {variant}" to the package name for variant packages,
@@ -1187,6 +1246,7 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
         if v.get("purchase_availability", "available") != "available":
             raise CampaignAdminError(f"{role} variant {vid} is not purchasable "
                                      f"(purchase_availability={v.get('purchase_availability')!r}); pick an available variant")
+        _refuse_subscription(f"{role} variant", p, v)
         title = short_name(p["title"])
         price = money(D(parts[1]))
         # Validated here, before the reuse check compares it: NaN or Infinity would
@@ -1235,6 +1295,19 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
         return pkg, pct, title, False
 
     offers, landed, rationale, handoff, blockers = [], [], [], [], []
+    if hero_variants_spec is not None:
+        # Every hero-scoped row and offer below is built from hero_keys, so the
+        # left-out variants are named once here for the plan review.
+        left_out = [f"{v['id']} ({v.get('title')})" for v in hero["variants"] if v["id"] not in keys_by_variant]
+        rationale.append(f"Hero packages restricted by --hero-variants to {sorted(keys_by_variant)}. "
+                         f"Left out of the hero packages and every hero-scoped offer: "
+                         f"{', '.join(left_out) or 'none'}.")
+    else:
+        subs = [f"{v['id']} ({_subscription_option(hero, v)})" for v in variants if _subscription_option(hero, v)]
+        if subs:
+            rationale.append(f"Hero variants whose option title names a subscription are packaged one-time at the "
+                             f"anchor: {', '.join(subs)}. A one-time funnel must not sell them; pass "
+                             "--hero-variants with the one-time variant ids.")
     rounding = a.rounding if a.rounding else None
     if rounding not in PRICE_ROUNDINGS:
         raise CampaignAdminError(f"--rounding must be one of {PRICE_ROUNDINGS[1:]}")
@@ -1568,6 +1641,7 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
             raise CampaignAdminError(
                 f"gift variant {vid} is not purchasable "
                 f"(purchase_availability={v.get('purchase_availability')!r}); pick an available variant")
+        _refuse_subscription("gift variant", p, v)
         used = {x for pkg in packages for x in (pkg.get("product_variant_ids") or [])}
         if vid in used:
             raise CampaignAdminError(
@@ -7634,6 +7708,9 @@ def main(argv=None) -> int:
     r = sub.add_parser("recommend", help="build campaign-plan.json from discovery + operator inputs")
     r.add_argument("--discovery", required=True)
     r.add_argument("--hero", type=int, required=True, help="hero product id")
+    r.add_argument("--hero-variants", metavar="ID,ID,...",
+                   help="package only these hero variant ids (default: every purchasable variant), "
+                        "e.g. the one-time variants of a product that also syncs subscription variants")
     r.add_argument("--ctc", required=True, choices=["low", "high"])
     r.add_argument("--anchor-price", required=True, help="package price tiers discount from")
     r.add_argument("--shipping", action="append", required=True,

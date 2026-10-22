@@ -1,6 +1,6 @@
 ---
 name: next-campaigns-create
-version: 1.2.2
+version: 1.2.3
 description: |
   Create and update a Campaigns App campaign over the NEXT Admin API. Create:
   read the store's catalogue, gateway groups and shipping methods, recommend a
@@ -425,7 +425,7 @@ next-campaigns-create.sh --version
 next-campaigns-create.sh check-update [--no-cache] [--json]
 next-campaigns-create.sh discover  --store <subdomain> [--out <dir>]
 next-campaigns-create.sh metadata  --store <subdomain> [--apply]
-next-campaigns-create.sh recommend --discovery <dir>/discovery.json --hero <product_id> --ctc low|high --anchor-price <decimal> --shipping <code>:<price>[:<key>] [--shipping ...] [--offer-type quantity|bxgy|gwp] [--paid-qty <n> --free-qty <n>] [--gift <variant_id>:<price>[:<qty>]] [--gift-mode auto|select] [--name <campaign name>] [--gateway-group <id>] [--payment-methods a,b] [--express-methods a,b] [--currency USD] [--language en] [--countries US,CA] [--tiers 50,55,60] [--exit 10] [--exit-code CODE] [--short-name <product_id>:<NAME>] [--bump <variant_id>:<price>] [--upsell <variant_id>:<price>:<pct>] [--free-shipping | --free-shipping-min-qty <n>] [--rounding 0.95] [--statement-descriptor <text>] [--offers-available true|false] [--out <dir>]
+next-campaigns-create.sh recommend --discovery <dir>/discovery.json --hero <product_id> [--hero-variants <variant_id>,<variant_id>,...] --ctc low|high --anchor-price <decimal> --shipping <code>:<price>[:<key>] [--shipping ...] [--offer-type quantity|bxgy|gwp] [--paid-qty <n> --free-qty <n>] [--gift <variant_id>:<price>[:<qty>]] [--gift-mode auto|select] [--name <campaign name>] [--gateway-group <id>] [--payment-methods a,b] [--express-methods a,b] [--currency USD] [--language en] [--countries US,CA] [--tiers 50,55,60] [--exit 10] [--exit-code CODE] [--short-name <product_id>:<NAME>] [--bump <variant_id>:<price>] [--upsell <variant_id>:<price>:<pct>] [--free-shipping | --free-shipping-min-qty <n>] [--rounding 0.95] [--statement-descriptor <text>] [--offers-available true|false] [--out <dir>]
 next-campaigns-create.sh plan      --plan <dir>/campaign-plan.json [--check-store]
 next-campaigns-create.sh reland    --plan <dir>/campaign-plan.json
 next-campaigns-create.sh apply     --plan <dir>/campaign-plan.json --yes --plan-sha256 <plan-sha256> [--resume <dir>/run-manifest.json] [--out <dir>]
@@ -761,7 +761,32 @@ gift (different package keys). `--tiers` with `--offer-type bxgy` is an error.
 
 ### Shared, every type
 
-- **Hero product id**: from the discovery product table.
+- **Hero product id**: from the discovery product table. By default
+  `recommend` makes one hero package for every purchasable variant of that
+  product, and every tier, exit, free-shipping and buy-X-get-Y offer is scoped
+  to all of them. To sell only some variants, pass their ids with
+  `--hero-variants <variant_id>,<variant_id>,...`. The packages, landed rows,
+  offers and `verify` cart cases then use only those variants, and the
+  rationale lists the variants left out. `recommend` refuses an id that is not
+  a variant of the hero product, an id that is not purchasable
+  (`purchase_availability`), an id whose option title names a subscription,
+  and an id given twice. Only the named variants are hero packages, so a
+  `--bump`, `--upsell` or `--gift` on a left-out one-time variant of the hero
+  product is accepted as its own package. A subscription variant is refused in
+  every one of those roles, with or without `--hero-variants`, because every
+  package `recommend` builds is one-time.
+
+  Read the variant titles in the discovery product table before choosing. A
+  store that syncs its catalogue from Shopify (Shop Sync) can carry
+  subscription variants beside the one-time variants of the same product, with
+  option titles such as `Subscription` or `Quarterly Subscription`. They carry
+  no NEXT subscription price, so the title is the only sign. A one-time funnel
+  must not package them: they are priced for a subscription, and an order on
+  one can start the merchant's subscription flow when it syncs back to Shopify.
+  Without `--hero-variants`, `recommend` still packages them and names them in
+  the rationale. When the hero has such variants, ask the operator which
+  variants the funnel sells and pass the one-time ids with `--hero-variants`.
+  Do not hand-edit `campaign-plan.json` to drop hero packages.
 - **CTC, low or high**: operator judgement, never inferred. Cost-to-consumer is
   what the customer pays. Low CTC is the quantity-tier path and is required
   for buy-X-get-Y. High CTC is single units plus bumps and upsells; gift-with-
@@ -849,7 +874,9 @@ gift (different package keys). `--tiers` with `--offer-type bxgy` is an error.
     never show that code on the checkout page.
   - A bump must be a variant no other package uses. A bump on a hero variant is
     refused: it would need a second package for that variant, and a bump line
-    on the hero package would count toward the hero quantity tiers.
+    on the hero package would count toward the hero quantity tiers. With
+    `--hero-variants`, only the named variants are hero variants, so a bump on
+    a left-out one-time variant of the hero product is accepted.
   - Never hand-author a second package for a variant already packaged, and
     never rename or split offers to get past a duplicate offer name or code
     error. That error means the specs belong in one group.
@@ -941,8 +968,8 @@ auto). That choice is a **funnel handoff only**. The Offers API cannot
 auto-add or auto-remove the gift. Min-spend GWP is a platform gap; do not
 fake it.
 
-Refuse an unavailable gift variant (`purchase_availability`) and a gift
-variant that is already a hero, bump or upsell.
+Refuse an unavailable gift variant (`purchase_availability`), a subscription
+variant, and a gift variant that is already a hero, bump or upsell.
 
 ### Defaults
 
@@ -967,7 +994,8 @@ This phase is the gate.
 ```bash
 bash <skill-dir>/next-campaigns-create.sh recommend \
   --discovery ./next-campaigns-create-runs/<subdomain>/discovery.json \
-  --hero <product_id> --ctc <low|high> --anchor-price <decimal> \
+  --hero <product_id> [--hero-variants <variant_id>,...] \
+  --ctc <low|high> --anchor-price <decimal> \
   --shipping <code>:<price>[:<key>] [--name "<campaign name>"] [--countries US,CA] \
   [--offer-type quantity|bxgy|gwp] [--paid-qty <n> --free-qty <n>] \
   [--gift <variant_id>:<price>[:<qty>]] [--gift-mode auto|select] \
@@ -1490,6 +1518,10 @@ from the most recent edit.
 | `shipping code ... given twice` or `both use store code`; or a 400 from the store on a shipping create that names the `shipping_method` field as already on the campaign (the wording may vary by release) | the same store code at two prices | one campaign shipping method per code: use free shipping from a quantity, else a shipping offer on the one method, else a different store shipping method per price (the Shipping decision in Phase 3, under Shared, every type) |
 | `upsell variant ... is already package ...` | an upsell at a different price from the package that variant already has | pass the variant at its package price and the percentage the error suggests |
 | `bump variant ... is already package ...` or `both use variant` | a bump on a hero variant, or a hand-edited second package for one variant | choose a different variant for the bump; for a hand edit, reuse the one package and set the price with an offer |
+| `--hero-variants: variant ... is not a variant of hero product ...` | the id belongs to another product (the message names it) or is not in the discovery | pass only ids listed under the hero product in the discovery product table; re-run `discover` if the catalogue changed |
+| `--hero-variants: hero variant ... is not purchasable` | the variant's `purchase_availability` is not `available` | drop the id, or make the variant available in the dashboard and re-run `discover` |
+| `... variant ... is a subscription variant` (from `--hero-variants`, `--bump`, `--upsell` or `--gift`) | the variant's option title names a subscription, usually a Shopify subscription variant synced by Shop Sync, or a mistyped id | pass a one-time variant id; read the option titles in the discovery product table |
+| `--hero-variants expects comma-separated variant ids` or `names variant ... twice` | a non-numeric or empty entry, or a repeated id | pass each variant id once, separated by commas |
 | `upsell variant ... given twice` | the same variant passed to `--upsell` more than once | pass each upsell variant once; variants of one product at the same percentage already share one voucher |
 | `products ... both shorten to voucher code name ...` or `would both get voucher code ...` | two products on this campaign land on the same short name, or the same finished code | ask the operator for a short name and pass `--short-name <product_id>:<NAME>` for one of them; never add a suffix on your own |
 | `product title ... has no distinctive words for a voucher code` | the title is only generic words (Christmas, Ornament, Calendar) and numbers | ask the operator for a short name and pass `--short-name <product_id>:<NAME>` |

@@ -46,7 +46,7 @@ never guesses. It works out the rest from your answers.
 
 | You decide | The assistant works out |
 |------------|-------------------------|
-| The hero product the campaign sells | The package list |
+| The hero product the campaign sells, and which of its variants if not all of them (for example only the one-time versions when your store also has subscription versions from Shopify) | The package list |
 | Quantity Buy 1/2/3, buy-X-get-Y, or gift-with-purchase | How that maps onto percentage offers the Campaigns App actually has |
 | Low or high cost-to-consumer | The quantity-tier offers (Buy 1/2/3 stays 50/55/60 unless you change it) |
 | The anchor price the discounts come off | The exit voucher |
