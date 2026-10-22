@@ -95,7 +95,7 @@ payment/navigation actions. Author plain HTML/CSS, use disabled controls, add
 before all other head content (apart from charset):
 
 ```html
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; script-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; script-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'">
 ```
 
 Serve only that directory on loopback, using an available static server. Inspect
@@ -119,7 +119,8 @@ files and explain that it has not been opened.
   `@nextcommerce/campaigns-os` and its bundled skills. Its runtime requirement
   is separate from Page Kit's; follow the installed package's setup instructions.
   Read its [local-spec entry](https://github.com/NextCommerceCo/campaigns-os/blob/main/docs/build-packet.md#local-spec-entry)
-  only after real commerce bindings are available. A saved Map is optional.
+  only after real commerce bindings are available. A saved Map is optional for
+  that entry; retain any Map requirement imposed by the delivery or pilot flow.
 - Existing Build Packet: `next-campaigns-os-setup` owns OS-directed setup,
   `next-campaigns-build` owns wiring, and Polish/QA follow the packet. Those
   skills come from [campaigns-os](https://github.com/NextCommerceCo/campaigns-os),
