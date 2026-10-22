@@ -179,6 +179,19 @@ For a configured campaign, gather only missing inputs together. If the key or
 store binding is unavailable, return to the no-key procedure; do not substitute
 a template/demo key. Have the operator supply credentials through a local
 configuration file or the approved secret mechanism, never in chat.
+Make the selected public campaign key available as `CAMPAIGN_API_KEY`, then
+check it in the non-interactive setup shell before Step 3 or any file/install
+writes. If the check fails, return to the no-key procedure; do not continue.
+
+```bash
+: "${CAMPAIGN_API_KEY:?Selected campaign key is required for configured setup}"
+```
+
+This key is the browser-visible Campaign Cart API key, never an Admin API
+secret. Page Kit 0.3.0's non-interactive init accepts it through `--api-key`;
+`CAMPAIGN_API_KEY` here is a shell variable, not a CLI environment-variable
+interface. Expansion puts the public key in process arguments. Do not pass
+Admin tokens or other secret credentials through this command.
 
 If the user supplied a CampaignSpec, pre-fill from:
 - `campaign.store_name` for store name when present
@@ -247,27 +260,26 @@ upgrade a pinned Page Kit dependency as part of setup.
 Verify the project-local package and executable before invoking init:
 
 ```bash
-cd <CPK_ROOT>/[brand-name]
-node -p "require('./node_modules/next-campaign-page-kit/package.json').version"
-test -x ./node_modules/.bin/campaign-init
+cd <CPK_ROOT>/[brand-name] &&
+node -p "require('./node_modules/next-campaign-page-kit/package.json').version" &&
+test -x ./node_modules/.bin/campaign-init &&
 ./node_modules/.bin/campaign-init --help
 ```
 
 All three must succeed. If they do not, resolve the missing dependency/bin in
-this project before continuing; `npx --no-install` is not an install fallback.
-Check the installed help supports the flags used below.
+this project before continuing; do not fall back to PATH or package-runner
+resolution. Check the installed help supports the flags used below, then invoke
+the same verified project-local executable.
 
-Use the key resolved in Step 2 as `CAMPAIGN_API_KEY` through the approved local
-secret mechanism; do not echo it. Set `AI_CONTEXT` to the current agent's
-supported target (`claude`, `codex`, `cursor`, `copilot`, or `none`).
+Keep the Step 2 key in the same setup shell; do not echo it. Set `AI_CONTEXT`
+to the current agent's supported target (`claude`, `codex`, `cursor`, `copilot`, or `none`).
 `--keep-ai-context` is a boolean flag accepted by Page Kit 0.3.0: it skips an
 existing target, still creates a missing target, and does nothing for `none`.
 It does not require a value or a pre-existing file.
 
 ```bash
-cd <CPK_ROOT>/[brand-name]
-: "${CAMPAIGN_API_KEY:?Selected campaign key is required for configured setup}"
-npx --no-install campaign-init --non-interactive --json \
+cd <CPK_ROOT>/[brand-name] &&
+./node_modules/.bin/campaign-init --non-interactive --json \
   --template [template-slug] \
   --slug [campaign-slug] \
   --name "[Campaign Display Name]" \
