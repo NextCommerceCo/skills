@@ -5,19 +5,11 @@ Your assistant follows the public [agent setup procedure](https://developers.nex
 records what is known and what still needs deciding, and selects the next tool.
 For a new Page Kit project, this skill scaffolds and configures the campaign.
 For an existing build, it preserves the builder and deployment workflow.
-If the guide is unavailable, the assistant reports that and checks its public
-source. If neither can be read, it can still prepare the observations, brief and
-isolated concept described in the installed skill, but leaves later steps pending.
 
 You can begin without a store API key. The first result is a brief, a proposed
-page flow, a list of commerce dependencies, and a separate local visual concept.
-It includes enough context for another agent session to continue.
-
-> [!IMPORTANT]
-> Page Kit 0.3.0's no-key scaffold can retain demo commerce and tracking settings.
-> The skill uses a separate static concept until it verifies a released inert
-> preview feature. The concept cannot take orders and does not prove that
-> checkout, prices, shipping, payment or tracking work.
+page flow, a list of commerce dependencies, and a local preview of the scaffold
+with no commerce or tracking attached. It includes enough context for another
+agent session to continue.
 
 ## What You Need
 
@@ -27,7 +19,7 @@ It includes enough context for another agent session to continue.
   assistant asks only for choices the supplied inputs leave open.
 - Later, for commerce integration: the selected NEXT campaign, its Campaign
   Cart API key and verified product/package references. Store Admin API access
-  is separate; no credentials are needed for the first visual concept.
+  is separate; no credentials are needed for the first preview.
 
 New projects use a template from the current public catalog. Apollo is the
 current recommendation for most single-step campaigns; Apollo Multi-variant
@@ -43,7 +35,7 @@ installation. Load only the skills needed for the current step.
 
 Ask your assistant:
 
-> Use this funnel URL to propose a NEXT campaign and a local visual concept.
+> Use this funnel URL to propose a NEXT campaign and a local preview.
 > Keep the store untouched and leave a handoff another session can continue.
 
 Or:
@@ -78,7 +70,8 @@ This standalone skill no longer writes Campaigns OS setup or assembly records.
   published records or deployment.
 - Configuration files can hold campaign credentials. Do not paste them into
   chat or include them in a public handoff.
-- Analytics are enabled only for declared providers and real IDs. Copied demo
-  values are removed before a configured campaign is opened.
+- Analytics are enabled only for declared providers and real IDs. Scaffolding
+  without a key clears the template's demo key, so an unconfigured preview
+  fetches and sends nothing.
 - The handoff separates observed source content, proposed behavior and tested
   behavior. Unverified commerce remains explicit.

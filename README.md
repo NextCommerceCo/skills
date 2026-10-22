@@ -20,7 +20,7 @@ Cursor, GitHub Copilot, and any other agent that reads markdown.
 | [**Bulk Fulfillment Order Move**](next-bulk-move/) | Operations | Move fulfillment orders between warehouse locations in bulk, from a file of order numbers or a product/SKU list. |
 | [**Bulk Subscription Actions**](next-bulk-subscription/) | Operations | Pause, cancel, or update subscriptions in bulk from a CSV/XLSX of subscription IDs, with dry-run and verification. |
 | [**Daily Ops Risk Scan**](next-ops-scan/) | Operations | Read-only daily risk scan for one store: Incomplete and Rejected orders, delivery-tracking failures, and stale shipments. |
-| [**Campaign Setup and Continuation**](next-campaigns-setup/) | Campaigns | Start or continue a campaign from a URL, design, repo or Map, with a brief and safe visual concept before Page Kit configuration. |
+| [**Campaign Setup and Continuation**](next-campaigns-setup/) | Campaigns | Start or continue a campaign from a URL, design, repo or Map, with a brief and a local preview before commerce is connected. |
 | [**Campaign Provisioning**](next-campaigns-create/) | Campaigns | Create, clone and update a Campaigns App campaign over the Admin API: packages, shipping, quantity Buy 1/2/3, buy-X-get-Y and gift-with-purchase on create, then edit a field in place on a campaign this skill built, or adopt, diff and update one that already exists, each behind a hash approval gate. |
 <!-- END GENERATED SKILLS TABLE -->
 

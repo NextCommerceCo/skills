@@ -3,10 +3,10 @@ name: next-campaigns-setup
 version: 2.0.0
 description: |
   Start or continue a campaign from a public URL, design, existing repo, or
-  saved Map. Follow the public agent setup procedure for intake and a safe
-  visual concept before credentials; scaffold and configure campaign-page-kit
-  only when a new CPK project is the chosen path. Preserve an existing builder
-  and deployment workflow, and hand off to the relevant Campaigns OS skill.
+  saved Map. Follow the public agent setup procedure for intake; scaffold and
+  configure campaign-page-kit when a new CPK project is the chosen path, with
+  or without a campaign key. Preserve an existing builder and deployment
+  workflow, and hand off to the relevant Campaigns OS skill.
 
   Use when: "new CPK campaign", "set up a campaign", "new funnel",
   "build a campaign from this URL", "continue this campaign repo", or when
@@ -37,14 +37,10 @@ This skill works with any AI coding tool that can load a markdown file as contex
 ---
 
 Start with the public [agent setup procedure](https://developers.nextcommerce.com/agent-setup/prompt.md).
-It owns intake and continuation across tools. This skill owns Page Kit
-scaffolding and first configuration; load only the capability the next step needs.
-If that URL fails or does not return the guide, report the URL and error, then
-read the [same guide in its public source repository](https://github.com/NextCommerceCo/developer-docs/blob/main/content/agent-setup.md)
-and record the revision used. If both are unavailable, continue only the
-observation, brief and isolated static-concept work specified below. Leave
-canonical-guide-dependent transitions pending; do not reconstruct missing
-commerce, Campaigns OS or deployment instructions from memory.
+It owns intake and continuation across tools; this skill owns Page Kit
+scaffolding and first configuration. If that URL is unavailable, read the
+[same guide in its source repository](https://github.com/NextCommerceCo/developer-docs/blob/main/content/agent-setup.md)
+and record the revision used.
 
 ## Before Scaffolding
 
@@ -52,98 +48,55 @@ Read the supplied inputs and any existing handoff before asking for details.
 
 | Starting point | Next step |
 |---|---|
-| Public funnel/store URL or design | Record observed pages, source URLs and capture dates; separate the proposed campaign from what the source proves. Save a guided Campaign Build Brief and a commerce dependency list before requesting credentials. |
-| Existing or cloned repo | Inspect its README, package/lockfile, build commands, routes, config references, deployment configuration, spec and QA evidence without executing them. Preserve its builder and deployment conventions. Do not run `campaign-init` over it. |
-| External build or export | Identify the source root, assets, page routes and build instructions. Keep the original intact. Use the published Campaigns OS source-adapter procedure only if that is the selected integration path; unsupported formats stay an explicit gap. |
-| Saved Map / CampaignSpec / Build Packet | Read the existing identity and artifacts. Follow the installed Campaigns OS `next` result; do not create a second spec, scaffold, or stage record. |
+| Public funnel/store URL or design | Record observed pages, source URLs and capture dates; separate the proposed campaign from what the source proves. Save a guided Campaign Build Brief and a commerce dependency list. |
+| Existing or cloned repo | Inspect its README, package/lockfile, build commands, routes, config, deployment configuration, spec and QA evidence. Preserve its builder and deployment conventions. Do not run `campaign-init` over it. |
+| External build or export | Identify the source root, assets, page routes and build instructions. Keep the original intact. Use the Campaigns OS source-adapter procedure only if that is the selected integration path. |
+| Saved Map / CampaignSpec / Build Packet | Read the existing identity and artifacts. Follow the installed Campaigns OS `next` result; do not create a second spec, scaffold or stage record. |
 
 A cloned repository is a code starting point. It does not clone the Campaigns
 App configuration or transfer the source campaign's QA. Treat inherited keys,
-package refs, tracking IDs, domains and evidence as source-campaign values until
-checked. Do not load `.env` files, print credentials, run install/build scripts,
-or open the original campaign just to identify its structure.
+package refs, tracking IDs and domains as source-campaign values until checked,
+and never print credentials.
 
-Use the existing [Campaign Build Brief](https://github.com/NextCommerceCo/campaigns-os/blob/main/docs/campaign-build-brief.md)
-format for presentation intent (`campaign-build-brief.yaml` or `.json`,
-`schema_version: campaigns-os-build-brief/v1`, `brief_mode: guided`; use the
-linked schema/example for fields). Keep observations, unresolved commerce dependencies and
+Use the [Campaign Build Brief](https://github.com/NextCommerceCo/campaigns-os/blob/main/docs/campaign-build-brief.md)
+format for presentation intent (`schema_version: campaigns-os-build-brief/v1`,
+`brief_mode: guided`). Keep observations, unresolved commerce dependencies and
 continuation instructions in the project's README or existing handoff document.
-A brief can precede a spec. Do not invent campaign IDs, package refs, offers,
-shipping IDs or a saved Map to make Campaigns OS accept incomplete inputs.
+Do not invent campaign IDs, package refs, offers, shipping IDs or a saved Map to
+make Campaigns OS accept incomplete inputs.
 
-For resume, the handoff must name the source and target paths/revisions, chosen
-builder and deploy convention, brief/spec/packet paths that actually exist,
-completed checks and their limits, unresolved business decisions, and the next
-safe action. Re-read those files in a new session. Earlier QA applies only to
-the source revision and configuration it tested; changed commerce or pages
-need new evidence.
-
-### Before a Campaign Key Is Available
-
-Do useful local work without credentials or commerce API calls: capture public observations,
-propose the page flow, record product/variant, price, offer, shipping, payment,
-policy and tracking dependencies, and prepare a visual concept. Label source
-prices as observations, not verified NEXT campaign values. Catalogue product
-creation/import is separate from campaign provisioning: `next-campaigns-create`
-reads existing products and variants; it does not import a Shopify catalogue.
-
-**Page Kit 0.3.0 does not make no-key scaffolds inert.** Its template output can
-retain a demo campaign key and analytics. Do not run `npm run dev` or open that
-output in the no-key/no-write flow. Do not assume an unmerged PR or a newer
-version number supplies this guarantee; check the installed release's documented
-preview behavior before using it.
-
-Until a released inert-preview feature is verified, make a separate static
-concept directory from approved copy and local assets. Do not copy or execute
-source scripts, SDK/config files, forms, frames, remote assets, tracking, or
-payment/navigation actions. Author plain HTML/CSS, use disabled controls, add
-"Commerce unconfigured — visual concept only" visibly, and put this policy
-before all other head content (apart from charset):
-
-```html
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; script-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'">
-```
-
-Serve only that directory on loopback, using an available static server. Inspect
-its HTML and local asset references before opening it; external links and CSS
-URLs must be absent. Record the local start command, preview path and observed
-network behavior. This is visual evidence only: no commerce integration, SDK
-initialization, prices, shipping, payment, tracking receipt or launch readiness
-has been verified. If the isolated preview cannot be checked, return the source
-files and explain that it has not been opened.
+For resume, the handoff names the source and target paths and revisions, the
+builder and deploy convention, the brief, spec and packet paths that exist, the
+checks completed, the open business decisions and the next action. Earlier QA
+applies only to the revision and configuration it tested.
 
 ### Choose the Next Capability
 
-- New Page Kit project with a selected template: continue to Phase 1. In a
-  no-key/no-write task, stay with the separate concept above.
+- New Page Kit project: continue to Phase 1. A campaign key is optional; without
+  one, init clears the template's demo key and the pages render for visual
+  review with no commerce or analytics.
 - Store campaign provisioning: load [next-campaigns-create](https://github.com/NextCommerceCo/skills/tree/main/next-campaigns-create)
-  when the selected store and authorized API access are available. It supports
-  create, `edit` for its own runs, `adopt` + `diff` + `update` for existing
-  campaigns, and a separately approved campaign clone. Copying a Git repo does
-  none of these. Each remote write follows that skill's reviewed plan gate.
+  when the store and authorized API access are available. It creates, edits,
+  adopts and clones campaign configuration behind its plan gate; copying a Git
+  repo does none of these.
 - Campaigns OS lifecycle or build: use the project's pinned
-  `@nextcommerce/campaigns-os` and its bundled skills. Its runtime requirement
-  is separate from Page Kit's; follow the installed package's setup instructions.
-  Read its [local-spec entry](https://github.com/NextCommerceCo/campaigns-os/blob/main/docs/build-packet.md#local-spec-entry)
-  only after real commerce bindings are available. A saved Map is optional for
-  that entry; retain any Map requirement imposed by the delivery or pilot flow.
-- Existing Build Packet: `next-campaigns-os-setup` owns OS-directed setup,
-  `next-campaigns-build` owns wiring, and Polish/QA follow the packet. Those
-  skills come from [campaigns-os](https://github.com/NextCommerceCo/campaigns-os),
-  not this repository. Do not replace them with this standalone scaffolder.
+  `@nextcommerce/campaigns-os` and its bundled skills. Read its
+  [local-spec entry](https://github.com/NextCommerceCo/campaigns-os/blob/main/docs/build-packet.md#local-spec-entry)
+  once real commerce bindings are available.
+- Existing Build Packet: `next-campaigns-os-setup` owns setup, `next-campaigns-build`
+  owns wiring, and Polish and QA follow the packet. Those skills ship with
+  [campaigns-os](https://github.com/NextCommerceCo/campaigns-os), not this repository.
 
-For a no-write task, do not provision campaigns, run cart/order probes, publish
-Map/QA/run records, or deploy. Record the exact untested boundary so the next
-session can continue under the same constraint.
+For a no-write task, do not provision campaigns, run cart or order probes,
+publish Map, QA or run records, or deploy. Record the untested boundary so the
+next session continues under the same constraint.
 
 ---
 
-## Phase 1 — Configured Setup
+## Phase 1 — Scaffold
 
-Enter this phase only for a new Page Kit campaign with a selected campaign key
-and permission to configure its local runtime. A no-key or no-write task stays
-in the isolated concept procedure above; it does not run the commands below.
-Complete the inputs and checks before creating files or installing dependencies.
+Enter this phase for a new Page Kit campaign. Gather the inputs before creating
+files or installing dependencies.
 
 ### Step 0: Resolve CPK Root
 
@@ -170,32 +123,15 @@ Reuse supplied choices and ask for only missing business decisions together:
    open. The catalog currently recommends `apollo` for most single-step
    campaigns and `apollo-mv-single-step` for variant products. Two-step and
    three-step families are available when the intended flow needs them.
-   `landing` is a component library, not a checkout funnel. Re-read the catalog
-   rather than offering removed families such as `limos`.
+   `landing` is a component library, not a checkout funnel. Read the catalog
+   rather than offering a family from memory.
 
 ### Step 2 — Gather Config Inputs
 
-For a configured campaign, gather only missing inputs together. If the key or
-store binding is unavailable, return to the no-key procedure; do not substitute
-a template/demo key. Have the operator supply credentials through a local
-configuration file or the approved secret mechanism, never in chat.
-Before Step 3 or any file/install writes, confirm that the operator has supplied
-the selected public campaign key. Loading it as `CAMPAIGN_API_KEY` and checking
-it verifies availability in that invocation only. If the check fails, return
-to the no-key procedure; do not continue.
-
-```bash
-: "${CAMPAIGN_API_KEY:?Selected campaign key is required for configured setup}"
-```
-
-This input check does not establish shell state for Step 5. Reload the inputs
-and retain the argument guards in the invocation that actually runs init.
-
-This key is the browser-visible Campaign Cart API key, never an Admin API
-secret. Page Kit 0.3.0's non-interactive init accepts it through `--api-key`;
-`CAMPAIGN_API_KEY` here is a shell variable, not a CLI environment-variable
-interface. Expansion puts the public key in process arguments. Do not pass
-Admin tokens or other secret credentials through this command.
+Gather only the missing inputs, together. The campaign key is the
+browser-visible Campaign Cart API key for the selected campaign, never an Admin
+API token. If it is not available yet, scaffold without it and bind it later
+with `npm run config`.
 
 If the user supplied a CampaignSpec, pre-fill from:
 - `campaign.store_name` for store name when present
@@ -206,11 +142,11 @@ If the user supplied a CampaignSpec, pre-fill from:
 - `campaign.seo` for later build/QA notes only; setup does not need to write SEO tags directly
 
 **Required:**
-- **API key** — the public Campaign Cart API key for the selected campaign; never the store Admin API token
 - **Store name** — short display name (e.g. "Example Store")
 - **Store URL** — the main store domain (e.g. `https://example-store.com`)
 
 **Recommended but optional:**
+- **API key** — the Campaign Cart API key for the selected campaign
 - **Store phone** — display format (e.g. `1-800-555-0100`) and tel format (e.g. `+18005550100`)
 - **Policy/support URLs** — terms, privacy, contact, returns/refund, shipping. Storefront policy URLs are acceptable; campaign-specific pages are not required.
 
@@ -247,42 +183,16 @@ If `<CPK_ROOT>/[brand-name]/` does not exist, create it.
 
 ### Step 5 — Install and Scaffold with campaign-init
 
-`campaign-init --non-interactive` (available since `next-campaign-page-kit` v0.1.1) handles the full scaffold in one command: adds npm scripts, creates `_data/campaigns.json`, downloads the starter template, seeds the campaigns.json entry, and installs the AI context file.
+`campaign-init --non-interactive` handles the full scaffold in one command: adds npm scripts, creates `_data/campaigns.json`, downloads the starter template, seeds the campaigns.json entry, and installs the AI context file.
 
-From the brand folder, inspect `package.json`, the lockfile and install scripts
-before running them. Use the existing dependency manager and lockfile; do not
-upgrade a pinned Page Kit dependency as part of setup.
+From the brand folder, use the existing dependency manager and lockfile; do not
+upgrade a pinned Page Kit dependency as part of setup. If no `package.json`
+exists, run `npm init -y` and `npm install next-campaign-page-kit`. If the
+package is declared but not installed, restore it from the lockfile.
 
-- If no `package.json` exists, create it with `npm init -y`.
-- If the project does not declare `next-campaign-page-kit`, select a reviewed
-  exact release and install it, for example
-  `npm install --save-exact next-campaign-page-kit@<selected-version>`.
-- If it is declared but not installed, restore dependencies from the existing
-  lockfile with the project's documented install command. If that fails, report
-  the error; do not fall back to an unpinned/global install.
-
-Verify the project-local package and executable before invoking init:
-
-```bash
-cd <CPK_ROOT>/[brand-name] &&
-node -p "require('./node_modules/next-campaign-page-kit/package.json').version" &&
-test -x ./node_modules/.bin/campaign-init &&
-./node_modules/.bin/campaign-init --help
-```
-
-All three must succeed. If they do not, resolve the missing dependency/bin in
-this project before continuing; do not fall back to PATH or package-runner
-resolution. Check the installed help supports the flags used below, then invoke
-the same verified project-local executable.
-
-Load the Step 2 key through the approved local mechanism and set `AI_CONTEXT`
-in each shell/tool invocation that uses them; separate calls may not share shell
-state. Do not echo the key. Choose the current agent's supported context target
-(`claude`, `codex`, `cursor`, `copilot`, or `none`). The argument guards below
-recheck both values before the CLI can run.
-`--keep-ai-context` is a boolean flag accepted by Page Kit 0.3.0: it skips an
-existing target, still creates a missing target, and does nothing for `none`.
-It does not require a value or a pre-existing file.
+Run the project-local executable so the pinned version is the one that runs.
+Choose the agent's context target (`claude`, `codex`, `cursor`, `copilot`, or
+`none`); `--keep-ai-context` leaves an existing context file in place.
 
 ```bash
 cd <CPK_ROOT>/[brand-name] &&
@@ -290,29 +200,18 @@ cd <CPK_ROOT>/[brand-name] &&
   --template [template-slug] \
   --slug [campaign-slug] \
   --name "[Campaign Display Name]" \
-  --api-key "${CAMPAIGN_API_KEY:?Load the selected public campaign key in this invocation}" \
-  --ai-context "${AI_CONTEXT:?Set AI_CONTEXT to claude, codex, cursor, copilot, or none}" \
+  --api-key "$CAMPAIGN_API_KEY" \
+  --ai-context claude \
   --keep-ai-context
 ```
 
-Capture the JSON output. Page Kit 0.3.0 emits these fields after a successful
-non-dry-run key write (other fields omitted):
+Omit `--api-key` when no key is available yet. Init then clears the template's
+demo key and reports `campaign.runtime_mode: "unconfigured"`; the Campaign Cart
+SDK does not boot without a key, so the pages render but fetch and send nothing.
 
-```json
-{
-  "status": "ok",
-  "dry_run": false,
-  "writes": { "api_key_applied": true }
-}
-```
-
-The released [init implementation](https://unpkg.com/next-campaign-page-kit@0.3.0/lib/actions/init.js)
-defines this result and the context-file behavior above. Confirm those values
-before reporting the key bound locally; the result does not prove a valid
-campaign or working commerce. If the field is absent, false, or the installed
-release uses a different contract, report binding as unconfirmed and consult
-that release's docs/source rather than guessing success. Include
-`writes.files_extracted` and the context result in the scaffold report.
+Capture the JSON output: `writes.api_key_applied`, `writes.files_extracted` and
+the context result go in the scaffold report. A local key write does not prove
+a valid campaign or working commerce.
 
 **Exit code handling:**
 
@@ -344,7 +243,7 @@ Never hand-write `setup-handoff.json` or edit OS stage evidence directly.
 
 Read `<CPK_ROOT>/[brand-name]/src/[campaign-slug]/assets/config.js`. Make these changes:
 
-1. **`apiKey`** — confirm init bound the selected key without printing it. If binding is still needed, use the installed Page Kit `campaign-config` command. Keep any static-preview marker in place until its documented configuration flow enables runtime; never clear a marker by hand.
+1. **`apiKey`** — confirm init wrote the selected key. If the key arrived after scaffolding, bind it with `npm run config`. Without a key, leave the field empty.
 2. **`storeName`** — replace with a lowercase-hyphenated slug derived from the store name (e.g. "Example Store" → `'example-store'`). This is an analytics identifier, not a display name.
 3. **GTM** (only if a real ID is provided):
    - Set `gtm.enabled` to `true`
@@ -406,14 +305,9 @@ Phase 2 — Configure
     ✓ policy/support URLs set / left blank
 ```
 
-For a local concept, report the brief and preview paths, the commerce dependencies,
-the checks actually performed, and the next safe action instead of the completed
-scaffold/config report above. Keep the continuation instructions in the project's
-README or existing handoff document so another agent needs no chat history.
-
-For a configured campaign, check the selected campaign identity and tracking
-configuration before opening `npm run dev`; a local origin does not make remote
-commerce calls safe. Follow the authorized QA depth and the relevant installed
-Campaigns OS skill. Do not submit forms or create orders as a setup check.
-Read generated page routes from the selected template; do not assume an
-`upsell.html` exists when the family uses a named upsell variant.
+Keep the continuation instructions in the project's README or existing handoff
+document so another agent needs no chat history. Then start `npm run dev`:
+an unconfigured campaign shows the pages with placeholder prices; a configured
+one talks to the selected campaign, so check its identity and tracking first.
+Do not submit forms or create orders as a setup check. Read the generated
+routes from the selected template rather than assuming an `upsell.html` exists.
