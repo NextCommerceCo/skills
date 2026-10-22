@@ -1,6 +1,6 @@
 ---
 name: next-campaigns-setup
-version: 1.1.4
+version: 2.0.0
 description: |
   Start or continue a campaign from a public URL, design, existing repo, or
   saved Map. Follow the public agent setup procedure for intake and a safe
@@ -179,13 +179,17 @@ For a configured campaign, gather only missing inputs together. If the key or
 store binding is unavailable, return to the no-key procedure; do not substitute
 a template/demo key. Have the operator supply credentials through a local
 configuration file or the approved secret mechanism, never in chat.
-Make the selected public campaign key available as `CAMPAIGN_API_KEY`, then
-check it in the non-interactive setup shell before Step 3 or any file/install
-writes. If the check fails, return to the no-key procedure; do not continue.
+Before Step 3 or any file/install writes, confirm that the operator has supplied
+the selected public campaign key. Loading it as `CAMPAIGN_API_KEY` and checking
+it verifies availability in that invocation only. If the check fails, return
+to the no-key procedure; do not continue.
 
 ```bash
 : "${CAMPAIGN_API_KEY:?Selected campaign key is required for configured setup}"
 ```
+
+This input check does not establish shell state for Step 5. Reload the inputs
+and retain the argument guards in the invocation that actually runs init.
 
 This key is the browser-visible Campaign Cart API key, never an Admin API
 secret. Page Kit 0.3.0's non-interactive init accepts it through `--api-key`;

@@ -258,7 +258,7 @@
     {
       "id": "next-campaigns-setup",
       "name": "Campaign Setup and Continuation",
-      "version": "1.1.4",
+      "version": "2.0.0",
       "path": "next-campaigns-setup/SKILL.md",
       "domain": "campaigns",
       "description": "Start or continue a campaign from a URL, design, repo or Map, with a brief and safe visual concept before Page Kit configuration.",

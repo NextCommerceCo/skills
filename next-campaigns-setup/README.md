@@ -67,6 +67,10 @@ build, Polish and QA. Once a Build Packet exists, follow its matching bundled
 skills, including `next-campaigns-os-setup`, instead of starting setup again.
 Existing builds do not have to move to Page Kit just to record their next step.
 
+Version 2 changes the handoff from version 1: when a Campaigns OS Build Packet
+exists, setup continues through its matching `next-campaigns-os-setup` skill.
+This standalone skill no longer writes Campaigns OS setup or assembly records.
+
 ## Safety
 
 - Existing campaign folders are never overwritten by scaffolding.
