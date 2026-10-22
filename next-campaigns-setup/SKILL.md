@@ -271,8 +271,11 @@ this project before continuing; do not fall back to PATH or package-runner
 resolution. Check the installed help supports the flags used below, then invoke
 the same verified project-local executable.
 
-Keep the Step 2 key in the same setup shell; do not echo it. Set `AI_CONTEXT`
-to the current agent's supported target (`claude`, `codex`, `cursor`, `copilot`, or `none`).
+Load the Step 2 key through the approved local mechanism and set `AI_CONTEXT`
+in each shell/tool invocation that uses them; separate calls may not share shell
+state. Do not echo the key. Choose the current agent's supported context target
+(`claude`, `codex`, `cursor`, `copilot`, or `none`). The argument guards below
+recheck both values before the CLI can run.
 `--keep-ai-context` is a boolean flag accepted by Page Kit 0.3.0: it skips an
 existing target, still creates a missing target, and does nothing for `none`.
 It does not require a value or a pre-existing file.
@@ -283,8 +286,8 @@ cd <CPK_ROOT>/[brand-name] &&
   --template [template-slug] \
   --slug [campaign-slug] \
   --name "[Campaign Display Name]" \
-  --api-key "$CAMPAIGN_API_KEY" \
-  --ai-context "$AI_CONTEXT" \
+  --api-key "${CAMPAIGN_API_KEY:?Load the selected public campaign key in this invocation}" \
+  --ai-context "${AI_CONTEXT:?Set AI_CONTEXT to claude, codex, cursor, copilot, or none}" \
   --keep-ai-context
 ```
 
