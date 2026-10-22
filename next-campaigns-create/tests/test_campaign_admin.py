@@ -95,7 +95,7 @@ def ns(**kw):
                 language=None, countries=None, offer_type="quantity", paid_qty=None, free_qty=None,
                 gift=None, gift_mode="auto", tiers=None, exit=None, exit_code=None, bump=None,
                 upsell=None, short_name=None, free_shipping=False, free_shipping_min_qty=None, rounding=None,
-                statement_descriptor=None, offers_available=None)
+                statement_descriptor=None, offers_available=None, hero_variants=None)
     base.update(kw)
     return argparse.Namespace(**base)
 
@@ -672,6 +672,124 @@ class Recommendation(unittest.TestCase):
             ca.bxgy_percentage(2, 0)
         with self.assertRaises(ca.CampaignAdminError):
             ca.bxgy_percentage(100, 1)
+
+
+class HeroVariants(unittest.TestCase):
+    """--hero-variants: a hero whose catalogue also carries Shopify subscription
+    variants (synced by Shop Sync) packages only the variants the operator names."""
+
+    ONE_TIME = [303, 306, 309, 312]
+
+    def setUp(self):
+        self.disc = load_fixture("discovery.json")
+        variants = []
+        # Twelve variants in flavour triples: Subscription, Quarterly Subscription,
+        # One Time Purchase; the one-time ids are the last of each triple.
+        for vid in range(301, 313):
+            kind = ("Subscription", "Quarterly Subscription", "One Time Purchase")[(vid - 301) % 3]
+            variants.append({"id": vid, "title": f"Daily Greens - {kind}", "sku": f"DG-{vid}",
+                             "purchase_availability": "available",
+                             "prices": [{"currency": "USD", "price": "59.00", "retail": "59.00",
+                                         "subscription": None, "subscription_suggested_downsell": None}]})
+        self.disc["products"].append({"id": 300, "title": "Daily Greens", "structure": "parent",
+                                      "enable_subscription": True, "variants": variants})
+
+    def rec(self, **kw):
+        base = dict(hero=300, anchor_price="59.00", exit_code="SAVE10")
+        base.update(kw)
+        return ca.recommend(self.disc, ns(**base))
+
+    def assertRefused(self, *needles, **kw):
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            self.rec(**kw)
+        for n in needles:
+            self.assertIn(n, str(cm.exception))
+
+    def test_default_packages_every_purchasable_variant(self):
+        plan = self.rec()
+        self.assertEqual(len([p for p in plan["packages"] if p["role"] == "hero"]), 12)
+        self.assertFalse(any("--hero-variants" in r for r in plan["rationale"]))
+
+    def test_subset_scopes_every_hero_row_and_offer(self):
+        # Given out of order on purpose: packages keep catalogue order.
+        plan = self.rec(hero_variants="312, 303,306,309", free_shipping_min_qty=2)
+        self.assertEqual(ca.validate_plan(plan), [])
+        self.assertEqual(ca._uniqueness_errors(plan), [])
+        hero = [p["key"] for p in plan["packages"] if p["role"] == "hero"]
+        self.assertEqual(hero, [f"hero-{v}" for v in self.ONE_TIME])
+        used = {v for p in plan["packages"] for v in p["product_variant_ids"]}
+        self.assertEqual(used, set(self.ONE_TIME))
+        for l in plan["landed_prices"]:
+            self.assertEqual(l["package_keys"], hero, l["tier"])
+        scoped = {o["key"]: o["condition"]["package_keys"] for o in plan["offers"]}
+        self.assertEqual(set(scoped), {"tier-1", "tier-2", "tier-3", "exit-pop", "free-shipping"})
+        self.assertTrue(all(keys == hero for keys in scoped.values()), scoped)
+        self.assertEqual([set(s) for _, _, s in ca._free_shipping_offers(plan)], [set(hero)])
+        left_out = next(r for r in plan["rationale"] if "--hero-variants" in r)
+        self.assertIn("301 (Daily Greens - Subscription)", left_out)
+        self.assertIn("311 (Daily Greens - Quarterly Subscription)", left_out)
+        self.assertNotIn("303 (", left_out)
+        # verify's cart cases only ever put the named variants in a cart, and the
+        # whole plan applies and verifies against the fake store.
+        ids = {p["key"]: 100 + i for i, p in enumerate(plan["packages"])}
+        lines = {k for c in ca._cart_cases_from_plan(plan, ids) for k, _ in c.line_keys}
+        self.assertTrue(lines and lines <= set(hero), lines)
+        with tempfile.TemporaryDirectory() as d:
+            pp = Path(d) / "campaign-plan.json"; ca.atomic_write_json(pp, plan); sha = ca.sha256_file(pp)
+            state = fresh_state()
+            t = DynamicTransport(self.disc, state)
+            man = ca.apply(make_client(t), plan, sha, Path(d) / "run-manifest.json", None)
+            created = sorted(p["product_variant_id"] for p in state["packages"][man.data["campaign"]["id"]].values())
+            self.assertEqual(created, self.ONE_TIME)
+            report, _ = verify_live(t, state, man, plan, sha)
+            self.assertEqual(report["result"], "PASS", json.dumps(report, indent=1))
+            checks = {c["check"]: c["result"] for c in report["admin_checks"]}
+            self.assertEqual(checks["offer free-shipping free-shipping coverage"], "PASS")
+
+    def test_subset_scopes_bxgy_and_gwp(self):
+        bxgy = self.rec(hero_variants="303,306", offer_type="bxgy", paid_qty=2, free_qty=1)
+        self.assertEqual(ca.validate_plan(bxgy), [])
+        offer = next(o for o in bxgy["offers"] if o["key"].startswith("bxgy-"))
+        self.assertEqual(offer["condition"]["package_keys"], ["hero-303", "hero-306"])
+        # A left-out hero variant is free for another role: here the gift.
+        gwp = self.rec(hero_variants="303", ctc="high", offer_type="gwp", gift=["301:20.00"])
+        self.assertEqual(ca.validate_plan(gwp), [])
+        self.assertEqual([p["key"] for p in gwp["packages"]], ["hero-303", "gift-301"])
+        exit_ = next(o for o in gwp["offers"] if o["key"] == "exit-pop")
+        self.assertEqual(exit_["condition"]["package_keys"], ["hero-303"])
+
+    def test_foreign_variant_refused(self):
+        # 23 is a Photo Bracelet variant: name its product, not just "not found".
+        self.assertRefused("variant 23 is not a variant of hero product 300", "belongs to product 22",
+                           "'Photo Bracelet'", hero_variants="303,23")
+        self.assertRefused("variant 999 is not a variant of hero product 300", "not in the discovery",
+                           hero_variants="303,999")
+
+    def test_unavailable_variant_refused(self):
+        for p in self.disc["products"]:
+            for v in p["variants"]:
+                if v["id"] == 306:
+                    v["purchase_availability"] = "unavailable"
+        self.assertRefused("hero variant 306", "One Time Purchase", "not purchasable", "'unavailable'",
+                           hero_variants="303,306")
+        # Left out, the unavailable variant is no obstacle.
+        plan = self.rec(hero_variants="303,309")
+        self.assertEqual([p["key"] for p in plan["packages"]], ["hero-303", "hero-309"])
+
+    def test_malformed_list_refused(self):
+        for spec in ("303,,306", "303,abc", ""):
+            self.assertRefused("comma-separated variant ids", hero_variants=spec)
+        self.assertRefused("names variant 303 twice", hero_variants="303,306,303")
+
+    def test_cli_flag_reaches_recommend(self):
+        with tempfile.TemporaryDirectory() as d:
+            disc = Path(d) / "discovery.json"; ca.atomic_write_json(disc, self.disc)
+            rc = ca.main(["recommend", "--discovery", str(disc), "--hero", "300", "--hero-variants", "303,312",
+                          "--ctc", "low", "--anchor-price", "59.00", "--shipping", "standard:6.95",
+                          "--exit-code", "SAVE10", "--out", d])
+            self.assertEqual(rc, 0)
+            written = json.loads((Path(d) / "campaign-plan.json").read_text())
+            self.assertEqual([p["key"] for p in written["packages"]], ["hero-303", "hero-312"])
 
 
 class PlanValidation(unittest.TestCase):
