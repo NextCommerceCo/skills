@@ -708,7 +708,39 @@ class HeroVariants(unittest.TestCase):
     def test_default_packages_every_purchasable_variant(self):
         plan = self.rec()
         self.assertEqual(len([p for p in plan["packages"] if p["role"] == "hero"]), 12)
-        self.assertFalse(any("--hero-variants" in r for r in plan["rationale"]))
+        # Unchanged plan, but the review names the subscription variants it packaged.
+        warn = [r for r in plan["rationale"] if "--hero-variants" in r]
+        self.assertEqual(len(warn), 1, plan["rationale"])
+        self.assertIn("301 (Subscription)", warn[0])
+        self.assertIn("311 (Quarterly Subscription)", warn[0])
+        self.assertNotIn("303 (", warn[0])
+        self.assertFalse(any("--hero-variants" in r for r in ca.recommend(load_fixture("discovery.json"),
+                                                                          ns())["rationale"]))
+
+    def test_subscription_variant_refused(self):
+        # A mistyped id lands on a subscription variant: refused at plan time.
+        self.assertRefused("hero variant 302 is a subscription variant", "'Quarterly Subscription'",
+                           "one-time variant ids", hero_variants="303,302")
+
+    def test_subscription_signal_is_the_option_title(self):
+        # A product whose own name says Subscription is not a subscription variant.
+        gift = {"id": 400, "title": "Coffee Subscription Gift", "structure": "parent", "enable_subscription": False,
+                "variants": [{"id": 401 + i, "title": f"Coffee Subscription Gift - {n} months", "sku": None,
+                              "purchase_availability": "available",
+                              "prices": [{"currency": "USD", "price": "30.00", "subscription": None}]}
+                             for i, n in enumerate((3, 6))]}
+        self.disc["products"].append(gift)
+        plan = self.rec(hero=400, anchor_price="30.00", hero_variants="401,402")
+        self.assertEqual([p["key"] for p in plan["packages"]], ["hero-401", "hero-402"])
+        self.assertFalse(any("Subscription" in r and "names a subscription" in r
+                             for r in self.rec(hero=400, anchor_price="30.00")["rationale"]))
+        # A NEXT subscription price on a one-time option is a variant a customer can
+        # subscribe to elsewhere; the package recommend builds is still one-time.
+        for p in self.disc["products"]:
+            for v in p["variants"]:
+                if v["id"] == 303:
+                    v["prices"][0]["subscription"] = "49.00"
+        self.assertEqual([p["key"] for p in self.rec(hero_variants="303")["packages"]], ["hero-303"])
 
     def test_subset_scopes_every_hero_row_and_offer(self):
         # Given out of order on purpose: packages keep catalogue order.

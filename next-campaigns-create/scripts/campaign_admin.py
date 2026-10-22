@@ -1088,6 +1088,19 @@ def _resolve_gateway_group(discovery: dict, currency: str, requested):
     raise CampaignAdminError(f"{len(eligible)} gateway groups list {currency}; pass --gateway-group: {opts}")
 
 
+def _subscription_option(product: dict, v: dict):
+    """The variant's option title when it names a subscription, else None.
+
+    A store that syncs from Shopify can carry a product's subscription variants as
+    ordinary variants, with no NEXT subscription price, so the option title is the
+    only signal. The product title is stripped first, so a one-time product whose
+    own name says Subscription does not match."""
+    title = v.get("title") or ""
+    head = f"{product.get('title') or ''} - "
+    option = title[len(head):] if product.get("title") and title.startswith(head) else title
+    return option if re.search(r"\bsubscription\b", option, re.I) else None
+
+
 def _select_hero_variants(hero: dict, spec: str, products: list) -> list:
     """The hero variants --hero-variants names, in catalogue order. Every id must be
     a purchasable variant of the hero product: a wrong id stops the run instead of
@@ -1116,6 +1129,13 @@ def _select_hero_variants(hero: dict, spec: str, products: list) -> list:
             raise CampaignAdminError(
                 f"--hero-variants: hero variant {vid} ({v.get('title')!r}) is not purchasable "
                 f"(purchase_availability={v.get('purchase_availability')!r}); drop it or pick an available variant")
+        option = _subscription_option(hero, v)
+        if option is not None:
+            # recommend only builds one-time packages, and the flag exists to keep
+            # subscription variants out: a named one is a mistyped id.
+            raise CampaignAdminError(
+                f"--hero-variants: hero variant {vid} is a subscription variant (option {option!r}); "
+                "recommend builds one-time packages only, so pass the one-time variant ids")
     return [v for v in hero["variants"] if v["id"] in ids]
 
 
@@ -1277,6 +1297,12 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
         rationale.append(f"Hero packages restricted by --hero-variants to {sorted(keys_by_variant)}. "
                          f"Left out of the hero packages and every hero-scoped offer: "
                          f"{', '.join(left_out) or 'none'}.")
+    else:
+        subs = [f"{v['id']} ({_subscription_option(hero, v)})" for v in variants if _subscription_option(hero, v)]
+        if subs:
+            rationale.append(f"Hero variants whose option title names a subscription are packaged one-time at the "
+                             f"anchor: {', '.join(subs)}. A one-time funnel must not sell them; pass "
+                             "--hero-variants with the one-time variant ids.")
     rounding = a.rounding if a.rounding else None
     if rounding not in PRICE_ROUNDINGS:
         raise CampaignAdminError(f"--rounding must be one of {PRICE_ROUNDINGS[1:]}")

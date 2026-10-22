@@ -769,17 +769,22 @@ gift (different package keys). `--tiers` with `--offer-type bxgy` is an error.
   offers and `verify` cart cases then use only those variants, and the
   rationale lists the variants left out. `recommend` refuses an id that is not
   a variant of the hero product, an id that is not purchasable
-  (`purchase_availability`), and an id given twice.
+  (`purchase_availability`), an id whose option title names a subscription,
+  and an id given twice. Only the named variants are hero packages, so a
+  `--bump`, `--upsell` or `--gift` on a left-out variant of the hero product is
+  accepted as its own package; check it is not a subscription variant.
 
   Read the variant titles in the discovery product table before choosing. A
   store that syncs its catalogue from Shopify (Shop Sync) can carry
   subscription variants beside the one-time variants of the same product, with
-  titles such as `Subscription` or `Quarterly Subscription`. A one-time funnel
+  option titles such as `Subscription` or `Quarterly Subscription`. They carry
+  no NEXT subscription price, so the title is the only sign. A one-time funnel
   must not package them: they are priced for a subscription, and an order on
   one can start the merchant's subscription flow when it syncs back to Shopify.
-  When the hero has such variants, ask the operator which variants the funnel
-  sells and pass the one-time ids with `--hero-variants`. Do not hand-edit
-  `campaign-plan.json` to drop hero packages.
+  Without `--hero-variants`, `recommend` still packages them and names them in
+  the rationale. When the hero has such variants, ask the operator which
+  variants the funnel sells and pass the one-time ids with `--hero-variants`.
+  Do not hand-edit `campaign-plan.json` to drop hero packages.
 - **CTC, low or high**: operator judgement, never inferred. Cost-to-consumer is
   what the customer pays. Low CTC is the quantity-tier path and is required
   for buy-X-get-Y. High CTC is single units plus bumps and upsells; gift-with-
@@ -867,7 +872,9 @@ gift (different package keys). `--tiers` with `--offer-type bxgy` is an error.
     never show that code on the checkout page.
   - A bump must be a variant no other package uses. A bump on a hero variant is
     refused: it would need a second package for that variant, and a bump line
-    on the hero package would count toward the hero quantity tiers.
+    on the hero package would count toward the hero quantity tiers. With
+    `--hero-variants`, only the named variants are hero variants, so a bump on
+    a left-out variant of the hero product is accepted.
   - Never hand-author a second package for a variant already packaged, and
     never rename or split offers to get past a duplicate offer name or code
     error. That error means the specs belong in one group.
@@ -1511,6 +1518,7 @@ from the most recent edit.
 | `bump variant ... is already package ...` or `both use variant` | a bump on a hero variant, or a hand-edited second package for one variant | choose a different variant for the bump; for a hand edit, reuse the one package and set the price with an offer |
 | `--hero-variants: variant ... is not a variant of hero product ...` | the id belongs to another product (the message names it) or is not in the discovery | pass only ids listed under the hero product in the discovery product table; re-run `discover` if the catalogue changed |
 | `--hero-variants: hero variant ... is not purchasable` | the variant's `purchase_availability` is not `available` | drop the id, or make the variant available in the dashboard and re-run `discover` |
+| `--hero-variants: hero variant ... is a subscription variant` | the id's option title names a subscription, usually a Shopify subscription variant synced by Shop Sync, or a mistyped id | pass the one-time variant ids; read the option titles in the discovery product table |
 | `--hero-variants expects comma-separated variant ids` or `names variant ... twice` | a non-numeric or empty entry, or a repeated id | pass each variant id once, separated by commas |
 | `upsell variant ... given twice` | the same variant passed to `--upsell` more than once | pass each upsell variant once; variants of one product at the same percentage already share one voucher |
 | `products ... both shorten to voucher code name ...` or `would both get voucher code ...` | two products on this campaign land on the same short name, or the same finished code | ask the operator for a short name and pass `--short-name <product_id>:<NAME>` for one of them; never add a suffix on your own |
