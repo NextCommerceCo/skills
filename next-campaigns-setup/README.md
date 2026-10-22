@@ -1,61 +1,77 @@
-# New Campaign Setup
+# Campaign Setup and Continuation
 
-Sets up a brand-new campaign-page-kit (CPK) campaign from nothing to
-ready-to-preview in one pass. It creates the brand folder from the official
-starter tooling, downloads the starter template you choose, and then fills in
-all the configuration: the Campaign Cart API key, store name and web address,
-optional phone and policy/support links, and any analytics you want (Google
-Tag Manager, Facebook Pixel).
+Start from a funnel URL, design, existing campaign repository, or saved Map.
+Your assistant follows the public [agent setup procedure](https://developers.nextcommerce.com/agent-setup/prompt.md),
+records what is known and what still needs deciding, and selects the next tool.
+For a new Page Kit project, this skill scaffolds and configures the campaign.
+For an existing build, it preserves the builder and deployment workflow.
 
-**Where this skill stops:** it covers creating and first-configuring the
-campaign only. Building the actual pages from a design, and everything later
-in a campaign's life, belongs to the separate
-[campaigns-os](https://github.com/NextCommerceCo/campaigns-os) package and its
-own skills. If you're working inside a Campaigns OS flow, follow that
-package's handoff — treat this skill as the setup step, not a second rulebook.
+You can begin without a store API key. The first result is a brief, a proposed
+page flow, a list of commerce dependencies, and a separate local visual concept.
+It includes enough context for another agent session to continue.
+
+> [!IMPORTANT]
+> Page Kit 0.3.0's no-key scaffold can retain demo commerce and tracking settings.
+> The skill uses a separate static concept until it verifies a released inert
+> preview feature. The concept cannot take orders and does not prove that
+> checkout, prices, shipping, payment or tracking work.
 
 ## What You Need
 
-- **Node.js installed** — the standard tooling the campaign kit runs on. If
-  you're not sure, your assistant can check for you.
-- **Your campaigns project folder** — where campaign brands live on your
-  computer. Your assistant asks for it if it isn't already configured.
-- **The Campaign Cart API key** for the store this campaign sells from.
-- **Store details** — store name and web address; a support phone number and
-  policy page links are optional but recommended.
-- **Three decisions**: the brand name, the public web address path for the
-  campaign, and which starter template to begin from.
+- A source URL, design, repository path, saved Map, or existing handoff.
+- A local working folder. An existing repository keeps its own conventions.
+- Any known decisions about the product, page flow, brand and offers. Your
+  assistant asks only for choices the supplied inputs leave open.
+- Later, for commerce integration: the selected NEXT campaign, its Campaign
+  Cart API key and verified product/package references. Store Admin API access
+  is separate; no credentials are needed for the first visual concept.
 
-| You choose | Example |
-|-----------|---------|
-| Brand name (lowercase, hyphens) | acme |
-| Public route (the path in the campaign's web address) | grounding-mat |
-| Starter template | olympus, demeter, limos, landing, and several shop/multi-step variants |
+New projects use a template from the current public catalog. Apollo is the
+current recommendation for most single-step campaigns; Apollo Multi-variant
+is the recommendation for variant products. Your chosen behavior determines
+whether a different family fits better.
 
 ## Install
 
-See the [repo README](../README.md) for installation. If you're not sure how,
-ask whoever set up your AI assistant — or ask the assistant itself.
+See the [repo README](https://github.com/NextCommerceCo/skills#quick-start) for
+installation. Load only the skills needed for the current step.
 
 ## How to Use
 
-Ask your AI assistant something like:
+Ask your assistant:
 
-> Run next-campaigns-setup — new campaign for brand acme, route
-> grounding-mat, based on the olympus template.
+> Use this funnel URL to propose a NEXT campaign and a local visual concept.
+> Keep the store untouched and leave a handoff another session can continue.
 
-It gathers the three decisions first, then collects all the configuration
-details in one message, sets everything up, and finishes with a report and
-next steps — typically starting the local preview so you can see the campaign
-page load.
+Or:
+
+> Continue this campaign repository. Preserve its build and deploy workflow,
+> inspect the existing brief and evidence, and tell me the next safe step.
+
+A cloned repository keeps the source campaign's configuration and evidence.
+The assistant checks those separately; copying a repository does not create
+a new Campaigns App campaign or transfer its QA result.
+
+## Where This Skill Stops
+
+[Campaign Provisioning](https://github.com/NextCommerceCo/skills/tree/main/next-campaigns-create)
+creates, adopts, edits, updates or clones Campaigns App configuration from a
+reviewed plan. It reads existing catalogue products and variants; product
+creation or import is a separate prerequisite.
+
+[Campaigns OS](https://github.com/NextCommerceCo/campaigns-os) owns CampaignSpec,
+build, Polish and QA. Once a Build Packet exists, follow its matching bundled
+skills, including `next-campaigns-os-setup`, instead of starting setup again.
+Existing builds do not have to move to Page Kit just to record their next step.
 
 ## Safety
 
-- It refuses to overwrite a campaign folder that already exists.
-- The API key and store details end up in the campaign's local configuration
-  files as plain text — that's how the kit works — so review what you share if
-  that project is pushed somewhere public.
-- If the scaffolding tool fails, the skill reports exactly what failed and
-  stops — it never improvises a partial setup.
-- Analytics are only wired up when you provide real tracking IDs — no
-  placeholder tracking is ever added.
+- Existing campaign folders are never overwritten by scaffolding.
+- A no-write task stays local: no campaign changes, cart/order probes,
+  published records or deployment.
+- Configuration files can hold campaign credentials. Do not paste them into
+  chat or include them in a public handoff.
+- Analytics are enabled only for declared providers and real IDs. Copied demo
+  values are removed before a configured campaign is opened.
+- The handoff separates observed source content, proposed behavior and tested
+  behavior. Unverified commerce remains explicit.
