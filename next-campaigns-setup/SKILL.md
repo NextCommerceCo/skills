@@ -53,45 +53,33 @@ Read the supplied inputs and any existing handoff before asking for details.
 | External build or export | Identify the source root, assets, page routes and build instructions. Keep the original intact. Use the Campaigns OS source-adapter procedure only if that is the selected integration path. |
 | Saved Map / CampaignSpec / Build Packet | Read the existing identity and artifacts. Follow the installed Campaigns OS `next` result; do not create a second spec, scaffold or stage record. |
 
-A cloned repository is a code starting point. It does not clone the Campaigns
-App configuration or transfer the source campaign's QA. Treat inherited keys,
-package refs, tracking IDs and domains as source-campaign values until checked,
-and never print credentials.
-
-Use the [Campaign Build Brief](https://github.com/NextCommerceCo/campaigns-os/blob/main/docs/campaign-build-brief.md)
-format for presentation intent (`schema_version: campaigns-os-build-brief/v1`,
-`brief_mode: guided`). Keep observations, unresolved commerce dependencies and
-continuation instructions in the project's README or existing handoff document.
-Do not invent campaign IDs, package refs, offers, shipping IDs or a saved Map to
-make Campaigns OS accept incomplete inputs.
-
-For resume, the handoff names the source and target paths and revisions, the
-builder and deploy convention, the brief, spec and packet paths that exist, the
-checks completed, the open business decisions and the next action. Earlier QA
-applies only to the revision and configuration it tested.
+A cloned repository is a code starting point: it does not clone the Campaigns
+App configuration or transfer the source campaign's QA, so treat inherited keys,
+package refs, tracking IDs and domains as source-campaign values until checked.
+Record presentation intent in the [Campaign Build Brief](https://github.com/NextCommerceCo/campaigns-os/blob/main/docs/campaign-build-brief.md)
+format (`schema_version: campaigns-os-build-brief/v1`, `brief_mode: guided`) and
+the open commerce dependencies and continuation notes in the project's README or
+handoff document, as the public guide describes. Do not invent campaign IDs,
+package refs, offers, shipping IDs or a saved Map to make Campaigns OS accept
+incomplete inputs.
 
 ### Choose the Next Capability
 
 - New Page Kit project: continue to Phase 1. A campaign key is optional; without
-  one, the scaffold keeps the starter templates' empty `apiKey` and the pages
-  render for visual review with no commerce calls and no SDK analytics events. The SDK still
-  fetches locale and country rules from `i18n-rules.nextcommerce.com`, and
-  vendor snippets set through `_data/campaigns.json` keys load regardless.
+  one the pages render for visual review with no commerce calls and no SDK
+  analytics events (see Step 5).
 - Store campaign provisioning: load [next-campaigns-create](https://github.com/NextCommerceCo/skills/tree/main/next-campaigns-create)
   when the store and authorized API access are available. It creates, edits,
   adopts and clones campaign configuration behind its plan gate; copying a Git
   repo does none of these.
-- Campaigns OS lifecycle or build: use the project's pinned
-  `@nextcommerce/campaigns-os` and its bundled skills. Read its
-  [local-spec entry](https://github.com/NextCommerceCo/campaigns-os/blob/main/docs/build-packet.md#local-spec-entry)
-  once real commerce bindings are available.
-- Existing Build Packet: `next-campaigns-os-setup` owns setup, `next-campaigns-build`
-  owns wiring, and Polish and QA follow the packet. Those skills ship with
-  [campaigns-os](https://github.com/NextCommerceCo/campaigns-os), not this repository.
+- Campaigns OS lifecycle, build, or an existing Build Packet: use the project's
+  pinned `@nextcommerce/campaigns-os` and its bundled skills
+  (`next-campaigns-os-setup` owns setup, `next-campaigns-build` owns wiring,
+  Polish and QA follow the packet); its [local-spec entry](https://github.com/NextCommerceCo/campaigns-os/blob/main/docs/build-packet.md#local-spec-entry)
+  needs real commerce bindings.
 
-For a no-write task, do not provision campaigns, run cart or order probes,
-publish Map, QA or run records, or deploy. Record the untested boundary so the
-next session continues under the same constraint.
+A no-write task provisions nothing, probes no cart or order, publishes no Map,
+QA or run record, and deploys nothing; record that boundary in the handoff.
 
 ---
 
@@ -187,15 +175,11 @@ If `<CPK_ROOT>/[brand-name]/` does not exist, create it.
 
 `campaign-init --non-interactive` handles the full scaffold in one command: adds npm scripts, creates `_data/campaigns.json`, downloads the starter template, seeds the campaigns.json entry, and installs the AI context file.
 
-From the brand folder, use the existing dependency manager and lockfile; do not
-upgrade a pinned Page Kit dependency as part of setup. If no `package.json`
-exists, run `npm init -y` and `npm install --save-exact next-campaign-page-kit`.
-If the package is declared but not installed, restore it from the lockfile.
-
-Run the project-local executable so the pinned version is the one that runs.
-Replace `<ai-context>` with the agent's context target (`claude`, `codex`,
-`cursor`, `copilot`, or `none`); `--keep-ai-context` leaves an existing context
-file in place. With a key:
+From the brand folder, keep the project's pinned Page Kit; if there is no
+`package.json`, run `npm init -y` and `npm install --save-exact next-campaign-page-kit`.
+Invoke the project-local binary. Replace `<ai-context>` with the agent's context
+target (`claude`, `codex`, `cursor`, `copilot`, or `none`); `--keep-ai-context`
+leaves an existing context file in place. With a key:
 
 ```bash
 cd <CPK_ROOT>/[brand-name] &&
@@ -223,9 +207,7 @@ cd <CPK_ROOT>/[brand-name] &&
 Without a key the scaffold keeps the starter templates' empty `apiKey`. The
 Campaign Cart SDK does not boot without a key, so the pages make no commerce
 calls and emit no SDK analytics events; it still fetches locale and country
-rules. Templates fetched before they shipped empty carried a demo campaign key:
-if the top-level `apiKey` in `assets/config.js` is not empty after a no-key
-scaffold, clear it in Step 6 and say so in the report.
+rules, and vendor snippets set through `campaigns.json` keys load regardless.
 
 Capture the JSON output: `writes.api_key_applied`, `writes.files_extracted` and
 the context result go in the scaffold report. A local key write does not prove
@@ -261,7 +243,7 @@ Never hand-write `setup-handoff.json` or edit OS stage evidence directly.
 
 Read `<CPK_ROOT>/[brand-name]/src/[campaign-slug]/assets/config.js`. Make these changes:
 
-1. **`apiKey`** — the top-level field must hold the selected key, or `''` when there is none. If an older template copy left a demo key in place, set it to `''` here and record "cleared by hand" in the report. If the key arrived after scaffolding, bind it with `npm run config`.
+1. **`apiKey`** — the top-level field holds the selected key, or `''` when there is none. If the key arrived after scaffolding, bind it with `npm run config`.
 2. **`storeName`** — replace with a lowercase-hyphenated slug derived from the store name (e.g. "Example Store" → `'example-store'`). This is an analytics identifier, not a display name.
 3. **GTM** (only if a real ID is provided):
    - Set `gtm.enabled` to `true`
@@ -292,7 +274,7 @@ Update these fields:
 - `store_shipping` → provided shipping URL, or `""`
 - `gtm_id` → provided GTM ID, or `""`
 - `fb_pixel_id` → provided pixel ID, or `""`
-- Any other vendor key from the starter templates' [analytics key table](https://github.com/NextCommerceCo/campaign-cart-starter-templates/blob/main/_shared/analytics/README.md) → only when the operator declared that vendor. These snippets load from `campaigns.json` regardless of the SDK key, so an unconfigured campaign keeps every vendor key empty.
+- Any other vendor key from the starter templates' [analytics key table](https://github.com/NextCommerceCo/campaign-cart-starter-templates/blob/main/_shared/analytics/README.md) → the declared value, or `""`; these snippets load from `campaigns.json` regardless of the SDK key, so an unconfigured campaign carries none.
 
 Do not change any other fields in the file.
 
@@ -313,7 +295,7 @@ Phase 2 — Configure
     ✓ Map ID: [map-id] / not provided
     ✓ public route slug: [campaign-slug]
   config.js
-    ✓ apiKey set
+    ✓ apiKey: set / '' (no key supplied)
     ✓ storeName set to '[value]'
     ✓ GTM enabled with real ID / left disabled
     ✓ Facebook Pixel enabled with real ID / left disabled
@@ -326,11 +308,9 @@ Phase 2 — Configure
 
 Keep the continuation instructions in the project's README or existing handoff
 document so another agent needs no chat history. Before starting `npm run dev`,
-check the state it will open in: for an unconfigured campaign, the top-level
-`apiKey` in `config.js` is `''` and the slug's vendor keys in `campaigns.json`
-are empty, so the pages show placeholder prices and send nothing to a vendor;
-for a configured campaign, the key, store identity and every vendor key in the
-[analytics key table](https://github.com/NextCommerceCo/campaign-cart-starter-templates/blob/main/_shared/analytics/README.md) are the ones the operator selected, because
-the dev server talks to that campaign and fires that tracking.
+check the state it will open in: an unconfigured campaign has `apiKey: ''` and
+no vendor keys, so the pages show placeholder prices and send nothing to a
+vendor; a configured campaign talks to the selected store and fires the declared
+tracking, so its key, store identity and vendor keys must be the operator's.
 Do not submit forms or create orders as a setup check. Read the generated
 routes from the selected template rather than assuming an `upsell.html` exists.
