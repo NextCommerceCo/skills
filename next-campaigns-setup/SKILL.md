@@ -111,7 +111,7 @@ npx campaign-init --non-interactive --json \
   $([ -f CLAUDE.md ] && echo "--keep-ai-context")
 ```
 
-Add `--api-key "[api-key]"` when the campaign key is known. Without it the scaffold runs against the starter templates' demo campaign: the preview shows the demo store's prices and checkout, so use it for layout review only and record in the project's README or handoff note that it is demo-bound, not evidence about the merchant's campaign.
+Add `--api-key "[api-key]"` when the campaign's Campaign Cart key is known (the browser-visible key, never an Admin API token). Without it the scaffold runs against the starter templates' demo campaign: the preview shows the demo store's prices and checkout, so use it for layout review only and record in the project's README or handoff note that it is demo-bound, not evidence about the merchant's campaign.
 
 Capture the JSON output. On success (`exit 0`) it contains the campaign slug, template used, files extracted, and AI context write status — include the extracted file count in your Phase 1 report.
 
@@ -154,7 +154,7 @@ If the user supplied a CampaignSpec, pre-fill from:
 - **Store URL** — the main store domain (e.g. `https://example-store.com`)
 
 **Recommended but optional:**
-- **API key** — the Campaign Cart API key for the selected campaign (browser-visible; never an Admin API token). If it is not available yet, continue without it and bind it later with `npm run config`.
+- **API key** — the Campaign Cart API key for the selected campaign. If it is not available yet, continue without it and bind it later with `npm run config`.
 - **Store phone** — display format (e.g. `1-800-555-0100`) and tel format (e.g. `+18005550100`)
 - **Policy/support URLs** — terms, privacy, contact, returns/refund, shipping. Storefront policy URLs are acceptable; campaign-specific pages are not required.
 
@@ -242,7 +242,7 @@ Then show next steps:
 ```
 Next steps:
 1. npm run dev  → pick [campaign-slug] and verify the page loads + SDK initialises
-2. Check the Campaigns app → confirm the API key is valid for this store
+2. Check the Campaigns app → confirm the API key is valid for this store (key-bound scaffold only)
 3. npm run config  → bind the campaign key if the scaffold is demo-bound, or adjust settings later
 4. QA checklist: check the SDK QA checklist in docs/
 ```

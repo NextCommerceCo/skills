@@ -271,7 +271,7 @@
       "related_skills": [
         {
           "id": "next-campaigns-create",
-          "relationship": "Admin API provisioning that creates the campaign, its api_key and package ids; not required for a demo-bound local preview"
+          "relationship": "Upstream Admin API provisioning that creates the campaign, its api_key and package ids before scaffolding"
         },
         {
           "id": "next-campaigns-os",
