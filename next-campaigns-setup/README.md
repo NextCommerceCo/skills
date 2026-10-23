@@ -8,9 +8,9 @@ For an existing build, it preserves the builder and deployment workflow.
 
 You can begin without a store API key. The first result is a brief, a proposed
 page flow, a list of commerce dependencies, and a local preview of the stock
-starter template with no commerce or tracking attached. The preview is the
-starter template, not a rebuild of the source funnel; the source feeds the brief
-and the dependency list. The handoff includes enough context for another agent
+starter template running against its demo campaign. The preview is the starter
+template, not a rebuild of the source funnel, and not evidence about your
+campaign; the source feeds the brief and the dependency list. The handoff includes enough context for another agent
 session to continue.
 
 ## What You Need
@@ -72,9 +72,8 @@ This standalone skill no longer writes Campaigns OS setup or assembly records.
   published records or deployment.
 - Configuration files can hold campaign credentials. Do not paste them into
   chat or include them in a public handoff.
-- Analytics are enabled only for declared providers and real IDs. The starter
-  templates ship with an empty `apiKey`, so an unconfigured preview makes no
-  commerce calls and sends no SDK analytics events. Vendor snippets set through `campaigns.json` keys load regardless, so
-  those stay empty until the campaign is configured.
+- Analytics are enabled only for declared providers and real IDs. A scaffold
+  without its own key runs against the templates' demo campaign and is used for
+  layout review only.
 - The handoff separates observed source content, proposed behavior and tested
   behavior. Unverified commerce remains explicit.

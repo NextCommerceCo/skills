@@ -321,7 +321,7 @@
         "writes_local": true,
         "requires_approval": true,
         "network": "public-source-and-template-readonly; configured-preview-may-contact-commerce",
-        "notes": "The starter templates ship with an empty apiKey, so an unconfigured preview makes no commerce calls and sends no SDK analytics events. Vendor snippets set through campaigns.json keys load regardless of the SDK key, so those keys stay empty until the campaign is configured. Existing builds are inspected before execution. Configured projects store the Campaign Cart API key locally; never put an Admin token in browser config. No campaign mutations, cart/order probes, published records or deployment in a no-write task."
+        "notes": "A scaffold without its own key runs against the starter templates' demo campaign; it is used for layout review only and is not evidence about the merchant's campaign. Existing builds are inspected before execution. Configured projects store the Campaign Cart API key locally; never put an Admin token in browser config. No campaign mutations, cart/order probes, published records or deployment in a no-write task."
       }
     },
     {

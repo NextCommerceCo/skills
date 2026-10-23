@@ -66,8 +66,7 @@ incomplete inputs.
 ### Choose the Next Capability
 
 - New Page Kit project: continue to Phase 1. A campaign key is optional; without
-  one the pages render for visual review with no commerce calls and no SDK
-  analytics events (see Step 5).
+  one the scaffold runs against the templates' demo campaign (see Step 5).
 - Store campaign provisioning: load [next-campaigns-create](https://github.com/NextCommerceCo/skills/tree/main/next-campaigns-create)
   when the store and authorized API access are available. It creates, edits,
   adopts and clones campaign configuration behind its plan gate; copying a Git
@@ -205,10 +204,11 @@ cd <CPK_ROOT>/[brand-name] &&
   --keep-ai-context
 ```
 
-Without a key the scaffold keeps the starter templates' empty `apiKey`. The
-Campaign Cart SDK does not boot without a key, so the pages make no commerce
-calls and emit no SDK analytics events; it still fetches locale and country
-rules, and vendor snippets set through `campaigns.json` keys load regardless.
+Without a key the scaffold keeps the starter templates' demo campaign key: the
+pages show the demo store's prices and checkout and their analytics go to the
+demo campaign. Use that for layout review only, place no orders against it, and
+record in the handoff that the preview is demo-bound; it is not evidence about
+the merchant's campaign.
 
 Capture the JSON output: `writes.api_key_applied`, `writes.files_extracted` and
 the context result go in the scaffold report. A local key write does not prove
@@ -244,7 +244,7 @@ Never hand-write `setup-handoff.json` or edit OS stage evidence directly.
 
 Read `<CPK_ROOT>/[brand-name]/src/[campaign-slug]/assets/config.js`. Make these changes:
 
-1. **`apiKey`** — the top-level field holds the selected key, or `''` when there is none; if it holds anything else, set it to `''` and note that in the report. If the key arrived after scaffolding, bind it with `npm run config`.
+1. **`apiKey`** — the top-level field holds the selected key once there is one; bind a late-arriving key with `npm run config`. Until then the templates' demo key stays and the preview is demo-bound.
 2. **`storeName`** — replace with a lowercase-hyphenated slug derived from the store name (e.g. "Example Store" → `'example-store'`). This is an analytics identifier, not a display name.
 3. **GTM** (only if a real ID is provided):
    - Set `gtm.enabled` to `true`
@@ -296,7 +296,7 @@ Phase 2 — Configure
     ✓ Map ID: [map-id] / not provided
     ✓ public route slug: [campaign-slug]
   config.js
-    ✓ apiKey: set / '' (no key supplied)
+    ✓ apiKey: set / demo (no key supplied)
     ✓ storeName set to '[value]'
     ✓ GTM enabled with real ID / left disabled
     ✓ Facebook Pixel enabled with real ID / left disabled
@@ -309,9 +309,9 @@ Phase 2 — Configure
 
 Keep the continuation instructions in the project's README or existing handoff
 document so another agent needs no chat history. Before starting `npm run dev`,
-check the state it will open in: an unconfigured campaign has `apiKey: ''` and
-no vendor keys, so the pages show placeholder prices and send nothing to a
-vendor; a configured campaign talks to the selected store and fires the declared
-tracking, so its key, store identity and vendor keys must be the operator's.
+check the state it will open in: a scaffold without its own key runs against
+the demo campaign, so it shows the demo store's prices and is not evidence; a
+configured campaign talks to the selected store and fires the declared tracking,
+so its key, store identity and vendor keys must be the operator's.
 Do not submit forms or create orders as a setup check. Read the generated
 routes from the selected template rather than assuming an `upsell.html` exists.
