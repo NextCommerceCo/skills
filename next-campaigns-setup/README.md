@@ -72,10 +72,9 @@ This standalone skill no longer writes Campaigns OS setup or assembly records.
   published records or deployment.
 - Configuration files can hold campaign credentials. Do not paste them into
   chat or include them in a public handoff.
-- Analytics are enabled only for declared providers and real IDs. Scaffolding
-  without a key clears the template's demo key (Page Kit releases after 0.3.0),
-  so an unconfigured preview makes no commerce calls and sends no SDK analytics
-  events. Vendor snippets set through `campaigns.json` keys load regardless, so
+- Analytics are enabled only for declared providers and real IDs. The starter
+  templates ship with an empty `apiKey`, so an unconfigured preview makes no
+  commerce calls and sends no SDK analytics events. Vendor snippets set through `campaigns.json` keys load regardless, so
   those stay empty until the campaign is configured.
 - The handoff separates observed source content, proposed behavior and tested
   behavior. Unverified commerce remains explicit.

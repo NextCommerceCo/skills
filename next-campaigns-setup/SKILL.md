@@ -73,8 +73,8 @@ applies only to the revision and configuration it tested.
 ### Choose the Next Capability
 
 - New Page Kit project: continue to Phase 1. A campaign key is optional; without
-  one, init clears the template's demo key and the pages render for visual
-  review with no commerce calls and no SDK analytics events. The SDK still
+  one, the scaffold keeps the starter templates' empty `apiKey` and the pages
+  render for visual review with no commerce calls and no SDK analytics events. The SDK still
   fetches locale and country rules from `i18n-rules.nextcommerce.com`, and
   vendor snippets set through `_data/campaigns.json` keys load regardless.
 - Store campaign provisioning: load [next-campaigns-create](https://github.com/NextCommerceCo/skills/tree/main/next-campaigns-create)
@@ -220,16 +220,12 @@ cd <CPK_ROOT>/[brand-name] &&
   --keep-ai-context
 ```
 
-Page Kit releases after 0.3.0 clear the template's demo key when no key is
-given and report `campaign.runtime_mode: "unconfigured"`. The Campaign Cart SDK
-does not boot without a key, so the pages make no commerce calls and emit no
-SDK analytics events; it still fetches locale and country rules. On 0.3.0 the
-demo key stays in `assets/config.js` and the scaffold talks to the demo store.
-If the init JSON has no `campaign.runtime_mode`, the installed release predates
-the fix: clear the key in Step 6 and say so in the report, since
-`writes.api_key_applied` then describes the file before your edit. This applies
-to existing repos pinned to 0.3.0, since setup does not upgrade a pinned
-dependency.
+Without a key the scaffold keeps the starter templates' empty `apiKey`. The
+Campaign Cart SDK does not boot without a key, so the pages make no commerce
+calls and emit no SDK analytics events; it still fetches locale and country
+rules. Templates fetched before they shipped empty carried a demo campaign key:
+if the top-level `apiKey` in `assets/config.js` is not empty after a no-key
+scaffold, clear it in Step 6 and say so in the report.
 
 Capture the JSON output: `writes.api_key_applied`, `writes.files_extracted` and
 the context result go in the scaffold report. A local key write does not prove
@@ -265,7 +261,7 @@ Never hand-write `setup-handoff.json` or edit OS stage evidence directly.
 
 Read `<CPK_ROOT>/[brand-name]/src/[campaign-slug]/assets/config.js`. Make these changes:
 
-1. **`apiKey`** — the top-level field must hold the selected key, or `''` when there is none. If a pre-fix release left the template's demo key in place, set it to `''` here and record "cleared by hand" in the report. If the key arrived after scaffolding, bind it with `npm run config`.
+1. **`apiKey`** — the top-level field must hold the selected key, or `''` when there is none. If an older template copy left a demo key in place, set it to `''` here and record "cleared by hand" in the report. If the key arrived after scaffolding, bind it with `npm run config`.
 2. **`storeName`** — replace with a lowercase-hyphenated slug derived from the store name (e.g. "Example Store" → `'example-store'`). This is an analytics identifier, not a display name.
 3. **GTM** (only if a real ID is provided):
    - Set `gtm.enabled` to `true`
@@ -296,7 +292,7 @@ Update these fields:
 - `store_shipping` → provided shipping URL, or `""`
 - `gtm_id` → provided GTM ID, or `""`
 - `fb_pixel_id` → provided pixel ID, or `""`
-- Any other vendor key from the starter templates' [analytics key table](https://github.com/NextCommerceCo/campaign-cart-starter-templates/blob/main/_shared/analytics/README.md) → only when the operator declared that vendor. These snippets load from `campaigns.json` regardless of the SDK key (checked on 0.3.0 and on the fixed build), so an unconfigured campaign keeps every vendor key empty.
+- Any other vendor key from the starter templates' [analytics key table](https://github.com/NextCommerceCo/campaign-cart-starter-templates/blob/main/_shared/analytics/README.md) → only when the operator declared that vendor. These snippets load from `campaigns.json` regardless of the SDK key, so an unconfigured campaign keeps every vendor key empty.
 
 Do not change any other fields in the file.
 
