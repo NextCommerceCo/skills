@@ -74,8 +74,9 @@ applies only to the revision and configuration it tested.
 
 - New Page Kit project: continue to Phase 1. A campaign key is optional; without
   one, init clears the template's demo key and the pages render for visual
-  review with no commerce calls and no `dl_*` analytics events. The SDK still
-  fetches locale and country rules from `i18n-rules.nextcommerce.com`.
+  review with no commerce calls and no SDK analytics events. The SDK still
+  fetches locale and country rules from `i18n-rules.nextcommerce.com`, and
+  vendor snippets set through `_data/campaigns.json` keys load regardless.
 - Store campaign provisioning: load [next-campaigns-create](https://github.com/NextCommerceCo/skills/tree/main/next-campaigns-create)
   when the store and authorized API access are available. It creates, edits,
   adopts and clones campaign configuration behind its plan gate; copying a Git
@@ -188,8 +189,8 @@ If `<CPK_ROOT>/[brand-name]/` does not exist, create it.
 
 From the brand folder, use the existing dependency manager and lockfile; do not
 upgrade a pinned Page Kit dependency as part of setup. If no `package.json`
-exists, run `npm init -y` and `npm install next-campaign-page-kit`. If the
-package is declared but not installed, restore it from the lockfile.
+exists, run `npm init -y` and `npm install --save-exact next-campaign-page-kit`.
+If the package is declared but not installed, restore it from the lockfile.
 
 Run the project-local executable so the pinned version is the one that runs.
 Replace `<ai-context>` with the agent's context target (`claude`, `codex`,
@@ -202,7 +203,7 @@ cd <CPK_ROOT>/[brand-name] &&
   --template [template-slug] \
   --slug [campaign-slug] \
   --name "[Campaign Display Name]" \
-  --api-key "$CAMPAIGN_API_KEY" \
+  --api-key "${CAMPAIGN_API_KEY:?set CAMPAIGN_API_KEY first}" \
   --ai-context <ai-context> \
   --keep-ai-context
 ```
@@ -221,13 +222,14 @@ cd <CPK_ROOT>/[brand-name] &&
 
 Page Kit releases after 0.3.0 clear the template's demo key when no key is
 given and report `campaign.runtime_mode: "unconfigured"`. The Campaign Cart SDK
-does not boot without a key, so the pages render with no commerce calls and no
-`dl_*` events; it still fetches locale and country rules. On 0.3.0 the demo
-key stays in `assets/config.js` and the scaffold talks to the demo store. If
-the init JSON has no `campaign.runtime_mode`, the installed release predates the
-fix: set the top-level `apiKey` in `assets/config.js` to `''` by hand before
-opening the preview. This applies to existing repos pinned to 0.3.0, since
-setup does not upgrade a pinned dependency.
+does not boot without a key, so the pages make no commerce calls and emit no
+SDK analytics events; it still fetches locale and country rules. On 0.3.0 the
+demo key stays in `assets/config.js` and the scaffold talks to the demo store.
+If the init JSON has no `campaign.runtime_mode`, the installed release predates
+the fix: clear the key in Step 6 and say so in the report, since
+`writes.api_key_applied` then describes the file before your edit. This applies
+to existing repos pinned to 0.3.0, since setup does not upgrade a pinned
+dependency.
 
 Capture the JSON output: `writes.api_key_applied`, `writes.files_extracted` and
 the context result go in the scaffold report. A local key write does not prove
@@ -263,7 +265,7 @@ Never hand-write `setup-handoff.json` or edit OS stage evidence directly.
 
 Read `<CPK_ROOT>/[brand-name]/src/[campaign-slug]/assets/config.js`. Make these changes:
 
-1. **`apiKey`** — confirm init wrote the selected key. If the key arrived after scaffolding, bind it with `npm run config`. Without a key, leave the field empty.
+1. **`apiKey`** — the top-level field must hold the selected key, or `''` when there is none. If a pre-fix release left the template's demo key in place, set it to `''` here and record "cleared by hand" in the report. If the key arrived after scaffolding, bind it with `npm run config`.
 2. **`storeName`** — replace with a lowercase-hyphenated slug derived from the store name (e.g. "Example Store" → `'example-store'`). This is an analytics identifier, not a display name.
 3. **GTM** (only if a real ID is provided):
    - Set `gtm.enabled` to `true`
@@ -294,7 +296,7 @@ Update these fields:
 - `store_shipping` → provided shipping URL, or `""`
 - `gtm_id` → provided GTM ID, or `""`
 - `fb_pixel_id` → provided pixel ID, or `""`
-- Any other vendor key from the starter templates' [analytics key table](https://github.com/NextCommerceCo/campaign-cart-starter-templates/blob/main/_shared/analytics/README.md) → only when the operator declared that vendor
+- Any other vendor key from the starter templates' [analytics key table](https://github.com/NextCommerceCo/campaign-cart-starter-templates/blob/main/_shared/analytics/README.md) → only when the operator declared that vendor. These snippets load from `campaigns.json` regardless of the SDK key (checked on 0.3.0 and on the fixed build), so an unconfigured campaign keeps every vendor key empty.
 
 Do not change any other fields in the file.
 
@@ -327,11 +329,12 @@ Phase 2 — Configure
 ```
 
 Keep the continuation instructions in the project's README or existing handoff
-document so another agent needs no chat history. Then start `npm run dev`:
-an unconfigured campaign shows the pages with placeholder prices; a configured
-one talks to the selected campaign, so check its identity and tracking first.
-Tracking is per slug in `_data/campaigns.json` and loads independently of the
-SDK key, so on an existing slug check every vendor key in the
-[analytics key table](https://github.com/NextCommerceCo/campaign-cart-starter-templates/blob/main/_shared/analytics/README.md), not only GTM and Facebook.
+document so another agent needs no chat history. Before starting `npm run dev`,
+check the state it will open in: for an unconfigured campaign, the top-level
+`apiKey` in `config.js` is `''` and the slug's vendor keys in `campaigns.json`
+are empty, so the pages show placeholder prices and send nothing to a vendor;
+for a configured campaign, the key, store identity and every vendor key in the
+[analytics key table](https://github.com/NextCommerceCo/campaign-cart-starter-templates/blob/main/_shared/analytics/README.md) are the ones the operator selected, because
+the dev server talks to that campaign and fires that tracking.
 Do not submit forms or create orders as a setup check. Read the generated
 routes from the selected template rather than assuming an `upsell.html` exists.
