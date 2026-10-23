@@ -7,9 +7,11 @@ For a new Page Kit project, this skill scaffolds and configures the campaign.
 For an existing build, it preserves the builder and deployment workflow.
 
 You can begin without a store API key. The first result is a brief, a proposed
-page flow, a list of commerce dependencies, and a local preview of the scaffold
-with no commerce or tracking attached. It includes enough context for another
-agent session to continue.
+page flow, a list of commerce dependencies, and a local preview of the stock
+starter template with no commerce or tracking attached. The preview is the
+starter template, not a rebuild of the source funnel; the source feeds the brief
+and the dependency list. The handoff includes enough context for another agent
+session to continue.
 
 ## What You Need
 
@@ -71,7 +73,8 @@ This standalone skill no longer writes Campaigns OS setup or assembly records.
 - Configuration files can hold campaign credentials. Do not paste them into
   chat or include them in a public handoff.
 - Analytics are enabled only for declared providers and real IDs. Scaffolding
-  without a key clears the template's demo key, so an unconfigured preview
-  fetches and sends nothing.
+  without a key clears the template's demo key (Page Kit releases after 0.3.0),
+  so an unconfigured preview makes no commerce calls and sends no analytics
+  events.
 - The handoff separates observed source content, proposed behavior and tested
   behavior. Unverified commerce remains explicit.

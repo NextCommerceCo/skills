@@ -74,7 +74,8 @@ applies only to the revision and configuration it tested.
 
 - New Page Kit project: continue to Phase 1. A campaign key is optional; without
   one, init clears the template's demo key and the pages render for visual
-  review with no commerce or analytics.
+  review with no commerce calls and no `dl_*` analytics events. The SDK still
+  fetches locale and country rules from `i18n-rules.nextcommerce.com`.
 - Store campaign provisioning: load [next-campaigns-create](https://github.com/NextCommerceCo/skills/tree/main/next-campaigns-create)
   when the store and authorized API access are available. It creates, edits,
   adopts and clones campaign configuration behind its plan gate; copying a Git
@@ -191,8 +192,9 @@ exists, run `npm init -y` and `npm install next-campaign-page-kit`. If the
 package is declared but not installed, restore it from the lockfile.
 
 Run the project-local executable so the pinned version is the one that runs.
-Choose the agent's context target (`claude`, `codex`, `cursor`, `copilot`, or
-`none`); `--keep-ai-context` leaves an existing context file in place.
+Replace `<ai-context>` with the agent's context target (`claude`, `codex`,
+`cursor`, `copilot`, or `none`); `--keep-ai-context` leaves an existing context
+file in place. With a key:
 
 ```bash
 cd <CPK_ROOT>/[brand-name] &&
@@ -201,13 +203,31 @@ cd <CPK_ROOT>/[brand-name] &&
   --slug [campaign-slug] \
   --name "[Campaign Display Name]" \
   --api-key "$CAMPAIGN_API_KEY" \
-  --ai-context claude \
+  --ai-context <ai-context> \
   --keep-ai-context
 ```
 
-Omit `--api-key` when no key is available yet. Init then clears the template's
-demo key and reports `campaign.runtime_mode: "unconfigured"`; the Campaign Cart
-SDK does not boot without a key, so the pages render but fetch and send nothing.
+Without a key:
+
+```bash
+cd <CPK_ROOT>/[brand-name] &&
+./node_modules/.bin/campaign-init --non-interactive --json \
+  --template [template-slug] \
+  --slug [campaign-slug] \
+  --name "[Campaign Display Name]" \
+  --ai-context <ai-context> \
+  --keep-ai-context
+```
+
+Page Kit releases after 0.3.0 clear the template's demo key when no key is
+given and report `campaign.runtime_mode: "unconfigured"`. The Campaign Cart SDK
+does not boot without a key, so the pages render with no commerce calls and no
+`dl_*` events; it still fetches locale and country rules. On 0.3.0 the demo
+key stays in `assets/config.js` and the scaffold talks to the demo store. If
+the init JSON has no `campaign.runtime_mode`, the installed release predates the
+fix: set the top-level `apiKey` in `assets/config.js` to `''` by hand before
+opening the preview. This applies to existing repos pinned to 0.3.0, since
+setup does not upgrade a pinned dependency.
 
 Capture the JSON output: `writes.api_key_applied`, `writes.files_extracted` and
 the context result go in the scaffold report. A local key write does not prove
@@ -274,6 +294,7 @@ Update these fields:
 - `store_shipping` → provided shipping URL, or `""`
 - `gtm_id` → provided GTM ID, or `""`
 - `fb_pixel_id` → provided pixel ID, or `""`
+- Any other vendor key from the starter templates' [analytics key table](https://github.com/NextCommerceCo/campaign-cart-starter-templates/blob/main/_shared/analytics/README.md) → only when the operator declared that vendor
 
 Do not change any other fields in the file.
 
@@ -309,5 +330,8 @@ Keep the continuation instructions in the project's README or existing handoff
 document so another agent needs no chat history. Then start `npm run dev`:
 an unconfigured campaign shows the pages with placeholder prices; a configured
 one talks to the selected campaign, so check its identity and tracking first.
+Tracking is per slug in `_data/campaigns.json` and loads independently of the
+SDK key, so on an existing slug check every vendor key in the
+[analytics key table](https://github.com/NextCommerceCo/campaign-cart-starter-templates/blob/main/_shared/analytics/README.md), not only GTM and Facebook.
 Do not submit forms or create orders as a setup check. Read the generated
 routes from the selected template rather than assuming an `upsell.html` exists.
