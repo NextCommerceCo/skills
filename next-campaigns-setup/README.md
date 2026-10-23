@@ -36,7 +36,7 @@ package's own setup skill instead of this one.
 |-----------|---------|
 | Brand name (lowercase, hyphens) | acme |
 | Public route (the path in the campaign's web address) | grounding-mat |
-| Starter template | apollo (recommended), olympus, demeter, landing, and several variant and multi-step families |
+| Starter template | a family from the live template catalog; apollo for most campaigns |
 
 ## Install
 
