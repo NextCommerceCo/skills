@@ -176,8 +176,9 @@ If `<CPK_ROOT>/[brand-name]/` does not exist, create it.
 `campaign-init --non-interactive` handles the full scaffold in one command: adds npm scripts, creates `_data/campaigns.json`, downloads the starter template, seeds the campaigns.json entry, and installs the AI context file.
 
 From the brand folder, keep the project's pinned Page Kit; if there is no
-`package.json`, run `npm init -y` and `npm install --save-exact next-campaign-page-kit`.
-Invoke the project-local binary. Replace `<ai-context>` with the agent's context
+`package.json`, run `npm init -y` and `npm install --save-exact next-campaign-page-kit`;
+if it is declared but not installed, run the project's install command rather
+than installing a different version. Invoke the project-local binary. Replace `<ai-context>` with the agent's context
 target (`claude`, `codex`, `cursor`, `copilot`, or `none`); `--keep-ai-context`
 leaves an existing context file in place. With a key:
 
@@ -243,7 +244,7 @@ Never hand-write `setup-handoff.json` or edit OS stage evidence directly.
 
 Read `<CPK_ROOT>/[brand-name]/src/[campaign-slug]/assets/config.js`. Make these changes:
 
-1. **`apiKey`** — the top-level field holds the selected key, or `''` when there is none. If the key arrived after scaffolding, bind it with `npm run config`.
+1. **`apiKey`** — the top-level field holds the selected key, or `''` when there is none; if it holds anything else, set it to `''` and note that in the report. If the key arrived after scaffolding, bind it with `npm run config`.
 2. **`storeName`** — replace with a lowercase-hyphenated slug derived from the store name (e.g. "Example Store" → `'example-store'`). This is an analytics identifier, not a display name.
 3. **GTM** (only if a real ID is provided):
    - Set `gtm.enabled` to `true`
