@@ -341,7 +341,13 @@ class PricesFile(_Files):
         self.refused("JPY has no minor unit", prices_file=self.write_prices(doc))
         doc = prices_doc()
         doc["currencies"]["EUR"]["variants"]["26"] = 0
-        self.refused("is 0 in EUR", prices_file=self.write_prices(doc))
+        self.refused("is 0.00 in EUR and 40.00 in USD", "free in every currency or in none",
+                     prices_file=self.write_prices(doc))
+        doc = prices_doc()
+        doc["currencies"]["USD"]["variants"]["11"] = 0
+        doc["currencies"]["USD"]["packages"] = {"post-purchase-11": 0}
+        self.refused("is 38.00 in EUR and 0.00 in USD", prices_file=self.write_prices(doc),
+                     post_purchase=["11:0.00"])
 
     def test_a_partly_priced_currency_fails_validation(self):
         plan = self.recommend()
@@ -395,9 +401,8 @@ class LandedPerCurrency(_Files):
         self.assertIn("Landed prices in JPY (confirm these):", out)
         self.assertIn("Post-purchase 3D Photo Crystal", out)
         self.assertIn('PATCH /api/admin/campaigns/{campaign_id}/packages/<post-purchase-11>/  {"prices": '
-                      '[{"currency": "EUR", "price": "38.00", "price_recurring": null}, {"currency": "GBP", '
-                      '"price": "29.00", "price_recurring": null}, {"currency": "JPY", "price": "5800.00", '
-                      '"price_recurring": null}], "recalculate_prices": false}', out)
+                      '[{"currency": "EUR", "price": "38.00"}, {"currency": "GBP", "price": "29.00"}, '
+                      '{"currency": "JPY", "price": "5800.00"}], "recalculate_prices": false}', out)
         self.assertIn('PATCH /api/admin/campaigns/{campaign_id}/shipping-methods/<standard>/  {"prices": '
                       '[{"currency": "EUR", "price": "5.00"}, {"currency": "GBP", "price": "0.00"}, '
                       '{"currency": "JPY", "price": "900.00"}], "recalculate_prices": false}', out)
@@ -445,6 +450,15 @@ class PostPurchase(_Files):
                      post_purchase=["11:35.00", "11:35.00"])
         self.refused("--post-purchase variant id must be an integer", additional_currencies=None,
                      prices_file=None, post_purchase=["x:35.00"])
+
+    def test_it_refuses_a_package_an_upsell_voucher_discounts(self):
+        self.refused("is package upsell-11, which upsell voucher", "not both", additional_currencies=None,
+                     prices_file=None, upsell=["11:35.00:50"], post_purchase=["11:35.00"])
+
+    def test_reusing_a_hero_package_warns_about_the_exit_voucher(self):
+        plan = self.recommend(additional_currencies=None, prices_file=None, post_purchase=["24:40.00"],
+                              exit=None, exit_code="BRACELET10")
+        self.assertTrue(any("exit voucher" in h and "hero-24" in h for h in plan["handoff"]), plan["handoff"])
 
     def test_a_zero_percent_upsell_points_at_post_purchase(self):
         self.refused("got 0", "--post-purchase <variant_id>:<price>", additional_currencies=None,
@@ -552,9 +566,10 @@ class ApplySetsFixedPrices(_AppliedRun):
         self.assertEqual(writes, expected)
         patch = next(c[2] for c in self.t.calls
                      if c[0] == "PATCH" and c[1].endswith(f"/packages/{ids['post-purchase-11']}/"))
-        self.assertEqual(patch, {"prices": [{"currency": "EUR", "price": "38.00", "price_recurring": None},
-                                            {"currency": "GBP", "price": "29.00", "price_recurring": None},
-                                            {"currency": "JPY", "price": "5800.00", "price_recurring": None}],
+        # Currency and price only: a recurring price in that currency is the store's to keep.
+        self.assertEqual(patch, {"prices": [{"currency": "EUR", "price": "38.00"},
+                                            {"currency": "GBP", "price": "29.00"},
+                                            {"currency": "JPY", "price": "5800.00"}],
                                  "recalculate_prices": False})
         first_post = next(c for c in self.t.calls if c[0] == "POST")
         self.assertEqual(first_post[2]["additional_currencies"], ["EUR", "GBP", "JPY"])
@@ -590,6 +605,19 @@ class ApplySetsFixedPrices(_AppliedRun):
         with self.assertRaises(ca.CampaignAdminError) as cm:
             self.apply()
         self.assertIn("answered 200 but holds EUR 36.00 (sent 44.00)", str(cm.exception))
+
+    def test_a_200_without_the_row_says_so(self):
+        cid, hero_23 = 101, 102
+        path = f"/api/admin/campaigns/{cid}/packages/{hero_23}/"
+
+        def strip():  # the store answers the PATCH with no EUR row at all
+            item = self.state["packages"][cid][hero_23]
+            item["prices"] = [r for r in item["prices"] if r["currency"] != "EUR"]
+        self.t.ignore_patch.add(("PATCH", path))
+        self.t.before[("PATCH", path)] = strip
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            self.apply()
+        self.assertIn("holds no EUR price row (sent 44.00)", str(cm.exception))
 
 
 class VerifyEveryCurrency(_AppliedRun):
@@ -754,7 +782,7 @@ class UpdatePerCurrencyPrices(_MCAdoptedRun):
         self.assertEqual(self.diff(cand), 0, self.out())
         op = self.change_set()["ops"][0]
         self.assertEqual((op["method"], op["section"], op["key"]), ("PATCH", "packages", "pkg-801"))
-        self.assertEqual(op["body"], {"prices": [{"currency": "EUR", "price": "21.00", "price_recurring": None}],
+        self.assertEqual(op["body"], {"prices": [{"currency": "EUR", "price": "21.00"}],
                                       "recalculate_prices": False})
         self.assertEqual((op["before"], op["after"]), ({"prices.EUR": "22.46"}, {"prices.EUR": "21.00"}))
         self.assertEqual(self.change_set()["warnings"], [])
@@ -784,6 +812,42 @@ class UpdatePerCurrencyPrices(_MCAdoptedRun):
         cand = self.cand()
         cand["packages"][0]["prices"]["EUR"] = "21.00"
         self.refuse(cand, needle="package pkg-801.prices.EUR: base \"22.46\", candidate \"21.00\", store \"23.00\"")
+
+    def drop_eur(self, key):
+        pid = self.ids("packages")[key]
+        item = self.state["packages"][self.cid][pid]
+        item["prices"] = [r for r in item["prices"] if r["currency"] != "EUR"]
+
+    def test_a_price_the_store_lost_conflicts_with_a_new_one(self):
+        self.drop_eur("pkg-801")
+        cand = self.cand()
+        cand["packages"][0]["prices"]["EUR"] = "21.00"
+        self.refuse(cand, needle='package pkg-801.prices.EUR: base "22.46", candidate "21.00", store null')
+
+    def test_a_price_the_store_lost_is_kept_lost_and_sends_nothing(self):
+        self.drop_eur("pkg-801")
+        cand = self.cand()
+        cand["campaign"]["name"] = "Renamed"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        cs = self.change_set()
+        self.assertEqual([o["section"] for o in cs["ops"]], ["campaign"])
+        self.assertTrue(any("pkg-801.prices.EUR" in p and "null" in p for p in cs["preserved"]), cs["preserved"])
+        self.assertNotIn("prices", cs["merged_plan"]["packages"][0])
+
+    def test_a_currency_the_plan_did_not_fix_is_sent_without_a_merge(self):
+        cand = self.cand()
+        del cand["packages"][1]["prices"]
+        base = json.loads(self.base_path.read_text())
+        del base["packages"][1]["prices"]
+        self.base_path.write_text(json.dumps(base, indent=2) + "\n")
+        man = self.manifest()
+        man["plan_sha256"] = ca.sha256_file(self.base_path)
+        ca.atomic_write_json(self.manifest_path, man)
+        cand["packages"][1]["prices"] = {"EUR": "11.00"}
+        self.assertEqual(self.diff(cand), 0, self.out())
+        op = self.change_set()["ops"][0]
+        self.assertEqual((op["key"], op["before"], op["after"]), ("pkg-802", {"prices.EUR": "11.66"},
+                                                                  {"prices.EUR": "11.00"}))
 
     def test_a_default_price_change_still_warns_about_the_currencies_it_leaves(self):
         cand = self.cand()
@@ -831,6 +895,7 @@ class UpdateAddsAndRemovesCurrencies(_MCAdoptedRun):
     def test_removing_a_currency_warns_that_its_prices_are_deleted(self):
         cand = self.cand()
         cand["campaign"]["additional_currencies"] = []
+        cand["packages"][0]["price"] = "29.95"  # a price op beside the removal names no removed currency
         self.refuse(cand, needle="prices.EUR is not one of campaign.additional_currencies")
         for obj in cand["packages"] + cand["shipping_methods"]:
             obj.pop("prices", None)
@@ -839,6 +904,7 @@ class UpdateAddsAndRemovesCurrencies(_MCAdoptedRun):
         self.assertEqual(cs["ops"][0]["body"], {"additional_currencies": None})
         self.assertTrue(any("removing EUR deletes every EUR price" in w and "set by hand" in w
                             for w in cs["warnings"]), cs["warnings"])
+        self.assertFalse(any("stay as they are" in w for w in cs["warnings"]), cs["warnings"])
         self.assertEqual(self.update(), 0, self.out())
         self.assertTrue(all(set(p) == {"USD"} for p in self.live_prices().values()))
 

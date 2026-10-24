@@ -937,7 +937,8 @@ gift (different package keys). `--tiers` with `--offer-type bxgy` is an error.
   checkout line, and the plan would label it "Checkout bump". `--upsell` takes
   a 1 to 99% voucher, so `--upsell <v>:<price>:0` is refused with a pointer
   here. A variant already packaged at that price is reused; at another price
-  it is refused (one package per variant).
+  it is refused (one package per variant), and so is a package an upsell
+  voucher discounts, which would carry two prices on the same upsell page.
 - **Standing checkout bump**: ask whether the store requires a bump on every
   campaign, such as a shipping-insurance product. If yes, it goes in as
   `--bump <variant_id>:<price>`.
@@ -1189,8 +1190,9 @@ it.
 
 On a plan with fixed additional-currency prices, each package and shipping
 method POST is followed at once by a `PATCH` that sets them
-(`{"prices": [{"currency": "EUR", "price": "130.00", "price_recurring": null}, ...], "recalculate_prices": false}`;
-a shipping row has no `price_recurring`). The create filled those currencies by
+(`{"prices": [{"currency": "EUR", "price": "130.00"}, ...], "recalculate_prices": false}`;
+each row names its currency and price only, so a recurring price in that
+currency stays as the store holds it). The create filled those currencies by
 forex for the moment between the two. The manifest entry records
 `prices_status: pending` before the PATCH and `set` once the response holds the
 prices sent. A failed PATCH, or a 200 whose prices are not the ones sent, stops
@@ -1626,6 +1628,7 @@ from the most recent edit.
 | `upsell variant ... given twice` | the same variant passed to `--upsell` more than once | pass each upsell variant once; variants of one product at the same percentage already share one voucher |
 | `upsell percentage must be a whole number in [1, 99]; got 0` | a full-price upsell asked for as a 0% voucher | `--post-purchase <variant_id>:<price>` |
 | `post-purchase variant ... is already package ...` | a post-purchase price that differs from the package that variant already has | pass the variant at its package price, or use an upsell voucher to discount it |
+| `post-purchase variant ... which upsell voucher ... discounts on the upsell page` | the same variant passed to `--upsell` and `--post-purchase` | sell it after the order one way: at full price or with the voucher |
 | `additional currency ... is not enabled on the store` | no Market makes that currency public, or the discovery predates it | add the Market (Settings > Markets), re-run `discover`, then `recommend` |
 | `--additional-currencies names ... which is the campaign currency` | `--currency` repeated in the list | list only the currencies beside it |
 | `gateway group ... does not list <codes>` | the chosen group has no gateway that accepts those currencies | add them to a gateway's Accepted Currencies under Settings > Payments and re-run `discover`, or drop them from `--additional-currencies` |

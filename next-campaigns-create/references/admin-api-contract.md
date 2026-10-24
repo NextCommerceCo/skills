@@ -330,7 +330,10 @@ reads:
   currencies it names.** With `recalculate_prices` false (the default, and what
   the engine always sends with an additional-currency row) nothing else is
   converted. A currency the campaign does not offer at that moment is a 400, so
-  a campaign PATCH that adds one goes first.
+  a campaign PATCH that adds one goes first. The engine's additional-currency
+  rows name the currency and the price only: the plan holds no recurring price
+  per currency, and a row without `price_recurring` leaves that currency's
+  recurring price as it is.
 - **Changing `additional_currencies` on a campaign rewrites prices
   everywhere.** An added currency is forex-filled on every package and shipping
   method; a removed one has its prices deleted on every package and shipping
@@ -424,11 +427,14 @@ What the update path (`adopt`, `diff`, `update`) relies on, field by field.
 - **Each currency is its own field.** `adopt` records every live price in an
   additional currency as the plan's fixed price (`prices.EUR` and so on), since
   the store holds it whether forex or a person set it. `diff` merges each one
-  three ways like any other field, for the currencies the candidate prices; a
-  currency the base plan did not price is the store's to set, so the store's
-  value stands in for the base. A changed one becomes a row in that object's
-  PATCH `prices[]`, with `recalculate_prices: false`; a currency with no price on
-  the store yet (one this change adds) is always sent. A price op that names the
+  three ways like any other field, for the currencies the candidate prices. A
+  currency the base plan did not price has no base to conflict with: the
+  candidate's price is sent whenever the store's differs, a currency this change
+  adds included. A price the base fixed and the store has lost is a store change
+  like any other: kept (the merged plan stops fixing it, and `verify` reports the
+  gap) when the candidate left it alone, a conflict when the candidate changed
+  it. A changed one becomes a row in that object's PATCH `prices[]`, with
+  `recalculate_prices: false`. A price op that names the
   campaign currency only leaves the others as they are, and `diff` warns about
   each currency it leaves. The engine never sends `recalculate_prices: true`,
   because it would convert every other currency from the one being sent and

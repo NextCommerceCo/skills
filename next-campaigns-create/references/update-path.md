@@ -254,7 +254,11 @@ changed by editing that value. Rules the diff follows:
 - Each `prices.<code>` is merged three ways on its own, like any other field,
   and a changed one becomes a row in that object's PATCH `prices[]` with
   `recalculate_prices: false`. A currency the candidate leaves out of `prices` is
-  not managed by the plan: nothing is sent for it.
+  not managed by the plan: nothing is sent for it. A currency the base plan did
+  not price is sent whenever the store's price differs. A price the base fixed
+  and the store has since lost is kept lost if the candidate did not touch it
+  (the merged plan stops fixing it; `verify` reports the gap) and is a conflict
+  if the candidate changed it.
 - Adding a currency is a campaign PATCH that the store answers by filling that
   currency on every package and shipping method by forex from the campaign
   currency. The campaign PATCH goes first, then a PATCH per object that sets the

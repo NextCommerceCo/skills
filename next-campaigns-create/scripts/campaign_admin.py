@@ -1301,9 +1301,9 @@ def _attach_fixed_prices(packages: list, shipping: list, prices: dict, currency:
                         f"prices file: package {p['key']} is {got} in {code}, the campaign currency, and the "
                         f"plan prices it at {p['price']} from the command line; make them agree")
                 continue
-            if D(got) == 0 and D(p["price"]) > 0:
-                raise CampaignAdminError(f"prices file: package {p['key']} is 0 in {code} and {p['price']} in "
-                                         f"{currency}; a free package is a gift, not a price")
+            if (D(got) == 0) != (D(p["price"]) == 0):
+                raise CampaignAdminError(f"prices file: package {p['key']} is {got} in {code} and {p['price']} in "
+                                         f"{currency}; a package is free in every currency or in none")
             p.setdefault("prices", {})[code] = got
         for s in shipping:
             got = entry["shipping"].get(s["shipping_method"])
@@ -1484,6 +1484,16 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
             seen_post_variants.add(vid)
             held = next((x for x in packages if x.get("product_variant_ids") == [vid]), None)
             if held is not None:
+                # The upsell vouchers are all built by now. One scoped to this package
+                # is redeemable on the same upsell page, so the package would carry two
+                # prices there: its voucher's and this full one.
+                voucher = next((o for o in offers if o.get("offer_type") == "voucher"
+                                and held["key"] in o["condition"]["package_keys"]), None)
+                if voucher is not None:
+                    raise CampaignAdminError(
+                        f"post-purchase variant {vid} is package {held['key']}, which upsell voucher "
+                        f"{voucher['code']} ({voucher['key']}) discounts on the upsell page; sell it there at its "
+                        "full price (--post-purchase) or with that voucher (--upsell), not both")
                 if D(held["price"]) == D(price):
                     rationale.append(f"Post-purchase {title} ({v.get('title')}) reuses package {held['key']}: same "
                                      "variant at the same price, so no second package is created.")
@@ -1833,7 +1843,9 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
                          "in the currency the first order was placed in.")
         if reused and pkg.get("role") == "hero":
             handoff.append(f"Post-purchase package {pkg['key']} is also a hero package on the checkout page; "
-                           "the upsell page sells it again at the same price.")
+                           "the upsell page sells it again at the same price. A checkout voucher scoped to the "
+                           "hero (the exit voucher) also works there if a shopper enters it, so never show "
+                           "that code on the upsell page.")
     upsell_labels = [l["tier"] for l in landed if l["kind"] == "upsell"]
     if len(upsell_labels) != len(set(upsell_labels)):
         raise CampaignAdminError(f"upsell landed labels are not unique: {upsell_labels} (bug)")
@@ -2550,11 +2562,13 @@ def campaign_patch_body(live_n: dict, desired_n: dict) -> dict:
     return body
 
 
-def _with_currency_rows(body: dict, changed: dict, recurring: bool) -> dict:
+def _with_currency_rows(body: dict, changed: dict) -> dict:
     """Add the additional-currency rows an op changes (`prices.CODE` keys of
     `changed`, valued (live, new)) to a PATCH body, with `recalculate_prices` false
-    so nothing else is converted. A body with no such row is returned as it was."""
-    rows = [dict({"currency": f[len("prices."):], "price": new}, **({"price_recurring": None} if recurring else {}))
+    so nothing else is converted. Each row names its currency and price only, so a
+    recurring price in that currency is left as the store holds it (the plan has
+    none per currency). A body with no such row is returned as it was."""
+    rows = [{"currency": f[len("prices."):], "price": new}
             for f, (_old, new) in sorted((changed or {}).items()) if f.startswith("prices.")]
     if not rows:
         return body
@@ -2611,7 +2625,7 @@ def render_requests(plan: dict) -> list:
     for s in plan["shipping_methods"]:
         reqs.append(("POST", "/api/admin/campaigns/{campaign_id}/shipping-methods/",
                      {"shipping_method": s["shipping_method"], "price": s["price"]}))
-        fixed = prices_patch_body(s, recurring=False)
+        fixed = prices_patch_body(s)
         if fixed is not None:
             reqs.append(("PATCH", f"/api/admin/campaigns/{{campaign_id}}/shipping-methods/<{ship_key(s)}>/",
                          fixed))
@@ -3063,7 +3077,7 @@ def _set_fixed_prices(client: Client, man: Manifest, cid, section: str, key: str
     the currencies it names, so a resume after a lost response sends it again
     safely. The answer is read back: a 200 whose prices are not the ones sent stops
     the run, because the cart would charge them."""
-    body = prices_patch_body(obj, recurring=section == "packages")
+    body = prices_patch_body(obj)
     e = man.entry(section, key)
     if body is None or (e or {}).get("prices_status") == "set":
         return
@@ -3075,7 +3089,10 @@ def _set_fixed_prices(client: Client, man: Manifest, cid, section: str, key: str
             f"set {section} {key} prices in {', '.join(r['currency'] for r in body['prices'])}: PATCH {path} "
             f"returned {status}: {_short(resp)}. The object exists with forex prices in those currencies; "
             "apply --resume sends the PATCH again" + auth_hint(status, "PATCH", path))
-    wrong = [f"{r['currency']} {_price_in(resp, r['currency'])} (sent {r['price']})" for r in body["prices"]
+    def held(code):
+        v = _price_in(resp, code)
+        return f"{code} {v}" if v is not None else f"no {code} price row"
+    wrong = [f"{held(r['currency'])} (sent {r['price']})" for r in body["prices"]
              if _finite(_num(_price_in(resp, r["currency"]))) != D(r["price"])]
     if wrong:
         raise CampaignAdminError(f"set {section} {key} prices: the store answered 200 but holds {', '.join(wrong)}; "
@@ -5084,13 +5101,18 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
         changed, merged_fix = {}, {}
         for code, raw in sorted(fixed_prices(c_obj).items()):
             f, c_v, l_v = f"prices.{code}", money(D(raw)), l_fix.get(code)
-            if l_v is None:
+            if code not in b_fix:
+                # Not the plan's before this change (a currency it adds, or one it
+                # starts to fix): there is no base to conflict with.
+                if l_v != c_v:
+                    changed[f] = (l_v, c_v)
                 merged_fix[code] = c_v
-                changed[f] = (None, c_v)
                 continue
-            b_v = money(D(b_fix[code])) if code in b_fix else l_v
-            v, needs = merge(f"{label}.{f}", b_v, c_v, l_v, at=(section, key, f))
-            merged_fix[code] = v
+            v, needs = merge(f"{label}.{f}", money(D(b_fix[code])), c_v, l_v, at=(section, key, f))
+            if v is not None:
+                merged_fix[code] = v
+            # else the store lost a price the candidate left alone. It is kept as
+            # lost: the merged plan stops fixing it, and verify reports the gap.
             if needs:
                 changed[f] = (l_v, v)
         return changed, merged_fix
@@ -5269,8 +5291,9 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
         repriced = [(f"package {k}", changed) for k, changed, _n in pkg_patches
                     if {"price", "price_recurring"} & set(changed)]
         repriced += [(f"shipping {k}", changed) for k, changed, _m in ship_patches if "price" in changed]
+        kept = live_addl & merged_addl  # a removed currency's prices go; an added one has its own line
         for what, changed in repriced:
-            left = [code for code in others if f"prices.{code}" not in changed]
+            left = [code for code in others if code in kept and f"prices.{code}" not in changed]
             if not left:
                 continue
             warnings.append(
@@ -5378,7 +5401,7 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
             add("PATCH", "packages", key, item_path("packages", pid),
                 _with_currency_rows(package_patch_body(live_by_key[("packages", key)],
                                                        _apply_package_n(cand_pk[key], merged_n), currency),
-                                    changed, True),
+                                    changed),
                 {f: v[0] for f, v in changed.items()}, {f: v[1] for f, v in changed.items()}, oid=pid)
         if key in image_puts:
             lp = live_by_key[("packages", key)]
@@ -5409,14 +5432,14 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
         sid = id_by_key[("shipping_methods", key)]
         add("PATCH", "shipping_methods", key, item_path("shipping_methods", sid),
             _with_currency_rows(shipping_patch_body(live_by_key[("shipping_methods", key)], merged, currency),
-                                changed, False),
+                                changed),
             {f: v[0] for f, v in changed.items()}, {f: v[1] for f, v in changed.items()}, oid=sid)
     for key in ship_posts:
         s = cand_sm[key]
         post = add("POST", "shipping_methods", key, collection_path("shipping_methods"),
                    {"shipping_method": s["shipping_method"], "price": s["price"]}, {},
                    {"shipping_method": s["shipping_method"], "price": money(D(s["price"]))})
-        fixed = prices_patch_body(s, recurring=False)
+        fixed = prices_patch_body(s)
         if fixed is not None:
             add("PATCH", "shipping_methods", key, f"/api/admin/campaigns/{cid}/shipping-methods/<{key}>/",
                 fixed, {}, {f"prices.{r['currency']}": r["price"] for r in fixed["prices"]},
@@ -6867,18 +6890,17 @@ def currency_landed(plan: dict) -> dict:
     return out
 
 
-def prices_patch_body(obj: dict, codes=None, *, recurring: bool = True) -> dict | None:
+def prices_patch_body(obj: dict, codes=None) -> dict | None:
     """The PATCH body that sets an object's fixed prices in the additional
     currencies (all of them, or those in `codes`), or None when there are none.
     `prices` upserts only the currencies it names, and `recalculate_prices` is sent
-    false so the store converts nothing else. A package row carries
-    `price_recurring: null`, which leaves a recurring price as it is."""
+    false so the store converts nothing else. A row names its currency and price
+    only: the plan holds no recurring price per currency, so a package's recurring
+    price in that currency is left as the store holds it."""
     rows = [(c, v) for c, v in sorted(fixed_prices(obj).items()) if codes is None or c in codes]
     if not rows:
         return None
-    return {"prices": [dict({"currency": c, "price": v}, **({"price_recurring": None} if recurring else {}))
-                       for c, v in rows],
-            "recalculate_prices": False}
+    return {"prices": [{"currency": c, "price": v} for c, v in rows], "recalculate_prices": False}
 
 
 def _edit_ops(spec) -> list:
