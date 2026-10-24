@@ -5098,37 +5098,36 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
         """The candidate's fixed prices in the additional currencies, one currency at
         a time, for the currencies the candidate prices.
 
-        - The base plan did not fix it (a currency this change adds, or one the plan
-          starts to fix): there is no base to conflict with, so the candidate's price
-          is sent whenever the store's differs, a missing one included.
-        - The base fixed it and the store still prices it: an ordinary three-way
-          merge, conflicts included.
-        - The base fixed it and the store no longer prices it: a conflict when the
-          candidate changed it; when the candidate left it alone, it is kept lost.
-          Nothing is sent, the merged plan stops fixing it, a warning says so, and
-          verify reports the gap.
+        - The store holds no price in it: the candidate's price is sent. There is
+          no store value to keep or to conflict with, and a package or shipping
+          method with no price in a currency the campaign offers is left out of
+          that currency's carts and listings. When the campaign already offers the
+          currency (a gap, not one this change adds), a warning says the store had
+          lost it, so the PATCH the operator approves is never a quiet one.
+        - The store prices it and the base plan did not fix it (one the plan starts
+          to fix): the store's value stands in for the base, so the candidate's
+          price is sent whenever it differs.
+        - The store prices it and the base fixed it: an ordinary three-way merge,
+          conflicts included.
 
         Returns ({`prices.CODE`: (live, merged)} for each currency to send, the
         merged plan's prices)."""
         b_fix, l_fix = fixed_prices(b_obj), (l_obj or {}).get("prices") or {}
+        offered_live = set(live["campaign"].get("additional_currencies") or [])
         changed, merged_fix = {}, {}
         for code, raw in sorted(fixed_prices(c_obj).items()):
             f, c_v, l_v = f"prices.{code}", money(D(raw)), l_fix.get(code)
-            if code not in b_fix:
-                # Not the plan's before this change (a currency it adds, or one it
-                # starts to fix): there is no base to conflict with.
-                if l_v != c_v:
-                    changed[f] = (l_v, c_v)
+            if l_v is None:
+                if code in offered_live:
+                    warnings.append(
+                        f"{label}: the store has no {code} price, so the Cart API leaves it out of {code} carts "
+                        f"and listings; this change set sets {f} to {c_v}"
+                        + (f" (the plan had {money(D(b_fix[code]))})" if code in b_fix and D(b_fix[code]) != D(c_v)
+                           else "") + ".")
+                changed[f] = (None, c_v)
                 merged_fix[code] = c_v
                 continue
-            b_v = money(D(b_fix[code]))
-            if l_v is None and c_v == b_v:
-                warnings.append(
-                    f"{label}: the store has no {code} price any more, so the Cart API leaves it out of {code} "
-                    f"carts and listings. The merged plan stops fixing {f} (it was {b_v}) and verify will report "
-                    f"the gap; set {f} to a new value in the candidate to send one.")
-                kept_at.add((section, key, f))
-                continue
+            b_v = money(D(b_fix[code])) if code in b_fix else l_v
             v, needs = merge(f"{label}.{f}", b_v, c_v, l_v, at=(section, key, f))
             merged_fix[code] = v
             if needs:

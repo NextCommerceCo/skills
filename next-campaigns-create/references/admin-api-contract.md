@@ -429,13 +429,12 @@ What the update path (`adopt`, `diff`, `update`) relies on, field by field.
   additional currency as the plan's fixed price (`prices.EUR` and so on), since
   the store holds it whether forex or a person set it. `diff` merges each one
   three ways like any other field, for the currencies the candidate prices. A
-  currency the base plan did not price has no base to conflict with: the
-  candidate's price is sent whenever the store's differs, a currency this change
-  adds included. A price the base fixed and the store has lost is a store change
-  like any other: kept (the merged plan stops fixing it, and `verify` reports the
-  gap) when the candidate left it alone, a conflict when the candidate changed
-  it. A changed one becomes a row in that object's PATCH `prices[]`, with
-  `recalculate_prices: false`. A price op that names the
+  currency the base plan did not price is the store's to set, so the store's
+  value stands in for the base. A currency the store holds no price in (one this
+  change adds, or a gap) has no store value to keep or conflict with, so the
+  candidate's price is sent; for a gap in a currency the campaign already offers,
+  `warnings[]` says the store had lost it. A changed one becomes a row in that
+  object's PATCH `prices[]`, with `recalculate_prices: false`. A price op that names the
   campaign currency only leaves the others as they are, and `diff` warns about
   each currency it leaves. The engine never sends `recalculate_prices: true`,
   because it would convert every other currency from the one being sent and
@@ -650,6 +649,7 @@ write-capable store to settle.
 |---|---|
 | the PATCH body shapes | campaign: changed fields plus the explicit clearing values above. Package: `name`, `prices: [{currency, price, price_recurring}]`, `interval`, `interval_count`. Shipping: `prices` only. Offer: changed `name`, `offer_type`, `code`, `available`, the whole `condition` when it changes, and the changed benefit fields |
 | that `prices` merges per currency | the spec's wording ("currencies not included are left unchanged") and the platform source (an upsert per currency named) are what the engine and the fake both implement, so a price op is assumed to leave the other currencies alone rather than delete them. A store that replaced the whole list instead would drop them, which is why `diff` warns on every price op that leaves a currency out |
+| clearing a recurring price | the update path drops a subscription by sending `price_recurring: null`, `interval: null` and `interval_count: null`. The platform source writes a recurring price only from a non-null `price_recurring`, so on a live store the stored recurring price may stay while the package stops being recurring, and `verify`'s `not_recurring` row would then fail. The offline fake writes the null, so its tests do not show this. Predates 1.3.0 and is unverified. The additional-currency rows send no `price_recurring` at all, which leaves that currency's recurring price as it is under either reading |
 | the create path's `prices[]` PATCH and the Cart API's `currency` | `apply`'s PATCH after each create, `verify`'s `currency` on `carts/calculate` and its `GET /api/v1/campaigns/?currency=` read (`ref_id` and `price` per package and shipping method, and the answer's `currency`) are implemented from the platform source and proven against the offline fake only; no multi-currency campaign has been created by this engine on a live store |
 | whether a package PATCH re-appends `" - {variant}"` to `name` | the fake re-appends it, as create does. The normaliser strips the suffix before comparing: the live name equals the plan's, the plan's `name - variant_title`, the live `product_variant_name` suffix, and only last the name this run journalled. A diff is 0 ops whichever the store does. The journalled name comes last because a rename that landed refreshes it to the new live name while the plan still holds the old one, and matching on it first made a resume read its own applied rename back as drift |
 | the accepted clearing values | `[]` for the three campaign code lists, `null` for `additional_currencies`, `statement_descriptor` and `paypal_account_id`. A store that rejects one of them fails that op with the store's own message, and `update --settle` closes the run |

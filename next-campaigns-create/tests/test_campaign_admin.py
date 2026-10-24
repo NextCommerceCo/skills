@@ -1034,7 +1034,10 @@ def _merge_prices(previous, sent, fields, recalculate, state):
             by_currency[currency] = row
         for f in fields:
             # A field the row leaves out is left as it is, as the endpoint's
-            # per-currency upsert does; an explicit null is written.
+            # per-currency upsert does. An explicit null is written here, which the
+            # platform source does not do for `price_recurring` (it writes only a
+            # non-null one); the update path's recurring-trio tests keep that shape,
+            # and admin-api-contract.md lists the difference as an open point.
             if f in s:
                 row[f] = s.get(f)
     if recalculate and BASE_CURRENCY in named:

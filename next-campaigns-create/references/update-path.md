@@ -255,10 +255,10 @@ changed by editing that value. Rules the diff follows:
   and a changed one becomes a row in that object's PATCH `prices[]` with
   `recalculate_prices: false`. A currency the candidate leaves out of `prices` is
   not managed by the plan: nothing is sent for it. A currency the base plan did
-  not price is sent whenever the store's price differs. A price the base fixed
-  and the store has since lost is kept lost if the candidate did not touch it
-  (the merged plan stops fixing it; `verify` reports the gap) and is a conflict
-  if the candidate changed it.
+  not price is sent whenever the store's price differs. A price the store has
+  lost in a currency the campaign offers (the package then drops out of that
+  currency's checkout) is sent back at the candidate's value, with a warning
+  naming it; read that warning to the operator.
 - Adding a currency is a campaign PATCH that the store answers by filling that
   currency on every package and shipping method by forex from the campaign
   currency. The campaign PATCH goes first, then a PATCH per object that sets the

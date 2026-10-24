@@ -694,6 +694,35 @@ class VerifyForexCurrencies(_AppliedRun):
         self.assertEqual(cases["[EUR] Buy 2 single variant"]["expected_total"], "38.66")
 
 
+class DiffOnACreatedRun(_AppliedRun):
+    """The update path on a campaign recommend and apply built, not an adopted one:
+    the base plan fixes every currency, and a merged plan must stay fully priced."""
+
+    def diff(self, cand):
+        path = self.root / "campaign-plan.next.json"
+        path.write_text(json.dumps(cand, indent=2) + "\n")
+        lines = []
+        with mock.patch.object(ca, "_client_for", lambda slug: base.make_client(self.t)), \
+                mock.patch.object(ca, "print", lambda *a, **k: lines.append(" ".join(map(str, a)))):
+            rc = ca.main(["diff", "--plan", str(path), "--manifest", str(self.manifest)])
+        return rc, "\n".join(lines)
+
+    def test_a_lost_price_is_sent_back_not_refused_as_partial(self):
+        man = self.apply()
+        item = self.live("packages", "hero-24", man)
+        item["prices"] = [r for r in item["prices"] if r["currency"] != "GBP"]
+        cand = json.loads(self.plan_path.read_text())
+        cand["campaign"]["name"] = "Renamed multi-currency"
+        rc, out = self.diff(cand)
+        self.assertEqual(rc, 0, out)
+        cs = json.loads((self.root / "change-set.json").read_text())
+        op = next(o for o in cs["ops"] if o["section"] == "packages")
+        self.assertEqual((op["key"], op["body"]), ("hero-24", {"prices": [{"currency": "GBP", "price": "36.00"}],
+                                                              "recalculate_prices": False}))
+        self.assertTrue(any("hero-24: the store has no GBP price" in w for w in cs["warnings"]), cs["warnings"])
+        self.assertEqual(ca.currency_coverage(cs["merged_plan"])["GBP"], "fixed")
+
+
 class EditKeepsFixedPrices(_AppliedRun):
     """edit changes the campaign currency's prices and the offers in place; each
     fixed currency keeps its prices, and its landed rows follow the offers."""
@@ -822,24 +851,30 @@ class UpdatePerCurrencyPrices(_MCAdoptedRun):
         item = self.state["packages"][self.cid][pid]
         item["prices"] = [r for r in item["prices"] if r["currency"] != "EUR"]
 
-    def test_a_price_the_store_lost_conflicts_with_a_new_one(self):
-        self.drop_eur("pkg-801")
-        cand = self.cand()
-        cand["packages"][0]["prices"]["EUR"] = "21.00"
-        self.refuse(cand, needle='package pkg-801.prices.EUR: base "22.46", candidate "21.00", store null')
-
-    def test_a_price_the_store_lost_is_kept_lost_and_sends_nothing(self):
+    def test_a_price_the_store_lost_is_sent_back_with_a_warning(self):
         self.drop_eur("pkg-801")
         cand = self.cand()
         cand["campaign"]["name"] = "Renamed"
         self.assertEqual(self.diff(cand), 0, self.out())
         cs = self.change_set()
-        self.assertEqual([o["section"] for o in cs["ops"]], ["campaign"])
-        self.assertTrue(any(w.startswith("package pkg-801: the store has no EUR price any more")
-                            and "stops fixing prices.EUR (it was 22.46)" in w for w in cs["warnings"]), cs["warnings"])
-        self.assertFalse(any("pkg-801" in p for p in cs["preserved"]), cs["preserved"])
-        self.assertFalse(any("pkg-801" in p for p in cs["plan_only"]), cs["plan_only"])
-        self.assertNotIn("prices", cs["merged_plan"]["packages"][0])
+        op = next(o for o in cs["ops"] if o["section"] == "packages")
+        self.assertEqual((op["key"], op["before"], op["after"]), ("pkg-801", {"prices.EUR": None},
+                                                                  {"prices.EUR": "22.46"}))
+        self.assertTrue(any(w == "package pkg-801: the store has no EUR price, so the Cart API leaves it out of EUR "
+                                 "carts and listings; this change set sets prices.EUR to 22.46." for w in cs["warnings"]),
+                        cs["warnings"])
+        self.assertFalse(any("pkg-801" in p for p in cs["preserved"] + cs["plan_only"]))
+        self.assertEqual(cs["merged_plan"]["packages"][0]["prices"], {"EUR": "22.46"})
+        self.assertEqual(self.update(), 0, self.out())
+        self.assertEqual(self.live_prices()[self.ids("packages")["pkg-801"]]["EUR"], "22.46")
+
+    def test_a_new_price_for_one_the_store_lost_names_the_old_one(self):
+        self.drop_eur("pkg-801")
+        cand = self.cand()
+        cand["packages"][0]["prices"]["EUR"] = "21.00"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertTrue(any("sets prices.EUR to 21.00 (the plan had 22.46)" in w
+                            for w in self.change_set()["warnings"]), self.change_set()["warnings"])
 
     def test_a_currency_the_plan_did_not_fix_is_sent_without_a_merge(self):
         cand = self.cand()
