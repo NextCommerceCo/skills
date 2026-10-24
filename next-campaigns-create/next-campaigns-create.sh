@@ -41,6 +41,8 @@ Create a campaign:
   next-campaigns-create.sh recommend --discovery <dir>/discovery.json --hero <product_id>
                                     --ctc low|high --anchor-price <decimal>
                                     --shipping <code>:<price>[:<key>] [options]
+                                    [--additional-currencies EUR,GBP [--prices-file <json>]]
+                                    [--post-purchase <variant_id>:<price>]
   next-campaigns-create.sh plan      --plan <dir>/campaign-plan.json [--check-store]
   next-campaigns-create.sh apply     --plan <dir>/campaign-plan.json --yes --plan-sha256 <plan-sha256>
                                     [--resume <dir>/run-manifest.json] [--out <dir>]

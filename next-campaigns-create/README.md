@@ -55,6 +55,8 @@ never guesses. It works out the rest from your answers.
 | Shipping price and countries | The campaign settings |
 | Whether discounted prices end in .95, .97, .99 or whole dollars, or are left unrounded | Applying it to every discount offer except the free gift and free shipping |
 | Any add-on or upsell products, and their prices | One upsell discount per product covering all its variants, and the order the requests go in |
+| A product offered after the order at its full price | A post-purchase package with no discount, kept apart from checkout add-ons |
+| Other currencies the campaign sells in, and the price of everything in each (or "use the exchange rate") | Checking each currency is switched on for your store and your payment group, and setting those prices right after each item is created |
 | Whether the offers start switched on, or switched off until you're ready (a draft, or "don't make the discounts available yet") | Creating every offer switched off when you ask, and showing you the prices now and the prices once the offers are switched on |
 
 Cost-to-consumer is what your customer pays, not what the product costs you.
@@ -149,6 +151,35 @@ say so before you approve.
 > Combining Buy 1 at 50% with buy 2 get 1 free on the same products does not
 > work: the engine keeps the larger percentage, so three units would take 50%.
 > Buy 1 at the list price plus the BOGO offer is the supported mix.
+
+### Selling in more than one currency
+
+A campaign has one main currency, and can also sell in others, for example
+euros and pounds beside US dollars. Each currency has to be switched on for your
+store first (Settings > Markets) and accepted by the payment gateway group the
+campaign uses.
+
+You decide how each extra currency is priced:
+
+| Choice | What happens |
+|--------|--------------|
+| Fixed prices you supply | You give your assistant a price list per currency, for example the prices your own shop already shows in each country. Every product and shipping method gets that exact price. |
+| Exchange rate | The store converts the main currency's prices when the campaign is created. Your assistant shows you the converted prices after the run. |
+
+With fixed prices, the plan review shows the price of every item and every
+offer in each currency before anything is created. Verification prices test carts in every currency and
+checks that each item can be bought in it: an item with no price in a currency
+silently disappears from that currency's checkout.
+
+> [!IMPORTANT]
+> Removing a currency from a campaign later deletes that currency's prices on
+> everything in the campaign, including prices you set by hand. Adding it back
+> uses the exchange rate, not your old prices. Your assistant says so before
+> you approve.
+
+A visitor whose currency the campaign doesn't offer is charged in the main
+currency, and an upsell after the order is charged in the currency the order
+was placed in.
 
 ## Changing a campaign you already have
 
