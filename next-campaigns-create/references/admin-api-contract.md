@@ -77,7 +77,7 @@ token that has been pasted into a chat or a ticket once the work is done.
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/admin/store/` | enabled currencies and languages |
-| GET | `/api/admin/gateway-groups/` | id, method codes, currencies per group |
+| GET | `/api/admin/gateway-groups/` | id, method codes, currencies and `is_default` per group |
 | GET | `/api/admin/shipping-methods/` | store shipping codes |
 | GET | `/api/admin/products/` | products, variants (id, sku, price, availability) |
 | GET | `/api/admin/metadata/` | the 11 campaign/attribution definitions |
@@ -86,13 +86,14 @@ token that has been pasted into a chat or a ticket once the work is done.
 | GET/PATCH/DELETE | `/api/admin/campaigns/{id}/` | retrieve (returns `api_key`) / update the campaign's settings (`update`), or rename a clone destination (`clone --name`) / delete |
 | POST | `/api/admin/campaigns/{id}/clone/` | bodyless clone request, in production since 2026-10-14; 404/405 means the route is unavailable or the source is gone |
 | GET/POST | `/api/admin/campaigns/{id}/packages/` | list / create |
-| GET/PATCH/DELETE | `/api/admin/campaigns/{id}/packages/{packageId}/` | retrieve one (teardown's identity read-back, an edit's before-image, and a resumed update's full read-back) / update name, the recurring fields, and `prices[]` per currency (currencies the body omits are left unchanged) / delete |
+| GET/PATCH/DELETE | `/api/admin/campaigns/{id}/packages/{packageId}/` | retrieve one (teardown's identity read-back, an edit's before-image, and a resumed update's full read-back) / update name, the recurring fields, and `prices[]` per currency (currencies the body omits are left unchanged; `apply` sends the plan's fixed additional-currency prices here right after the create) / delete |
 | PUT | `/api/admin/campaigns/{id}/packages/{packageId}/image/` | replace the package image (optional override) |
 | GET/POST | `/api/admin/campaigns/{id}/shipping-methods/` | list / create |
-| GET/PATCH/DELETE | `/api/admin/campaigns/{id}/shipping-methods/{id}/` | retrieve one (same two readers) / update `prices[]` per currency, same rule as a package / delete |
+| GET/PATCH/DELETE | `/api/admin/campaigns/{id}/shipping-methods/{id}/` | retrieve one (same two readers) / update `prices[]` per currency, same rule as a package, and the same `apply` PATCH after the create / delete |
 | GET/POST | `/api/admin/campaigns/{id}/offers/` | list / create (optional `available`, default true) |
 | GET/PATCH/DELETE | `/api/admin/campaigns/{id}/offers/{offerId}/` | retrieve (the only read that carries the scope) / update name, type, code, `available`, `condition`, `benefit` / delete |
-| POST | `campaigns.apps.29next.com/api/v1/carts/calculate/` | pricing truth (verify); `?upsell=true` for upsell carts |
+| POST | `campaigns.apps.29next.com/api/v1/carts/calculate/` | pricing truth (verify); `?upsell=true` for upsell carts; `currency` in the body for a cart in an additional currency |
+| GET | `campaigns.apps.29next.com/api/v1/campaigns/?currency=<code>` | the campaign as a funnel reads it in one currency (verify, on a campaign with additional currencies only) |
 
 The PATCH routes are the update path's. `adopt` and `diff` send no writes at
 all: they use the campaign GET, the three collection GETs and the per-offer
@@ -160,7 +161,8 @@ retrieve.
   - `recommend` never emits this field. It builds from the catalogue, which is
     the same source the image already comes from.
 - Shipping create takes the store `shipping_method` code and a `price` in the
-  campaign's default currency; other currencies are filled by forex.
+  campaign's default currency; other currencies are filled by forex. See
+  "Additional currencies" below.
 - Uniqueness: a campaign takes one package per variant and one campaign shipping
   method per store code.
   - The skill enforces both itself. `validate_plan` applies them for
@@ -291,6 +293,12 @@ retrieve.
   skips site-wide automatic offers, which do not apply post-purchase, and a
   post-purchase upsell adds lines to a placed order without a shipping choice of
   its own. The expected total is the voucher price alone.
+- Post-purchase packages (`recommend --post-purchase <variant_id>:<price>`)
+  are sold on an upsell page at their package price, with no voucher. Their
+  landed row is an `upsell` row at `pct` 0 with no `offer_key`, priced by
+  `carts/calculate/?upsell=true` with no code. A bump is a checkout line; a
+  full-price package sold after the order is not one, and `--upsell` takes a
+  1 to 99% discount, so neither fits it.
 - Timestamps: the create response and the retrieve echo the same instant in
   different timezone offsets (for example `+02:00` and `-07:00`). Identity checks
   compare instants, not strings (`same_instant()`).
@@ -305,6 +313,90 @@ retrieve.
 - Rate limit: 4 requests per second, documented. The client paces at least 300 ms
   between calls and retries only GETs, honouring `Retry-After`. A POST or DELETE
   is never retried.
+
+## Additional currencies
+
+A campaign has one currency (`currency`, immutable) and may offer others
+(`additional_currencies`). What the engine relies on, as the platform source
+reads:
+
+- **Campaign create and update take `additional_currencies`.** A list that
+  includes `currency`, or names a code the store has not enabled, is a 400. A
+  store enables a currency by a Market that makes it public.
+- **A package or shipping method create fills every additional currency by
+  forex** from the campaign-currency price it is sent. A currency with no
+  exchange rate gets no price at all.
+- **`prices[]` on a package or shipping-method PATCH upserts only the
+  currencies it names.** With `recalculate_prices` false (the default, and what
+  the engine always sends with an additional-currency row) nothing else is
+  converted. A currency the campaign does not offer at that moment is a 400, so
+  a campaign PATCH that adds one goes first. The engine's additional-currency
+  rows name the currency and the price only: the plan holds no recurring price
+  per currency, and the endpoint writes a recurring price only from a row that
+  carries a non-null `price_recurring`, so that currency's recurring price stays
+  as the store holds it.
+- **Changing `additional_currencies` on a campaign rewrites prices
+  everywhere.** An added currency is forex-filled on every package and shipping
+  method; a removed one has its prices deleted on every package and shipping
+  method, hand-set prices included. Adding it back later fills it by forex, not
+  with the prices deleted.
+- **The Cart API drops what has no price.** `GET /api/v1/campaigns/?currency=X`
+  lists only the packages and shipping methods priced in X, and both it and
+  `carts/calculate` answer a code the campaign does not offer in the campaign
+  currency, saying so in the response's `currency`. A visitor in an unoffered
+  currency is silently priced in the campaign currency.
+- **The cart engine rounds a discount to cents in every currency.** There is no
+  per-currency minor unit, so a percentage discount in a zero-decimal currency
+  such as JPY can land on a fraction. `recommend` refuses a fractional fixed
+  price in one, and says so in the rationale when the plan has percentage offers.
+- **Upsells charge in the currency of the first order.**
+- **Gateway groups.** A group's `available_currencies` is every currency an
+  active gateway in it accepts, and a gateway with no currency list counts as
+  accepting all of them, so an empty list means the group has no active gateway.
+  The card method is listed for every group whatever its gateways. The Campaigns
+  API accepts a group with an empty list and checks only the campaign currency;
+  checkout charges through an active gateway of the group that accepts the
+  order's currency. `recommend` therefore requires the group to list the
+  campaign currency and every additional currency, and refuses a group that
+  lists none. `discover` records `is_default` on each group.
+
+In the plan, a package or shipping method carries its fixed prices in the
+additional currencies as `prices: {"EUR": "130.00", ...}`; `price` stays the
+campaign currency's. A currency every package and shipping method prices is
+**fixed**; one none of them prices is **forex** (the store sets it at create,
+and `verify` reads it back); anything else is **partial**, which `validate_plan`
+refuses on a created plan. `recommend --prices-file` builds the fixed prices:
+
+```json
+{"source": "optional note", "note": "optional note",
+ "currencies": {
+   "EUR": {"variants": {"<variant id>": 130.00},
+           "packages": {"<package key>": 174.00},
+           "shipping": {"<store shipping code>": 0.00},
+           "note": "optional"}}}
+```
+
+A package takes `packages[key]` when present, else `variants[its variant id]`.
+Every currency in `--additional-currencies` must be in the file, and every
+package and shipping method priced in it. A row for the campaign currency, if the
+file has one, has to agree with the command line. A per-currency field the engine
+does not read is refused rather than skipped, because it may hold a price the
+operator expected to be used; a package priced apart from its variant (an
+upsell-page price, say) goes under `packages`. Currencies in the file that the
+plan does not offer are named in the rationale and ignored.
+
+`plan` prints each currency's prices and, for a fixed currency, its landed rows,
+computed by the same rule as the campaign currency's (`reland` on a copy of the
+plan priced in that currency). The plan hash covers the prices, so it covers the
+landed rows derived from them. `apply` sends one `prices[]` PATCH right after
+each package or shipping-method create, journalled as `prices_status` on the
+manifest entry (`pending`, then `set` once the response holds the prices sent),
+and a failed one stops the run; `--resume` sends it again, which is safe because
+the PATCH is an upsert. `verify` checks, per additional currency: each object's
+price (fixed: equal to the plan; forex: present), the public listing in every
+currency including the campaign's (every package and shipping method listed at
+its price, and the response in that currency), and every landed row as a cart
+with `currency` set, whose response must name that currency.
 
 ## Update semantics
 
@@ -333,15 +425,29 @@ What the update path (`adopt`, `diff`, `update`) relies on, field by field.
   currencies not included in `prices`, via forex conversion". So a PATCH does
   **not** replace the price list. A changed `name`, `interval` or
   `interval_count` goes in the same body.
-- **Only the campaign currency is priced, and the others are left as they are.**
-  A plan carries one price per package and per shipping method, so a price op
-  names the campaign currency only. On a campaign with `additional_currencies`
-  that leaves the other currencies at the prices they already had: a campaign
-  create fills them by forex, an update does not. The engine never sends
-  `recalculate_prices`, because it would convert every other currency from the
-  one being sent and overwrite a price someone set by hand. `diff` puts a line
-  in `warnings[]` for every price op on such a campaign, naming the op and the
-  currencies, and the operator sets those prices in the dashboard.
+- **Each currency is its own field.** `adopt` records every live price in an
+  additional currency as the plan's fixed price (`prices.EUR` and so on), since
+  the store holds it whether forex or a person set it. `diff` merges each one
+  three ways like any other field, for the currencies the candidate prices. A
+  currency the base plan did not price is the store's to set, so the store's
+  value stands in for the base. A currency the store holds no price in (one this
+  change adds, or a gap) has no store value to keep or conflict with, so the
+  candidate's price is sent; for a gap in a currency the campaign already offers,
+  `warnings[]` says the store had lost it. A changed one becomes a row in that
+  object's PATCH `prices[]`, with `recalculate_prices: false`. A price op that names the
+  campaign currency only leaves the others as they are, and `diff` warns about
+  each currency it leaves. The engine never sends `recalculate_prices: true`,
+  because it would convert every other currency from the one being sent and
+  overwrite a price someone set by hand.
+- **Adding or removing a currency is a campaign PATCH, and it moves prices.**
+  The campaign op goes first, so a package PATCH for an added currency finds it
+  offered. `diff` warns which objects keep the forex price an added currency
+  gets, and that removing one deletes its prices everywhere, hand-set ones
+  included. A candidate that removes a currency must drop its `prices.<code>`
+  too, or validation refuses it. A package or shipping method the change set
+  creates gets its fixed prices from a second op, a PATCH with `depends_on` the
+  POST, whose route is built from the id the POST returns. `update --resume`
+  reads a completed currency removal as removing those prices, not as drift.
 - **A shipping PATCH sends prices only.** The store code is that method's
   identity. Sending `shipping_method` with a code another method on the campaign
   uses answers 400 on releases that validate duplicates, so `diff` refuses a
@@ -542,7 +648,9 @@ write-capable store to settle.
 | Open point | The engine's current assumption |
 |---|---|
 | the PATCH body shapes | campaign: changed fields plus the explicit clearing values above. Package: `name`, `prices: [{currency, price, price_recurring}]`, `interval`, `interval_count`. Shipping: `prices` only. Offer: changed `name`, `offer_type`, `code`, `available`, the whole `condition` when it changes, and the changed benefit fields |
-| that `prices` merges per currency | the spec's wording ("currencies not included are left unchanged") is what the engine and the fake both implement, so a price op is assumed to leave the additional currencies alone rather than delete them. A store that replaced the whole list instead would drop them, which is why `diff` warns on every price op on a multi-currency campaign |
+| that `prices` merges per currency | the spec's wording ("currencies not included are left unchanged") and the platform source (an upsert per currency named) are what the engine and the fake both implement, so a price op is assumed to leave the other currencies alone rather than delete them. A store that replaced the whole list instead would drop them, which is why `diff` warns on every price op that leaves a currency out |
+| clearing a recurring price | the update path drops a subscription by sending `price_recurring: null`, `interval: null` and `interval_count: null`. The platform source writes a recurring price only from a non-null `price_recurring`, so on a live store the stored recurring price may stay while the package stops being recurring, and `verify`'s `not_recurring` row would then fail. The offline fake writes the null, so its tests do not show this. Predates 1.3.0 and is unverified. The additional-currency rows send no `price_recurring` at all, which leaves that currency's recurring price as it is under either reading |
+| the create path's `prices[]` PATCH and the Cart API's `currency` | `apply`'s PATCH after each create, `verify`'s `currency` on `carts/calculate` and its `GET /api/v1/campaigns/?currency=` read (`ref_id` and `price` per package and shipping method, and the answer's `currency`) are implemented from the platform source and proven against the offline fake only; no multi-currency campaign has been created by this engine on a live store |
 | whether a package PATCH re-appends `" - {variant}"` to `name` | the fake re-appends it, as create does. The normaliser strips the suffix before comparing: the live name equals the plan's, the plan's `name - variant_title`, the live `product_variant_name` suffix, and only last the name this run journalled. A diff is 0 ops whichever the store does. The journalled name comes last because a rename that landed refreshes it to the new live name while the plan still holds the old one, and matching on it first made a resume read its own applied rename back as drift |
 | the accepted clearing values | `[]` for the three campaign code lists, `null` for `additional_currencies`, `statement_descriptor` and `paypal_account_id`. A store that rejects one of them fails that op with the store's own message, and `update --settle` closes the run |
 | an offer POST with `available: false` on the update path | `apply` and `edit` read a switched-off offer back after its POST and patch it off if the store ignored the field; `update` has no such read-back, so `verify`'s `available` row is what catches a store on a build older than campaigns-app 604 |
@@ -586,7 +694,9 @@ teardown later deletes it, as this run's.
 | One package per variant, one shipping method per store code; an upsell reuses its variant's package and the voucher sets its price; a bump must be an unpackaged variant | [Naming and scoping](offer-doctrine.md#naming-and-scoping) |
 | Voucher code `{SHORT NAME}{PCT}`: distinctive words, at most 12 characters, discount rounded down; a clash stops for `--short-name` | [Naming and scoping](offer-doctrine.md#naming-and-scoping) |
 | Package name `{Product}` or `{Product} - {Variant}`; never `2x Product` | [Naming and scoping](offer-doctrine.md#naming-and-scoping) |
-| Campaign name = hero product; gateway group must carry the currency | [Campaign settings](offer-doctrine.md#campaign-settings) |
+| Campaign name = hero product; gateway group must carry the currency and every additional currency | [Campaign settings](offer-doctrine.md#campaign-settings) |
+| `--additional-currencies`: codes the store has enabled, never the campaign currency; with `--prices-file`, a fixed price for every package and shipping method in each | Operator input: SKILL.md Phase 3, Markets |
+| `--post-purchase <variant_id>:<price>`: a package sold after the order at its price, no voucher; reuses a package already on that variant at that price | Operator input: SKILL.md Phase 3, Bumps, upsells and post-purchase |
 | Landed price is a forecast until confirmed against `carts/calculate` | [Rounding and stacking](offer-doctrine.md#rounding-and-stacking) |
 
 CTC and the anchor price are operator inputs. The tool never classifies CTC from a
@@ -615,7 +725,8 @@ the directory holds a `.run.lock` in it for its whole life (the pid and start
 time of the holder, created with `O_CREAT | O_EXCL`, removed on exit and only by
 hand after a kill).
 
-- `discovery.json`: the store snapshot plus `offers_supported`,
+- `discovery.json`: the store snapshot (each gateway group with its `is_default`)
+  plus `offers_supported`,
   `metadata_checked`, `metadata_missing`, `metadata_conflicts` and
   `metadata_error`. The last is null when the audit ran, and when it failed it is
   `{"status": <int or null>, "reason": "<fixed reason>"}`, which never contains a
@@ -628,7 +739,8 @@ hand after a kill).
 - `verify-report.json`: the admin read-back checks and the `calculate` cases.
   Each case records `shipping` (`paid`, `free` or `none`), `expected_shipping`,
   `shipping_key` (the method the cart carried, null for an upsell) and the
-  request `path`. A check's `result` is `PASS`, `FAIL`, `INFO` or `UNVERIFIED`,
+  request `path`, and its `currency`; a case in an additional currency is named
+  `[<code>] ...` and sends `currency`. A check's `result` is `PASS`, `FAIL`, `INFO` or `UNVERIFIED`,
   and the report's `result` is FAIL only when some row is FAIL. `sections` breaks
   it down as `owned_fields`, `calculate` and `live_offer_set`; `calculate` reads
   `NOT ATTRIBUTABLE` when an offer this run does not own is live, listed in
@@ -668,11 +780,11 @@ hand after a kill).
    "additional_currencies","available_payment_methods",
    "available_express_payment_methods","available_shipping_countries",
    "statement_descriptor","paypal_account_id"},
- "packages": [{"key","role":"hero|bump|upsell|gift","name","variant_title",
-   "product_id","product_variant_ids","price",
+ "packages": [{"key","role":"hero|bump|upsell|post-purchase|gift","name","variant_title",
+   "product_id","product_variant_ids","price","prices":{"<code>":"<price>"},
    "price_recurring","interval","interval_count",
    "image":{"src","file_name"}}],
- "shipping_methods": [{"key","shipping_method","price"}],
+ "shipping_methods": [{"key","shipping_method","price","prices":{"<code>":"<price>"}}],
  "offers": [{"key","name","offer_type","code","available",
    "condition":{"type","value","package_keys"},
    "benefit":{"type","value","price_rounding"}}],
@@ -734,9 +846,14 @@ with its merchandise column.
 After an edit, and after a completed update, the plan file is rewritten, so its
 hash changes and the manifest's `plan_sha256` follows it.
 
+`prices` on a package or shipping method is optional: its fixed prices in the
+additional currencies, keyed by code, each one of `campaign.additional_currencies`
+(see "Additional currencies" above). `recommend --prices-file` writes it and
+`adopt` records the live ones.
+
 `offer_kind` is written by `recommend` (`quantity` when `--offer-type` is omitted)
 and is optional for `validate_plan`. Package `role` is not schema-checked;
-`recommend` emits `hero`, `bump`, `upsell` and `gift`. The extra landed fields
+`recommend` emits `hero`, `bump`, `upsell`, `post-purchase` and `gift`. The extra landed fields
 (`paid_qty` through `note`) appear only on buy-X-get-Y deal and over-qty rows;
 the BXGY Buy 1 list-price row, quantity rows and gift rows keep the original
 columns. Gift carts stay `kind: single` so verify's existing three kinds still
@@ -766,8 +883,9 @@ package is set or absent as one thing.
  "campaign": {"status":"pending|created|deleting|deleted","id","api_key","name","created_at"},
  "packages": [{"key","status","id","name","product_variant_id",
    "image_status":"pending|set|unsupported|failed","image","image_at_create",
-   "image_src","image_error"}],
- "shipping_methods": [{"key","status","id","shipping_method","price"}],
+   "image_src","image_error","prices_status":"pending|set","prices_intent"}],
+ "shipping_methods": [{"key","status","id","shipping_method","price",
+   "prices_status":"pending|set","prices_intent"}],
  "offers": [{"key","status","id","name","code","pause_pending",
    "available_patched","scope_conversion_pending"}],
  "edits": [{"edit","kind":"edit|undo|rolled_back","receipt","edit_sha256",
@@ -794,6 +912,7 @@ The update path's fields:
 | `price` on a shipping entry | `adopt`, refreshed by a completed update | present only on runs that recorded one; a refresh never adds a field the run did not have |
 | `image_src` on a package | `apply` and `update` when an image lands | the `src` this run sent. Images are diffed by intent against this value, never against the server-built thumbnail in `image`. Manifests from 0.8.0 and earlier do not carry it, so for those the diff falls back to the hash-verified base plan's `image.src` for that package, and a completed update records the field |
 | `scope_conversion_pending` on an offer | `adopt --convert-scope` | an approved `all_packages` conversion the first `diff` will send as a PATCH. Cleared once it lands |
+| `prices_status`, `prices_intent` on a package or shipping method | `apply` | the fixed additional-currency prices PATCH sent right after the create: `pending` with its body before it goes out, `set` once the response holds those prices. `apply --resume` sends a `pending` one again |
 | `pause_pending` on an offer | `apply`, on an offer the plan switches off, and `edit`, on an offer it added paused | set while the offer is created and its `available: false` not yet proven by read-back, cleared once it is. `apply --resume` finishes an entry left set without a second POST |
 | `available_patched` on an offer | `apply` and `edit` | `true` only when the store ignored `available: false` on the POST and the backstop PATCH switched the offer off. Absent otherwise; a rollback's intentional pause never sets it |
 | `edits` | each finished `edit` or `--undo` | one entry per edit: its number, kind, receipt file, approval hash and the plan hashes either side |
@@ -876,8 +995,9 @@ space:
    "available_shipping_countries": []},
  "packages": [{"id": 0, "product_id": 0, "product_variant_id": 0, "name": "",
    "price": "0.00", "price_recurring": null, "interval": null,
-   "interval_count": null, "image": null}],
- "shipping_methods": [{"id": 0, "shipping_method": "", "price": "0.00"}],
+   "interval_count": null, "image": null, "prices": {"EUR": "0.00"}}],
+ "shipping_methods": [{"id": 0, "shipping_method": "", "price": "0.00",
+   "prices": {"EUR": "0.00"}}],
  "offers": [{"id": 0, "name": "", "offer_type": "offer", "code": null,
    "available": true,
    "condition": {"type": "count", "value": 2, "all_packages": false, "package_ids": []},
@@ -886,6 +1006,9 @@ space:
 
 Rules, because the hash moves if any of them change:
 
+- `prices` holds the object's price in every currency but the campaign's, and
+  is present only when there is one, so a one-currency campaign hashes as it did
+  before additional currencies were modelled.
 - Prices become plan-shaped decimal strings. A price the store does not report,
   or reports as something that is not a finite number, becomes `null`, which
   never equals a plan price, so it reads as a difference rather than a match.

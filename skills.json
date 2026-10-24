@@ -313,7 +313,7 @@
     {
       "id": "next-campaigns-create",
       "name": "Campaign Provisioning",
-      "version": "1.2.3",
+      "version": "1.3.0",
       "path": "next-campaigns-create/SKILL.md",
       "domain": "campaigns",
       "description": "Create, clone and update a Campaigns App campaign over the Admin API: packages, shipping, quantity Buy 1/2/3, buy-X-get-Y and gift-with-purchase on create, then edit a field in place on a campaign this skill built, or adopt, diff and update one that already exists, each behind a hash approval gate.",
@@ -343,7 +343,10 @@
         "add a bump to an existing campaign",
         "adopt an existing campaign",
         "clone a campaign",
-        "copy an existing campaign"
+        "copy an existing campaign",
+        "multi-currency campaign",
+        "price a campaign in another currency",
+        "post-purchase package"
       ],
       "prerequisites": [
         "Python 3.9 or newer (standard library only) and a bash shell; on Windows run scripts/campaign_admin.py with Python directly",

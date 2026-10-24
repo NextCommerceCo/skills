@@ -217,7 +217,8 @@ only, and `diff` never promotes it. `diff` refuses a `--plan` that is the canoni
 | a different gateway group | `campaign.payment_gateway_group_id` |
 | a different statement descriptor, or none | `campaign.statement_descriptor` (`null` clears it) |
 | link or unlink a PayPal account | `campaign.paypal_account_id` (`null` clears it) |
-| add or drop extra currencies | `campaign.additional_currencies` (`[]` clears it; the PATCH sends `null`) |
+| add or drop extra currencies | `campaign.additional_currencies` (`[]` clears it; the PATCH sends `null`). Adding one: give every package and shipping method its fixed price in it under `prices` (below), or leave them to the forex price the store fills in. Dropping one: remove its `prices.<code>` from every entry too. See "Additional currencies" below |
+| a different price in an additional currency | that entry's `prices.<code>` (decimal string), for example `"prices": {"EUR": "130.00"}` on a package or shipping method |
 | a deeper or shallower discount | that offer's `benefit.value` |
 | a different price ending | that offer's `benefit.price_rounding` (`null`, `"0.00"`, `"0.95"`, `"0.97"`, `"0.99"`) |
 | a different quantity threshold | that offer's `condition.value`, with `condition.type: "count"` |
@@ -242,7 +243,42 @@ What cannot be changed, and why:
 | `shipping_method` on an existing shipping key | the store code is the method's identity, and sending another method's code is a 400 | add a method on the new code and delete this one |
 | `all_packages` scope | a plan holds package keys, so it cannot express it | name the packages, or keep the offer out of the plan's reach |
 | removing an `image` | the API has no delete-image route | `diff` emits a warning and no op; change the image in the dashboard |
-| a price in any currency but the campaign's | the plan carries one price per package, in the campaign currency | set the other currencies in the dashboard; `diff` warns when a price op leaves them behind |
+
+### Additional currencies
+
+A plan holds a package's or shipping method's campaign-currency price in `price`
+and its fixed prices in the additional currencies in `prices`, keyed by code.
+`adopt` records every live additional-currency price there, so a currency is
+changed by editing that value. Rules the diff follows:
+
+- Each `prices.<code>` is merged three ways on its own, like any other field,
+  and a changed one becomes a row in that object's PATCH `prices[]` with
+  `recalculate_prices: false`. A currency the candidate leaves out of `prices` is
+  not managed by the plan: nothing is sent for it. A currency the base plan did
+  not price is sent whenever the store's price differs. A price the store has
+  lost in a currency the campaign offers (the package then drops out of that
+  currency's checkout) is sent back at the candidate's value, with a warning
+  naming it; read that warning to the operator.
+- Adding a currency is a campaign PATCH that the store answers by filling that
+  currency on every package and shipping method by forex from the campaign
+  currency. The campaign PATCH goes first, then a PATCH per object that sets the
+  candidate's fixed price. `diff` names, in `warnings[]`, the objects the
+  candidate gives no fixed price in it: they keep the forex price.
+- **Removing a currency deletes its prices.** The store deletes that currency's
+  price on every package and shipping method, prices set by hand in the
+  dashboard included, and adding it back later fills it by forex rather than
+  restoring them. `diff` says so in `warnings[]`; read that line to the operator
+  before approving. The candidate must drop its `prices.<code>` entries for that
+  currency, or `diff` refuses it as an invalid plan.
+- A package or shipping method the change set creates gets the forex price at
+  its POST, then its fixed prices from a second op: a PATCH with `depends_on`
+  naming the POST, routed by the id the POST returns.
+- A price op that changes the campaign-currency price only leaves the other
+  currencies as they are on the store, and `diff` warns about each currency it
+  leaves. Give them their new value under `prices` in the same candidate to
+  change them together.
+- A created plan has to price each additional currency on every package and
+  shipping method or on none; a currency priced on some only is refused.
 
 On a campaign a run of this skill created, switching an offer on or off is
 `edit set_offer_available` (SKILL.md Phase 7), which recomputes the landed
@@ -403,8 +439,8 @@ below; that table is the only place this skill states it.
 
 Then it sends, in this order: the campaign PATCH, offer DELETEs, package DELETEs,
 package PATCHes with any image PUT behind them, package POSTs each followed by
-its image PUT, shipping DELETEs then PATCHes then POSTs, offer PATCHes, offer
-POSTs. Each op is journalled `in_flight` and saved to the manifest before it is
+its prices PATCH and its image PUT, shipping DELETEs then PATCHes then POSTs
+(each POST followed by its prices PATCH), offer PATCHes, offer POSTs. Each op is journalled `in_flight` and saved to the manifest before it is
 sent and `done` once the response is in. A clean run prints one line per op
 (`updated packages pkg-801`, `created packages pkg-903 id 118`,
 `deleted offers tier-3`) and then:
@@ -435,7 +471,10 @@ bash <skill-dir>/next-campaigns-create.sh verify \
 ```
 
 Pass the canonical plan, which is the merged plan now. `verify` reads every
-object back field by field and exits 1 on FAIL. On an adopted campaign it proves
+object back field by field, every additional currency's price included, and
+exits 1 on FAIL. On a campaign with additional currencies it also reads the
+campaign as a funnel does in each currency (`GET /api/v1/campaigns/?currency=`)
+and fails a package or shipping method missing from one. On an adopted campaign it proves
 read-back only: `landed_prices` is empty, so there are no carts to price and one
 INFO row says so. INFO and UNVERIFIED rows do not fail the report, and the
 verdict line counts them.
@@ -664,15 +703,14 @@ neither writes to the store at all.
   campaigns-app 604, 2026-10-14). `update` does not read a created offer back
   for it, so `verify`'s `available` row is the proof on this path. Per-customer
   limits and date ranges are not offer fields at all.
-- **Only the campaign currency is priced.** A plan holds one price per package
-  and per shipping method. On a campaign with `additional_currencies`, a price
-  PATCH names the campaign currency and the endpoint leaves the others
-  unchanged, so they keep whatever they were (a campaign create fills them by
-  forex; an update does not). `diff` warns for every price op on such a
-  campaign, naming the op and the currencies, and the operator sets those in the
-  dashboard. The engine does not send `recalculate_prices`: it would convert
+- **A currency is priced only where the plan says so.** A price op names the
+  campaign currency and each `prices.<code>` the candidate changed; the endpoint
+  leaves every other currency unchanged, and `diff` warns about each one it
+  leaves. The engine never sends `recalculate_prices: true`: it would convert
   every other currency from the one being sent and overwrite a price someone set
   by hand.
+- **Removing a currency cannot be undone by adding it back.** The store deletes
+  its prices everywhere, and a re-added currency is filled by forex.
 - **No write on the update path has been sent to a live store by this engine.**
   Not a PATCH, not a POST, not a PUT, not a DELETE on a campaign that already
   exists. The write shapes (the PATCH bodies, a package DELETE while an offer

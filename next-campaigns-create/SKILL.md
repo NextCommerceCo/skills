@@ -1,6 +1,6 @@
 ---
 name: next-campaigns-create
-version: 1.2.3
+version: 1.3.0
 description: |
   Create and update a Campaigns App campaign over the NEXT Admin API. Create:
   read the store's catalogue, gateway groups and shipping methods, recommend a
@@ -12,16 +12,20 @@ description: |
   api_key and the package ids the funnel needs. Offer kinds: quantity Buy 1/2/3,
   buy-X-get-Y as a labeled percentage approximation, and gift-with-purchase as
   a gift package plus a gift-scoped 100% offer. Offers can be created switched
-  on or off; creating an offer is not the same as activating it. Also clone an
-  existing campaign through a separate approval gate, preserving its funnel
-  reference IDs.
+  on or off; creating an offer is not the same as activating it. A campaign can
+  be offered in additional currencies at fixed prices per currency from a
+  prices file (or at the store's forex prices), and verify prices carts in
+  every one. Also clone an existing campaign through a separate approval gate,
+  preserving its funnel reference IDs.
 
   Use when: "create a campaign for {store}", "set up the campaign in the
   Campaigns App", "provision a campaign over the API", "recommend a campaign
   structure", "build the offers for {product}", "buy X get Y", "BOGO",
   "gift with purchase", "change the price", "change the tier percentages",
   "pause that offer", "create the offers switched off", "don't make the
-  discounts available yet", "draft campaign", "add an offer", "update a
+  discounts available yet", "draft campaign", "add an offer", "price it in
+  EUR", "multi-currency campaign", "add a currency", "post-purchase package",
+  "update a
   campaign", "change a package price", "change the shipping price", "retire
   an offer", "add a bump to an existing campaign", "adopt an existing
   campaign", "clone a campaign", "copy campaign 42", or when a campaign needs
@@ -214,10 +218,10 @@ confirmation that covers it:
 | 11 | `PATCH /api/admin/campaigns/{id}/offers/{id}/` (benefit value and rounding, the condition, `available`, on an offer this run created) | same |
 | 12 | `POST /api/admin/campaigns/{id}/offers/` (an offer added to a campaign this run created, with `available` on the body when the edit sets it; the same read-back and backstop PATCH as row 5) | same |
 | 13 | `PATCH /api/admin/campaigns/{id}/` (name, language, gateway group, payment and express method lists, shipping countries, additional currencies, statement descriptor, PayPal account id; never `currency`) | U4 change-set review + `update --yes --change-set-sha256` |
-| 14 | `PATCH /api/admin/campaigns/{id}/packages/{id}/` (name, `prices[]` for the campaign currency only, recurring interval) | same |
+| 14 | `PATCH /api/admin/campaigns/{id}/packages/{id}/` (name, `prices[]` for the campaign currency and each additional currency the change set prices, recurring interval; on a package the same change set creates, a prices-only PATCH after its POST) | same |
 | 15 | `POST /api/admin/campaigns/{id}/packages/` on a campaign that already exists | same |
 | 16 | `DELETE /api/admin/campaigns/{id}/packages/{id}/` | same, plus `--allow-delete` |
-| 17 | `PATCH /api/admin/campaigns/{id}/shipping-methods/{id}/` (`prices[]` for the campaign currency only) | same as row 13 |
+| 17 | `PATCH /api/admin/campaigns/{id}/shipping-methods/{id}/` (`prices[]` for the campaign currency and each additional currency the change set prices; after a POST in the same change set, prices only) | same as row 13 |
 | 18 | `POST /api/admin/campaigns/{id}/shipping-methods/` on a campaign that already exists | same as row 13 |
 | 19 | `DELETE /api/admin/campaigns/{id}/shipping-methods/{id}/` | same as row 13, plus `--allow-delete` |
 | 20 | `PATCH /api/admin/campaigns/{id}/offers/{id}/` (name, type, code, `available`, and the whole `condition` and `benefit` when either changes) | same as row 13 |
@@ -225,13 +229,15 @@ confirmation that covers it:
 | 22 | `DELETE /api/admin/campaigns/{id}/offers/{id}/` | same as row 13, plus `--allow-delete` |
 | 23 | `POST /api/admin/metadata/` (only the missing campaign metadata definitions) | `metadata --apply` after an `AskUserQuestion` |
 | 24 | local JSON under the run directory: discovery, plan, manifest, verify report, the edit receipts `edit-<n>-receipt.json`, `change-set.json`, the merged plan `campaign-plan.<sha8>.json` and the archived plans beside it, `.run.lock` | no gate |
-| 25 | `POST /api/v1/carts/calculate/` on the Cart API in `verify` | none: creates nothing, reads pricing back |
+| 25 | `POST /api/v1/carts/calculate/` on the Cart API in `verify` (with `currency` for a cart in an additional currency), and on a campaign with additional currencies `GET /api/v1/campaigns/?currency=<code>` once per currency | none: creates nothing, reads pricing back |
 | 26 | `GET` of the public `skills.json` on GitHub, cached in `${XDG_CACHE_HOME:-~/.cache}/next-skills/catalog.json`, in `check-update` | none: read-only, no credentials, skipped with `NEXT_SKILLS_NO_UPDATE_CHECK=1` |
 | 27 | bodyless `POST /api/admin/campaigns/{source_id}/clone/` | clone preview + `clone --yes --clone-sha256` |
 | 28 | `PATCH /api/admin/campaigns/{new_id}/` with only `name`, on the campaign row 27 just created | same clone approval, only when a name was requested |
+| 29 | `PATCH /api/admin/campaigns/{id}/packages/{id}/` and `.../shipping-methods/{id}/` with `prices[]` in the additional currencies and `recalculate_prices: false`, right after that object's create in `apply` (only when the plan fixes those prices) | Phase 4 plan review + `apply --yes --plan-sha256`, like rows 1 to 5 |
 
-The engine refuses the writes in rows 1 to 5 unless `apply` receives `--yes` and
-a `--plan-sha256` equal to the hash of the plan file it is about to send. The
+The engine refuses the writes in rows 1 to 5 and 29 unless `apply` receives
+`--yes` and a `--plan-sha256` equal to the hash of the plan file it is about to
+send. The
 deletes in rows 6 to 9 are gated differently: `teardown` takes
 `--manifest --plan --yes` and no hash argument, computing the plan's hash itself
 and refusing if it does not match the manifest.
@@ -425,7 +431,7 @@ next-campaigns-create.sh --version
 next-campaigns-create.sh check-update [--no-cache] [--json]
 next-campaigns-create.sh discover  --store <subdomain> [--out <dir>]
 next-campaigns-create.sh metadata  --store <subdomain> [--apply]
-next-campaigns-create.sh recommend --discovery <dir>/discovery.json --hero <product_id> [--hero-variants <variant_id>,<variant_id>,...] --ctc low|high --anchor-price <decimal> --shipping <code>:<price>[:<key>] [--shipping ...] [--offer-type quantity|bxgy|gwp] [--paid-qty <n> --free-qty <n>] [--gift <variant_id>:<price>[:<qty>]] [--gift-mode auto|select] [--name <campaign name>] [--gateway-group <id>] [--payment-methods a,b] [--express-methods a,b] [--currency USD] [--language en] [--countries US,CA] [--tiers 50,55,60] [--exit 10] [--exit-code CODE] [--short-name <product_id>:<NAME>] [--bump <variant_id>:<price>] [--upsell <variant_id>:<price>:<pct>] [--free-shipping | --free-shipping-min-qty <n>] [--rounding 0.95] [--statement-descriptor <text>] [--offers-available true|false] [--out <dir>]
+next-campaigns-create.sh recommend --discovery <dir>/discovery.json --hero <product_id> [--hero-variants <variant_id>,<variant_id>,...] --ctc low|high --anchor-price <decimal> --shipping <code>:<price>[:<key>] [--shipping ...] [--offer-type quantity|bxgy|gwp] [--paid-qty <n> --free-qty <n>] [--gift <variant_id>:<price>[:<qty>]] [--gift-mode auto|select] [--name <campaign name>] [--gateway-group <id>] [--payment-methods a,b] [--express-methods a,b] [--currency USD] [--additional-currencies EUR,GBP] [--prices-file <prices.json>] [--language en] [--countries US,CA] [--tiers 50,55,60] [--exit 10] [--exit-code CODE] [--short-name <product_id>:<NAME>] [--bump <variant_id>:<price>] [--upsell <variant_id>:<price>:<pct>] [--post-purchase <variant_id>:<price>] [--free-shipping | --free-shipping-min-qty <n>] [--rounding 0.95] [--statement-descriptor <text>] [--offers-available true|false] [--out <dir>]
 next-campaigns-create.sh plan      --plan <dir>/campaign-plan.json [--check-store]
 next-campaigns-create.sh reland    --plan <dir>/campaign-plan.json
 next-campaigns-create.sh apply     --plan <dir>/campaign-plan.json --yes --plan-sha256 <plan-sha256> [--resume <dir>/run-manifest.json] [--out <dir>]
@@ -697,8 +703,10 @@ The full procedure, with every plan edit and every refusal, is in
   are hard gates: without them nothing is sent. The store is re-read first and a
   campaign that moved since the diff refuses. Each op is journalled before it is
   sent, and the merged plan becomes the run's canonical plan at the end. Read the
-  change set's warnings to the operator: a price op on a campaign with extra
-  currencies leaves those prices alone, and a deleted offer or package takes its
+  change set's warnings to the operator: a price op leaves every currency it
+  does not name as it is, adding a currency gives every object it does not
+  price a forex price, **removing a currency deletes its prices everywhere,
+  hand-set ones included**, and a deleted offer or package takes its
   `landed_prices` and `voucher_codes` rows with it.
 - **U6 Verify and hand off.** `verify --manifest <m> --plan <canonical plan>`.
   Then tell the funnel owner every id a POST created and every id a DELETE
@@ -800,6 +808,47 @@ gift (different package keys). `--tiers` with `--offer-type bxgy` is an error.
   currency cannot be changed after the campaign is created, and the gateway
   group (`--gateway-group`) must list that currency and every payment method
   code the campaign enables.
+- **Additional currencies**: other currencies the funnel sells in, if any,
+  with `--additional-currencies EUR,GBP,...`. Each must be enabled on the store
+  (a Market makes it public; re-run `discover` after adding one) and must not be
+  `--currency`. Ask how each is priced; never infer it:
+  - **Fixed prices** (the normal case when the merchant already sells in that
+    market): pass `--prices-file <prices.json>`. Every listed currency must be
+    in it, with a price for every package and shipping method. The shape:
+
+    ```json
+    {"source": "where these came from",
+     "currencies": {
+       "EUR": {"variants": {"501": 130, "502": 180},
+               "packages": {"post-purchase-502": 174},
+               "shipping": {"standard": 0}}}}
+    ```
+
+    A package takes `packages.<package key>` when present, else
+    `variants.<its variant id>`. Use `packages` when a package sells at a price
+    other than its variant's, such as an upsell-page price; the package keys are
+    the ones `plan` prints. `shipping` is keyed by store shipping code. A row for
+    `--currency` is optional and must agree with the command line. Any other
+    field in a currency entry is refused, so copy the merchant's numbers into
+    this shape rather than pointing at a file with extra fields. A currency with
+    no minor unit (JPY, KRW) takes whole numbers. Currencies in the file that
+    `--additional-currencies` does not list are ignored and named in the
+    rationale.
+  - **Forex**: no `--prices-file`. The store converts each price from the
+    campaign currency when it creates a package or shipping method, so the plan
+    cannot state those prices; `verify` reads them back and prices carts from
+    them.
+
+  The gateway group must list the campaign currency and every additional
+  currency. The Campaigns API does not check the additional ones, but checkout
+  charges through an active gateway in the group that accepts the order's
+  currency, so `recommend` refuses a group that does not list one. A group whose
+  currency list is empty has no active gateway at all, whatever payment methods
+  it shows (the card method is listed for every group), and is refused too:
+  add an active gateway under Settings > Payments and re-run `discover`.
+  `discover` marks the store's default group. A visitor whose currency the
+  campaign does not offer is priced in the campaign currency, and an upsell
+  charges in the currency of the first order.
 - **Shipping**: at least one `<code>:<price>`, using a shipping method code
   from the discovery. Each store code appears **once**: the platform allows one
   campaign shipping method per code, and `recommend` refuses a repeated code.
@@ -880,6 +929,16 @@ gift (different package keys). `--tiers` with `--offer-type bxgy` is an error.
   - Never hand-author a second package for a variant already packaged, and
     never rename or split offers to get past a duplicate offer name or code
     error. That error means the specs belong in one group.
+- **Post-purchase packages**: a product sold on an upsell page at its full
+  price, with no voucher, is `--post-purchase <variant_id>:<price>`, repeatable.
+  It is a package with role `post-purchase` and a landed row
+  `Post-purchase {Product}` at 0%, and `verify` prices it as an upsell cart (no
+  shipping, no code) in every currency. Do not use `--bump` for it: a bump is a
+  checkout line, and the plan would label it "Checkout bump". `--upsell` takes
+  a 1 to 99% voucher, so `--upsell <v>:<price>:0` is refused with a pointer
+  here. A variant already packaged at that price is reused; at another price
+  it is refused (one package per variant), and so is a package an upsell
+  voucher discounts, which would carry two prices on the same upsell page.
 - **Standing checkout bump**: ask whether the store requires a bump on every
   campaign, such as a shipping-insurance product. If yes, it goes in as
   `--bump <variant_id>:<price>`.
@@ -1000,6 +1059,8 @@ bash <skill-dir>/next-campaigns-create.sh recommend \
   [--offer-type quantity|bxgy|gwp] [--paid-qty <n> --free-qty <n>] \
   [--gift <variant_id>:<price>[:<qty>]] [--gift-mode auto|select] \
   [--bump <variant_id>:<price> ...] [--upsell <variant_id>:<price>:<pct> ...] \
+  [--post-purchase <variant_id>:<price> ...] \
+  [--additional-currencies EUR,GBP --prices-file <prices.json>] \
   [--exit 10] [--rounding 0.95] [--free-shipping | --free-shipping-min-qty <n>] \
   [--offers-available true|false]
 ```
@@ -1023,7 +1084,15 @@ bash <skill-dir>/next-campaigns-create.sh plan \
 
 `--check-store` also asks the store whether a campaign with the same name
 already exists. `plan` prints the ordered request list, the voucher codes, the landed prices
-table, the rationale, any blockers, and the plan's SHA-256. Each landed row ends with
+table, the rationale, any blockers, and the plan's SHA-256. On a campaign with
+additional currencies it also prints, per currency, `Prices in <code> (fixed)`
+with every package and shipping price, and `Landed prices in <code> (confirm
+these):`, the same rows priced in that currency by the same rule (`forex`
+currencies print one line saying `verify` reads them back). The request list
+then has a `PATCH .../packages/<key>/` with `prices[]` and
+`"recalculate_prices": false` right after each package POST, and the same after
+each shipping-method POST. The plan's hash covers every per-currency price, so
+it covers those tables. Each landed row ends with
 one of five shipping labels:
 
 | Label | Meaning |
@@ -1088,7 +1157,7 @@ whole exit code with `--exit-code`, then re-run `recommend` and `plan`:
 
 > Ready to create campaign "{name}" on {subdomain}.29next.store: {N} requests
 > ({P} packages, {S} shipping methods, {O} offers), price rounding
-> {none | .95 | .97 | .99 | .00}. {When any offer is off: {K} of {O} offers
+> {none | .95 | .97 | .99 | .00}{, also priced in {codes}, fixed | at forex}. {When any offer is off: {K} of {O} offers
 > created switched off, so customers pay the first landed table until they are
 > resumed.} The request list and the landed prices are above. Proceed?
 >
@@ -1118,6 +1187,17 @@ Emit a `TodoWrite` with the resources being created. The engine journals every
 id the moment it exists in `run-manifest.json` next to the plan, written
 atomically with mode 600. That manifest holds the campaign api_key; never print
 it.
+
+On a plan with fixed additional-currency prices, each package and shipping
+method POST is followed at once by a `PATCH` that sets them
+(`{"prices": [{"currency": "EUR", "price": "130.00"}, ...], "recalculate_prices": false}`;
+each row names its currency and price only, so a recurring price in that
+currency stays as the store holds it). The create filled those currencies by
+forex for the moment between the two. The manifest entry records
+`prices_status: pending` before the PATCH and `set` once the response holds the
+prices sent. A failed PATCH, or a 200 whose prices are not the ones sent, stops
+the run there (`apply --resume` sends it again; the PATCH is an upsert, so that
+is safe).
 
 An offer the plan switches off is created switched off: its POST carries
 `"available": false`. The engine never creates an offer live and then switches
@@ -1245,7 +1325,22 @@ campaign name and PayPal account id, package name and recurring fields, and an
 offer's name, `available`, condition type and value, benefit type and rounding.
 Not every row is PASS or FAIL: `UNVERIFIED` marks a field this store does not
 report, such as an offer threshold a read-back omits, and `INFO` marks something
-that could not be proven and is not a defect. Neither changes the verdict, and
+that could not be proven and is not a defect.
+
+On a campaign with additional currencies, per currency:
+
+- `package <key> price <code>` and `shipping <key> price <code>`: a fixed price
+  must equal the plan's; a forex one must exist (the detail shows it). A
+  missing price FAILs: the Cart API leaves that object out of every cart and
+  listing in that currency.
+- `campaign listing in <code>`, for the campaign currency too: the campaign as
+  a funnel reads it with `?currency=<code>` must answer in that currency and
+  list every package and shipping method this run created at its price.
+- Calculate cases named `[<code>] ...`: every landed row priced in that
+  currency (fixed prices, or the forex prices read back) and sent with
+  `currency`. A response in another currency FAILs, because the Cart API
+  answers a currency the campaign does not offer in the campaign currency.
+  Post-purchase rows are priced this way in every currency too. Neither changes the verdict, and
 the `VERIFY:` line counts them.
 
 On a campaign created with offers switched off, a PASS proves two things: the
@@ -1267,7 +1362,11 @@ Then hand off:
 - Campaign id, and the manifest path where the full api_key lives (gitignored,
   never echoed). Point the operator at the file; do not read the key into chat.
 - Package ids for `data-next-package-id` in the funnel markup. Gift packages
-  are listed too. For `--gift-mode auto`, tell `next-campaigns-setup` to add
+  are listed too. Post-purchase packages go on the upsell page as plain
+  packages, not as an order bump.
+- On a campaign with additional currencies: the codes, and that a page switches
+  currency by reloading with an upper-case `?currency=<code>`. A visitor in a
+  currency the campaign does not offer is priced in the campaign currency. For `--gift-mode auto`, tell `next-campaigns-setup` to add
   each gift package as a bundle item with `"noSlot": true`; for `select`, show
   it as a visible gift choice. This skill does not write that markup, and the
   Offers API will not auto-add or auto-remove the gift.
@@ -1333,6 +1432,10 @@ recreate or the dashboard:
   Teardown, except that the update path can delete the offer and create a
   replacement.
 - A shipping method's price. Update path.
+- A price in an additional currency, and adding or removing a currency. Update
+  path (`prices.<code>` and `campaign.additional_currencies`). `set_package_price`
+  changes the campaign currency's price only; each fixed currency keeps its
+  price, and its landed rows still have to be computable after the edit.
 - Adding or removing a package or a shipping method. Update path.
 - Deleting anything. An offer is paused, never deleted; the update path deletes
   under `--allow-delete`, and teardown removes the whole run.
@@ -1523,6 +1626,21 @@ from the most recent edit.
 | `... variant ... is a subscription variant` (from `--hero-variants`, `--bump`, `--upsell` or `--gift`) | the variant's option title names a subscription, usually a Shopify subscription variant synced by Shop Sync, or a mistyped id | pass a one-time variant id; read the option titles in the discovery product table |
 | `--hero-variants expects comma-separated variant ids` or `names variant ... twice` | a non-numeric or empty entry, or a repeated id | pass each variant id once, separated by commas |
 | `upsell variant ... given twice` | the same variant passed to `--upsell` more than once | pass each upsell variant once; variants of one product at the same percentage already share one voucher |
+| `upsell percentage must be a whole number in [1, 99]; got 0` | a full-price upsell asked for as a 0% voucher | `--post-purchase <variant_id>:<price>` |
+| `post-purchase variant ... is already package ...` | a post-purchase price that differs from the package that variant already has | pass the variant at its package price, or use an upsell voucher to discount it |
+| `post-purchase variant ... which upsell voucher ... discounts on the upsell page` | the same variant passed to `--upsell` and `--post-purchase` | sell it after the order one way: at full price or with the voucher |
+| `additional currency ... is not enabled on the store` | no Market makes that currency public, or the discovery predates it | add the Market (Settings > Markets), re-run `discover`, then `recommend` |
+| `--additional-currencies names ... which is the campaign currency` | `--currency` repeated in the list | list only the currencies beside it |
+| `gateway group ... does not list <codes>` | the chosen group has no gateway that accepts those currencies | add them to a gateway's Accepted Currencies under Settings > Payments and re-run `discover`, or drop them from `--additional-currencies` |
+| `gateway group ... lists no currencies` | the group has no active gateway; its card method is listed for every group | add an active gateway to the group under Settings > Payments, re-run `discover` |
+| `prices file: ... has field(s) [...] the engine does not read` | a merchant file with extra fields (rates, countries, a named upsell price) | rewrite it in the documented shape; a package price that differs from its variant's goes under `packages.<package key>` |
+| `prices file: <code> has no price for package ...` or `for shipping method ...`, or `names ..., which the prices file does not price` | a gap in the file | add the price, or drop the currency from `--additional-currencies` |
+| `prices file: package ... is ... in <campaign currency>, ... make them agree` | the file's campaign-currency row disagrees with `--anchor-price`, `--bump`, `--upsell`, `--post-purchase` or `--shipping` | correct one of them |
+| `landed prices in <code>: ...` | a row cannot be priced in that currency: its variants have different prices there, or `--rounding` lifts a discounted price to or above the price it discounts from | give the variants of one row one price per currency, or change the rounding or the percentage |
+| `additional currency ... has a fixed price on some packages and shipping methods and not on others` | a hand-edited plan that prices a currency partly | price it on every package and shipping method, or on none |
+| `set packages ... prices ...: PATCH ... returned ...` or `answered 200 but holds ...` during `apply` | the per-currency PATCH after a create did not land; the object has forex prices in those currencies | fix the cause, then `apply ... --resume <manifest>` sends it again |
+| verify `package ... price <code>` or `campaign listing in <code>` fails | a price changed or deleted in the dashboard, or a currency removed from the campaign | put the price back in the dashboard or through the update path, then verify again |
+| verify `[<code>] ...` case `priced in USD, not <code>` | the campaign does not offer that currency | add it to the campaign (update path), or check the code |
 | `products ... both shorten to voucher code name ...` or `would both get voucher code ...` | two products on this campaign land on the same short name, or the same finished code | ask the operator for a short name and pass `--short-name <product_id>:<NAME>` for one of them; never add a suffix on your own |
 | `product title ... has no distinctive words for a voucher code` | the title is only generic words (Christmas, Ornament, Calendar) and numbers | ask the operator for a short name and pass `--short-name <product_id>:<NAME>` |
 | `... lands it at ..., not below ...` | `--rounding` floors the discounted unit to the dollar and adds the ending, so a small discount rounds back up to or past the price it discounts from | pass a different `--rounding` ending, a larger percentage, or omit `--rounding` |
@@ -1613,6 +1731,14 @@ preserves existing offer semantics, including `all_packages`.
   package uses.
 - One voucher per upsell product and percentage, scoped to every variant
   package of that product.
+- A full-price package sold after the order is `--post-purchase`, never a
+  bump.
+- Never infer a price in an additional currency. It comes from a prices file the
+  operator supplies, or it is the store's forex price and the plan says so.
+- An additional currency is priced on every package and shipping method or on
+  none. Never send `recalculate_prices: true`.
+- Never remove a currency from a campaign without telling the operator that it
+  deletes that currency's prices everywhere, hand-set ones included.
 - Never touch a campaign the run manifest does not own, under any flag. `adopt`
   is the only way ownership is taken, by campaign id, and only after the
   operator has confirmed the id, the name and the created_at of the campaign
@@ -1691,7 +1817,7 @@ previous bytes as `<plan>.before-reland-<sha12>.json` beside it, and refuses whe
 | `campaign-edit.json` | you, in Phase 7 | the operations of one in-place edit |
 | `change-set.json` | `diff` | the reviewed change set: every op in order with its body, before and after, the preserved values, the plan-only differences, the warnings, the baseline snapshot and its hash, and the merged plan (`references/admin-api-contract.md` lists every key). Its own SHA-256 is the approval token for `update` |
 | `campaign-plan.<sha8>.json` | `diff`, and promotion | two kinds, both byte copies: the merged plan `diff` wrote and `update --plan` takes, and the previous canonical plan archived by each promotion. The 8 characters are the start of that plan's SHA-256 |
-| `run-manifest.json` | `apply`, `adopt`, `clone`, `edit`, `update` | every id this run owns and its status, the campaign api_key, and for an adopted run `origin: "adopted"` with `adopted_at` and `adopted_from_campaign_id`. An offer the store ignored `available: false` on carries `available_patched: true`. An edit in flight adds `pending_edit`; a finished one adds an `edits[]` entry. An update in flight adds `active_update` and an op journal; a completed one adds a `history[]` entry. A clone run has `kind: "clone"`, `plan_sha256: null`, the approval document, `clone_request`, `rename`, `inventory_complete` and `parity` |
+| `run-manifest.json` | `apply`, `adopt`, `clone`, `edit`, `update` | every id this run owns and its status (with `prices_status` on a package or shipping method whose fixed additional-currency prices `apply` set), the campaign api_key, and for an adopted run `origin: "adopted"` with `adopted_at` and `adopted_from_campaign_id`. An offer the store ignored `available: false` on carries `available_patched: true`. An edit in flight adds `pending_edit`; a finished one adds an `edits[]` entry. An update in flight adds `active_update` and an op journal; a completed one adds a `history[]` entry. A clone run has `kind: "clone"`, `plan_sha256: null`, the approval document, `clone_request`, `rename`, `inventory_complete` and `parity` |
 | `edit-<n>-receipt.json` | `edit` | the before-image of every object the edit wrote, the plan before and after, and the approval it ran under; what `--undo` replays |
 | `edit-<n>-rollback.json` | `edit --undo` on an unfinished edit | what the rollback did and the plan it left |
 | `verify-report.json` | `verify` | every read-back and cart check, with PASS, FAIL, INFO or UNVERIFIED |
@@ -1772,9 +1898,9 @@ holding a live secret.
 | `discover` | GET | `/api/admin/store/`, `/api/admin/gateway-groups/`, `/api/admin/shipping-methods/`, `/api/admin/products/`, `/api/admin/campaigns/`, `/api/admin/campaigns/{id}/offers/` (the Offers API probe), `/api/admin/metadata/` |
 | `metadata --apply` | POST | `/api/admin/metadata/` |
 | `reland` | none | rewrites the plan's `landed_prices` locally. No requests |
-| `apply` | POST, PUT, GET, PATCH | rows 1 to 5 of the write inventory; the GET and the backstop PATCH only on an offer created with `available: false` |
+| `apply` | POST, PUT, GET, PATCH | rows 1 to 5 and 29 of the write inventory; the GET and the backstop PATCH only on an offer created with `available: false` |
 | `clone` | GET, POST, PATCH | source read-back, clone POST (row 27), optional destination rename (row 28) |
-| `verify` | GET, POST | campaign read-back, then `/api/v1/carts/calculate/` on the Cart API; a clone run skips the Cart API |
+| `verify` | GET, POST | campaign read-back, then `/api/v1/carts/calculate/` on the Cart API, and `/api/v1/campaigns/?currency=` per currency on a campaign with additional currencies; a clone run skips the Cart API |
 | `edit` | GET, PATCH, POST | read-back, then rows 10 to 12 of the write inventory |
 | `teardown` | GET, DELETE | read-back, then rows 6 to 9 of the write inventory |
 | `adopt` | GET | `/api/admin/campaigns/{id}/`, its `packages/`, `shipping-methods/` and `offers/` lists, then `/api/admin/campaigns/{id}/offers/{offerId}/` for each offer's scope. No writes |

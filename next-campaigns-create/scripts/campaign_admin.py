@@ -87,6 +87,11 @@ STORE_DOMAIN = "29next.store"
 CART_API_ORIGIN = "https://campaigns.apps.29next.com"
 SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 DECIMAL_RE = re.compile(r"^\d{1,8}(?:\.\d{1,2})?$")
+CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
+# ISO 4217 currencies with no minor unit. A fixed price in one of them must be a
+# whole number; the cart engine still rounds a discount to cents in every currency.
+ZERO_DECIMAL_CURRENCIES = frozenset({"BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW", "PYG",
+                                     "RWF", "UGX", "UYI", "VND", "VUV", "XAF", "XOF", "XPF"})
 CODE_RE = re.compile(r"^[A-Z0-9]{1,64}$")
 CODE_STEM_MAX = 12
 # A short name starts with a letter: a leading number reads as a catalogue
@@ -844,6 +849,7 @@ def discover(client: Client, slug: str) -> dict:
         "gateway_groups": [
             {
                 "id": g["id"], "name": g.get("name"),
+                "is_default": g.get("is_default"),
                 "currencies": [c["code"] for c in g.get("available_currencies", [])],
                 "payment_methods": [m["code"] for m in g.get("available_payment_methods", [])],
                 "express_payment_methods": [m["code"] for m in g.get("available_express_payment_methods", [])],
@@ -885,7 +891,8 @@ def print_discovery(d: dict) -> None:
     print(f"  currencies: {', '.join(s['available_currencies'])}   languages: {', '.join(s['available_languages'])}")
     print("Gateway groups:")
     for g in d["gateway_groups"]:
-        print(f"  [{g['id']}] {g['name']}: currencies={g['currencies']} methods={g['payment_methods']} express={g['express_payment_methods']}")
+        default = "  (store default)" if g.get("is_default") else ""
+        print(f"  [{g['id']}] {g['name']}{default}: currencies={g['currencies']} methods={g['payment_methods']} express={g['express_payment_methods']}")
     print("Shipping methods:")
     for m in d["shipping_methods"]:
         print(f"  {m['code']}: {m['name']} prices={m['prices']}")
@@ -1069,23 +1076,54 @@ def _parse_kv(spec: str, parts: int, label: str) -> list:
     return bits
 
 
-def _resolve_gateway_group(discovery: dict, currency: str, requested):
-    """Auto-select only when exactly one group lists the currency; otherwise the
-    operator must name one. Never guesses between candidates."""
-    eligible = [g for g in discovery["gateway_groups"] if currency in g["currencies"]]
+EMPTY_GROUP_REASON = (
+    "the store's gateway group read lists every currency an active gateway in the group accepts, and "
+    "a gateway with no currency list counts as accepting them all, so an empty list means the group "
+    "has no active gateway. The card method it shows is listed for every group. Add an active gateway "
+    "to the group under Settings > Payments, then re-run discover")
+
+
+def _resolve_gateway_group(discovery: dict, currency: str, requested, additional=()):
+    """Auto-select only when exactly one group lists every campaign currency;
+    otherwise the operator must name one. Never guesses between candidates.
+
+    Stricter than the Campaigns API on purpose. The API accepts a group whose
+    `available_currencies` is empty and never checks the additional currencies,
+    but checkout charges through an active gateway of the group that accepts the
+    order's currency, so a currency the group does not list cannot be paid in."""
+    wanted = [currency] + [c for c in additional if c != currency]
+
+    def missing(g):
+        return [c for c in wanted if c not in g["currencies"]]
+
+    eligible = [g for g in discovery["gateway_groups"] if not missing(g)]
     if requested is not None:
         group = next((g for g in discovery["gateway_groups"] if g["id"] == requested), None)
         if group is None:
             raise CampaignAdminError(f"gateway group {requested} not found on the store")
+        if not group["currencies"]:
+            raise CampaignAdminError(f"gateway group {group['id']} ({group['name']}) lists no currencies: "
+                                     f"{EMPTY_GROUP_REASON}")
         if currency not in group["currencies"]:
             raise CampaignAdminError(f"gateway group {group['id']} ({group['name']}) does not list {currency}")
+        gap = missing(group)
+        if gap:
+            raise CampaignAdminError(
+                f"gateway group {group['id']} ({group['name']}) does not list {', '.join(gap)} "
+                f"(it lists {', '.join(group['currencies'])}), so no gateway in it can charge an order in "
+                f"{'that currency' if len(gap) == 1 else 'those currencies'}. Add {'it' if len(gap) == 1 else 'them'} "
+                "to a gateway's Accepted Currencies under Settings > Payments and re-run discover, or drop "
+                f"{'it' if len(gap) == 1 else 'them'} from --additional-currencies")
         return group
     if len(eligible) == 1:
         return eligible[0]
     if not eligible:
-        raise CampaignAdminError(f"no gateway group on the store lists {currency}")
-    opts = ", ".join(f"[{g['id']}] {g['name']}" for g in eligible)
-    raise CampaignAdminError(f"{len(eligible)} gateway groups list {currency}; pass --gateway-group: {opts}")
+        empty = [f"[{g['id']}] {g['name']}" for g in discovery["gateway_groups"] if not g["currencies"]]
+        note = (f"; group(s) {', '.join(empty)} list no currencies: {EMPTY_GROUP_REASON}" if empty else "")
+        raise CampaignAdminError(f"no gateway group on the store lists {', '.join(wanted)}{note}")
+    opts = ", ".join(f"[{g['id']}] {g['name']}" + (" (store default)" if g.get("is_default") else "")
+                     for g in eligible)
+    raise CampaignAdminError(f"{len(eligible)} gateway groups list {', '.join(wanted)}; pass --gateway-group: {opts}")
 
 
 def _subscription_option(product: dict, v: dict):
@@ -1143,6 +1181,148 @@ def _select_hero_variants(hero: dict, spec: str, products: list) -> list:
     return [v for v in hero["variants"] if v["id"] in ids]
 
 
+def _parse_additional_currencies(spec, store: dict, currency: str) -> list:
+    """--additional-currencies as a sorted list of codes the store has enabled. The
+    campaign currency is refused, as the Campaigns API refuses it."""
+    if spec is None:
+        return []
+    out = []
+    for bit in str(spec).split(","):
+        code = bit.strip().upper()
+        if not code:
+            continue
+        if not CURRENCY_RE.match(code):
+            raise CampaignAdminError(f"--additional-currencies expects comma-separated ISO 4217 codes; got {bit!r}")
+        if code == currency:
+            raise CampaignAdminError(f"--additional-currencies names {code}, which is the campaign currency "
+                                     "(--currency); list only the currencies offered beside it")
+        if code in out:
+            raise CampaignAdminError(f"--additional-currencies names {code} twice")
+        if code not in store["available_currencies"]:
+            raise CampaignAdminError(
+                f"additional currency {code} is not enabled on the store ({store['available_currencies']}); "
+                "a currency is enabled by a Market that makes it public (Settings > Markets), then re-run discover")
+        out.append(code)
+    if not out:
+        raise CampaignAdminError("--additional-currencies names no currency")
+    return sorted(out)
+
+
+PRICES_FILE_TOP = ("currencies", "source", "note")
+PRICES_FILE_CURRENCY = ("variants", "packages", "shipping", "note")
+
+
+def _fixed_price(value, code: str, where: str) -> str:
+    """One price from a prices file, in plan form. A bool is refused before the
+    number check because JSON true is an int to Python."""
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise CampaignAdminError(f"prices file: {where} in {code} must be a number; got {value!r}")
+    d = _finite(_num(value))
+    if d is None or d < 0:
+        raise CampaignAdminError(f"prices file: {where} in {code} must be a number >= 0; got {value!r}")
+    price = money(d)
+    if not DECIMAL_RE.match(price):
+        raise CampaignAdminError(f"prices file: {where} in {code} is {price}, more than 8 digits before the point")
+    if code in ZERO_DECIMAL_CURRENCIES and D(price) != D(price).to_integral_value():
+        raise CampaignAdminError(f"prices file: {where} in {code} is {price}; {code} has no minor unit, so a "
+                                 "fixed price in it is a whole number")
+    return price
+
+
+def load_prices_file(path) -> dict:
+    """A --prices-file, shape-checked: {"currencies": {CODE: {"variants": {variant_id:
+    price}, "packages": {package_key: price}, "shipping": {store_code: price}}}}.
+    A field the engine does not read is refused rather than skipped, because it may
+    hold a price the operator expects to be used."""
+    raw = load_json(path)
+    if not isinstance(raw, dict) or not isinstance(raw.get("currencies"), dict) or not raw["currencies"]:
+        raise CampaignAdminError(f"prices file {path}: expected an object with a non-empty \"currencies\" object")
+    extra = sorted(set(raw) - set(PRICES_FILE_TOP))
+    if extra:
+        raise CampaignAdminError(f"prices file {path}: unsupported top-level field(s) {extra}; only "
+                                 f"{', '.join(PRICES_FILE_TOP)} are read")
+    out = {}
+    for code, entry in raw["currencies"].items():
+        if not isinstance(code, str) or not CURRENCY_RE.match(code):
+            raise CampaignAdminError(f"prices file {path}: {code!r} is not an upper-case ISO 4217 code")
+        if not isinstance(entry, dict):
+            raise CampaignAdminError(f"prices file {path}: currencies.{code} must be an object")
+        extra = sorted(set(entry) - set(PRICES_FILE_CURRENCY))
+        if extra:
+            raise CampaignAdminError(
+                f"prices file {path}: currencies.{code} has field(s) {extra} the engine does not read. A package "
+                "price that differs from its variant's price goes under packages.<package key> (the keys the "
+                "plan prints, such as post-purchase-502); remove everything else")
+        parsed = {}
+        for section in ("variants", "packages", "shipping"):
+            rows = entry.get(section) or {}
+            if not isinstance(rows, dict):
+                raise CampaignAdminError(f"prices file {path}: currencies.{code}.{section} must be an object")
+            parsed[section] = {str(k): _fixed_price(v, code, f"{section}.{k}") for k, v in rows.items()}
+        out[code] = parsed
+    return out
+
+
+def _attach_fixed_prices(packages: list, shipping: list, prices: dict, currency: str,
+                         additional: list, rationale: list) -> None:
+    """Give every package and shipping method its fixed price in each additional
+    currency, from the parsed prices file. A package takes `packages[key]`, else
+    `variants[variant id]`; a shipping method takes `shipping[store code]`. Every
+    additional currency must be in the file, and every package and shipping method
+    priced in it: a partly priced currency would leave the rest to forex, and the plan
+    could not say what the cart charges in it."""
+    missing = [c for c in additional if c not in prices]
+    if missing:
+        raise CampaignAdminError(
+            f"--additional-currencies names {', '.join(missing)}, which the prices file does not price; add "
+            f"{'it' if len(missing) == 1 else 'them'} to the file or drop {'it' if len(missing) == 1 else 'them'} "
+            "from --additional-currencies")
+    keys = {p["key"] for p in packages}
+    for code, entry in sorted(prices.items()):
+        stray = sorted(set(entry["packages"]) - keys)
+        if stray:
+            raise CampaignAdminError(f"prices file: currencies.{code}.packages names {stray}, which this plan "
+                                     f"does not have; its package keys are {sorted(keys)}")
+    for code in [currency] + additional:
+        entry = prices.get(code)
+        if entry is None:
+            continue
+        for p in packages:
+            vid = str(p["product_variant_ids"][0])
+            got = entry["packages"].get(p["key"], entry["variants"].get(vid))
+            if got is None:
+                raise CampaignAdminError(
+                    f"prices file: {code} has no price for package {p['key']} (variant {vid}); add "
+                    f"currencies.{code}.variants.{vid}, or currencies.{code}.packages.{p['key']} when the "
+                    "package price differs from the variant's")
+            if code == currency:
+                if D(got) != D(p["price"]):
+                    raise CampaignAdminError(
+                        f"prices file: package {p['key']} is {got} in {code}, the campaign currency, and the "
+                        f"plan prices it at {p['price']} from the command line; make them agree")
+                continue
+            if (D(got) == 0) != (D(p["price"]) == 0):
+                raise CampaignAdminError(f"prices file: package {p['key']} is {got} in {code} and {p['price']} in "
+                                         f"{currency}; a package is free in every currency or in none")
+            p.setdefault("prices", {})[code] = got
+        for s in shipping:
+            got = entry["shipping"].get(s["shipping_method"])
+            if got is None:
+                raise CampaignAdminError(f"prices file: {code} has no price for shipping method "
+                                         f"{s['shipping_method']}; add currencies.{code}.shipping.{s['shipping_method']}")
+            if code == currency:
+                if D(got) != D(s["price"]):
+                    raise CampaignAdminError(
+                        f"prices file: shipping {s['shipping_method']} is {got} in {code}, the campaign currency, "
+                        f"and the plan charges {s['price']} from --shipping; make them agree")
+                continue
+            s.setdefault("prices", {})[code] = got
+    unused = sorted(set(prices) - set(additional) - {currency})
+    if unused:
+        rationale.append(f"The prices file also prices {', '.join(unused)}; this plan does not offer "
+                         f"{'it' if len(unused) == 1 else 'them'} (not in --additional-currencies).")
+
+
 def recommend(discovery: dict, a: argparse.Namespace) -> dict:
     check_origin_binding(discovery, "discovery")
     store = discovery["store"]
@@ -1159,8 +1339,14 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
     anchor = D(a.anchor_price)
     if anchor <= 0:
         raise CampaignAdminError(f"--anchor-price must be greater than 0; got {a.anchor_price}")
+    additional = _parse_additional_currencies(getattr(a, "additional_currencies", None), store, currency)
+    prices_file = getattr(a, "prices_file", None)
+    fixed = load_prices_file(prices_file) if prices_file else None
+    if fixed is not None and not additional:
+        raise CampaignAdminError("--prices-file sets prices for additional currencies; pass "
+                                 "--additional-currencies to say which ones this campaign offers")
 
-    group = _resolve_gateway_group(discovery, currency, a.gateway_group)
+    group = _resolve_gateway_group(discovery, currency, a.gateway_group, additional)
 
     methods = [m.strip() for m in a.payment_methods.split(",")] if a.payment_methods else list(group["payment_methods"])
     express = [m.strip() for m in a.express_methods.split(",")] if a.express_methods else list(group["express_payment_methods"])
@@ -1228,7 +1414,7 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
 
     # bumps / upsells: explicit variant, price, pct; nothing inferred
     variant_index = {v["id"]: (p, v) for p in discovery["products"] for v in p["variants"]}
-    seen_upsell_variants = set()
+    seen_upsell_variants, seen_post_variants = set(), set()
 
     def add_extra(spec: str, role: str):
         """(package, pct, title, reused). An upsell reuses any hero or bump package
@@ -1236,8 +1422,11 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
         bump is built before any upsell (they are separate argument lists), so the
         flag order on the command line does not matter. A bump always gets its own
         package so it never counts toward hero tiers."""
-        parts = _parse_kv(spec, 2 if role == "bump" else 3, role)
-        vid = int(parts[0])
+        parts = _parse_kv(spec, 3 if role == "upsell" else 2, role)
+        try:
+            vid = int(parts[0])
+        except ValueError:
+            raise CampaignAdminError(f"--{role} variant id must be an integer; got {parts[0]!r}")
         if vid not in variant_index:
             raise CampaignAdminError(f"{role} variant {vid} not found in discovery")
         if not DECIMAL_RE.match(parts[1]):
@@ -1289,6 +1478,31 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
                     f"upsell variant {vid} is already package {held['key']} at {held['price']}; the Campaigns "
                     f"API allows one package per variant, so the upsell reuses that package at its price and "
                     f"the voucher percentage sets the upsell price.{hint}")
+        if role == "post-purchase":
+            if vid in seen_post_variants:
+                raise CampaignAdminError(f"post-purchase variant {vid} given twice; pass each variant once")
+            seen_post_variants.add(vid)
+            held = next((x for x in packages if x.get("product_variant_ids") == [vid]), None)
+            if held is not None:
+                # The upsell vouchers are all built by now. One scoped to this package
+                # is redeemable on the same upsell page, so the package would carry two
+                # prices there: its voucher's and this full one.
+                voucher = next((o for o in offers if o.get("offer_type") == "voucher"
+                                and held["key"] in o["condition"]["package_keys"]), None)
+                if voucher is not None:
+                    raise CampaignAdminError(
+                        f"post-purchase variant {vid} is package {held['key']}, which upsell voucher "
+                        f"{voucher['code']} ({voucher['key']}) discounts on the upsell page; sell it there at its "
+                        "full price (--post-purchase) or with that voucher (--upsell), not both")
+                if D(held["price"]) == D(price):
+                    rationale.append(f"Post-purchase {title} ({v.get('title')}) reuses package {held['key']}: same "
+                                     "variant at the same price, so no second package is created.")
+                    return held, None, title, True
+                raise CampaignAdminError(
+                    f"post-purchase variant {vid} is already package {held['key']} at {held['price']}; the "
+                    "Campaigns API allows one package per variant. Pass --post-purchase "
+                    f"{vid}:{held['price']} to sell that package after the order at its price, or an upsell "
+                    "voucher to discount it")
         pkg = {"key": f"{role}-{vid}", "role": role, "name": title, "variant_title": v.get("title"),
                "product_id": p["id"], "product_variant_ids": [vid], "price": price}
         packages.append(pkg)
@@ -1324,7 +1538,9 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
         # A 100% discount yields a zero-priced unit, which this tool never creates on
         # purpose; reject it here so it fails at plan time, not at checkout.
         if d != d.to_integral_value() or not (Decimal(0) < d < Decimal(100)):
-            raise CampaignAdminError(f"{what} percentage must be a whole number in [1, 99]; got {x}")
+            hint = ("; for a full-price package sold after the order, pass --post-purchase "
+                    "<variant_id>:<price> instead" if what == "upsell" and d == 0 else "")
+            raise CampaignAdminError(f"{what} percentage must be a whole number in [1, 99]; got {x}{hint}")
         return int(d)
 
     offer_kind = getattr(a, "offer_type", None) or "quantity"
@@ -1608,6 +1824,28 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
             if buyable - given:
                 rationale.append(f"Upsell {title} covers {len(given & buyable)} of its {len(buyable)} purchasable "
                                  f"variants; variants {sorted(buyable - given)} are not in any upsell voucher.")
+    # Post-purchase packages: sold on an upsell page at their package price, with no
+    # voucher. The row is an upsell row at 0%, so verify prices it in upsell mode.
+    post_items = [add_extra(spec, "post-purchase") for spec in getattr(a, "post_purchase", None) or []]
+    hero_post_keys = []  # post-purchase packages that are hero packages, for the exit-voucher note below
+    post_per_product = {}
+    for pkg, _, _, _ in post_items:
+        post_per_product[pkg["product_id"]] = post_per_product.get(pkg["product_id"], 0) + 1
+    for pkg, _, title, reused in post_items:
+        solo = post_per_product[pkg["product_id"]] == 1
+        label = (f"Post-purchase {title}" if solo else
+                 f"Post-purchase {pkg.get('variant_title') or pkg['name']} ({pkg['key']})")
+        landed.append({"tier": label, "kind": "upsell", "qty": 1, "offer_key": None,
+                       "package_keys": [pkg["key"]],
+                       "anchor": pkg["price"], "pct": 0,
+                       "unit_after": pkg["price"], "order_total": pkg["price"]})
+        rationale.append(f"Post-purchase {title} ({pkg.get('variant_title')}) at {pkg['price']}, its package price: "
+                         "an upsell-page package with no voucher (operator-specified). The order is charged "
+                         "in the currency the first order was placed in.")
+        if reused and pkg.get("role") == "hero":
+            hero_post_keys.append(pkg["key"])
+            handoff.append(f"Post-purchase package {pkg['key']} is also a hero package on the checkout page; "
+                           "the upsell page sells it again at the same price.")
     upsell_labels = [l["tier"] for l in landed if l["kind"] == "upsell"]
     if len(upsell_labels) != len(set(upsell_labels)):
         raise CampaignAdminError(f"upsell landed labels are not unique: {upsell_labels} (bug)")
@@ -1722,6 +1960,10 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
                                         D(row["unit_after"]), D(exit_pct), rounding)
         rationale.append(f"Exit-pop voucher for an additional {exit_pct}% applies on top of the tier price "
                          "(offer doctrine: Rounding and stacking).")
+        if hero_post_keys:
+            handoff.append(f"Exit voucher {exit_code} is scoped to the hero packages, so it also works on the "
+                           f"upsell page for post-purchase package(s) {hero_post_keys} if a shopper enters it. "
+                           "Never show that code on the upsell page.")
     if free_ship:
         rule = "every order" if min_qty is None else f"Buy {min_qty}+"
         if offers_supported is not False:
@@ -1801,6 +2043,28 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
                 "--offers-available cannot apply: this store answers 404/405 on the offers endpoint, so the plan "
                 "carries no offers (they are a dashboard hand-off) and nothing can be switched off here; switch "
                 "them off in the dashboard instead")
+    if fixed is not None:
+        _attach_fixed_prices(packages, shipping, fixed, currency, additional, rationale)
+    if additional:
+        rationale.append(
+            f"Also offered in {', '.join(additional)} (--additional-currencies). "
+            + ("Every package and shipping method has a fixed price in each, from --prices-file; apply "
+               "sets them right after creating each one, with recalculate_prices false."
+               if fixed is not None else
+               "No --prices-file: the store converts each price from "
+               f"{currency} by forex when a package or shipping method is created, so the plan cannot say "
+               "what the cart charges in them; verify reads those prices back and prices carts from them."))
+        zero = [c for c in additional if c in ZERO_DECIMAL_CURRENCIES]
+        if zero and any(o["benefit"]["type"] == "package_percentage" and D(o["benefit"]["value"]) < 100
+                        for o in offers):
+            rationale.append(f"{', '.join(zero)} {'has' if len(zero) == 1 else 'have'} no minor unit, but the cart "
+                             "engine rounds a percentage discount to cents in every currency, so a discounted "
+                             "price there can land on a fraction. Check the landed prices per currency.")
+        if group.get("is_default") is not None:
+            rationale.append(f"Gateway group [{group['id']}] {group['name']}"
+                             f"{' (the store default)' if group.get('is_default') else ''} lists "
+                             f"{', '.join(group['currencies'])}, which covers {currency} and "
+                             f"{', '.join(additional)}.")
     result = {
         "store_slug": discovery["store_slug"],
         "store_origin": discovery["store_origin"],
@@ -1811,7 +2075,7 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
             "name": a.name or hero_title,
             "currency": currency, "language": language,
             "payment_gateway_group_id": group["id"],
-            "additional_currencies": [],
+            "additional_currencies": list(additional),
             "available_payment_methods": methods,
             "available_express_payment_methods": express,
             "available_shipping_countries": countries,
@@ -1842,6 +2106,15 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
                 "Every offer is created with available=false (--offers-available false): the campaign exists but "
                 "no discount fires until the offers are resumed with edit set_offer_available, so the landed "
                 "prices above are the package prices. The prices once resumed are listed separately.")
+    # Every pricing gate above ran in the campaign currency. The same rows priced in
+    # each fixed currency go through reland's gates too (rounding that lifts a
+    # discounted price, variants of one row priced apart), with every offer live, so
+    # a switched-off plan is proven sound for the moment it is resumed. A store
+    # without the Offers API carries discounted rows with no offer behind them, which
+    # nothing can reprice; their offers are a dashboard hand-off in every currency.
+    if offers_supported is not False:
+        currency_landed(_as_live(result))
+        currency_landed(result)
     return result
 
 
@@ -1919,6 +2192,13 @@ def validate_plan(plan: dict, for_create: bool = True) -> list:
     read back and priced."""
     try:
         errs = _validate_plan(plan)
+        if for_create and not errs and plan.get("origin") != "adopted":
+            # A currency some objects fix and others leave to forex is one the plan
+            # cannot state the cart price in. An adopted plan records what is live,
+            # gaps included, so it is not held to this.
+            partial = [c for c, kind in currency_coverage(plan).items() if kind == "partial"]
+            errs += [f"additional currency {c} has a fixed price on some packages and shipping methods and "
+                     "not on others; give every one a price in it (prices.<code>), or none" for c in partial]
         return errs + (_uniqueness_errors(plan) if for_create else [])
     except (TypeError, AttributeError, KeyError, ValueError, InvalidOperation) as e:
         return [f"plan is malformed ({type(e).__name__}: {e}); regenerate it with recommend "
@@ -1969,6 +2249,33 @@ def _validate_plan(plan: dict) -> list:
         errs.append("campaign.statement_descriptor must be a string of at most 255 characters")
     if type(c.get("payment_gateway_group_id")) is not int:
         errs.append("campaign.payment_gateway_group_id must be an integer")
+    addl = c.get("additional_currencies")
+    if addl is not None and not isinstance(addl, list):
+        errs.append("campaign.additional_currencies must be a list of currency codes")
+        addl = []
+    addl = list(addl or [])
+    for code in addl:
+        if not isinstance(code, str) or not CURRENCY_RE.match(code):
+            errs.append(f"campaign.additional_currencies: {code!r} is not an upper-case ISO 4217 code")
+    if len({str(x) for x in addl}) != len(addl):
+        errs.append("campaign.additional_currencies names a currency twice")
+    if c.get("currency") in addl:
+        errs.append(f"campaign.additional_currencies includes the campaign currency {c.get('currency')}")
+
+    def prices_errors(tag, obj):
+        raw = obj.get("prices")
+        if raw is None:
+            return []
+        if not isinstance(raw, dict):
+            return [f"{tag}: prices must be an object of currency code to price"]
+        out = []
+        for code, v in raw.items():
+            if code not in addl:
+                out.append(f"{tag}: prices.{code} is not one of campaign.additional_currencies {addl}"
+                           + (" (the campaign currency's price is `price`)" if code == c.get("currency") else ""))
+            elif not DECIMAL_RE.match(str(v)):
+                out.append(f"{tag}: prices.{code} {v!r} is not a decimal (max 8 digits, 2 places)")
+        return out
 
     keys = set()
     for p in plan.get("packages", []):
@@ -1991,6 +2298,7 @@ def _validate_plan(plan: dict) -> list:
             errs.append(f"package {k}: price {p.get('price')!r} is not a decimal (max 8 digits, 2 places)")
         if p.get("image") is not None:
             errs.extend(_image_errors(k, p["image"]))
+        errs.extend(prices_errors(f"package {k}", p))
     if not plan.get("packages"):
         errs.append("at least one package is required")
 
@@ -2019,6 +2327,7 @@ def _validate_plan(plan: dict) -> list:
             errs.append(f"duplicate shipping key {k!r}{hint}")
         else:
             ship_keys[k] = s
+        errs.extend(prices_errors(f"shipping {k}", s))
         price = str(s.get("price", ""))
         if not DECIMAL_RE.match(price):
             errs.append(f"shipping {k}: price {s.get('price')!r} is not a decimal")
@@ -2257,6 +2566,22 @@ def campaign_patch_body(live_n: dict, desired_n: dict) -> dict:
     return body
 
 
+def _with_currency_rows(body: dict, changed: dict) -> dict:
+    """Add the additional-currency rows an op changes (`prices.CODE` keys of
+    `changed`, valued (live, new)) to a PATCH body, with `recalculate_prices` false
+    so nothing else is converted. Each row names its currency and price only, so a
+    recurring price in that currency is left as the store holds it (the plan has
+    none per currency). A body with no such row is returned as it was."""
+    rows = [{"currency": f[len("prices."):], "price": new}
+            for f, (_old, new) in sorted((changed or {}).items()) if f.startswith("prices.")]
+    if not rows:
+        return body
+    out = dict(body)
+    out["prices"] = list(out.get("prices") or []) + rows
+    out["recalculate_prices"] = False
+    return out
+
+
 def package_patch_body(live_n: dict, desired: dict, currency: str) -> dict:
     """A package PATCH: the changed name, one `prices` row for the campaign currency
     when either price moved, and the recurring pair when it changed. `prices` is a
@@ -2295,12 +2620,19 @@ def render_requests(plan: dict) -> list:
     reqs = [("POST", "/api/admin/campaigns/", campaign_body(plan))]
     for p in plan["packages"]:
         reqs.append(("POST", "/api/admin/campaigns/{campaign_id}/packages/", package_body(p)))
+        fixed = prices_patch_body(p)
+        if fixed is not None:
+            reqs.append(("PATCH", f"/api/admin/campaigns/{{campaign_id}}/packages/<{p['key']}>/", fixed))
         img = image_body(p)
         if img is not None:
             reqs.append(("PUT", f"/api/admin/campaigns/{{campaign_id}}/packages/<{p['key']}>/image/", img))
     for s in plan["shipping_methods"]:
         reqs.append(("POST", "/api/admin/campaigns/{campaign_id}/shipping-methods/",
                      {"shipping_method": s["shipping_method"], "price": s["price"]}))
+        fixed = prices_patch_body(s)
+        if fixed is not None:
+            reqs.append(("PATCH", f"/api/admin/campaigns/{{campaign_id}}/shipping-methods/<{ship_key(s)}>/",
+                         fixed))
     placeholder = {p["key"]: f"<{p['key']}>" for p in plan["packages"]}
     for o in plan.get("offers", []):
         reqs.append(("POST", "/api/admin/campaigns/{campaign_id}/offers/", offer_body(o, placeholder)))
@@ -2325,6 +2657,44 @@ def _print_landed_row(plan: dict, l: dict) -> None:
 _PREVIEW_ERRORS = (CampaignAdminError, KeyError, TypeError, ValueError, AttributeError, InvalidOperation)
 
 
+def _print_currencies(plan: dict, resumed_too: bool) -> None:
+    """The plan gate's per-currency block: each additional currency's prices and,
+    for a currency the plan fixes in full, its landed rows priced the same way as
+    the campaign currency's (and once resumed, when offers start switched off)."""
+    coverage = currency_coverage(plan)
+    for code, kind in coverage.items():
+        if kind == "forex":
+            print(f"Prices in {code}: forex. The store converts each price from {plan['campaign']['currency']} "
+                  "when the package or shipping method is created; verify reads them back and prices carts "
+                  "from them.")
+            continue
+        rows = [f"{p['key']} {fixed_prices(p).get(code, 'forex')}" for p in plan.get("packages") or []]
+        rows += [f"shipping {ship_key(s)} {fixed_prices(s).get(code, 'forex')}"
+                 for s in plan.get("shipping_methods") or []]
+        print(f"Prices in {code} ({kind}): " + ", ".join(rows))
+        if kind == "partial":
+            print(f"  {code} is fixed on some objects only, so its landed prices cannot be stated; apply refuses "
+                  "this plan")
+            continue
+        if not plan.get("landed_prices"):
+            continue  # an adopted plan: nothing says what the discounts came off
+        pk = {p["key"]: fixed_prices(p)[code] for p in plan["packages"]}
+        sm = {ship_key(s): fixed_prices(s)[code] for s in plan["shipping_methods"]}
+        for title, source in ((f"Landed prices in {code} (confirm these):", plan),
+                              (f"Landed prices in {code} once the offers are resumed:",
+                               _as_live(plan) if resumed_too else None)):
+            if source is None:
+                continue
+            try:
+                priced = plan_in_currency(source, code, pk, sm)
+            except _PREVIEW_ERRORS as e:
+                print(f"{title}\n  cannot be computed: {e}")
+                continue
+            print(title)
+            for l in priced["landed_prices"]:
+                _print_landed_row(priced, l)
+
+
 def print_plan(plan: dict, plan_path: Path | None) -> None:
     c = plan["campaign"]
     adopted = plan.get("origin") == "adopted"
@@ -2332,6 +2702,8 @@ def print_plan(plan: dict, plan_path: Path | None) -> None:
     kind = plan.get("offer_kind") or "quantity"
     print(f"Campaign: {c['name']}  {c['currency']}/{c['language']}  gateway group {c['payment_gateway_group_id']}  store {plan['store_origin']}  offer {kind}")
     print(f"  payment methods: {c['available_payment_methods']}  express: {c['available_express_payment_methods']}  countries: {c['available_shipping_countries'] or 'all'}")
+    if additional_currencies(plan):
+        print(f"  additional currencies: {', '.join(additional_currencies(plan))}")
     print("Packages:")
     for p in plan["packages"]:
         img_spec = p.get("image")
@@ -2385,6 +2757,7 @@ def print_plan(plan: dict, plan_path: Path | None) -> None:
             print(f"  cannot be recomputed: {e}")
         print(f"{len(paused)} of {len(plan.get('offers') or [])} offers are created switched off; resume with: "
               "edit set_offer_available")
+    _print_currencies(plan, paused and not adopted)
     for r in plan.get("rationale", []):
         print(f"  why: {r}")
     if plan.get("blockers"):
@@ -2701,6 +3074,37 @@ def _put_image(client: Client, man: Manifest, cid, p: dict, e: dict, st: dict,
         print(f"set image on package {e['id']} {p['key']!r}")
 
 
+def _set_fixed_prices(client: Client, man: Manifest, cid, section: str, key: str, obj: dict) -> None:
+    """PATCH one created package or shipping method with its fixed prices in the
+    additional currencies, journalled. The create filled those currencies by forex
+    from the campaign-currency price; this replaces them. The PATCH is an upsert of
+    the currencies it names, so a resume after a lost response sends it again
+    safely. The answer is read back: a 200 whose prices are not the ones sent stops
+    the run, because the cart would charge them."""
+    body = prices_patch_body(obj)
+    e = man.entry(section, key)
+    if body is None or (e or {}).get("prices_status") == "set":
+        return
+    path = f"/api/admin/campaigns/{cid}/{SECTION_ROUTES[section]}/{e['id']}/"
+    man.mark(section, key, prices_status="pending", prices_intent=body)
+    status, resp = client.request("PATCH", path, body)
+    if status != 200 or not isinstance(resp, dict):
+        raise CampaignAdminError(
+            f"set {section} {key} prices in {', '.join(r['currency'] for r in body['prices'])}: PATCH {path} "
+            f"returned {status}: {_short(resp)}. The object exists with forex prices in those currencies; "
+            "apply --resume sends the PATCH again" + auth_hint(status, "PATCH", path))
+    def held(code):
+        v = _price_in(resp, code)
+        return f"{code} {v}" if v is not None else f"no {code} price row"
+    wrong = [f"{held(r['currency'])} (sent {r['price']})" for r in body["prices"]
+             if _finite(_num(_price_in(resp, r["currency"]))) != D(r["price"])]
+    if wrong:
+        raise CampaignAdminError(f"set {section} {key} prices: the store answered 200 but holds {', '.join(wrong)}; "
+                                 "apply --resume sends the PATCH again")
+    man.mark(section, key, prices_status="set", prices_intent=None)
+    print(f"set {section} {key} prices in {', '.join(r['currency'] for r in body['prices'])}")
+
+
 def apply(client: Client, plan: dict, plan_sha: str, manifest_path: Path, resume_path: Path | None) -> Manifest:
     errs = validate_plan(plan)
     if errs:
@@ -2714,6 +3118,14 @@ def apply(client: Client, plan: dict, plan_sha: str, manifest_path: Path, resume
     stale = None if plan.get("origin") == "adopted" else _paused_rows_problem(plan)
     if stale:
         raise CampaignAdminError(stale)
+    # The landed prices in every fixed currency have to be computable, or the plan
+    # the operator approved could not have shown them. Rows discounted by an offer
+    # the store's missing Offers API left to the dashboard cannot be repriced
+    # anywhere, so such a plan is left to verify, as it is in the campaign currency.
+    if plan.get("origin") != "adopted" and not any(
+            l.get("offer_key") is None and (_num(l.get("pct")) or Decimal(0)) != 0
+            for l in plan.get("landed_prices") or []):
+        currency_landed(plan)
 
     if resume_path:
         man = Manifest.load(resume_path)
@@ -2795,7 +3207,8 @@ def apply(client: Client, plan: dict, plan_sha: str, manifest_path: Path, resume
             print(f"created package {resp['id']} {p['name']!r}")
 
         # Outside the created-guard above on purpose: a resumed run whose package
-        # already exists must still be able to land its image.
+        # already exists must still be able to land its prices and its image.
+        _set_fixed_prices(client, man, cid, "packages", p["key"], p)
         _put_image(client, man, cid, p, e, img_state)
     images_unsupported, image_failures = img_state["unsupported"], img_state["failures"]
 
@@ -2804,6 +3217,7 @@ def apply(client: Client, plan: dict, plan_sha: str, manifest_path: Path, resume
         key = ship_key(s)
         e = man.entry("shipping_methods", key)
         if e and e.get("status") == "created":
+            _set_fixed_prices(client, man, cid, "shipping_methods", key, s)
             continue
         body = {"shipping_method": s["shipping_method"], "price": s["price"]}
         man.mark("shipping_methods", key, status="pending", intent=body)
@@ -2814,6 +3228,7 @@ def apply(client: Client, plan: dict, plan_sha: str, manifest_path: Path, resume
         man.mark("shipping_methods", key, status="created", id=resp["id"],
                  shipping_method=resp.get("shipping_method") or s["shipping_method"], intent=None)
         print(f"created shipping method {resp['id']} {key!r} ({s['shipping_method']} at {s['price']})")
+        _set_fixed_prices(client, man, cid, "shipping_methods", key, s)
 
     # offers
     package_ids = {e["key"]: e["id"] for e in man.data["packages"] if e.get("status") == "created"}
@@ -3271,6 +3686,9 @@ def _cart_cases_from_plan(plan: dict, ids: dict) -> list:
             up = offers.get(l.get("offer_key")) if l.get("offer_key") else None
             if up and up.get("offer_type") == "voucher":
                 add(f"{l['tier']} voucher", [(keys[0], 1)], [up["code"]], D(l["unit_after"]), ship="none")
+            elif l.get("offer_key") is None and _num(l.get("pct")) == 0:
+                # A post-purchase package at its package price: upsell mode, no code.
+                add(l["tier"], [(keys[0], 1)], [], D(l["unit_after"]), ship="none")
 
     # Hero and gift package_percentage offers run in the same cart when a gift is
     # present; prove they do not shadow each other (separate single-line cases alone
@@ -3399,6 +3817,26 @@ def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: st
 
     pkgs = {p["id"]: p for p in client.paginate(f"/api/admin/campaigns/{cid}/packages/")}
     ids = {}
+    addl = additional_currencies(plan)
+    # What each created object costs in each additional currency, read back: the
+    # plan's fixed price once the store holds it, else the store's forex price.
+    # Carts in that currency are priced from these.
+    in_currency = {code: {"packages": {}, "shipping_methods": {}} for code in addl}
+
+    def currency_rows(section, label, key, obj, live_obj):
+        for code in addl:
+            got = _finite(_num(_price_in(live_obj, code)))
+            want = fixed_prices(obj).get(code)
+            if got is not None:
+                in_currency[code][section][key] = money(got)
+            if want is not None:
+                check(f"{label} {key} price {code}", got == D(want),
+                      f"{money(got)} vs {want}" if got is not None else
+                      f"no {code} price (plan {want}): the Cart API leaves it out of {code} carts and listings")
+            else:
+                check(f"{label} {key} price {code}", got is not None,
+                      f"forex {money(got)}" if got is not None else
+                      f"no {code} price: the Cart API leaves it out of {code} carts and listings")
     # The loop below walks the manifest, so a planned package that never reached the
     # journal would otherwise produce no row at all and fail nothing.
     journalled = {e.get("key") for e in man.data["packages"]}
@@ -3423,6 +3861,7 @@ def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: st
         live_prices = live_p.get("prices") or []
         price = next((x.get("price") for x in live_prices if x.get("currency") == c["currency"]), None)
         check(f"package {e['key']} price", _num(price) == D(p["price"]), f"{price} vs {p['price']}")
+        currency_rows("packages", "package", e["key"], p, live_p)
         check(f"package {e['key']} name", _live_package_name_ok(live_p.get("name"), p),
               f"{live_p.get('name')} vs {p['name']}")
         check(f"package {e['key']} variant", live_p.get("product_variant_id") == p["product_variant_ids"][0], str(live_p.get("product_variant_id")))
@@ -3486,6 +3925,7 @@ def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: st
         live_price = _finite(_num(price))
         check(f"shipping {e['key']} price", live_price == D(s["price"]),
               f"{'unreadable' if live_price is None else price} vs {s['price']}")
+        currency_rows("shipping_methods", "shipping", e["key"], s, live_s)
         if live_s.get("shipping_method") == s["shipping_method"]:
             ship_by_key.setdefault(e["key"], (e["id"], D(s["price"])))
     # A row without its own shipping_key carries the PLAN's first shipping method,
@@ -3581,11 +4021,20 @@ def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: st
             ok, detail = _free_shipping_coverage(cart_cases, free_offers, key, n, scope, case_ship_price)
             check(f"offer {key} free-shipping coverage", ok, detail)
 
-    for case in cart_cases:
+    def run_case(case, ships, code=None):
+        """POST one cart to calculate and record it. `ships` is shipping key ->
+        (created id, price in this cart's currency). `code` is an additional currency
+        the cart is priced in, sent as `currency`; the Cart API answers a code the
+        campaign does not offer in the campaign currency instead, so the answer's
+        currency is checked too."""
         name, lines, vouchers, expected, ship = case.name, case.lines, case.vouchers, case.expected, case.ship
+        if code:
+            name = f"[{code}] {name}"
         body = {"lines": lines}
         if vouchers:
             body["vouchers"] = vouchers
+        if code:
+            body["currency"] = code
         path = "/api/v1/carts/calculate/"
         sk = case_ship_key(case)
         shipping_price = Decimal(0)
@@ -3595,26 +4044,37 @@ def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: st
             # The Cart API's upsell mode skips site-wide automatic offers, as a real
             # upsell page does; an upsell has no shipping method of its own.
             path += "?upsell=true"
-        elif sk is not None and sk not in ship_by_key:
+        elif sk is not None and sk not in ships:
             # Probing without the row's method would price a different cart and
             # could pass; the row is unproven, so it fails without a call.
-            cases.append({"case": name, "result": "FAIL", "status": None,
+            cases.append({"case": name, "result": "FAIL", "status": None, "currency": code or c["currency"],
                           "expected_total": None, "got_total": None, "delta": None,
                           "tolerance": money(tol), "units": units,
                           "shipping": ship, "expected_shipping": None, "shipping_key": sk,
                           "path": path, "request": body, "response_keys": None,
                           "error": f"shipping method {sk!r} was not created; cannot price this row"})
-            continue
+            return
         elif sk is not None:
-            body["shipping_method"], shipping_price = ship_by_key[sk]
+            body["shipping_method"], shipping_price = ships[sk]
         status, resp = cart.request("POST", path, body)
         got_total = _num((resp or {}).get("total")) if isinstance(resp, dict) else None
+        got_currency = resp.get("currency") if isinstance(resp, dict) else None
         shipped = "shipping_method" in body
         ship_component = shipping_price if (ship == "paid" and shipped) else Decimal(0)
         want_total = expected + ship_component
         delta = None if got_total is None else (got_total - want_total)
-        ok = status == 200 and delta is not None and abs(delta) <= tol
+        want_currency = code or c["currency"]
+        # The campaign currency's carts predate this check: a response that names no
+        # currency is read as that currency. An additional currency has to be named.
+        currency_ok = got_currency == want_currency or (code is None and got_currency is None)
+        ok = status == 200 and delta is not None and abs(delta) <= tol and currency_ok
+        error = None
+        if not ok:
+            error = (f"priced in {got_currency or 'no named currency'}, not {want_currency}: the Cart API "
+                     "answers a currency the campaign does not offer in the campaign currency"
+                     if status == 200 and not currency_ok else _short(resp))
         cases.append({"case": name, "result": "PASS" if ok else "FAIL", "status": status,
+                      "currency": want_currency,
                       "expected_total": money(want_total), "got_total": None if got_total is None else money(got_total),
                       "delta": None if delta is None else money(delta),
                       "tolerance": money(tol), "units": units,
@@ -3622,7 +4082,88 @@ def verify(client: Client, cart: Client, man: Manifest, plan: dict, plan_sha: st
                       "shipping_key": sk if shipped else None,
                       "path": path, "request": body,
                       "response_keys": sorted(resp.keys()) if isinstance(resp, dict) else None,
-                      "error": None if ok else _short(resp)})
+                      "error": error})
+
+    for case in cart_cases:
+        run_case(case, ship_by_key)
+
+    def expected_in(code, section):
+        """What each created object should cost in `code`: the plan's fixed price,
+        or for a currency the plan leaves to forex, the price the store read back."""
+        objs = plan["packages"] if section == "packages" else plan["shipping_methods"]
+        out = {}
+        for o in objs:
+            k = o["key"] if section == "packages" else ship_key(o)
+            v = fixed_prices(o).get(code, in_currency[code][section].get(k))
+            if v is not None:
+                out[k] = v
+        return out
+
+    if addl:
+        # The public campaign read drops every package and shipping method that has
+        # no price in the requested currency, and answers a currency the campaign
+        # does not offer in the campaign currency. Each currency is read once.
+        want_pk = {c["currency"]: {p["key"]: D(p["price"]) for p in plan["packages"] if p["key"] in ids}}
+        want_sm = {c["currency"]: {k: price for k, (_sid, price) in ship_by_key.items()}}
+        for code in addl:
+            want_pk[code] = {k: D(v) for k, v in expected_in(code, "packages").items() if k in ids}
+            want_sm[code] = {k: D(v) for k, v in expected_in(code, "shipping_methods").items()
+                             if k in ship_by_key}
+        for code in [c["currency"]] + addl:
+            path = f"/api/v1/campaigns/?currency={code}"
+            st, resp = cart.request("GET", path)
+            if st != 200 or not isinstance(resp, dict):
+                check(f"campaign listing in {code}", False, f"GET {path} returned {st}: {_short(resp)}")
+                continue
+            listed_pk = {x.get("ref_id"): x for x in resp.get("packages") or [] if isinstance(x, dict)}
+            listed_sm = {x.get("ref_id"): x for x in resp.get("shipping_methods") or [] if isinstance(x, dict)}
+            problems = []
+            if resp.get("currency") != code:
+                problems.append(f"answered in {resp.get('currency')}, so {code} is not offered")
+            for k, price in sorted(want_pk[code].items()):
+                x = listed_pk.get(ids[k])
+                if x is None:
+                    problems.append(f"package {k} (id {ids[k]}) is not listed")
+                elif _finite(_num(x.get("price"))) != price:
+                    problems.append(f"package {k} lists at {x.get('price')}, not {money(price)}")
+            for k, price in sorted(want_sm[code].items()):
+                x = listed_sm.get(ship_by_key[k][0])
+                if x is None:
+                    problems.append(f"shipping {k} (id {ship_by_key[k][0]}) is not listed")
+                elif _finite(_num(x.get("price"))) != price:
+                    problems.append(f"shipping {k} lists at {x.get('price')}, not {money(price)}")
+            check(f"campaign listing in {code}", not problems,
+                  "; ".join(problems) if problems else
+                  f"{len(want_pk[code])} package(s) and {len(want_sm[code])} shipping method(s) listed at their prices")
+
+    for code in addl:
+        # The landed rows priced in this currency the way the campaign currency's
+        # are: from the plan's fixed prices, or, where the plan leaves a currency to
+        # forex, from the prices the store read back. An object the store holds no
+        # price for in it is left out of every cart in it, so those carts are not sent.
+        exp_pk, exp_sm, gaps = expected_in(code, "packages"), expected_in(code, "shipping_methods"), []
+        pk = {}
+        for p in plan["packages"]:
+            if p["key"] in ids and p["key"] not in in_currency[code]["packages"]:
+                gaps.append(f"package {p['key']}")
+            pk[p["key"]] = exp_pk.get(p["key"], p["price"])
+        sm = {}
+        for s in plan["shipping_methods"]:
+            k = ship_key(s)
+            if k in ship_by_key and k not in in_currency[code]["shipping_methods"]:
+                gaps.append(f"shipping {k}")
+            sm[k] = exp_sm.get(k, s["price"])
+        if gaps:
+            check(f"calculate in {code}", False, f"not priced: {', '.join(gaps)} has no {code} price")
+            continue
+        try:
+            priced = plan_in_currency(plan, code, pk, sm)
+        except CampaignAdminError as exc:
+            check(f"calculate in {code}", False, str(exc))
+            continue
+        ships = {k: (sid, D(sm[k])) for k, (sid, _price) in ship_by_key.items()}
+        for case in _cart_cases_from_plan(priced, ids):
+            run_case(case, ships, code)
 
     # An offer added in the dashboard can free or discount a cart the way a
     # planned offer should, so calculate would pass a wrong or missing threshold.
@@ -3826,13 +4367,21 @@ def normalize_snapshot(snap: dict, currency: str, man=None, plan=None) -> dict:
         "available_shipping_countries": sorted(_codes(c.get("available_shipping_countries"))),
     }, "packages": [], "shipping_methods": [], "offers": []}
 
+    def other_prices(x):
+        """The object's price in every currency but the campaign's, in plan form.
+        Present only when there are any, so a one-currency campaign normalises (and
+        hashes) exactly as it did before additional currencies were modelled."""
+        rows = {p.get("currency"): _money_or_none(p.get("price")) for p in x.get("prices") or []
+                if isinstance(p, dict) and isinstance(p.get("currency"), str) and p.get("currency") != currency}
+        return {"prices": dict(sorted(rows.items()))} if rows else {}
+
     for x in snap.get("packages") or []:
         vid = x.get("product_variant_id")
         e = pkg_entries.get(x.get("id"))
         plan_p = plan_pk.get(e.get("key")) if e else plan_by_variant.get(vid)
         recurring = next((p.get("price_recurring") for p in x.get("prices") or []
                           if isinstance(p, dict) and p.get("currency") == currency), None)
-        out["packages"].append({
+        out["packages"].append(dict({
             "id": x.get("id"), "product_id": x.get("product_id"), "product_variant_id": vid,
             "name": _bare_package_name(x.get("name"), x.get("product_variant_name"), plan_p,
                                        (e or {}).get("name")),
@@ -3841,12 +4390,12 @@ def normalize_snapshot(snap: dict, currency: str, man=None, plan=None) -> dict:
             "interval": x.get("interval") or None,
             "interval_count": x.get("interval_count"),
             "image": x.get("image") or None,
-        })
+        }, **other_prices(x)))
     for x in snap.get("shipping_methods") or []:
-        out["shipping_methods"].append({
+        out["shipping_methods"].append(dict({
             "id": x.get("id"), "shipping_method": x.get("shipping_method"),
             "price": _money_or_none(_price_in(x, currency)),
-        })
+        }, **other_prices(x)))
     for x in snap.get("offers") or []:
         cond, ben = x.get("condition") or {}, x.get("benefit") or {}
         out["offers"].append({
@@ -3906,6 +4455,16 @@ def plan_from_live(snap: dict, slug: str, *, convert_scope=()) -> tuple:
     blockers, waivers = [], []
 
     c = norm["campaign"]
+
+    def live_fixed(x):
+        """The live prices in the campaign's additional currencies, as the plan's
+        fixed prices: the store holds them whether forex set them or a person did,
+        and a plan cannot tell which. A missing or unreadable one is left out, and
+        verify reports that gap."""
+        rows = {code: v for code, v in (x.get("prices") or {}).items()
+                if code in c["additional_currencies"] and v is not None}
+        return {"prices": rows} if rows else {}
+
     packages, key_by_id, seen_variant = [], {}, {}
     for p in norm["packages"]:
         vid = p["product_variant_id"]
@@ -3925,6 +4484,7 @@ def plan_from_live(snap: dict, slug: str, *, convert_scope=()) -> tuple:
             entry["price_recurring"] = p["price_recurring"]
             entry["interval"] = p["interval"] or "month"
             entry["interval_count"] = 1 if p["interval_count"] is None else p["interval_count"]
+        entry.update(live_fixed(p))
         packages.append(entry)
 
     shipping, seen_code = [], {}
@@ -3937,7 +4497,7 @@ def plan_from_live(snap: dict, slug: str, *, convert_scope=()) -> tuple:
                 "the dashboard, then adopt again.")
         else:
             seen_code[code] = s["id"]
-        shipping.append({"shipping_method": code, "price": s["price"]})
+        shipping.append(dict({"shipping_method": code, "price": s["price"]}, **live_fixed(s)))
 
     all_keys = [p["key"] for p in packages]
     offers, seen_name, converted = [], {}, set()
@@ -4278,13 +4838,21 @@ _OP_FIELD = {
 }
 
 
+def _op_field(section: str, f: str):
+    """The op field name a flattened plan field is sent under, or None when no
+    request carries it. A per-currency price is sent as itself (`prices.EUR`)."""
+    if section in ("packages", "shipping_methods") and f.startswith("prices."):
+        return f
+    return _OP_FIELD[section].get(f)
+
+
 def _flat_plan_obj(o) -> dict:
-    """One plan object with its `condition`, `benefit` and `image` sub-objects
-    flattened to `parent.field`, so two of them compare field by field and a field
-    present on only one side still shows up."""
+    """One plan object with its `condition`, `benefit`, `image` and `prices`
+    sub-objects flattened to `parent.field`, so two of them compare field by field
+    and a field present on only one side still shows up."""
     out = {}
     for f, v in (o if isinstance(o, dict) else {}).items():
-        if f in ("condition", "benefit", "image") and isinstance(v, dict):
+        if f in ("condition", "benefit", "image", "prices") and isinstance(v, dict):
             for g, w in v.items():
                 out[f"{f}.{g}"] = w
         else:
@@ -4320,7 +4888,7 @@ def plan_only_differences(base: dict, merged: dict, ops: list, kept=()) -> list:
             out.append(f"{f}: {_show(base.get(f))} -> {_show(merged.get(f))}")
     bc, mc = _flat_plan_obj(base.get("campaign")), _flat_plan_obj(merged.get("campaign"))
     for f in sorted(set(bc) | set(mc)):
-        if bc.get(f) != mc.get(f) and ("campaign", "campaign", _OP_FIELD["campaign"].get(f)) \
+        if bc.get(f) != mc.get(f) and ("campaign", "campaign", _op_field("campaign", f)) \
                 not in sent:
             out.append(f"campaign.{f}: {_show(bc.get(f))} -> {_show(mc.get(f))}")
     for section, label in (("packages", "package"), ("shipping_methods", "shipping"),
@@ -4338,7 +4906,7 @@ def plan_only_differences(base: dict, merged: dict, ops: list, kept=()) -> list:
                 continue
             bo, mo = _flat_plan_obj(b[key]), _flat_plan_obj(m[key])
             for f in sorted(set(bo) | set(mo)):
-                if bo.get(f) != mo.get(f) and (section, key, _OP_FIELD[section].get(f)) not in sent:
+                if bo.get(f) != mo.get(f) and (section, key, _op_field(section, f)) not in sent:
                     out.append(f"{label} {key}.{f}: {_show(bo.get(f))} -> {_show(mo.get(f))}")
     return out
 
@@ -4526,6 +5094,59 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
             f"({'; '.join(changed)}). Review those values, then re-run with --delete-changed {token} "
             "to delete it anyway.")
 
+    def merge_prices(label, section, key, b_obj, c_obj, l_obj):
+        """The candidate's fixed prices in the additional currencies, one currency at
+        a time, for the currencies the candidate prices.
+
+        - The store holds no price in it: the candidate's price is sent. There is
+          no store value to keep or to conflict with, and a package or shipping
+          method with no price in a currency the campaign offers is left out of
+          that currency's carts and listings. When the campaign already offers the
+          currency (a gap, not one this change adds), a warning says the store had
+          lost it, so the PATCH the operator approves is never a quiet one.
+        - The store prices it and the base plan did not fix it (one the plan starts
+          to fix): the store's value stands in for the base, so the candidate's
+          price is sent whenever it differs.
+        - The store prices it and the base fixed it: an ordinary three-way merge,
+          conflicts included.
+
+        Returns ({`prices.CODE`: (live, merged)} for each currency to send, the
+        merged plan's prices)."""
+        b_fix, l_fix = fixed_prices(b_obj), (l_obj or {}).get("prices") or {}
+        offered_live = set(live["campaign"].get("additional_currencies") or [])
+        changed, merged_fix = {}, {}
+        for code, raw in sorted(fixed_prices(c_obj).items()):
+            f, c_v, l_v = f"prices.{code}", money(D(raw)), l_fix.get(code)
+            if l_v is None:
+                if code in offered_live:
+                    warnings.append(
+                        f"{label}: the store has no {code} price, so the Cart API leaves it out of {code} carts "
+                        f"and listings; this change set sets {f} to {c_v}"
+                        + (f" (the plan had {money(D(b_fix[code]))})" if code in b_fix and D(b_fix[code]) != D(c_v)
+                           else "") + ".")
+                changed[f] = (None, c_v)
+                merged_fix[code] = c_v
+                continue
+            b_v = money(D(b_fix[code])) if code in b_fix else l_v
+            v, needs = merge(f"{label}.{f}", b_v, c_v, l_v, at=(section, key, f))
+            merged_fix[code] = v
+            if needs:
+                changed[f] = (l_v, v)
+        return changed, merged_fix
+
+    def base_fixed(obj):
+        return {f"prices.{code}": money(D(v)) for code, v in fixed_prices(obj).items()}
+
+    def live_fixed_n(obj):
+        return {f"prices.{code}": v for code, v in (obj.get("prices") or {}).items()}
+
+    def with_prices(obj, merged_fix):
+        out = dict(obj)
+        out.pop("prices", None)
+        if merged_fix:
+            out["prices"] = merged_fix
+        return out
+
     # ---- campaign ---------------------------------------------------------- #
     base_c, cand_c = plan_campaign_n(base["campaign"]), plan_campaign_n(cand["campaign"])
     live_c = {k: v for k, v in live["campaign"].items() if k != "id"}
@@ -4570,7 +5191,9 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
             merged_n[f] = v
             if needs:
                 changed[f] = (ln[f], v)
-        merged_packages.append(_apply_package_n(p, merged_n))
+        cur_changed, merged_fix = merge_prices(f"package {key}", "packages", key, bp, p, lp)
+        changed.update(cur_changed)
+        merged_packages.append(with_prices(_apply_package_n(p, merged_n), merged_fix))
         if changed:
             pkg_patches.append((key, changed, merged_n))
         # Images are diffed by intent: the candidate's src against the src this run
@@ -4584,8 +5207,10 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
         if key in cand_pk:
             continue
         lp = live_by_key[("packages", key)]
-        deletable("packages", key, PACKAGE_DIFF_FIELDS, plan_package_n(bp),
-                  {f: lp.get(f) for f in PACKAGE_DIFF_FIELDS})
+        cur = tuple(f"prices.{code}" for code in sorted(fixed_prices(bp)))
+        deletable("packages", key, PACKAGE_DIFF_FIELDS + cur,
+                  dict(plan_package_n(bp), **base_fixed(bp)),
+                  dict({f: lp.get(f) for f in PACKAGE_DIFF_FIELDS}, **live_fixed_n(lp)))
         pkg_deletes.append((key, bp, lp))
 
     # ---- shipping ---------------------------------------------------------- #
@@ -4603,18 +5228,23 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
                 "add a method on the new code and delete this one")
         v, needs = merge(f"shipping {key}.price", money(D(bs["price"])), money(D(s["price"])),
                          ls.get("price"), at=("shipping_methods", key, "price"))
-        merged = dict(s)
+        cur_changed, merged_fix = merge_prices(f"shipping {key}", "shipping_methods", key, bs, s, ls)
+        merged = with_prices(s, merged_fix)
         merged["price"] = v
         merged_shipping.append(merged)
-        if needs:
-            ship_patches.append((key, {"price": (ls.get("price"), v)}, merged))
+        changed = dict({"price": (ls.get("price"), v)} if needs else {}, **cur_changed)
+        if changed:
+            ship_patches.append((key, changed, merged))
     for key, bs in base_sm.items():
         if key in cand_sm:
             continue
         ls = live_by_key[("shipping_methods", key)]
-        deletable("shipping_methods", key, ("shipping_method", "price"),
-                  {"shipping_method": bs.get("shipping_method"), "price": money(D(bs["price"]))},
-                  {"shipping_method": ls.get("shipping_method"), "price": ls.get("price")})
+        cur = tuple(f"prices.{code}" for code in sorted(fixed_prices(bs)))
+        deletable("shipping_methods", key, ("shipping_method", "price") + cur,
+                  dict({"shipping_method": bs.get("shipping_method"), "price": money(D(bs["price"]))},
+                       **base_fixed(bs)),
+                  dict({"shipping_method": ls.get("shipping_method"), "price": ls.get("price")},
+                       **live_fixed_n(ls)))
         ship_deletes.append((key, bs, ls))
 
     # ---- offers ------------------------------------------------------------ #
@@ -4671,18 +5301,37 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
     # additional currencies by forex; an update does not, and `recalculate_prices`
     # would overwrite a price someone set by hand, so the engine never sends it and
     # says what it is leaving behind instead.
-    others = sorted(set(live["campaign"].get("additional_currencies") or [])
-                    | set(merged_c.get("additional_currencies") or []))
+    live_addl = set(live["campaign"].get("additional_currencies") or [])
+    merged_addl = set(merged_c.get("additional_currencies") or [])
+    others = sorted(live_addl | merged_addl)
     if others:
-        repriced = [f"package {k}" for k, changed, _n in pkg_patches
+        repriced = [(f"package {k}", changed) for k, changed, _n in pkg_patches
                     if {"price", "price_recurring"} & set(changed)]
-        repriced += [f"shipping {k}" for k, _changed, _m in ship_patches]
-        for what in repriced:
+        repriced += [(f"shipping {k}", changed) for k, changed, _m in ship_patches if "price" in changed]
+        kept = live_addl & merged_addl  # a removed currency's prices go; an added one has its own line
+        for what, changed in repriced:
+            left = [code for code in others if code in kept and f"prices.{code}" not in changed]
+            if not left:
+                continue
             warnings.append(
                 f"{what}: the price op sets {currency} only. This campaign also prices in "
-                f"{', '.join(others)}, and the update endpoint leaves a currency it is not sent "
-                "unchanged, so those prices stay as they are on the store. Set them in the "
-                "dashboard after this update.")
+                f"{', '.join(left)}, and the update endpoint leaves a currency it is not sent "
+                "unchanged, so those prices stay as they are on the store. Set them under "
+                "prices.<code> in the candidate to change them.")
+    for code in sorted(live_addl - merged_addl):
+        warnings.append(
+            f"campaign: removing {code} deletes every {code} price on the campaign's packages and "
+            f"shipping methods, including prices set by hand in the dashboard. Adding {code} back later "
+            f"fills them by forex from {currency}, not with the prices deleted now.")
+    for code in sorted(merged_addl - live_addl):
+        unfixed = [p["key"] for p in merged_packages if code not in fixed_prices(p)]
+        unfixed += [ship_key(s) for s in merged_shipping if code not in fixed_prices(s)]
+        warnings.append(
+            f"campaign: adding {code} makes the store fill every package and shipping method's {code} "
+            f"price by forex from {currency}"
+            + (f"; {', '.join(unfixed)} {'keeps' if len(unfixed) == 1 else 'keep'} that forex price, because "
+               f"the candidate gives {'it' if len(unfixed) == 1 else 'them'} no prices.{code}" if unfixed else
+               f", then the requests below set the candidate's fixed {code} prices"))
 
     if conflicts:
         raise CampaignAdminError(
@@ -4767,8 +5416,9 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
         if key in patch_by_key:
             changed, merged_n = patch_by_key[key]
             add("PATCH", "packages", key, item_path("packages", pid),
-                package_patch_body(live_by_key[("packages", key)],
-                                   _apply_package_n(cand_pk[key], merged_n), currency),
+                _with_currency_rows(package_patch_body(live_by_key[("packages", key)],
+                                                       _apply_package_n(cand_pk[key], merged_n), currency),
+                                    changed),
                 {f: v[0] for f, v in changed.items()}, {f: v[1] for f, v in changed.items()}, oid=pid)
         if key in image_puts:
             lp = live_by_key[("packages", key)]
@@ -4780,6 +5430,12 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
         p = cand_pk[key]
         post = add("POST", "packages", key, collection_path("packages"), package_body(p), {},
                    dict(plan_package_n(p), product_variant_id=(p.get("product_variant_ids") or [None])[0]))
+        fixed = prices_patch_body(p)
+        if fixed is not None:
+            # The create fills every additional currency by forex; this sets the
+            # candidate's fixed prices on the package the POST above returns.
+            add("PATCH", "packages", key, f"/api/admin/campaigns/{cid}/packages/<{key}>/", fixed, {},
+                {f"prices.{r['currency']}": r["price"] for r in fixed["prices"]}, depends_on=post["n"])
         if key in image_puts:
             # No id yet: the route is rebuilt at run time from the id the POST returns.
             add("PUT", "packages", key, f"/api/admin/campaigns/{cid}/packages/<{key}>/image/",
@@ -4792,13 +5448,19 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
     for key, changed, merged in ship_patches:
         sid = id_by_key[("shipping_methods", key)]
         add("PATCH", "shipping_methods", key, item_path("shipping_methods", sid),
-            shipping_patch_body(live_by_key[("shipping_methods", key)], merged, currency),
+            _with_currency_rows(shipping_patch_body(live_by_key[("shipping_methods", key)], merged, currency),
+                                changed),
             {f: v[0] for f, v in changed.items()}, {f: v[1] for f, v in changed.items()}, oid=sid)
     for key in ship_posts:
         s = cand_sm[key]
-        add("POST", "shipping_methods", key, collection_path("shipping_methods"),
-            {"shipping_method": s["shipping_method"], "price": s["price"]}, {},
-            {"shipping_method": s["shipping_method"], "price": money(D(s["price"]))})
+        post = add("POST", "shipping_methods", key, collection_path("shipping_methods"),
+                   {"shipping_method": s["shipping_method"], "price": s["price"]}, {},
+                   {"shipping_method": s["shipping_method"], "price": money(D(s["price"]))})
+        fixed = prices_patch_body(s)
+        if fixed is not None:
+            add("PATCH", "shipping_methods", key, f"/api/admin/campaigns/{cid}/shipping-methods/<{key}>/",
+                fixed, {}, {f"prices.{r['currency']}": r["price"] for r in fixed["prices"]},
+                depends_on=post["n"])
 
     for key, changed, merged_o in offer_patches:
         oid = id_by_key[("offers", key)]
@@ -5052,18 +5714,21 @@ def check_change_set(man: Manifest, base: dict, base_sha: str, plan: dict, plan_
                     f"op {n}: {section} {key} is in the canonical plan already; a POST would "
                     "duplicate it")
             want = f"/api/admin/campaigns/{cid}/{SECTION_ROUTES[section]}/"
-        elif method == "PUT" and op.get("depends_on"):
+        elif method in ("PUT", "PATCH") and op.get("depends_on"):
             if "id" in op:
                 raise ChangeSetNotApplied(
-                    f"op {n}: this PUT waits for the POST in step {op['depends_on']}, so it cannot "
+                    f"op {n}: this {method} waits for the POST in step {op['depends_on']}, so it cannot "
                     f"name id {op.get('id')!r}; its route is built from the id that POST returns")
+            if method == "PUT" and section != "packages":
+                raise ChangeSetNotApplied(f"op {n}: only a package takes an image PUT")
             dep = by_n.get(op["depends_on"])
             if (dep is None or dep.get("method") != "POST" or dep.get("section") != section
                     or dep.get("key") != key or dep.get("n") >= n):
                 raise ChangeSetNotApplied(
                     f"op {n}: depends_on {op['depends_on']} is not an earlier POST of {section} "
                     f"{key} in this change set")
-            want = f"/api/admin/campaigns/{cid}/{SECTION_ROUTES[section]}/<{key}>/image/"
+            want = f"/api/admin/campaigns/{cid}/{SECTION_ROUTES[section]}/<{key}>/" + (
+                "image/" if method == "PUT" else "")
         else:
             oid, owned = op.get("id"), active.get((section, key))
             if owned is None and resume and method == "DELETE":
@@ -5155,17 +5820,21 @@ def _remove_entry(man: Manifest, section: str, key: str, n) -> None:
         man.data.setdefault("removed", []).append(rec)
 
 
-def _op_route(op: dict, cid, package_ids: dict) -> str:
-    """The path one op goes to. A PUT on a package created in the same change set has
-    no id when the operator reviews it, so its route is rebuilt from the id its POST
-    returned."""
+def _op_route(op: dict, cid, package_ids: dict, man_entry=None) -> str:
+    """The path one op goes to. A PUT or a prices PATCH on an object created in the
+    same change set has no id when the operator reviews it, so its route is rebuilt
+    from the id its POST returned (journalled in the manifest entry)."""
     if op.get("depends_on"):
-        pid = (package_ids or {}).get(op["key"])
-        if pid is None:
+        if op["section"] == "packages":
+            oid = (package_ids or {}).get(op["key"])
+        else:
+            oid = (man_entry or {}).get("id")
+        if oid is None:
             raise CampaignAdminError(
-                f"op {op['n']}: package {op['key']} has no id yet, so there is no image route to PUT "
-                f"to; step {op['depends_on']} has to create it first")
-        return f"/api/admin/campaigns/{cid}/{SECTION_ROUTES[op['section']]}/{pid}/image/"
+                f"op {op['n']}: {op['section']} {op['key']} has no id yet, so there is no route to "
+                f"{op['method']} to; step {op['depends_on']} has to create it first")
+        route = f"/api/admin/campaigns/{cid}/{SECTION_ROUTES[op['section']]}/{oid}/"
+        return route + "image/" if op["method"] == "PUT" else route
     return op["path"]
 
 
@@ -5246,7 +5915,7 @@ def _run_op(client: Client, man: Manifest, plan: dict, op: dict, package_ids: di
     Two saves would leave a window where the manifest owns the object and the op is
     still `in_flight`, which recovery would have to read as a duplicate."""
     section, key, method, n = op["section"], op["key"], op["method"], op["n"]
-    path = _op_route(op, cid, package_ids)
+    path = _op_route(op, cid, package_ids, man.entry(section, key) if section != "campaign" else None)
 
     if method == "PUT":
         p = next((x for x in plan.get("packages") or [] if x.get("key") == key), None)
@@ -5446,10 +6115,11 @@ def _resume_view(section: str, obj: dict, key_of_package=None) -> dict:
     """One object in the field space the change set's `before` and `after` speak."""
     if section == "campaign":
         return {f: obj.get(f) for f in CAMPAIGN_DIFF_FIELDS}
+    other = {f"prices.{code}": v for code, v in (obj.get("prices") or {}).items()}
     if section == "packages":
-        return {f: obj.get(f) for f in RESUME_PACKAGE_FIELDS}
+        return dict({f: obj.get(f) for f in RESUME_PACKAGE_FIELDS}, **other)
     if section == "shipping_methods":
-        return {f: obj.get(f) for f in ("shipping_method", "price")}
+        return dict({f: obj.get(f) for f in ("shipping_method", "price")}, **other)
     return _live_offer_n(obj, key_of_package)
 
 
@@ -5610,7 +6280,10 @@ def _resolve_in_flight(client: Client, man: Manifest, plan: dict, cs: dict, snap
         if section == "campaign":
             obj = norm["campaign"]
         else:
-            obj = next((o for o in norm[section] if o["id"] == op.get("id")), None)
+            # A prices PATCH on an object this change set created names no id; the
+            # POST it depends on journalled it in the manifest entry.
+            oid = op.get("id") if not op.get("depends_on") else (man.entry(section, key) or {}).get("id")
+            obj = next((o for o in norm[section] if o["id"] == oid), None)
             if obj is None:
                 continue
         got = _resume_view(section, obj, kop)
@@ -5667,6 +6340,15 @@ def _resume_check(man: Manifest, cs: dict, norm: dict, journal: dict) -> None:
             at_exp = exp.setdefault(at, {})
             at_exp.update(op.get("after") or {})
             at_exp.update(_derived_after(op))
+            if op["section"] == "campaign" and "additional_currencies" in (op.get("after") or {}):
+                # Removing a currency deletes its prices on every package and shipping
+                # method; the store's forex price in an added one is not knowable, and
+                # a later prices PATCH of this change set names what it sets.
+                kept = set(op["after"]["additional_currencies"] or [])
+                for (section, _k), fields in exp.items():
+                    if section in ("packages", "shipping_methods"):
+                        for f in [f for f in fields if f.startswith("prices.") and f[len("prices."):] not in kept]:
+                            fields.pop(f)
 
     live, unmanaged = {("campaign", "campaign"): _resume_view("campaign", norm["campaign"])}, []
     for section in SECTION_ROUTES:
@@ -5738,25 +6420,54 @@ def _settled_plan(base: dict, plan: dict, cs: dict, applied: set) -> tuple:
                 if img:
                     pk[key]["image"] = img
             continue
+        if method == "PATCH" and op.get("depends_on"):
+            continue  # the prices of an object an applied POST added: taken with it below
+        fixed_after = {f[len("prices."):]: v for f, v in after.items() if f.startswith("prices.")}
         if section == "packages":
             n = dict(plan_package_n(pk[key]))
             n.update(after)
             new = _apply_package_n(pk[key], n)
+            if fixed_after:
+                new["prices"] = dict(fixed_prices(new), **fixed_after)
             pk[key].clear()
             pk[key].update(new)
         elif section == "shipping_methods":
             sm[key]["price"] = after.get("price", sm[key]["price"])
+            if fixed_after:
+                sm[key]["prices"] = dict(fixed_prices(sm[key]), **fixed_after)
         else:
             n = dict(plan_offer_n(of[key]))
             n.update(after)
             new = _apply_offer_n(of[key], n)
             of[key].clear()
             of[key].update(new)
+    # An added object keeps its fixed prices only if the PATCH that set them landed;
+    # otherwise the store holds the forex prices its create filled in.
+    priced = {(op["section"], op["key"]) for op in cs.get("ops") or []
+              if op["method"] == "PATCH" and op.get("depends_on") and op["n"] in applied}
     for section in ("packages", "shipping_methods", "offers"):
         kept = [x for x in out.get(section) or []
                 if (ship_key(x) if section == "shipping_methods" else x.get("key"))
                 not in drop[section]]
-        out[section] = kept + [merged[section][k] for k in add[section] if k in merged[section]]
+        added = []
+        for k in add[section]:
+            if k not in merged[section]:
+                continue
+            obj = json.loads(json.dumps(merged[section][k]))
+            if section != "offers" and (section, k) not in priced:
+                obj.pop("prices", None)
+            added.append(obj)
+        out[section] = kept + added
+    # A currency the campaign no longer offers has no prices left on the store.
+    offered = set(additional_currencies(out))
+    for section in ("packages", "shipping_methods"):
+        for x in out.get(section) or []:
+            if fixed_prices(x):
+                rows = {c: v for c, v in fixed_prices(x).items() if c in offered}
+                if rows:
+                    x["prices"] = rows
+                else:
+                    x.pop("prices", None)
     notes = drop_stale_advisory_rows(out, drop["packages"], drop["offers"])
     return out, notes
 
@@ -6027,6 +6738,11 @@ def reland(plan: dict) -> list:
         anchor = anchors.pop()
         if row["kind"] == "upsell":
             up = offers.get(row.get("offer_key")) if row.get("offer_key") else None
+            if up is None and row.get("offer_key") is None and _num(row.get("pct")) == 0:
+                # A post-purchase row: sold at its package price, with no voucher.
+                row.update(anchor=money(anchor), unit_after=money(anchor), order_total=money(anchor * qty))
+                out.append(row)
+                continue
             if up is None:
                 if _num(row.get("anchor")) != anchor:
                     raise CampaignAdminError(
@@ -6125,6 +6841,83 @@ def reland(plan: dict) -> list:
                                         D(exit_offer["benefit"]["value"]),
                                         exit_offer["benefit"].get("price_rounding"))
     return out
+
+
+def additional_currencies(plan: dict) -> list:
+    """The plan's additional currencies, read tolerantly (print_plan runs on plans
+    not yet validated)."""
+    raw = (plan.get("campaign") or {}).get("additional_currencies") if isinstance(plan, dict) else None
+    return [c for c in raw or [] if isinstance(c, str)]
+
+
+def fixed_prices(obj) -> dict:
+    """A plan package's or shipping method's fixed prices in the additional
+    currencies, {CODE: price}; {} when it has none."""
+    raw = obj.get("prices") if isinstance(obj, dict) else None
+    return raw if isinstance(raw, dict) else {}
+
+
+def currency_coverage(plan: dict) -> dict:
+    """{CODE: "fixed" | "forex" | "partial"} for each additional currency: fixed when
+    every package and shipping method has a fixed price in it, forex when none has
+    (the store converts them at create), partial otherwise."""
+    objs = list(plan.get("packages") or []) + list(plan.get("shipping_methods") or [])
+    out = {}
+    for code in additional_currencies(plan):
+        n = sum(1 for o in objs if code in fixed_prices(o))
+        out[code] = "fixed" if objs and n == len(objs) else ("forex" if n == 0 else "partial")
+    return out
+
+
+def plan_in_currency(plan: dict, code: str, package_prices: dict, shipping_prices: dict) -> dict:
+    """A copy of the plan priced in `code`: each package's and shipping method's
+    `price` replaced from the maps given (by package key, by shipping key) and the
+    landed rows recomputed from them by reland, the same forecast rule the plan's own
+    rows follow. Raises, naming the currency, when a row cannot be priced in it."""
+    out = json.loads(json.dumps(plan))
+    for p in out.get("packages") or []:
+        if p["key"] not in package_prices:
+            raise CampaignAdminError(f"{code}: package {p['key']} has no {code} price")
+        p["price"] = package_prices[p["key"]]
+        p.pop("prices", None)
+    for s in out.get("shipping_methods") or []:
+        if ship_key(s) not in shipping_prices:
+            raise CampaignAdminError(f"{code}: shipping method {ship_key(s)} has no {code} price")
+        s["price"] = shipping_prices[ship_key(s)]
+        s.pop("prices", None)
+    out["campaign"]["currency"] = code
+    try:
+        out["landed_prices"] = reland(out)
+    except CampaignAdminError as e:
+        raise CampaignAdminError(f"landed prices in {code}: {e}")
+    return out
+
+
+def currency_landed(plan: dict) -> dict:
+    """{CODE: landed rows} for every additional currency the plan fixes in full,
+    priced from its fixed prices. Forex and partly fixed currencies are not here:
+    their prices are not known until the store has set them."""
+    out = {}
+    for code, kind in currency_coverage(plan).items():
+        if kind != "fixed":
+            continue
+        pk = {p["key"]: fixed_prices(p)[code] for p in plan.get("packages") or []}
+        sm = {ship_key(s): fixed_prices(s)[code] for s in plan.get("shipping_methods") or []}
+        out[code] = plan_in_currency(plan, code, pk, sm)["landed_prices"]
+    return out
+
+
+def prices_patch_body(obj: dict, codes=None) -> dict | None:
+    """The PATCH body that sets an object's fixed prices in the additional
+    currencies (all of them, or those in `codes`), or None when there are none.
+    `prices` upserts only the currencies it names, and `recalculate_prices` is sent
+    false so the store converts nothing else. A row names its currency and price
+    only: the plan holds no recurring price per currency, so a package's recurring
+    price in that currency is left as the store holds it."""
+    rows = [(c, v) for c, v in sorted(fixed_prices(obj).items()) if codes is None or c in codes]
+    if not rows:
+        return None
+    return {"prices": [{"currency": c, "price": v} for c, v in rows], "recalculate_prices": False}
 
 
 def _edit_ops(spec) -> list:
@@ -6283,6 +7076,9 @@ def build_edit(plan: dict, spec: dict) -> tuple:
     if errs:
         raise CampaignAdminError("the edit would leave an invalid plan:\n  - " + "\n  - ".join(errs))
     new["landed_prices"] = reland(new)
+    # The edit changes the campaign currency's prices and the offers; each fixed
+    # currency keeps its own prices, and its rows have to stay computable from them.
+    currency_landed(new)
     old_pk = {p["key"]: p for p in plan["packages"]}
     old_of = {o["key"]: o for o in plan.get("offers", [])}
     changed = ([("packages", k) for k in old_pk if pk[k] != old_pk[k]]
@@ -7720,6 +8516,12 @@ def main(argv=None) -> int:
     r.add_argument("--payment-methods")
     r.add_argument("--express-methods")
     r.add_argument("--currency")
+    r.add_argument("--additional-currencies", metavar="CODE,CODE,...",
+                   help="currencies offered beside --currency, each enabled on the store and listed by the gateway "
+                        "group; without --prices-file the store converts their prices by forex")
+    r.add_argument("--prices-file", metavar="JSON",
+                   help="fixed prices per additional currency: {\"currencies\": {CODE: {\"variants\": {id: price}, "
+                        "\"packages\": {key: price}, \"shipping\": {code: price}}}}")
     r.add_argument("--language")
     r.add_argument("--countries", help="comma-separated ISO alpha-2")
     r.add_argument("--offer-type", choices=["quantity", "bxgy", "gwp"], default="quantity",
@@ -7737,6 +8539,8 @@ def main(argv=None) -> int:
                    help="<product_id>:<NAME>, repeatable; the product's voucher code name (A-Z0-9, starts with a letter, at most 12)")
     r.add_argument("--bump", action="append", help="<variant_id>:<price>, repeatable")
     r.add_argument("--upsell", action="append", help="<variant_id>:<price>:<pct>, repeatable")
+    r.add_argument("--post-purchase", action="append", metavar="VARIANT_ID:PRICE",
+                   help="a package sold on an upsell page at its full price, no voucher; repeatable")
     r.add_argument("--free-shipping", action="store_true", help="free shipping on every checkout order")
     r.add_argument("--free-shipping-min-qty", type=int, metavar="N",
                    help="free shipping only from N hero units, e.g. 2 for Buy 2+ (instead of --free-shipping)")
