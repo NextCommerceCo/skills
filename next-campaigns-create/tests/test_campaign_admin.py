@@ -1033,7 +1033,10 @@ def _merge_prices(previous, sent, fields, recalculate, state):
             out.append(row)
             by_currency[currency] = row
         for f in fields:
-            row[f] = s.get(f)
+            # A field the row leaves out is left as it is, as the endpoint's
+            # per-currency upsert does; an explicit null is written.
+            if f in s:
+                row[f] = s.get(f)
     if recalculate and BASE_CURRENCY in named:
         src = by_currency[BASE_CURRENCY]
         for row in out:

@@ -1827,6 +1827,7 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
     # Post-purchase packages: sold on an upsell page at their package price, with no
     # voucher. The row is an upsell row at 0%, so verify prices it in upsell mode.
     post_items = [add_extra(spec, "post-purchase") for spec in getattr(a, "post_purchase", None) or []]
+    hero_post_keys = []  # post-purchase packages that are hero packages, for the exit-voucher note below
     post_per_product = {}
     for pkg, _, _, _ in post_items:
         post_per_product[pkg["product_id"]] = post_per_product.get(pkg["product_id"], 0) + 1
@@ -1842,10 +1843,9 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
                          "an upsell-page package with no voucher (operator-specified). The order is charged "
                          "in the currency the first order was placed in.")
         if reused and pkg.get("role") == "hero":
+            hero_post_keys.append(pkg["key"])
             handoff.append(f"Post-purchase package {pkg['key']} is also a hero package on the checkout page; "
-                           "the upsell page sells it again at the same price. A checkout voucher scoped to the "
-                           "hero (the exit voucher) also works there if a shopper enters it, so never show "
-                           "that code on the upsell page.")
+                           "the upsell page sells it again at the same price.")
     upsell_labels = [l["tier"] for l in landed if l["kind"] == "upsell"]
     if len(upsell_labels) != len(set(upsell_labels)):
         raise CampaignAdminError(f"upsell landed labels are not unique: {upsell_labels} (bug)")
@@ -1960,6 +1960,10 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
                                         D(row["unit_after"]), D(exit_pct), rounding)
         rationale.append(f"Exit-pop voucher for an additional {exit_pct}% applies on top of the tier price "
                          "(offer doctrine: Rounding and stacking).")
+        if hero_post_keys:
+            handoff.append(f"Exit voucher {exit_code} is scoped to the hero packages, so it also works on the "
+                           f"upsell page for post-purchase package(s) {hero_post_keys} if a shopper enters it. "
+                           "Never show that code on the upsell page.")
     if free_ship:
         rule = "every order" if min_qty is None else f"Buy {min_qty}+"
         if offers_supported is not False:
@@ -5091,12 +5095,21 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
             "to delete it anyway.")
 
     def merge_prices(label, section, key, b_obj, c_obj, l_obj):
-        """The candidate's fixed prices in the additional currencies, three ways, one
-        currency at a time. A currency the base plan does not fix was the store's to
-        set, so the store's value stands in for the base: a candidate that fixes it
-        at the store's price sends nothing. A currency with no price on the store
-        (being added in this change, or a gap) is sent. Returns ({`prices.CODE`:
-        (live, merged)} for each currency to send, the merged plan's prices)."""
+        """The candidate's fixed prices in the additional currencies, one currency at
+        a time, for the currencies the candidate prices.
+
+        - The base plan did not fix it (a currency this change adds, or one the plan
+          starts to fix): there is no base to conflict with, so the candidate's price
+          is sent whenever the store's differs, a missing one included.
+        - The base fixed it and the store still prices it: an ordinary three-way
+          merge, conflicts included.
+        - The base fixed it and the store no longer prices it: a conflict when the
+          candidate changed it; when the candidate left it alone, it is kept lost.
+          Nothing is sent, the merged plan stops fixing it, a warning says so, and
+          verify reports the gap.
+
+        Returns ({`prices.CODE`: (live, merged)} for each currency to send, the
+        merged plan's prices)."""
         b_fix, l_fix = fixed_prices(b_obj), (l_obj or {}).get("prices") or {}
         changed, merged_fix = {}, {}
         for code, raw in sorted(fixed_prices(c_obj).items()):
@@ -5108,11 +5121,16 @@ def diff_change_set(base: dict, cand: dict, man, snap: dict, *, delete_changed=(
                     changed[f] = (l_v, c_v)
                 merged_fix[code] = c_v
                 continue
-            v, needs = merge(f"{label}.{f}", money(D(b_fix[code])), c_v, l_v, at=(section, key, f))
-            if v is not None:
-                merged_fix[code] = v
-            # else the store lost a price the candidate left alone. It is kept as
-            # lost: the merged plan stops fixing it, and verify reports the gap.
+            b_v = money(D(b_fix[code]))
+            if l_v is None and c_v == b_v:
+                warnings.append(
+                    f"{label}: the store has no {code} price any more, so the Cart API leaves it out of {code} "
+                    f"carts and listings. The merged plan stops fixing {f} (it was {b_v}) and verify will report "
+                    f"the gap; set {f} to a new value in the candidate to send one.")
+                kept_at.add((section, key, f))
+                continue
+            v, needs = merge(f"{label}.{f}", b_v, c_v, l_v, at=(section, key, f))
+            merged_fix[code] = v
             if needs:
                 changed[f] = (l_v, v)
         return changed, merged_fix

@@ -332,8 +332,9 @@ reads:
   converted. A currency the campaign does not offer at that moment is a 400, so
   a campaign PATCH that adds one goes first. The engine's additional-currency
   rows name the currency and the price only: the plan holds no recurring price
-  per currency, and a row without `price_recurring` leaves that currency's
-  recurring price as it is.
+  per currency, and the endpoint writes a recurring price only from a row that
+  carries a non-null `price_recurring`, so that currency's recurring price stays
+  as the store holds it.
 - **Changing `additional_currencies` on a campaign rewrites prices
   everywhere.** An added currency is forex-filled on every package and shipping
   method; a removed one has its prices deleted on every package and shipping

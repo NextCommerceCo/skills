@@ -455,10 +455,14 @@ class PostPurchase(_Files):
         self.refused("is package upsell-11, which upsell voucher", "not both", additional_currencies=None,
                      prices_file=None, upsell=["11:35.00:50"], post_purchase=["11:35.00"])
 
-    def test_reusing_a_hero_package_warns_about_the_exit_voucher(self):
+    def test_reusing_a_hero_package_warns_about_the_exit_voucher_only_when_there_is_one(self):
         plan = self.recommend(additional_currencies=None, prices_file=None, post_purchase=["24:40.00"],
                               exit=None, exit_code="BRACELET10")
-        self.assertTrue(any("exit voucher" in h and "hero-24" in h for h in plan["handoff"]), plan["handoff"])
+        self.assertTrue(any(h.startswith("Exit voucher BRACELET10") and "hero-24" in h for h in plan["handoff"]),
+                        plan["handoff"])
+        plan = self.recommend(additional_currencies=None, prices_file=None, post_purchase=["24:40.00"], exit="0")
+        self.assertFalse(any("xit voucher" in h for h in plan["handoff"]), plan["handoff"])
+        self.assertTrue(any("hero-24 is also a hero package" in h for h in plan["handoff"]), plan["handoff"])
 
     def test_a_zero_percent_upsell_points_at_post_purchase(self):
         self.refused("got 0", "--post-purchase <variant_id>:<price>", additional_currencies=None,
@@ -831,7 +835,10 @@ class UpdatePerCurrencyPrices(_MCAdoptedRun):
         self.assertEqual(self.diff(cand), 0, self.out())
         cs = self.change_set()
         self.assertEqual([o["section"] for o in cs["ops"]], ["campaign"])
-        self.assertTrue(any("pkg-801.prices.EUR" in p and "null" in p for p in cs["preserved"]), cs["preserved"])
+        self.assertTrue(any(w.startswith("package pkg-801: the store has no EUR price any more")
+                            and "stops fixing prices.EUR (it was 22.46)" in w for w in cs["warnings"]), cs["warnings"])
+        self.assertFalse(any("pkg-801" in p for p in cs["preserved"]), cs["preserved"])
+        self.assertFalse(any("pkg-801" in p for p in cs["plan_only"]), cs["plan_only"])
         self.assertNotIn("prices", cs["merged_plan"]["packages"][0])
 
     def test_a_currency_the_plan_did_not_fix_is_sent_without_a_merge(self):
@@ -862,6 +869,26 @@ class UpdatePerCurrencyPrices(_MCAdoptedRun):
         self.assertEqual(ship["body"], {"prices": [{"currency": "USD", "price": "8.95"},
                                                    {"currency": "EUR", "price": "8.00"}],
                                         "recalculate_prices": False})
+
+
+class UpdateKeepsRecurringPrices(_MCAdoptedRun):
+    """A subscription package's recurring price in an additional currency is not
+    in the plan, so a prices row must leave it as the store holds it."""
+
+    seed_kw = {"extra_currency": "EUR", "recurring": True}
+
+    def test_a_euro_price_change_keeps_the_euro_recurring_price(self):
+        pid = self.ids("packages")["pkg-801"]
+        before = next(r for r in self.state["packages"][self.cid][pid]["prices"] if r["currency"] == "EUR")
+        self.assertEqual(before["price_recurring"], "22.46")
+        cand = self.cand()
+        cand["packages"][0]["prices"]["EUR"] = "21.00"
+        self.assertEqual(self.diff(cand), 0, self.out())
+        self.assertEqual(self.change_set()["ops"][0]["body"],
+                         {"prices": [{"currency": "EUR", "price": "21.00"}], "recalculate_prices": False})
+        self.assertEqual(self.update(), 0, self.out())
+        after = next(r for r in self.state["packages"][self.cid][pid]["prices"] if r["currency"] == "EUR")
+        self.assertEqual((after["price"], after["price_recurring"]), ("21.00", "22.46"))
 
 
 class UpdateAddsAndRemovesCurrencies(_MCAdoptedRun):
