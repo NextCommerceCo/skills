@@ -257,15 +257,16 @@
     },
     {
       "id": "next-campaigns-setup",
-      "name": "New Campaign Setup",
-      "version": "1.1.3",
+      "name": "Campaign Setup and Continuation",
+      "version": "2.0.0",
       "path": "next-campaigns-setup/SKILL.md",
       "domain": "campaigns",
-      "description": "Scaffold and configure a new campaign-page-kit campaign end to end: project, starter template, config, and analytics.",
+      "description": "Start or continue a campaign from a URL, design, repo or Map, scaffolding a new campaign-page-kit project when that is the chosen path.",
       "canonical_context": {
-        "role": "Public catalog entry for CPK setup only; Campaigns OS runtime flows should follow the campaigns-os package handoff",
+        "role": "Public campaign intake routing and standalone Page Kit scaffold/configuration; a project with a Campaigns OS Build Packet follows that package's bundled next-campaigns-os-setup skill",
         "campaigns_os_source": "https://github.com/NextCommerceCo/campaigns-os",
-        "orchestration_note": "Campaigns OS runtime flows use the public package handoff"
+        "orchestration_note": "The public agent setup procedure owns intake; Campaigns OS runtime flows use the public package handoff",
+        "agent_setup": "https://developers.nextcommerce.com/agent-setup/prompt.md"
       },
       "related_skills": [
         {
@@ -276,6 +277,11 @@
           "id": "next-campaigns-os",
           "source": "https://github.com/NextCommerceCo/campaigns-os",
           "relationship": "Canonical public Campaigns OS lifecycle skill"
+        },
+        {
+          "id": "next-campaigns-os-setup",
+          "source": "https://github.com/NextCommerceCo/campaigns-os",
+          "relationship": "Bundled setup skill for a project that already has a Campaigns OS Build Packet"
         },
         {
           "id": "next-campaigns-build",
@@ -294,20 +300,22 @@
         "scaffold and configure",
         "new funnel",
         "campaign setup",
-        "new campaign from scratch"
+        "new campaign from scratch",
+        "build a campaign from this URL",
+        "continue this campaign repo"
       ],
       "prerequisites": [
         "Node.js + npm",
         "A CPK project root (sellmore.campaigns.cpk or equivalent)",
-        "Campaign Cart API key for the store",
-        "CPK_ROOT environment variable or path to campaign root"
+        "CPK_ROOT environment variable or path to campaign root",
+        "Campaign Cart API key for the selected campaign when available; a scaffold without one runs against the starter templates' demo campaign"
       ],
       "safety": {
         "mutates_remote": false,
         "writes_local": true,
         "requires_approval": true,
         "network": "outbound-template-fetch",
-        "notes": "Writes a Campaign Cart API key and store details into local plaintext config (config.js/campaigns.json); review before running."
+        "notes": "Writes a Campaign Cart API key and store details into local plaintext config (config.js/campaigns.json); review before running. A scaffold without a key is bound to the starter templates' demo campaign and is for layout review only."
       }
     },
     {
