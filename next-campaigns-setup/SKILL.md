@@ -67,7 +67,7 @@ Ask for all three in a single message — do not ask one at a time:
 
 1. **Brand name** — the client/brand slug. Lowercase, hyphens only. Becomes the brand folder.
 2. **Public route slug** — the pretty campaign URL/page-kit folder slug, usually product name + version (e.g. `grounding-mat`, `grounding-mat-v2`). Lowercase, hyphens only. This is not the Campaign Map Builder Map ID.
-3. **Starter template** — a family from the public [template catalog](https://github.com/NextCommerceCo/campaign-cart-starter-templates/blob/main/templates.json). Read the catalog rather than offering families from memory; it currently recommends `apollo` for most single-step campaigns and `apollo-mv-single-step` for variant products, with multi-variant, two-step and three-step families alongside. `landing` is hidden in the catalog: it is a component library, not a checkout funnel, so offer it only for a standalone landing or presell page. Keep a template the user already chose; otherwise recommend one and say why.
+3. **Starter template** — a family from the public [template catalog](https://github.com/NextCommerceCo/campaign-cart-starter-templates/blob/main/templates.json). Read the catalog rather than offering families from memory; it currently recommends `apollo` for most single-step campaigns and `apollo-mv-single-step` for variant products. `landing` is a component library, not a checkout funnel: use it only for a standalone landing or presell page. Keep a template the user already chose; otherwise recommend one and say why.
 
 ---
 
