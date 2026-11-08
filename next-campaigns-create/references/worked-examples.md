@@ -1,7 +1,8 @@
 # Worked examples
 
 Numbers use the Photo Bracelet fixture: anchor **49.95**, no `price_rounding`.
-`landed_unit` subtracts a per-unit discount rounded to cents (half-up). These
+`landed_unit` subtracts a per-unit discount rounded up to the cent, as the cart
+engine does (89.99 at 33.34% off is a 30.01 discount). These
 are the forecasts `recommend` prints; `verify` confirms them against
 `carts/calculate`.
 
@@ -19,7 +20,7 @@ Every in-scope unit gets that tier's percentage. This is not Nth-unit-free.
 | Offer | Qty | % | Unit | Total |
 |---|---|---|---|---|
 | Buy 1 | 1 | 50 | 24.97 | 24.97 |
-| Buy 2 | 2 | 55 | 22.48 | 44.96 |
+| Buy 2 | 2 | 55 | 22.47 | 44.94 |
 | Buy 3 | 3 | 60 | 19.98 | 59.94 |
 
 Buy 1: 50% of 49.95 is 24.975, rounds to 24.98 off, unit **24.97**.
@@ -35,7 +36,7 @@ Locked by `Recommendation.test_low_ctc_multi_variant`.
 Encoded as one automatic offer: `count = 3`, `package_percentage = 33.33`.
 At exactly three equal-priced units the payable matches paying for two. That
 holds for this anchor with `price_rounding` unset; leaving rounding off does not
-guarantee it in general (at 59.99 the same offer lands at 120.00, not 119.98).
+guarantee it in general (at 59.99 the same offer lands at 119.97, not 119.98).
 With `--rounding 0.95` this example lands at 33.95 a unit, 101.85 for three.
 
 | Row | Qty | % | Unit | Full retail | Payable | vs true repeating BOGO |
@@ -171,7 +172,7 @@ units:
 | Row | Qty | % | Unit | Total | Shipping |
 |---|---|---|---|---|---|
 | Buy 1 | 1 | 50 | 24.97 | 24.97 | 6.95 |
-| Buy 2 | 2 | 55 | 22.48 | 44.96 | free |
+| Buy 2 | 2 | 55 | 22.47 | 44.94 | free |
 | Buy 3 | 3 | 60 | 19.98 | 59.94 | free |
 
 `plan` then prints
@@ -236,12 +237,12 @@ bash <skill-dir>/next-campaigns-create.sh reland \
 | Row | Live now | Once resumed |
 |---|---|---|
 | Buy 1 | 50%, 24.97 | 50%, 24.97 |
-| Buy 2 | 55%, 44.96, ships free | 55%, 44.96, ships free |
-| Buy 3 | 55%, 67.44, ships free | 60%, 59.94, ships free |
+| Buy 2 | 55%, 44.94, ships free | 55%, 44.94, ships free |
+| Buy 3 | 55%, 67.41, ships free | 60%, 59.94, ships free |
 
 Buy 3 does not fall to the package price. With `tier-3` off, the best live
 offer for 3 units is `tier-2`, whose condition (2 or more) 3 units still meet,
-so the row lands at 55%: 22.48 a unit, 67.44 in all. Tell the operator that
+so the row lands at 55%: 22.47 a unit, 67.41 in all. Tell the operator that
 before approving; switching off one tier is not the same as removing that
 quantity's discount. Approve the hash `reland` printed. After `apply`, resume
 the two offers with `set_offer_available`; `reland` refuses once a manifest

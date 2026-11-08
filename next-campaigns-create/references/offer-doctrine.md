@@ -72,8 +72,8 @@ automatic offer:
 
 At exactly `X + Y` equal-priced units the total is close to paying for X, and
 exact only for some anchors. The percentage is held to two decimals, the
-discount is rounded to cents, and `price_rounding` moves the unit price, so the
-landed total can differ: buy 2 get 1 at 59.99 lands at 120.00, not 119.98, and
+discount is rounded up to the cent, and `price_rounding` moves the unit price, so the
+landed total can differ: buy 2 get 1 at 59.99 lands at 119.97, not 119.98, and
 at 49.95 with `0.95` rounding it lands at 101.85, not 99.90. The plan's landed
 table and rationale state the real total. It is not Nth-unit-free: every matching unit gets that percentage, including mixed-price
 variants. Which unit is "free" is not a merchant choice. Cheapest-free would
@@ -360,6 +360,11 @@ what `verify` does.
 
 Unit-price rounding:
 
+- Each unit's percentage discount rounds up to the cent before it is subtracted.
+  `calculate` showed it on 2026-11-07, on offers with no `price_rounding`: 89.99 at
+  33.34% off is a 30.01 discount (30.0027 unrounded) and a 59.98 unit, and at
+  44.45% a 40.01 discount and a 49.98 unit. Rounding to the nearest cent would
+  forecast 59.99 and 49.99.
 - Every qualifying unit rounds to the same unit price, and units of one package
   stay consolidated on one line. A bundle total is always quantity times unit.
   Splitting a quantity across variants costs the same as one line of that quantity.
@@ -400,7 +405,7 @@ Stacking:
   refuses a 50% Buy 1 next to a 33.33% BOGO on the same packages. Automatic
   shipping offers follow the same rule: one applies. Codes stack on top of
   any of them.
-- The voucher discount is computed per unit and rounded to cents, and the line
+- The voucher discount is computed per unit and rounded up to the cent, and the line
   total is quantity times that unit. A cart total can therefore differ from a
   literal percentage of the total by a few cents. That is expected.
 - `verify` allows a tolerance of one cent per unit when it compares a forecast to
@@ -411,12 +416,12 @@ Engineering a voucher to a target price:
 - Starting percentage:
   `voucher % = (offer-adjusted unit - target unit) ÷ offer-adjusted unit × 100`.
 - This is a first guess, not a guarantee. The engine rounds the per-unit discount
-  to cents, so the landed unit can sit a cent either side of the target.
+  up to the cent, so the landed unit can sit a cent below the target.
 - Worked example: an offer-adjusted unit of $45.53 and a target of $40.99 give
   `(45.53 - 40.99) ÷ 45.53 × 100 = 9.97…`, so 9.97 percent. Checked back through
-  the rounding, 9.97 percent of $45.53 is $4.5393, which rounds to $4.54 and lands
-  at $40.99. A plain 10 percent is $4.553, which rounds to $4.55 and lands at
-  $40.98.
+  the rounding, 9.97 percent of $45.53 is $4.5393, which rounds up to $4.54 and
+  lands at $40.99. A plain 10 percent is $4.553, which rounds up to $4.56 and lands
+  at $40.97.
 - `recommend` takes whole percentages in `[1, 99]` for quantity tiers, upsells
   and the exit voucher. Buy-X-get-Y is the exception: it emits the exact
   `100 × Y / (X + Y)` rate, which may be fractional (buy 2 get 1 is 33.33).

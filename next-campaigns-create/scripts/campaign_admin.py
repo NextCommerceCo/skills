@@ -73,7 +73,7 @@ import urllib.request
 import uuid
 from collections import namedtuple
 from datetime import datetime, timezone, timedelta
-from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 
 API_VERSION = "2024-04-01"
@@ -940,10 +940,12 @@ def money(x: Decimal) -> str:
 
 def landed_unit(anchor: Decimal, pct: Decimal, rounding: str | None) -> Decimal:
     """Engine behaviour (offer doctrine: Rounding and stacking): the per-unit discount is
-    rounded to cents, then subtracted. A price_rounding value pins the cents of
-    the result; that step is engine-defined and confirmed by `verify` against
-    carts/calculate, not assumed."""
-    discount = (anchor * pct / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    rounded up to the cent, then subtracted. carts/calculate showed it on 2026-11-07:
+    89.99 at 33.34% off is a 30.01 discount (30.0027 unrounded), a 59.98 unit, and at
+    44.45% a 40.01 discount, a 49.98 unit, on offers with no price_rounding. A
+    price_rounding value pins the cents of the result; that step is engine-defined
+    and confirmed by `verify` against carts/calculate, not assumed."""
+    discount = (anchor * pct / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_CEILING)
     unit = anchor - discount
     if rounding:
         cents = Decimal(rounding)
@@ -1635,7 +1637,7 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
         else:
             match = (f"At exactly {total_qty} equal-priced units it lands at {money(landed_total)}, not the "
                      f"{money(paid_total)} that paying for {paid_qty} at the anchor would cost: the percentage is held to "
-                     "2 decimals, the discount is rounded to cents, and price_rounding (when set) moves the "
+                     "2 decimals, the discount is rounded up to the cent, and price_rounding (when set) moves the "
                      "unit price. Customer copy must quote the landed total, not 'for the price of "
                      f"{paid_qty}'. It is not Nth-unit-free.")
         rationale.append(

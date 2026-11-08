@@ -231,7 +231,7 @@ class Launcher(unittest.TestCase):
                 "--anchor-price", "49.95", "--shipping", "standard:6.95", cwd=self.root)
         self.assertEqual(r.returncode, 0, r.stderr)
         plan = json.loads((run_dir / "campaign-plan.json").read_text())
-        self.assertEqual([row["order_total"] for row in plan["landed_prices"]], ["24.97", "44.96", "59.94"])
+        self.assertEqual([row["order_total"] for row in plan["landed_prices"]], ["24.97", "44.94", "59.94"])
         self.assertEqual(plan["blockers"], [])
 
 

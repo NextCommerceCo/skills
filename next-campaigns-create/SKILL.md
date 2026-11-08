@@ -1,6 +1,6 @@
 ---
 name: next-campaigns-create
-version: 1.3.0
+version: 1.3.1
 description: |
   Create and update a Campaigns App campaign over the NEXT Admin API. Create:
   read the store's catalogue, gateway groups and shipping methods, recommend a
@@ -877,7 +877,7 @@ gift (different package keys). `--tiers` with `--offer-type bxgy` is an error.
   still pays shipping.
 - **Price rounding**: always ask, on every offer type. It is the merchant's
   call, like CTC and the anchor, so never infer it. Work the example from the
-  operator's anchor before asking. The discount is rounded to cents, then the
+  operator's anchor before asking. The discount is rounded up to the cent, then the
   unit price is floored to the dollar and the chosen cents added: 50% off
   $59.99 is $29.99 unrounded and $29.95 with .95. A rounded unit price can sit
   up to $1 either side of the plain percentage, so on a small discount (under
@@ -993,7 +993,7 @@ Tell the operator, before they approve:
 
 - At exactly `X+Y` equal-priced units the total is close to paying for X, and
   exact only for some anchors. The percentage is held to 2 decimals, the
-  discount is rounded to cents, and price rounding moves the unit price, so
+  discount is rounded up to the cent, and price rounding moves the unit price, so
   the landed total can be off by cents, or by more with price rounding. The
   plan's landed table and its rationale give the real total. Extra units above
   `X+Y` still get the same percentage; it does not repeat per extra set.

@@ -377,6 +377,20 @@ class OutputDirectory(unittest.TestCase):
             self.assertEqual([x.name for x in Path(d).iterdir()], ["m.json"])
 
 
+class LandedUnitRounding(unittest.TestCase):
+    """The engine rounds each unit's discount up to the cent. carts/calculate on
+    2026-11-07, offers with no price_rounding: 89.99 at 33.34%, 38.89% and 44.45%
+    off charged 59.98 (a 30.01 discount), 54.99 and 49.98 (a 40.01 discount)."""
+
+    def test_matches_calculate(self):
+        for pct, unit in (("33.34", "59.98"), ("38.89", "54.99"), ("44.45", "49.98")):
+            with self.subTest(pct=pct):
+                self.assertEqual(ca.landed_unit(Decimal("89.99"), Decimal(pct), None), Decimal(unit))
+
+    def test_exact_discount_is_not_rounded(self):
+        self.assertEqual(ca.landed_unit(Decimal("40.00"), Decimal("25"), None), Decimal("30.00"))
+
+
 class Recommendation(unittest.TestCase):
     def setUp(self):
         self.disc = load_fixture("discovery.json")
@@ -398,9 +412,9 @@ class Recommendation(unittest.TestCase):
         exit_ = next(o for o in plan["offers"] if o["key"] == "exit-pop")
         self.assertEqual((exit_["offer_type"], exit_["code"], exit_["benefit"]["value"]), ("voucher", "BRACELET10", "10.00"))
         landed = {l["tier"]: l for l in plan["landed_prices"]}
-        self.assertEqual(landed["Buy 1"]["unit_after"], "24.97")   # 49.95 - round(24.975)=24.98 -> 24.97
-        self.assertEqual(landed["Buy 2"]["unit_after"], "22.48")   # 49.95 - 27.47
-        self.assertEqual(landed["Buy 2"]["order_total"], "44.96")
+        self.assertEqual(landed["Buy 1"]["unit_after"], "24.97")   # 49.95 - 24.98 (24.975 rounded up)
+        self.assertEqual(landed["Buy 2"]["unit_after"], "22.47")   # 49.95 - 27.48 (27.4725 rounded up)
+        self.assertEqual(landed["Buy 2"]["order_total"], "44.94")
         self.assertEqual(landed["Buy 3"]["unit_after"], "19.98")   # 49.95 - 29.97
         self.assertEqual(plan["campaign"]["payment_gateway_group_id"], 1)
         self.assertEqual(plan["campaign"]["available_payment_methods"], ["bankcard"])
@@ -561,7 +575,7 @@ class Recommendation(unittest.TestCase):
     def test_bxgy_rationale_states_landed_total_when_it_differs(self):
         cases = [
             (dict(rounding="0.95"), "101.85", "99.90"),          # charm cents
-            (dict(anchor_price="59.99"), "120.00", "119.98"),    # discount rounded to cents
+            (dict(anchor_price="59.99"), "119.97", "119.98"),    # discount rounded up to the cent
             (dict(anchor_price="300"), "600.03", "600.00"),      # 33.33% held to 2 decimals
         ]
         for kw, landed, paid in cases:
@@ -4342,8 +4356,11 @@ class OffersAvailableFlag(unittest.TestCase):
     # Captured from HEAD 10fbf56, before the flag existed: sha256 of
     # json.dumps(render_requests(plan)) + json.dumps(plan["landed_prices"]). A
     # plan that never mentions availability must stay byte-identical on the wire.
+    # The quantity pin was recaptured when landed_unit moved to rounding the
+    # discount up: its requests are unchanged, and only Buy 2's forecast moved
+    # (unit 22.48 to 22.47, total 44.96 to 44.94).
     GOLDEN = {
-        "quantity": ({}, "be3bdc4a445c1232643d8a0b7f1ab67bc864ea4240f699415cf3926da4cd0c82"),  # public-safety: allow high-entropy: sha256 pin of HEAD output
+        "quantity": ({}, "4b70363037b4fd2b7dd8e10e57271314f05004089b3365ec13c79a59a44a6afd"),  # public-safety: allow high-entropy: sha256 pin of HEAD output
         "bxgy": (dict(offer_type="bxgy", paid_qty=2, free_qty=1),
                  "df2da9b2c4d1091f33a7fb25c2e0b09a21dc54589a090e7f046eabc03b7d5bf9"),  # public-safety: allow high-entropy: sha256 pin of HEAD output
         "gwp": (dict(offer_type="gwp", gift=["16:19.95"]),
