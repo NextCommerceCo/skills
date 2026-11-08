@@ -380,12 +380,18 @@ class OutputDirectory(unittest.TestCase):
 class LandedUnitRounding(unittest.TestCase):
     """The engine rounds each unit's discount up to the cent. carts/calculate on
     2026-11-07, offers with no price_rounding: 89.99 at 33.34%, 38.89% and 44.45%
-    off charged 59.98 (a 30.01 discount), 54.99 and 49.98 (a 40.01 discount)."""
+    off charged 59.98 (a 30.01 discount), 54.99 and 49.98 (a 40.01 discount). The
+    33.34% and 44.45% lines tell the rules apart (half-up gives 59.99 and 49.99);
+    38.89% lands on the same cent under either rule and is kept as a check."""
 
     def test_matches_calculate(self):
         for pct, unit in (("33.34", "59.98"), ("38.89", "54.99"), ("44.45", "49.98")):
             with self.subTest(pct=pct):
                 self.assertEqual(ca.landed_unit(Decimal("89.99"), Decimal(pct), None), Decimal(unit))
+
+    def test_a_fraction_of_a_cent_rounds_the_discount_up(self):
+        # 27.4725 is 27.48 off, not the 27.47 half-up gives.
+        self.assertEqual(ca.landed_unit(Decimal("49.95"), Decimal("55"), None), Decimal("22.47"))
 
     def test_exact_discount_is_not_rounded(self):
         self.assertEqual(ca.landed_unit(Decimal("40.00"), Decimal("25"), None), Decimal("30.00"))

@@ -944,7 +944,9 @@ def landed_unit(anchor: Decimal, pct: Decimal, rounding: str | None) -> Decimal:
     89.99 at 33.34% off is a 30.01 discount (30.0027 unrounded), a 59.98 unit, and at
     44.45% a 40.01 discount, a 49.98 unit, on offers with no price_rounding. A
     price_rounding value pins the cents of the result; that step is engine-defined
-    and confirmed by `verify` against carts/calculate, not assumed."""
+    and confirmed by `verify` against carts/calculate, not assumed. With it, a cent
+    of discount near a whole dollar moves the pinned unit by a dollar, so the
+    rounded-up discount is not yet confirmed on that path; verify is the check."""
     discount = (anchor * pct / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_CEILING)
     unit = anchor - discount
     if rounding:

@@ -589,17 +589,17 @@ class EditPricingRounded(EditHarness):
     RECOMMEND = dict(EditHarness.RECOMMEND, rounding="0.99")
 
     def test_value_only_edit_keeps_rounding_and_can_clear_it(self):
-        self.assertEqual(self.edit([{"op": "set_offer_benefit", "offer_key": "tier-2", "value": "52"}]), 0)
-        self.assertEqual(self.writes()[-1][2], {"benefit": {"value": "52.00"}})
+        self.assertEqual(self.edit([{"op": "set_offer_benefit", "offer_key": "tier-2", "value": "51"}]), 0)
+        self.assertEqual(self.writes()[-1][2], {"benefit": {"value": "51.00"}})
         ben = self.offer("tier-2")["benefit"]
         self.assertEqual({f: ben[f] for f in ("type", "value", "price_rounding")},
-                         {"type": "package_percentage", "value": "52.00", "price_rounding": "0.99"})
-        self.assertEqual(self.row("Buy 2")["unit_after"], "23.99")   # 49.99 - 26.00 (25.9948 rounded up) = 23.99, pinned to .99
+                         {"type": "package_percentage", "value": "51.00", "price_rounding": "0.99"})
+        self.assertEqual(self.row("Buy 2")["unit_after"], "24.99")   # 49.99 - 25.50 (25.4949 rounded up) = 24.49, pinned to 24.99
         self.assert_in_line()
         self.assertEqual(self.edit([{"op": "set_offer_benefit", "offer_key": "tier-2", "price_rounding": None}],
                                    "clear.json"), 0)
-        self.assertEqual(self.writes()[-1][2], {"benefit": {"value": "52.00", "price_rounding": None}})
-        self.assertEqual(self.row("Buy 2")["unit_after"], "23.99")   # unpinned: 49.99 - 26.00
+        self.assertEqual(self.writes()[-1][2], {"benefit": {"value": "51.00", "price_rounding": None}})
+        self.assertEqual(self.row("Buy 2")["unit_after"], "24.49")   # unpinned: 49.99 - 25.50
         self.assert_in_line()
 
     def test_rounding_that_undoes_the_discount_is_refused(self):

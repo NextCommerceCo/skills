@@ -24,7 +24,7 @@ Every in-scope unit gets that tier's percentage. This is not Nth-unit-free.
 | Buy 3 | 3 | 60 | 19.98 | 59.94 |
 
 Buy 1: 50% of 49.95 is 24.975, rounds to 24.98 off, unit **24.97**.
-Buy 2: 55% of 49.95 is 27.4725 → 27.47 off, unit **22.48**, total 44.96.
+Buy 2: 55% of 49.95 is 27.4725 → 27.48 off (rounded up), unit **22.47**, total 44.94.
 Buy 3: 60% of 49.95 is 29.97 off, unit **19.98**, total 59.94.
 
 Locked by `Recommendation.test_low_ctc_multi_variant`.
