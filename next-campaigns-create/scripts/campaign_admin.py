@@ -89,7 +89,7 @@ SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 DECIMAL_RE = re.compile(r"^\d{1,8}(?:\.\d{1,2})?$")
 CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
 # ISO 4217 currencies with no minor unit. A fixed price in one of them must be a
-# whole number; the cart engine still rounds a discount to cents in every currency.
+# whole number; the cart engine still rounds a discount up to the cent in every currency.
 ZERO_DECIMAL_CURRENCIES = frozenset({"BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW", "PYG",
                                      "RWF", "UGX", "UYI", "VND", "VUV", "XAF", "XOF", "XPF"})
 CODE_RE = re.compile(r"^[A-Z0-9]{1,64}$")
@@ -1469,15 +1469,17 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
             held = next((x for x in packages if x.get("product_variant_ids") == [vid]), None)
             if held is not None:
                 # One package per variant: the price difference has to come from the
-                # voucher. Suggest the whole percentage that lands nearest the target.
-                target = landed_unit(D(price), pct, None) if Decimal(0) < pct < Decimal(100) else None
+                # voucher. Suggest the whole percentage that lands nearest the target,
+                # priced with the plan's --rounding, which the upsell voucher carries.
+                ending = a.rounding or None
+                target = landed_unit(D(price), pct, ending) if Decimal(0) < pct < Decimal(100) else None
                 hint = ""
                 if target is not None and D(held["price"]) > target:
                     exact = (D(held["price"]) - target) / D(held["price"]) * 100
                     whole = int(exact.to_integral_value(rounding=ROUND_HALF_UP))
                     if 0 < whole < 100:
                         hint = (f" To land near {money(target)}, pass --upsell {vid}:{held['price']}:{whole} "
-                                f"(lands at {money(landed_unit(D(held['price']), Decimal(whole), None))}).")
+                                f"(lands at {money(landed_unit(D(held['price']), Decimal(whole), ending))}).")
                 raise CampaignAdminError(
                     f"upsell variant {vid} is already package {held['key']} at {held['price']}; the Campaigns "
                     f"API allows one package per variant, so the upsell reuses that package at its price and "
@@ -2062,7 +2064,7 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
         if zero and any(o["benefit"]["type"] == "package_percentage" and D(o["benefit"]["value"]) < 100
                         for o in offers):
             rationale.append(f"{', '.join(zero)} {'has' if len(zero) == 1 else 'have'} no minor unit, but the cart "
-                             "engine rounds a percentage discount to cents in every currency, so a discounted "
+                             "engine rounds a percentage discount up to the cent in every currency, so a discounted "
                              "price there can land on a fraction. Check the landed prices per currency.")
         if group.get("is_default") is not None:
             rationale.append(f"Gateway group [{group['id']}] {group['name']}"

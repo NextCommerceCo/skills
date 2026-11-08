@@ -3793,6 +3793,15 @@ class UpsellPackagesAndVouchers(unittest.TestCase):
         plan = ca.recommend(self.disc, ns(upsell=["23:49.95:60"]))
         self.assertEqual(next(l for l in plan["landed_prices"] if l["kind"] == "upsell")["unit_after"], "19.98")
 
+    def test_upsell_percentage_hint_prices_with_the_plan_rounding(self):
+        # the upsell voucher carries --rounding, so the hint's landing does too:
+        # 60% off 49.95 is 19.98, pinned to 19.99
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.recommend(self.disc, ns(upsell=["23:39.95:50"], rounding="0.99"))
+        self.assertIn("--upsell 23:49.95:60 (lands at 19.99)", str(cm.exception))
+        plan = ca.recommend(self.disc, ns(upsell=["23:49.95:60"], rounding="0.99"))
+        self.assertEqual(next(l for l in plan["landed_prices"] if l["kind"] == "upsell")["unit_after"], "19.99")
+
     def test_standalone_upsell_gets_its_own_package(self):
         plan = ca.recommend(self.disc, ns(upsell=["16:39.95:50"]))
         self.assertEqual(next(p for p in plan["packages"] if p["key"] == "upsell-16")["price"], "39.95")
