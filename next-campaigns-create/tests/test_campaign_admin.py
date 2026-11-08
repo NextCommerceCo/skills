@@ -3802,6 +3802,16 @@ class UpsellPackagesAndVouchers(unittest.TestCase):
         plan = ca.recommend(self.disc, ns(upsell=["23:49.95:60"], rounding="0.99"))
         self.assertEqual(next(l for l in plan["landed_prices"] if l["kind"] == "upsell")["unit_after"], "19.99")
 
+    def test_upsell_percentage_hint_is_searched_not_inverted_under_rounding(self):
+        # with --rounding 0.00 39.95 at 50% lands at 19.00; inverting gives 62%,
+        # which lands at 18.00, while 60% and 61% land exactly on 19.00 (the tie
+        # goes to 61, nearest the 61.96% the arithmetic gives)
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.recommend(self.disc, ns(upsell=["23:39.95:50"], rounding="0.00"))
+        self.assertIn("To land near 19.00, pass --upsell 23:49.95:61 (lands at 19.00)", str(cm.exception))
+        plan = ca.recommend(self.disc, ns(upsell=["23:49.95:61"], rounding="0.00"))
+        self.assertEqual(next(l for l in plan["landed_prices"] if l["kind"] == "upsell")["unit_after"], "19.00")
+
     def test_standalone_upsell_gets_its_own_package(self):
         plan = ca.recommend(self.disc, ns(upsell=["16:39.95:50"]))
         self.assertEqual(next(p for p in plan["packages"] if p["key"] == "upsell-16")["price"], "39.95")

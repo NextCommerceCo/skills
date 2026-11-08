@@ -1471,15 +1471,21 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
                 # One package per variant: the price difference has to come from the
                 # voucher. Suggest the whole percentage that lands nearest the target,
                 # priced with the plan's --rounding, which the upsell voucher carries.
+                # The landing is searched, not inverted: with an ending it moves in
+                # whole-dollar steps, so the nearest percentage by arithmetic can land
+                # a dollar off. Ties go to the percentage nearest the arithmetic one.
                 ending = a.rounding or None
+                base = D(held["price"])
                 target = landed_unit(D(price), pct, ending) if Decimal(0) < pct < Decimal(100) else None
                 hint = ""
-                if target is not None and D(held["price"]) > target:
-                    exact = (D(held["price"]) - target) / D(held["price"]) * 100
-                    whole = int(exact.to_integral_value(rounding=ROUND_HALF_UP))
-                    if 0 < whole < 100:
+                if target is not None and base > target:
+                    exact = (base - target) / base * 100
+                    lands = {w: landed_unit(base, Decimal(w), ending) for w in range(1, 100)}
+                    fits = [w for w in lands if lands[w] < base]
+                    if fits:
+                        whole = min(fits, key=lambda w: (abs(lands[w] - target), abs(Decimal(w) - exact)))
                         hint = (f" To land near {money(target)}, pass --upsell {vid}:{held['price']}:{whole} "
-                                f"(lands at {money(landed_unit(D(held['price']), Decimal(whole), ending))}).")
+                                f"(lands at {money(lands[whole])}).")
                 raise CampaignAdminError(
                     f"upsell variant {vid} is already package {held['key']} at {held['price']}; the Campaigns "
                     f"API allows one package per variant, so the upsell reuses that package at its price and "
