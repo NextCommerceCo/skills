@@ -377,6 +377,26 @@ class OutputDirectory(unittest.TestCase):
             self.assertEqual([x.name for x in Path(d).iterdir()], ["m.json"])
 
 
+class LandedUnitRounding(unittest.TestCase):
+    """The engine rounds each unit's discount up to the cent. carts/calculate on
+    2026-11-07, offers with no price_rounding: 89.99 at 33.34%, 38.89% and 44.45%
+    off charged 59.98 (a 30.01 discount), 54.99 and 49.98 (a 40.01 discount). The
+    33.34% and 44.45% lines tell the rules apart (half-up gives 59.99 and 49.99);
+    38.89% lands on the same cent under either rule and is kept as a check."""
+
+    def test_matches_calculate(self):
+        for pct, unit in (("33.34", "59.98"), ("38.89", "54.99"), ("44.45", "49.98")):
+            with self.subTest(pct=pct):
+                self.assertEqual(ca.landed_unit(Decimal("89.99"), Decimal(pct), None), Decimal(unit))
+
+    def test_a_fraction_of_a_cent_rounds_the_discount_up(self):
+        # 27.4725 is 27.48 off, not the 27.47 half-up gives.
+        self.assertEqual(ca.landed_unit(Decimal("49.95"), Decimal("55"), None), Decimal("22.47"))
+
+    def test_exact_discount_is_not_rounded(self):
+        self.assertEqual(ca.landed_unit(Decimal("40.00"), Decimal("25"), None), Decimal("30.00"))
+
+
 class Recommendation(unittest.TestCase):
     def setUp(self):
         self.disc = load_fixture("discovery.json")
@@ -398,9 +418,9 @@ class Recommendation(unittest.TestCase):
         exit_ = next(o for o in plan["offers"] if o["key"] == "exit-pop")
         self.assertEqual((exit_["offer_type"], exit_["code"], exit_["benefit"]["value"]), ("voucher", "BRACELET10", "10.00"))
         landed = {l["tier"]: l for l in plan["landed_prices"]}
-        self.assertEqual(landed["Buy 1"]["unit_after"], "24.97")   # 49.95 - round(24.975)=24.98 -> 24.97
-        self.assertEqual(landed["Buy 2"]["unit_after"], "22.48")   # 49.95 - 27.47
-        self.assertEqual(landed["Buy 2"]["order_total"], "44.96")
+        self.assertEqual(landed["Buy 1"]["unit_after"], "24.97")   # 49.95 - 24.98 (24.975 rounded up)
+        self.assertEqual(landed["Buy 2"]["unit_after"], "22.47")   # 49.95 - 27.48 (27.4725 rounded up)
+        self.assertEqual(landed["Buy 2"]["order_total"], "44.94")
         self.assertEqual(landed["Buy 3"]["unit_after"], "19.98")   # 49.95 - 29.97
         self.assertEqual(plan["campaign"]["payment_gateway_group_id"], 1)
         self.assertEqual(plan["campaign"]["available_payment_methods"], ["bankcard"])
@@ -561,7 +581,7 @@ class Recommendation(unittest.TestCase):
     def test_bxgy_rationale_states_landed_total_when_it_differs(self):
         cases = [
             (dict(rounding="0.95"), "101.85", "99.90"),          # charm cents
-            (dict(anchor_price="59.99"), "120.00", "119.98"),    # discount rounded to cents
+            (dict(anchor_price="59.99"), "119.97", "119.98"),    # discount rounded up to the cent
             (dict(anchor_price="300"), "600.03", "600.00"),      # 33.33% held to 2 decimals
         ]
         for kw, landed, paid in cases:
@@ -3773,6 +3793,25 @@ class UpsellPackagesAndVouchers(unittest.TestCase):
         plan = ca.recommend(self.disc, ns(upsell=["23:49.95:60"]))
         self.assertEqual(next(l for l in plan["landed_prices"] if l["kind"] == "upsell")["unit_after"], "19.98")
 
+    def test_upsell_percentage_hint_prices_with_the_plan_rounding(self):
+        # the upsell voucher carries --rounding, so the hint's landing does too:
+        # 60% off 49.95 is 19.98, pinned to 19.99
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.recommend(self.disc, ns(upsell=["23:39.95:50"], rounding="0.99"))
+        self.assertIn("--upsell 23:49.95:60 (lands at 19.99)", str(cm.exception))
+        plan = ca.recommend(self.disc, ns(upsell=["23:49.95:60"], rounding="0.99"))
+        self.assertEqual(next(l for l in plan["landed_prices"] if l["kind"] == "upsell")["unit_after"], "19.99")
+
+    def test_upsell_percentage_hint_is_searched_not_inverted_under_rounding(self):
+        # with --rounding 0.00 39.95 at 50% lands at 19.00; inverting gives 62%,
+        # which lands at 18.00, while 60% and 61% land exactly on 19.00 (the tie
+        # goes to 61, nearest the 61.96% the arithmetic gives)
+        with self.assertRaises(ca.CampaignAdminError) as cm:
+            ca.recommend(self.disc, ns(upsell=["23:39.95:50"], rounding="0.00"))
+        self.assertIn("To land near 19.00, pass --upsell 23:49.95:61 (lands at 19.00)", str(cm.exception))
+        plan = ca.recommend(self.disc, ns(upsell=["23:49.95:61"], rounding="0.00"))
+        self.assertEqual(next(l for l in plan["landed_prices"] if l["kind"] == "upsell")["unit_after"], "19.00")
+
     def test_standalone_upsell_gets_its_own_package(self):
         plan = ca.recommend(self.disc, ns(upsell=["16:39.95:50"]))
         self.assertEqual(next(p for p in plan["packages"] if p["key"] == "upsell-16")["price"], "39.95")
@@ -4342,8 +4381,11 @@ class OffersAvailableFlag(unittest.TestCase):
     # Captured from HEAD 10fbf56, before the flag existed: sha256 of
     # json.dumps(render_requests(plan)) + json.dumps(plan["landed_prices"]). A
     # plan that never mentions availability must stay byte-identical on the wire.
+    # The quantity pin was recaptured when landed_unit moved to rounding the
+    # discount up: its requests are unchanged, and only Buy 2's forecast moved
+    # (unit 22.48 to 22.47, total 44.96 to 44.94).
     GOLDEN = {
-        "quantity": ({}, "be3bdc4a445c1232643d8a0b7f1ab67bc864ea4240f699415cf3926da4cd0c82"),  # public-safety: allow high-entropy: sha256 pin of HEAD output
+        "quantity": ({}, "4b70363037b4fd2b7dd8e10e57271314f05004089b3365ec13c79a59a44a6afd"),  # public-safety: allow high-entropy: sha256 pin of HEAD output
         "bxgy": (dict(offer_type="bxgy", paid_qty=2, free_qty=1),
                  "df2da9b2c4d1091f33a7fb25c2e0b09a21dc54589a090e7f046eabc03b7d5bf9"),  # public-safety: allow high-entropy: sha256 pin of HEAD output
         "gwp": (dict(offer_type="gwp", gift=["16:19.95"]),

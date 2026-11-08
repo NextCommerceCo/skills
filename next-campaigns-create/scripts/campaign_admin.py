@@ -73,7 +73,7 @@ import urllib.request
 import uuid
 from collections import namedtuple
 from datetime import datetime, timezone, timedelta
-from decimal import ROUND_FLOOR, ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 
 API_VERSION = "2024-04-01"
@@ -89,7 +89,7 @@ SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 DECIMAL_RE = re.compile(r"^\d{1,8}(?:\.\d{1,2})?$")
 CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
 # ISO 4217 currencies with no minor unit. A fixed price in one of them must be a
-# whole number; the cart engine still rounds a discount to cents in every currency.
+# whole number; the cart engine still rounds a discount up to the cent in every currency.
 ZERO_DECIMAL_CURRENCIES = frozenset({"BIF", "CLP", "DJF", "GNF", "ISK", "JPY", "KMF", "KRW", "PYG",
                                      "RWF", "UGX", "UYI", "VND", "VUV", "XAF", "XOF", "XPF"})
 CODE_RE = re.compile(r"^[A-Z0-9]{1,64}$")
@@ -940,10 +940,14 @@ def money(x: Decimal) -> str:
 
 def landed_unit(anchor: Decimal, pct: Decimal, rounding: str | None) -> Decimal:
     """Engine behaviour (offer doctrine: Rounding and stacking): the per-unit discount is
-    rounded to cents, then subtracted. A price_rounding value pins the cents of
-    the result; that step is engine-defined and confirmed by `verify` against
-    carts/calculate, not assumed."""
-    discount = (anchor * pct / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    rounded up to the cent, then subtracted. carts/calculate showed it on 2026-11-07:
+    89.99 at 33.34% off is a 30.01 discount (30.0027 unrounded), a 59.98 unit, and at
+    44.45% a 40.01 discount, a 49.98 unit, on offers with no price_rounding. A
+    price_rounding value pins the cents of the result; that step is engine-defined
+    and confirmed by `verify` against carts/calculate, not assumed. With it, a cent
+    of discount near a whole dollar moves the pinned unit by a dollar, so the
+    rounded-up discount is not yet confirmed on that path; verify is the check."""
+    discount = (anchor * pct / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_CEILING)
     unit = anchor - discount
     if rounding:
         cents = Decimal(rounding)
@@ -1465,15 +1469,23 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
             held = next((x for x in packages if x.get("product_variant_ids") == [vid]), None)
             if held is not None:
                 # One package per variant: the price difference has to come from the
-                # voucher. Suggest the whole percentage that lands nearest the target.
-                target = landed_unit(D(price), pct, None) if Decimal(0) < pct < Decimal(100) else None
+                # voucher. Suggest the whole percentage that lands nearest the target,
+                # priced with the plan's --rounding, which the upsell voucher carries.
+                # The landing is searched, not inverted: with an ending it moves in
+                # whole-dollar steps, so the nearest percentage by arithmetic can land
+                # a dollar off. Ties go to the percentage nearest the arithmetic one.
+                ending = a.rounding or None
+                base = D(held["price"])
+                target = landed_unit(D(price), pct, ending) if Decimal(0) < pct < Decimal(100) else None
                 hint = ""
-                if target is not None and D(held["price"]) > target:
-                    exact = (D(held["price"]) - target) / D(held["price"]) * 100
-                    whole = int(exact.to_integral_value(rounding=ROUND_HALF_UP))
-                    if 0 < whole < 100:
+                if target is not None and base > target:
+                    exact = (base - target) / base * 100
+                    lands = {w: landed_unit(base, Decimal(w), ending) for w in range(1, 100)}
+                    fits = [w for w in lands if lands[w] < base]
+                    if fits:
+                        whole = min(fits, key=lambda w: (abs(lands[w] - target), abs(Decimal(w) - exact)))
                         hint = (f" To land near {money(target)}, pass --upsell {vid}:{held['price']}:{whole} "
-                                f"(lands at {money(landed_unit(D(held['price']), Decimal(whole), None))}).")
+                                f"(lands at {money(lands[whole])}).")
                 raise CampaignAdminError(
                     f"upsell variant {vid} is already package {held['key']} at {held['price']}; the Campaigns "
                     f"API allows one package per variant, so the upsell reuses that package at its price and "
@@ -1635,7 +1647,7 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
         else:
             match = (f"At exactly {total_qty} equal-priced units it lands at {money(landed_total)}, not the "
                      f"{money(paid_total)} that paying for {paid_qty} at the anchor would cost: the percentage is held to "
-                     "2 decimals, the discount is rounded to cents, and price_rounding (when set) moves the "
+                     "2 decimals, the discount is rounded up to the cent, and price_rounding (when set) moves the "
                      "unit price. Customer copy must quote the landed total, not 'for the price of "
                      f"{paid_qty}'. It is not Nth-unit-free.")
         rationale.append(
@@ -2058,7 +2070,7 @@ def recommend(discovery: dict, a: argparse.Namespace) -> dict:
         if zero and any(o["benefit"]["type"] == "package_percentage" and D(o["benefit"]["value"]) < 100
                         for o in offers):
             rationale.append(f"{', '.join(zero)} {'has' if len(zero) == 1 else 'have'} no minor unit, but the cart "
-                             "engine rounds a percentage discount to cents in every currency, so a discounted "
+                             "engine rounds a percentage discount up to the cent in every currency, so a discounted "
                              "price there can land on a fraction. Check the landed prices per currency.")
         if group.get("is_default") is not None:
             rationale.append(f"Gateway group [{group['id']}] {group['name']}"

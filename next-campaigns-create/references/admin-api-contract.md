@@ -345,7 +345,7 @@ reads:
   `carts/calculate` answer a code the campaign does not offer in the campaign
   currency, saying so in the response's `currency`. A visitor in an unoffered
   currency is silently priced in the campaign currency.
-- **The cart engine rounds a discount to cents in every currency.** There is no
+- **The cart engine rounds a discount up to the cent in every currency.** There is no
   per-currency minor unit, so a percentage discount in a zero-decimal currency
   such as JPY can land on a fraction. `recommend` refuses a fractional fixed
   price in one, and says so in the rationale when the plan has percentage offers.

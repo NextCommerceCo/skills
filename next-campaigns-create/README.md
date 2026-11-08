@@ -131,7 +131,7 @@ product price before shipping comes out like this:
 | Offer | Units | Discount off 49.95 | Price each | Total |
 |-------|-------|--------------------|------------|-------|
 | Buy 1 | 1 | 50 percent | 24.97 | 24.97 |
-| Buy 2 | 2 | 55 percent | 22.48 | 44.96 |
+| Buy 2 | 2 | 55 percent | 22.47 | 44.94 |
 | Buy 3 | 3 | 60 percent | 19.98 | 59.94 |
 
 The 6.95 shipping charge is added at checkout. The exit voucher takes a further

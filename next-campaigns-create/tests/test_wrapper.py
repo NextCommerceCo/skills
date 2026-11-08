@@ -72,7 +72,7 @@ class Launcher(unittest.TestCase):
         r = run("--version", cwd=self.root)
         self.assertEqual(r.returncode, 0, r.stderr)
         want = re.search(r"^version:\s*(\S+)", (SKILL_DIR / "SKILL.md").read_text(), re.M).group(1)
-        self.assertEqual(want, "1.3.0")
+        self.assertEqual(want, "1.3.1")
         self.assertEqual(r.stdout.strip(), f"next-campaigns-create {want}")
         catalog = REPO_ROOT / "skills.json"
         if catalog.exists():  # absent in an installed copy, present in the repository
@@ -231,7 +231,7 @@ class Launcher(unittest.TestCase):
                 "--anchor-price", "49.95", "--shipping", "standard:6.95", cwd=self.root)
         self.assertEqual(r.returncode, 0, r.stderr)
         plan = json.loads((run_dir / "campaign-plan.json").read_text())
-        self.assertEqual([row["order_total"] for row in plan["landed_prices"]], ["24.97", "44.96", "59.94"])
+        self.assertEqual([row["order_total"] for row in plan["landed_prices"]], ["24.97", "44.94", "59.94"])
         self.assertEqual(plan["blockers"], [])
 
 
