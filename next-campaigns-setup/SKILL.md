@@ -197,7 +197,7 @@ Read `<CPK_ROOT>/[brand-name]/src/[campaign-slug]/assets/config.js`. Make these 
    - Set `facebook.enabled` to `true`
    - Set `facebook.settings.pixelId` to the provided ID
 
-   The `gtm` and `facebook` keys above live in the template's `analytics.providers` block. Writing them is intentional while the starter templates ship that block: SDK 0.5 still reads it. If the template's `config.js` has an `analytics.destinations` block instead, set `destinations.gtm.enabled` and `destinations.meta.enabled` to `true` there, because a `destinations` setting wins over `providers` and the provider write would do nothing.
+   The `gtm` and `facebook` keys above live in the template's `analytics.providers` block. Writing them is intentional while the starter templates ship that block: SDK 0.5 still reads it. If the template's `config.js` has an `analytics.destinations` block instead, set `destinations.gtm.enabled` and `destinations.meta.enabled` to `true` there, because a `destinations` setting wins over `providers` and the provider write would do nothing. Destinations take no IDs (only `enabled`, plus `meta.storeName`): the container and Pixel load from `gtm_id` and `fb_pixel_id` in `campaigns.json` (Step 10), and the destinations send through what the page loaded.
 5. **Absent tracking**:
    - If tracking status is `unknown` or `not_configured`, keep GTM/Facebook disabled or blank. Remove obvious placeholder IDs if the template copied them.
    - If tracking status is `custom_required`, do not invent custom event wiring here and do not add an `analytics.providers.custom` block; report the `next.analytics.on('*', …)` listener as a follow-up for `next-campaigns-build`.
