@@ -1,6 +1,6 @@
 ---
 name: next-campaigns-setup
-version: 2.0.0
+version: 2.0.1
 description: |
   Start or continue a campaign from a URL, design, existing repo or saved Map,
   following the public agent setup procedure for intake. When a new
@@ -167,7 +167,20 @@ Validate all URLs before writing any files:
 - **Tracking status** — `unknown`, `not_configured`, `configured`, or `custom_required`
 - **GTM container ID** — e.g. `GTM-XXXXXXX`
 - **Facebook Pixel ID** — e.g. `123456789012345`
-- **Custom analytics endpoint or notes** — record in the report unless the template config already supports a matching custom analytics provider
+- **Custom analytics endpoint or notes** — record them on the report's `Custom analytics` line. Campaign Cart SDK 0.5 has no custom provider: `analytics.providers.custom` in `config.js` only logs a warning. A custom endpoint is a page listener, which is build work, for example:
+
+  ```js
+  next.analytics.on('*', (event) =>
+    fetch('[custom-endpoint-url]', {
+      method: 'POST',
+      keepalive: true,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(event),
+    }).catch(() => {}),
+  );
+  ```
+
+  See [SDK analytics destinations and custom listeners](https://cart-sdk.nextcommerce.com/latest/analytics-reference/destinations/overview/).
 
 Do not make the user guess through a wall of tracking surfaces. Ask for GTM/Facebook/custom only when they already have values or the CampaignSpec declares them. If tracking is `unknown` or `not_configured`, leave provider IDs blank/disabled and record that tracking is intentionally not configured yet.
 
@@ -183,9 +196,11 @@ Read `<CPK_ROOT>/[brand-name]/src/[campaign-slug]/assets/config.js`. Make these 
 4. **Facebook Pixel** (only if a real ID is provided):
    - Set `facebook.enabled` to `true`
    - Set `facebook.settings.pixelId` to the provided ID
+
+   The `gtm` and `facebook` keys above live in the template's `analytics.providers` block. Writing them is intentional while the starter templates ship that block: SDK 0.5 still reads it. If the template's `config.js` has an `analytics.destinations` block instead, set `destinations.gtm.enabled` and `destinations.meta.enabled` to `true` there, because a `destinations` setting wins over `providers` and the provider write would do nothing. Destinations take no IDs (only `enabled`, plus `meta.storeName`): the container and Pixel load from `gtm_id` and `fb_pixel_id` in `campaigns.json` (Step 10), and the destinations send through what the page loaded.
 5. **Absent tracking**:
    - If tracking status is `unknown` or `not_configured`, keep GTM/Facebook disabled or blank. Remove obvious placeholder IDs if the template copied them.
-   - If tracking status is `custom_required`, do not invent custom event wiring here; report it as a follow-up for `next-campaigns-build`.
+   - If tracking status is `custom_required`, do not invent custom event wiring here and do not add an `analytics.providers.custom` block; report the `next.analytics.on('*', …)` listener as a follow-up for `next-campaigns-build`.
 
 Do not change any other fields. Preserve all comments.
 
@@ -231,6 +246,7 @@ Phase 2 — Configure
     ✓ GTM enabled with real ID / left disabled
     ✓ Facebook Pixel enabled with real ID / left disabled
     ✓ Tracking status: unknown / not_configured / configured / custom_required
+    ✓ Custom analytics: [endpoint or notes] — listener queued for next-campaigns-build / none
   campaigns.json ([campaign-slug])
     ✓ store_name and store_url set
     ✓ phone set / left blank
