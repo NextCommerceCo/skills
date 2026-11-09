@@ -1,6 +1,6 @@
 ---
 name: next-campaigns-setup
-version: 2.0.0
+version: 2.0.1
 description: |
   Start or continue a campaign from a URL, design, existing repo or saved Map,
   following the public agent setup procedure for intake. When a new
@@ -167,7 +167,7 @@ Validate all URLs before writing any files:
 - **Tracking status** — `unknown`, `not_configured`, `configured`, or `custom_required`
 - **GTM container ID** — e.g. `GTM-XXXXXXX`
 - **Facebook Pixel ID** — e.g. `123456789012345`
-- **Custom analytics endpoint or notes** — record in the report unless the template config already supports a matching custom analytics provider
+- **Custom analytics endpoint or notes** — record in the report. Campaign Cart SDK 0.5 has no custom provider: `analytics.providers.custom` in `config.js` only logs a warning. A custom endpoint is a page listener, `next.analytics.on('*', (event) => fetch(url, { method: 'POST', keepalive: true, body: JSON.stringify(event) }))`, which is build work ([By hand](https://cart-sdk.nextcommerce.com/latest/analytics-reference/destinations/overview))
 
 Do not make the user guess through a wall of tracking surfaces. Ask for GTM/Facebook/custom only when they already have values or the CampaignSpec declares them. If tracking is `unknown` or `not_configured`, leave provider IDs blank/disabled and record that tracking is intentionally not configured yet.
 
@@ -185,7 +185,7 @@ Read `<CPK_ROOT>/[brand-name]/src/[campaign-slug]/assets/config.js`. Make these 
    - Set `facebook.settings.pixelId` to the provided ID
 5. **Absent tracking**:
    - If tracking status is `unknown` or `not_configured`, keep GTM/Facebook disabled or blank. Remove obvious placeholder IDs if the template copied them.
-   - If tracking status is `custom_required`, do not invent custom event wiring here; report it as a follow-up for `next-campaigns-build`.
+   - If tracking status is `custom_required`, do not invent custom event wiring here and do not add a `providers.custom` block; report the `next.analytics.on('*', …)` listener as a follow-up for `next-campaigns-build`.
 
 Do not change any other fields. Preserve all comments.
 
