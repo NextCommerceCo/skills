@@ -22,7 +22,7 @@ Cursor, GitHub Copilot, and any other agent that reads markdown.
 | [**Daily Ops Risk Scan**](next-ops-scan/) | Operations | Read-only daily risk scan for one store: Incomplete and Rejected orders, delivery-tracking failures, and stale shipments. |
 | [**Campaign Setup and Continuation**](next-campaigns-setup/) | Campaigns | Start or continue a campaign from a URL, design, repo or Map, scaffolding a new campaign-page-kit project when that is the chosen path. |
 | [**Campaign Provisioning**](next-campaigns-create/) | Campaigns | Create, clone and update a Campaigns App campaign over the Admin API: packages, shipping, quantity Buy 1/2/3, buy-X-get-Y and gift-with-purchase on create, then edit a field in place on a campaign this skill built, or adopt, diff and update one that already exists, each behind a hash approval gate. |
-| [**Campaign Launch Check**](next-launch-check/) | Campaigns | QA a campaign before launch: asks what you are testing (presell, landing, checkout, upsell, full funnel or storefront) and fills the full QA checklist for it, with automated checks, a mobile and desktop speed test, Campaigns OS spec-aware QA on Campaigns OS projects, screenshots, and an optional test order. |
+| [**Campaign Launch Check**](next-launch-check/) | Campaigns | QA a campaign before launch: asks what you are testing (presell, landing, checkout, upsell, full funnel or storefront) and fills the full QA checklist for it, with automated checks, a speed test, typed test-card orders after you agree, Campaigns OS QA on Campaigns OS projects, and screenshots. |
 <!-- END GENERATED SKILLS TABLE -->
 
 Each skill directory holds a `README.md` for the person running it (what it

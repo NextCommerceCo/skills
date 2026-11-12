@@ -522,8 +522,8 @@
    "severity": "warn",
    "auto": [
     "param-propagation:*",
-    "order:attribution",
-    "order:params-per-page"
+    "order:attribution:*",
+    "order:params-per-page:*"
    ]
   },
   {
@@ -553,11 +553,25 @@
    "severity": "warn",
    "evidence": [
     "tags-observed:*",
-    "order:purchase-event"
+    "order:purchase-event:*"
    ],
    "auto": [
     "cos:analytics-correctness:*",
     "cos:analytics-parity:*"
+   ]
+  },
+  {
+   "id": "TR-09",
+   "section": "Tracking & integrations",
+   "text": "One purchase event per test order, with the order's value and currency",
+   "roles": [
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "warn",
+   "auto": [
+    "order:purchase-event:*"
    ]
   },
   {
@@ -691,7 +705,7 @@
    ],
    "severity": "warn",
    "auto": [
-    "order:created"
+    "order:created:*"
    ]
   },
   {
@@ -703,8 +717,10 @@
    ],
    "severity": "blocker",
    "auto": [
-    "order:created",
-    "order:receipt",
+    "order:created:*standard*",
+    "order:receipt:*standard*",
+    "order:created:recorded",
+    "order:receipt:recorded",
     "cos:browser-test-order:browser-test-order:*",
     "!cos:browser-test-order:browser-test-order:upsell-action-coverage",
     "cos:browser-receipt-rendering:*"
@@ -717,7 +733,11 @@
    "roles": [
     "checkout"
    ],
-   "severity": "warn"
+   "severity": "warn",
+   "auto": [
+    "order:created:*3ds*",
+    "order:receipt:*3ds*"
+   ]
   },
   {
    "id": "CP-04",
@@ -728,7 +748,7 @@
    ],
    "severity": "warn",
    "auto": [
-    "order:created"
+    "order:created:*"
    ]
   },
   {
@@ -779,7 +799,8 @@
    ],
    "severity": "blocker",
    "evidence": [
-    "cos:browser-test-order:*"
+    "cos:browser-test-order:*",
+    "order:created:*"
    ]
   },
   {
@@ -800,7 +821,7 @@
    ],
    "severity": "warn",
    "auto": [
-    "order:upsells",
+    "order:upsells:*",
     "cos:browser-test-order:browser-test-order:upsell-action-coverage"
    ]
   },
@@ -864,8 +885,8 @@
    ],
    "severity": "warn",
    "evidence": [
-    "order:created",
-    "cos:api-metadata:*"
+    "cos:api-metadata:*",
+    "order:created:*"
    ]
   },
   {
@@ -886,7 +907,7 @@
    ],
    "severity": "warn",
    "evidence": [
-    "order:created"
+    "order:created:*"
    ]
   },
   {
@@ -898,7 +919,7 @@
    ],
    "severity": "warn",
    "evidence": [
-    "order:created"
+    "order:created:*"
    ]
   },
   {
@@ -910,7 +931,7 @@
    ],
    "severity": "warn",
    "evidence": [
-    "order:created"
+    "order:created:*"
    ]
   },
   {

@@ -44,6 +44,7 @@ Usage:
   node launch-check.js check <url> --scope <presell|landing|checkout|upsell|funnel|storefront> [options]
   node launch-check.js speed <url> [--page <url>]...
   node launch-check.js design <url> [--figma-css <file>] [--frame <png>]... [--width <px>]
+  node launch-check.js order <checkout-url> --into <run-dir> [--orders standard:accept,3ds:decline@2] [--confirm-test-params]
   node launch-check.js record <checkout-url> [--into <run-dir>] [--confirm-test-params] [--rules <file>]
   node launch-check.js finalize <run-dir> --answers <answers.json>
   (funnel <url> and storefront <url> are short for check --scope funnel|storefront)
@@ -69,6 +70,15 @@ Options:
   --param key=value         extra parameter to test for carry-through (repeatable)
   --live-beacons            let analytics and ad beacons through (default: held back)
   --out <dir>               output folder (default ./next-launch-check-output/<host>-<time>)
+
+  Test orders (order: typed by the script; record: typed by you). Real test orders, ask first:
+  --orders <plans>          card[:accept|decline|accept-decline|decline-accept][@package], comma-separated
+                            cards: standard (6011 1111 1111 1117), 3ds (6011 0009 9013 9424). Default standard:accept
+  --max-orders <n>          refuse more than this many orders (default 4)
+  --email <addr> --first-name --last-name --phone --country --address1 --city --province --postal
+                            test customer (default a US address and qa+launchcheck@example.com)
+  --headed                  show the browser window
+  --dry-run                 rehearse: fill everything, stop before submit (no order is sent)
   --json                    print results.json to stdout as well
 `;
 
@@ -113,6 +123,19 @@ function parseArgs(argv) {
       case '--into': o.into = val(); break;
       case '--answers': o.answers = val(); break;
       case '--record-minutes': o.recordMinutes = parseFloat(val()); break;
+      case '--orders': o.orders = val(); break;
+      case '--max-orders': o.maxOrders = parseInt(val(), 10); break;
+      case '--headed': o.headed = true; break;
+      case '--dry-run': o.dryRun = true; break;
+      case '--email': o.email = val(); break;
+      case '--first-name': o.firstName = val(); break;
+      case '--last-name': o.lastName = val(); break;
+      case '--phone': o.phone = val(); break;
+      case '--country': o.country = val(); break;
+      case '--address1': o.address1 = val(); break;
+      case '--city': o.city = val(); break;
+      case '--province': o.province = val(); break;
+      case '--postal': o.postal = val(); break;
       case '-h': case '--help': o.help = true; break;
       default:
         if (a.startsWith('--')) throw new Error(`unknown option ${a}`);
@@ -301,7 +324,7 @@ async function runCheck(scope, url, o) {
   return { result, outDir };
 }
 
-async function runRecord(url, o) {
+async function runRecord(url, o, how = 'record') {
   const rec = require('./browser/record');
   const rules = R.load(o.rules);
   const gate = rec.paramGate(url, { confirmed: !!o.confirmTestParams, allowed: rules.allowedParams });
@@ -310,7 +333,11 @@ async function runRecord(url, o) {
   const into = o.into ? path.resolve(o.into) : null;
   const outDir = into || path.resolve(o.out || path.join('next-launch-check-output', `${U.hostSlug(url)}-${U.timestamp(started)}-order`));
   fs.mkdirSync(path.join(outDir, 'screenshots'), { recursive: true });
-  const { assertions } = await rec.record({ entryUrl: url, outDir, options: o, rules });
+  let assertions;
+  if (how === 'order') {
+    const customer = { email: o.email || 'qa+launchcheck@example.com', firstName: o.firstName || 'QA', lastName: o.lastName || 'Launchcheck', phone: o.phone || '', country: o.country || 'US', address1: o.address1 || '1600 Amphitheatre Pkwy', city: o.city || 'Mountain View', province: o.province || 'CA', postal: o.postal || '94043' };
+    ({ rows: assertions } = await require('./browser/order').run({ entryUrl: url, outDir, options: o, rules, customer }));
+  } else ({ assertions } = await rec.record({ entryUrl: url, outDir, options: o, rules }));
   let result;
   let pages;
   if (into) {
@@ -319,8 +346,10 @@ async function runRecord(url, o) {
     // An order is evidence for the checkout and upsells even when the run
     // tested only one page type.
     for (const p of pages) if (['checkout', 'upsell', 'receipt'].includes(p.role)) p.in_scope = p.in_scope || p.role === 'checkout';
-    const rows = result.assertions.filter((a) => a.family !== 'order').concat(assertions);
-    result.lanes.order = 'recorded (tester placed the order)';
+    // Earlier order rows stay: each order has its own label.
+    const ids = new Set(assertions.map((a) => a.id));
+    const rows = result.assertions.filter((a) => !ids.has(a.id)).concat(assertions);
+    result.lanes.order = how === 'order' ? (o.dryRun ? `rehearsed, no order sent (${o.orders || 'standard:accept'})` : `placed by the script (${o.orders || 'standard:accept'})`) : 'recorded (tester placed the order)';
     result.finished_at = new Date().toISOString();
     finish(result, rows, pages, { rules, prior: result.checklist });
   } else {
@@ -390,6 +419,7 @@ async function main(argv) {
     if (cmd === 'env') { process.stdout.write(JSON.stringify(envInfo(), null, 2) + '\n'); return 0; }
     if (cmd === 'finalize') { if (!target || !o.answers) throw new Error('finalize needs <run-dir> and --answers <file>'); done = finalize(path.resolve(target), o.answers); }
     else if (cmd === 'record') done = await runRecord(checkUrl(target || ''), o);
+    else if (cmd === 'order') done = await runRecord(checkUrl(target || ''), o, 'order');
     else if (cmd === 'check') done = await runCheck(o.scope || 'funnel', checkUrl(target || ''), o);
     else if (cmd === 'speed') done = await runSpeed(checkUrl(target || ''), o);
     else if (cmd === 'funnel' || cmd === 'storefront' || cmd === 'design') done = await runCheck(cmd === 'funnel' ? (o.scope || 'funnel') : cmd, checkUrl(target || ''), o);

@@ -8,8 +8,10 @@ description: |
   what a script can judge (routes, SDK, tracking on every page, legal and
   dead links, copy, content toggles, phone and zoom layout, locale, form
   errors, a speed test on mobile and desktop) and attach screenshots; the
-  rest is walked through with the tester. Can record one test order the
-  tester places, review a pull request and compare a page with Figma.
+  rest is walked through with the tester. Places typed test-card orders
+  (standard and 3-D Secure, per package, accepting or declining upsells)
+  after the tester agrees, runs Campaigns OS QA on Campaigns OS projects,
+  reviews a pull request and compares a page with Figma.
   Writes a local report; uploads nothing.
 
   Use when: "test this funnel", "launch check", "QA this campaign", "check
@@ -61,6 +63,12 @@ all. When both run on the same build, fold the Campaigns OS verdict in with
 `--campaigns-os-verdict` (Phase 3).
 
 ## Phase 0: Set Up
+
+**The report always comes from the script.** Never write your own checklist, never mark
+an item as checked, and never tell the tester something "needs a manual pass" because
+you did not run a lane. If a lane cannot run (Playwright, Lighthouse or Campaigns OS
+missing), install what is missing after asking, or say plainly which lane did not run
+and why, as the report's "Ran:" line shows.
 
 Find the script next to this file and check the machine:
 
@@ -195,41 +203,56 @@ appear in a "Campaigns OS (spec-aware)" section.
 Do not edit their code unless they ask. Do not edit `results.json` or `report.md` by
 hand; re-run or `finalize`.
 
-## Phase 4: Test Order (Checkout, Upsell or Full Funnel)
+## Phase 4: Test Orders (Checkout, Upsell or Full Funnel)
 
-The checkout items CP-01 to CP-04, CP-11 and the order-data items need an order. Ask
-once: "Do you want to place one test order now?" A test order is a real order record
-on the store, marked as a test, with no real charge and no fulfillment when the
-platform's test card is used. It creates a customer record and sends confirmation
-emails to the address typed in.
+The card, upsell and order-data items (CP-01 to CP-04, CP-11, TR-04, TR-09, AP-*) need
+real test orders. Never skip this phase silently and never decide on the tester's
+behalf that a host is "not a test host": ask. Explain once, then ask with
+AskUserQuestion:
 
-- **Campaigns OS campaign**: its typed-card order proof is canonical. Run the check
-  again with the same Campaigns OS flags plus `--campaigns-os-orders common` (or
-  `full` for every package and upsell path; it plans the orders and caps them at 6).
-  The orders' results fill CP-02, CP-11 and the order-data evidence.
-- **Otherwise**, record an order the tester places by hand, into the same report:
+> A test order is a real order on the store, marked as a test: the platform's test
+> card makes no charge and nothing ships, but the store records a customer and sends
+> confirmation emails (to `qa+launchcheck@example.com` unless you give another).
+> Which orders should I place?
+
+Offer: **Standard card, accept upsells** (recommended minimum); **Standard + 3-D
+Secure** (`standard:accept,3ds:decline`); **Every package** (one order per package
+option, e.g. `standard:accept@1,standard:decline@2,standard:accept@3`); **Rehearsal
+only** (`--dry-run`: fills everything and stops before submit).
+
+- **Campaigns OS campaign**: its typed-card order proof is canonical. Run the check again
+  with the same Campaigns OS flags plus `--campaigns-os-orders common` (or `full`).
+- **Any other funnel**: the script places the orders itself, into the same report:
 
   ```bash
-  node "$S" record "<checkout-url>" --into "<report-folder>" [--rules <file>] [--confirm-test-params]
+  node "$S" order "<checkout-url>" --into "<report-folder>" --orders <plans> [--rules <file>] [--confirm-test-params]
   ```
 
-  A browser window opens. The tester fills the checkout with the platform's public
-  test card (`6011 1111 1111 1117`, any future expiry, CVV `123`; 3-D Secure:
-  `6011 0009 9013 9424`), takes or declines each upsell, and stops at the receipt.
-  The script only watches. It records the order call, upsell calls, dataLayer events
-  and the parameters on each page, then closes after the receipt and updates the
-  checklist. Order data is redacted before it is written.
+  Plans are `card[:accept|decline|accept-decline|decline-accept][@package]`, cards
+  `standard` (`6011 1111 1111 1117`) and `3ds` (`6011 0009 9013 9424`). For each plan
+  it opens the checkout with test UTMs, picks the package, fills a US test customer
+  (pass `--country`, `--address1`, `--city`, `--province`, `--postal` for a store that
+  does not ship to the US), types the card into the hosted card fields, submits once,
+  accepts or declines each upsell, and stops at the receipt. It records the order
+  request (shipping method, attribution, language), upsell calls, dataLayer events and
+  the parameters on every page. Run `--dry-run` first on an unfamiliar checkout.
+- **The tester prefers to type it themselves**: `node "$S" record "<checkout-url>" --into
+  "<report-folder>"` opens a window and only watches.
 
 Rules:
 
-- One order per yes. Never re-run `record` to "try again" after an order was created;
-  report what happened and let the tester decide.
-- The script refuses (exit 3) when the URL carries affiliate parameters. Re-run with
-  `--confirm-test-params` only after the tester confirms they are the agreed test
-  values for this offer, or pass a rules file whose `allowedParams` lists them. A
-  live affiliate value can record a real conversion and payout.
-- Afterwards, remind them to reject the test conversion in their affiliate platform
-  if they came through an affiliate test link (TR-07).
+- Ask before every `order` run, with the exact plans. One order per plan; the script
+  never resubmits once an order call has gone out, and refuses more than 4 orders
+  unless `--max-orders` is raised after the tester agrees to that number.
+- If an order fails, report the recorded steps and the screenshot; do not run it again
+  without asking.
+- The script refuses (exit 3) URLs with affiliate parameters. Re-run with
+  `--confirm-test-params` only after the tester confirms they are agreed test values,
+  or pass a rules file whose `allowedParams` lists them.
+- A 3-D Secure challenge the script cannot complete is reported; offer `--headed` so
+  the tester can finish it, or `record`.
+- Afterwards: remind them to check each order in the store's orders page (CP-09, AP-*)
+  and to reject test conversions in their affiliate platform (TR-07).
 
 ## PR Mode
 
@@ -247,7 +270,9 @@ For a pull request on a campaign repo:
 
 ## Never
 
-- Never place, submit or retry an order yourself. Phase 4 delegates or records.
+- Never place an order without the tester's yes for those exact plans, and never type
+  card details or submit a checkout outside the `order` command. Never retry an order.
+- Never write the report or the checklist yourself; it comes from the script.
 - Never push a purchase or conversion event into a page, and never open an
   upsell or receipt page with an order reference you did not just create.
 - Never add affiliate parameters to a URL the tester did not give you.

@@ -46,7 +46,11 @@ the form check blocks every write request. See `safety.md`.
 | `storefront-search`, `storefront-login`, `storefront-nav` | Storefront: a nonsense search shows a clean empty state; an empty login submit shows an error; header and footer links load | warn | — |
 | `design-parity` | Text styles and colours from Figma CSS found on the rendered page; screenshots at each frame width next to the exported frames | check by hand | Compare side by side; differences can be intended |
 
-## Order (`record`)
+## Orders (`order`, `record`)
+
+`order` places typed test-card orders after the tester agrees; `record` watches an order
+the tester places. Each order's rows carry its label: `1-standard-accept`, `2-3ds-decline`,
+or `recorded`. `order --dry-run` adds `order:rehearsal:<label>` instead and sends nothing.
 
 | Row | What it checks | Severity |
 |---|---|---|

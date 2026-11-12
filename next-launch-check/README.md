@@ -66,7 +66,8 @@ Ask your assistant in plain words:
 | "Test the storefront at https://shop.example.com" | Checks menus, footer, search and login |
 | "Just run a speed test on https://offer.example.com/" | Mobile and desktop speed scores and load times, nothing else |
 | "Compare this page with the Figma design" | Puts screenshots next to the design and compares fonts and colours |
-| "I want to place a test order" | Opens a browser window; you place one order with the test card and the assistant records what happened |
+| "Place test orders" | After you agree, places test-card orders itself (standard and 3-D Secure, each package you choose, accepting or declining upsells) and checks every page through the thank-you page |
+| "I want to place the test order myself" | Opens a browser window; you place one order with the test card and the assistant records what happened |
 
 ## Campaigns OS Projects
 
@@ -81,7 +82,8 @@ from your project.
 A test order is a real order record on your store, marked as a test. With
 the platform's test card there is no real charge and nothing ships, but the
 store records a customer and sends confirmation emails. The assistant asks
-before every test order, and you place it yourself.
+before every test order and tells you exactly which orders it will place. It
+can also do a rehearsal that fills the checkout and stops before paying.
 
 > [!IMPORTANT]
 > Campaigns built with Campaigns OS have their own QA command that places

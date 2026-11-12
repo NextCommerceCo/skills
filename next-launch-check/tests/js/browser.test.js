@@ -65,6 +65,40 @@ test('recorder: --into adds the order to an existing run and its checklist', { s
   } finally { await s.close(); }
 });
 
+test('order: two typed-card orders, accept and decline, land in the run', { skip, timeout: 180000 }, async () => {
+  const s = await server.start('good');
+  const out = tmp();
+  try {
+    await cli.runCheck('checkout', `${s.base}/checkout/`, cli.parseArgs(['--no-browser', '--no-speed', '--out', out]));
+    assert.equal(await cli.main(['order', `${s.base}/checkout/`, '--into', out, '--orders', 'standard:accept,3ds:decline']), 0);
+    const r = JSON.parse(fs.readFileSync(path.join(out, 'results.json'), 'utf8'));
+    for (const id of ['order:created:1-standard-accept', 'order:upsells:1-standard-accept', 'order:receipt:1-standard-accept', 'order:created:2-3ds-decline', 'order:receipt:2-3ds-decline']) assert.equal(row(r, id).status, 'pass', id);
+    assert.equal(row(r, 'order:upsells:2-3ds-decline'), undefined, 'declined upsell sends no upsell call');
+    const byId = Object.fromEntries(r.checklist.map((i) => [i.id, i]));
+    assert.equal(byId['CP-02'].status, 'pass');
+    assert.equal(byId['CP-03'].status, 'pass');
+    assert.equal(s.calls.filter((c) => c.kind === 'order').length, 2, 'exactly one order per plan');
+  } finally { await s.close(); }
+});
+
+test('order: --dry-run fills the checkout and sends no order', { skip, timeout: 120000 }, async () => {
+  const s = await server.start('good');
+  const out = tmp();
+  try {
+    await cli.runCheck('checkout', `${s.base}/checkout/`, cli.parseArgs(['--no-browser', '--no-speed', '--out', out]));
+    await cli.main(['order', `${s.base}/checkout/`, '--into', out, '--dry-run']);
+    const r = JSON.parse(fs.readFileSync(path.join(out, 'results.json'), 'utf8'));
+    assert.equal(row(r, 'order:rehearsal:1-standard-accept').status, 'pass');
+    assert.equal(s.calls.length, 0);
+  } finally { await s.close(); }
+});
+
+test('order: affiliate parameters and too many orders are refused', { skip, timeout: 60000 }, async () => {
+  const out = tmp();
+  assert.equal(await cli.main(['order', 'http://127.0.0.1:9/checkout/?affid=5', '--out', out]), 3);
+  assert.equal(await cli.main(['order', 'http://127.0.0.1:9/checkout/', '--orders', 'standard,standard,standard,standard,standard', '--out', out]), 3);
+});
+
 test('recorder: observes one order, the upsell and the purchase event', { skip, timeout: 120000 }, async () => {
   const s = await server.start('good');
   const out = tmp();
@@ -72,7 +106,7 @@ test('recorder: observes one order, the upsell and the purchase event', { skip, 
     const code = await cli.main(['record', `${s.base}/checkout/?autotest=1&utm_source=fb`, '--headless', '--record-minutes', '0.5', '--out', out]);
     assert.equal(code, 0);
     const r = JSON.parse(fs.readFileSync(path.join(out, 'results.json'), 'utf8'));
-    for (const id of ['order:created', 'order:upsells', 'order:purchase-event', 'order:attribution', 'order:receipt']) assert.equal(row(r, id).status, 'pass', id);
+    for (const id of ['order:created', 'order:upsells', 'order:purchase-event', 'order:attribution', 'order:receipt']) assert.equal(row(r, `${id}:recorded`).status, 'pass', id);
     const record = JSON.parse(fs.readFileSync(path.join(out, 'order-record.json'), 'utf8'));
     assert.equal(JSON.stringify(record).includes('qa@example.com'), false, 'emails are redacted');
   } finally { await s.close(); }

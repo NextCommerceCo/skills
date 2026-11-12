@@ -197,6 +197,15 @@ test('checklist: items follow the page types tested and rows decide automated it
   assert.equal(CL.disposition(answered, 'ready'), 'ready');
 });
 
+test('order: plans parse, and bad plans are refused', () => {
+  const O = require(path.join(S, 'browser/order'));
+  const plans = O.parsePlans('standard:accept, 3ds:decline@2 ,standard:accept-decline');
+  assert.deepEqual(plans.map((p) => [p.card, p.upsell, p.pkg]), [['standard', 'accept', null], ['3ds', 'decline', 2], ['standard', 'accept-decline', null]]);
+  assert.deepEqual(O.parsePlans('').map((p) => p.card), ['standard']);
+  assert.throws(() => O.parsePlans('visa:accept'));
+  assert.match(O.field('fname'), /data-next-checkout-field="first_name"/, 'SDK 0.5 name is matched too');
+});
+
 test('speed: affiliate and click ids are removed before a speed visit', () => {
   const speed = require(path.join(S, 'lib/checks/speed'));
   assert.equal(speed.cleanUrl('https://x.example.com/p/?affid=7&sub1=a&utm_source=fb&gclid=1'), 'https://x.example.com/p/?utm_source=fb');

@@ -38,7 +38,7 @@
         var validate = form.getAttribute('data-test-validate') !== 'off';
         var bad = 0;
         if (validate) {
-          form.querySelectorAll('[data-next-checkout-field]').forEach(function (f) {
+          form.querySelectorAll('input[data-next-checkout-field]').forEach(function (f) {
             var ok = f.value.trim() !== '' && (f.type !== 'email' || /.+@.+\..+/.test(f.value));
             f.classList.toggle('next-error-field', !ok);
             f.setAttribute('aria-invalid', ok ? 'false' : 'true');
@@ -46,7 +46,7 @@
           });
         }
         if (bad) return;
-        fetch('/api/v1/orders/', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ lines: [{ package_id: 1, quantity: 1 }], shipping_method: 1, attribution: { utm_source: params.get('utm_source'), affid: params.get('affid') }, payment_detail: { payment_method: 'card_token', card_token: 'tok_test' }, user: { email: form.querySelector('[type=email]').value, language: 'en' }, success_url: meta('next-success-url') }) })
+        fetch('/api/v1/orders/', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ lines: [{ package_id: 1, quantity: 1 }], shipping_method: 1, attribution: { utm_source: params.get('utm_source'), affid: params.get('affid') }, payment_detail: { payment_method: 'card_token', card_token: 'tok_test', test_card_last4: (form.querySelector('[data-next-checkout-field="cc-number"]') || {}).value ? form.querySelector('[data-next-checkout-field="cc-number"]').value.slice(-4) : null }, user: { email: form.querySelector('[type=email]').value, language: 'en' }, success_url: meta('next-success-url') }) })
           .then(function (r) { return r.json(); })
           .then(function (j) { location.href = carry(meta('next-success-url') + '?ref_id=' + j.ref_id); });
       });
@@ -60,7 +60,7 @@
       });
     });
     if (params.get('autotest') === '1' && form) {
-      form.querySelectorAll('[data-next-checkout-field]').forEach(function (f) { f.value = f.type === 'email' ? 'qa@example.com' : 'Test'; });
+      form.querySelectorAll('input[data-next-checkout-field]').forEach(function (f) { f.value = f.type === 'email' ? 'qa@example.com' : 'Test'; });
       setTimeout(function () { form.requestSubmit(); }, 300);
     }
     if (params.get('autotest') === '1' && type === 'upsell') setTimeout(function () { document.querySelector('[data-next-upsell-action="add"]').click(); }, 500);
