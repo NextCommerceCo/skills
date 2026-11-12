@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Checkout</title>
+<meta name="description" content="A test funnel used by the launch check's offline tests.">
+<meta property="og:title" content="Checkout">
+<meta property="og:image" content="/assets/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/assets/favicon.ico">
+<meta name="next-page-type" content="checkout">
+<meta name="next-funnel" content="test-funnel">
+<meta name="next-success-url" content="/upsel/">
+<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],j=d.createElement(s);j.async=true;j.src='https://www.googletagmanager.com/gtm.js?id='+i;f.parentNode.insertBefore(j,f);})(window,document,'script','dataLayer','GTM-TESTAA1');</script>
+<script src="/assets/config.js"></script>
+<script src="/vendor/campaign-cart@v0.4.38/loader.js"></script>
+<style>body{font-family:Arial,sans-serif;margin:0;padding:16px;max-width:100%}.btn{display:inline-block;padding:12px 20px;background:#1a7f37;color:#fff}footer a{margin-right:8px}</style>
+</head>
+<body>
+<h1>Secure checkout</h1>
+<p>Total: <span data-next-display="cart.total" data-test-amount="1234.5"></span></p>
+<div data-next-cart-summary><div class="line"><div class="price">$12.00</div></div></div>
+<div class="exit" data-toggle-param="exit">Wait! Take 10% off</div>
+<form data-next-checkout-step="1" data-test-validate="off">
+  <input type="email" data-next-checkout-field="email" placeholder="Email">
+  <input type="text" data-next-checkout-field="fname" placeholder="First name">
+  <button type="submit">Complete purchase</button>
+</form>
+<footer>
+<a href="/terms/">Terms & Conditions</a>
+<a href="/returns/">Returns</a>
+<a href="/shipping/">Shipping</a>
+<a href="/contact/">Contact Us</a>
+<a href="/faq/">FAQ</a>
+</footer>
+<script src="/assets/site.js"></script>
+</body></html>

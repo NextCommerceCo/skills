@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "note": "Items no script can judge. The launch check lists them for the tester to answer. Keep each item one observable check.",
+  "funnel": [
+    { "id": "F-01", "section": "Design and branding", "text": "Favicon, logo, product name and product images are the right product on every page, sharp on desktop and mobile.", "severity": "warn" },
+    { "id": "F-02", "section": "Design and branding", "text": "Customer service phone number and email are correct and the same on every page.", "severity": "warn" },
+    { "id": "F-03", "section": "Design and branding", "text": "Reviews, testimonials and side tickers name this product and brand, not a template's.", "severity": "warn" },
+    { "id": "F-04", "section": "Design and branding", "text": "FAQ and claims are proofread and match what the merchant approved.", "severity": "warn" },
+    { "id": "F-05", "section": "Prices and offers", "text": "Package prices, discounts and currency match the offer plan on presell, landing, checkout and every upsell.", "severity": "blocker" },
+    { "id": "F-06", "section": "Prices and offers", "text": "Exit pop-up shows the right packages, currency signs and discount; the coupon price is what the order records.", "severity": "warn" },
+    { "id": "F-07", "section": "Prices and offers", "text": "Warranty, protection or shipping-insurance add-on shows the right price for the package chosen.", "severity": "warn" },
+    { "id": "F-08", "section": "Funnel flow", "text": "Every call-to-action leads to the intended next page, and a scrolling or sticky call-to-action is present where the design has one.", "severity": "warn" },
+    { "id": "F-09", "section": "Funnel flow", "text": "Each upsell shows the right product and price, and accept and decline both lead where they should.", "severity": "blocker" },
+    { "id": "F-10", "section": "Checkout", "text": "A test order was placed on every checkout option (each package or bundle), and the store's orders page shows the right products, options and prices for each.", "severity": "blocker" },
+    { "id": "F-11", "section": "Checkout", "text": "'Shipping same as billing' shows and hides the billing fields correctly.", "severity": "warn" },
+    { "id": "F-12", "section": "Checkout", "text": "Address autocomplete suggests and fills addresses.", "severity": "info" },
+    { "id": "F-13", "section": "Checkout", "text": "A checkout with the phone field left blank goes through (or the form marks phone as required, matching the store setting).", "severity": "warn" },
+    { "id": "F-14", "section": "Checkout", "text": "An invalid or expired card and a wrong CVV show a clear error, in the shopper's language.", "severity": "warn" },
+    { "id": "F-15", "section": "Checkout", "text": "Location-based content (currency, reviews, shipping countries) is right for each market sold to; check with a VPN for multi-country offers.", "severity": "warn" },
+    { "id": "F-16", "section": "Order data", "text": "In the recorded order request or the store's order detail: the right campaign, shipping method and language code (a two-letter language code such as EN, not a country).", "severity": "warn" },
+    { "id": "F-17", "section": "Tracking", "text": "In your tag manager's preview mode, the purchase and upsell events fire once each with the right value and currency.", "severity": "warn" },
+    { "id": "F-18", "section": "Tracking", "text": "If you entered through an affiliate test link, the test conversion was rejected in the affiliate platform afterwards.", "severity": "warn" },
+    { "id": "F-19", "section": "Devices", "text": "Checked on a real phone, and in Safari and Firefox (the automated run uses Chromium only).", "severity": "warn" }
+  ],
+  "storefront": [
+    { "id": "S-01", "section": "Navigation", "text": "Each menu item (for example Home, Shop, Support, Contact) opens the right page.", "severity": "warn" },
+    { "id": "S-02", "section": "Search", "text": "A real product search returns relevant results; a misspelling still finds it or suggests it.", "severity": "warn" },
+    { "id": "S-03", "section": "Account", "text": "Registering a test account and logging in with it works; a wrong password shows a clear error.", "severity": "warn" },
+    { "id": "S-04", "section": "Cart", "text": "Cart shows the right name, price, quantity and subtotal; changing quantity recalculates; checkout starts from the cart.", "severity": "blocker" },
+    { "id": "S-05", "section": "Product pages", "text": "Product page sections or tabs (overview, features, specs, reviews) open and show the right product.", "severity": "warn" },
+    { "id": "S-06", "section": "Usability", "text": "The store is clear to navigate and messages are helpful on desktop, tablet and phone.", "severity": "info" },
+    { "id": "S-07", "section": "Devices", "text": "Checked in Safari and Firefox and on a real phone.", "severity": "warn" }
+  ],
+  "design": [
+    { "id": "D-01", "section": "Design review", "text": "Side by side with the design: layout, spacing and imagery match at desktop width.", "severity": "warn" },
+    { "id": "D-02", "section": "Design review", "text": "Side by side with the design: the mobile layout matches.", "severity": "warn" },
+    { "id": "D-03", "section": "Design review", "text": "Copy matches the design word for word, including prices and claims.", "severity": "warn" }
+  ]
+}

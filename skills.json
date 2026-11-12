@@ -369,6 +369,43 @@
         "token_env": "NEXT_ADMIN_API_TOKEN",
         "notes": "check-update reads the public skills.json from GitHub at most once a day with no credentials, caches it under ~/.cache/next-skills, never installs anything and always exits 0 (NEXT_SKILLS_NO_UPDATE_CHECK=1 skips it). Creates a campaign, its packages, shipping methods and offers only under apply --yes --plan-sha256 <hash of the reviewed plan>; creates missing metadata definitions only under metadata --apply; teardown deletes only what the run manifest owns, after identity read-back, and refuses an adopted campaign. edit changes only packages and offers the run manifest owns (package price, offer benefit, condition, scope and availability, or one added offer), under edit --yes --edit-sha256 <hash of the previewed change> --live-traffic yes|no, after the same identity read-back; it saves each before-image to a receipt before the first write, never retries a write, never deletes, and refuses an adopted campaign. Changes a campaign the skill did not create only under update --yes --change-set-sha256 <hash of the reviewed change set>, with --allow-delete required on top for any DELETE; adopt and diff send no writes. A campaign the run manifest does not own is never touched: ownership is taken only by adopt --store <subdomain> --campaign <id>, by id. Never edits a metadata definition that already exists. verify calls the Campaign Cart API calculate endpoint with the campaign key and creates nothing. The run manifest holds the campaign api_key (mode 600, and the run directory must be gitignored inside a repository). The update path's reads were confirmed against live stores on 2026-10-08; the update and edit writes have not been run against a live store yet. clone requires --yes and a matching --clone-sha256, sends one bodyless source clone POST and optionally renames only the destination. The clone endpoint is in production since 2026-10-14; a 404 or 405 means the route is unavailable or the source is gone, and the run stops. The server answers 201 and the published spec documents 200; either is accepted only with a valid campaign detail body. The clone POST and rename PATCH have not been run against a live store by this skill, and a confirmed response naming a campaign that existed before the POST is refused, though one created by another operator after it would still be accepted. An uncertain clone POST is never repeated; recovery needs a unique candidate within the saved attempt window and cannot prove request identity against another operator making an identical copy. Clone verify and teardown use the saved approval and destination inventory without --plan; clone edit is refused and Cart API probes are skipped. The source campaign is never mutated and its key is never persisted."
       }
+    },
+    {
+      "id": "next-launch-check",
+      "name": "Campaign Launch Check",
+      "version": "0.1.0",
+      "path": "next-launch-check/SKILL.md",
+      "domain": "campaigns",
+      "description": "Pre-launch check of a campaign funnel, storefront or page from its URL: routes, SDK, tracking, links, copy, media, phone layout, form errors, an optional recorded test order, PR review and Figma comparison.",
+      "related_skills": [
+        "next-campaigns-setup",
+        "next-campaigns-create"
+      ],
+      "triggers": [
+        "launch check",
+        "test this funnel",
+        "QA this campaign",
+        "check the checkout before launch",
+        "check this deploy preview",
+        "review this PR's funnel",
+        "test the storefront",
+        "compare the page with the Figma",
+        "pre-launch QA"
+      ],
+      "prerequisites": [
+        "Node.js 18 or newer (no npm dependencies)",
+        "Optional: Playwright with Chromium for the browser lane, design mode and the order recorder",
+        "Optional: PAGESPEED_API_KEY in the environment for PageSpeed Insights beyond the keyless quota",
+        "Optional: gh CLI for pull request mode"
+      ],
+      "safety": {
+        "mutates_remote": true,
+        "writes_local": true,
+        "requires_approval": true,
+        "network": "funnel pages (GET/HEAD; browser lane renders pages with analytics beacons answered locally and order calls blocked); optional PageSpeed Insights API; optional GitHub in PR mode",
+        "token_env": "none (optional PAGESPEED_API_KEY)",
+        "notes": "Read-only by default; writes a local report folder. The only remote writes are a test order the tester places by hand in the recorder (asked first; affiliate parameters refused unless confirmed) and a PR comment posted only on an explicit yes. Never submits an order itself and never sends a purchase event."
+      }
     }
   ]
 }
