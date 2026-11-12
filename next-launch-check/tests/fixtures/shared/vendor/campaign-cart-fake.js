@@ -8,10 +8,12 @@
   var meta = function (n) { var m = document.querySelector('meta[name="' + n + '"]'); return m ? m.getAttribute('content') : null; };
   var type = meta('next-page-type');
   window.dataLayer = window.dataLayer || [];
-  var fmt = new Intl.NumberFormat(navigator.language, { style: 'currency', currency: 'USD' });
+  var cur = (params.get('currency') || 'USD').toUpperCase();
+  var fx = cur === 'USD' ? 1 : parseFloat(html.getAttribute('data-test-fx') || '1');
+  var fmt = new Intl.NumberFormat(navigator.language, { style: 'currency', currency: cur });
   function render() {
     document.querySelectorAll('[data-next-display]').forEach(function (el) {
-      var v = parseFloat(el.getAttribute('data-test-amount') || '0');
+      var v = parseFloat(el.getAttribute('data-test-amount') || '0') * fx;
       el.textContent = fmt.format(v);
     });
   }

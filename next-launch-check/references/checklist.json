@@ -238,7 +238,7 @@
   {
    "id": "currency-consistent",
    "section": "Design & branding",
-   "text": "Currency consistent throughout",
+   "text": "Currency consistent throughout, and each enabled currency has its own prices (not the USD numbers with another symbol)",
    "roles": [
     "checkout",
     "upsell",
@@ -246,8 +246,7 @@
    ],
    "severity": "warn",
    "auto": [
-    "cos:browser-runtime:browser-order-currency:*",
-    "cos:pricing:commercial-currency:*"
+    "currency:*"
    ]
   },
   {
@@ -271,6 +270,18 @@
     "upsell"
    ],
    "severity": "warn"
+  },
+  {
+   "id": "no-preticked-addons",
+   "section": "Design & branding",
+   "text": "No paid add-on (shipping protection, warranty, priority) is pre-selected without the shopper choosing it, unless the client asked for it",
+   "roles": [
+    "checkout"
+   ],
+   "severity": "warn",
+   "auto": [
+    "addons:*"
+   ]
   },
   {
    "id": "side-tickers",
@@ -996,7 +1007,8 @@
    ],
    "severity": "warn",
    "auto": [
-    "responsive:*:zoom-125"
+    "responsive:*:zoom-125",
+    "responsive:*:pinch-zoom"
    ]
   },
   {
@@ -1013,7 +1025,8 @@
    ],
    "severity": "warn",
    "auto": [
-    "responsive:*:zoom-150"
+    "responsive:*:zoom-150",
+    "responsive:*:pinch-zoom"
    ]
   },
   {

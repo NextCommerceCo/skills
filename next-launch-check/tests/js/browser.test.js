@@ -31,6 +31,9 @@ test('browser lane: good funnel', { skip, timeout: 240000 }, async () => {
     assert.equal(row(result, 'param-propagation:/landing->/checkout').status, 'pass');
     assert.equal(row(result, 'form-negative:/checkout:empty').status, 'pass');
     assert.equal(row(result, 'locale:/checkout').status, 'pass');
+    assert.equal(row(result, 'responsive:/checkout:pinch-zoom').status, 'pass');
+    assert.equal(row(result, 'addons:/checkout:preselected').status, 'pass');
+    assert.equal(row(result, 'currency:/checkout:GBP').status, 'pass', 'GBP prices are converted');
     assert.equal(row(result, 'locale:/checkout:typed-amounts'), undefined, 'amounts inside SDK summaries are not typed amounts');
     assert.equal(row(result, 'responsive:/checkout:zoom-150').status, 'pass');
     assert.equal(row(result, 'param-toggles:/:timer').status, 'pass', 'timer=n hides the countdown');
@@ -51,6 +54,9 @@ test('browser lane: broken funnel', { skip, timeout: 240000 }, async () => {
     assert.equal(row(result, 'form-negative:/checkout:empty').severity, 'blocker');
     assert.equal(row(result, 'form-negative:/checkout:empty').status, 'fail');
     assert.equal(row(result, 'responsive:/upsell:mobile').status, 'warn');
+    assert.equal(row(result, 'responsive:/checkout:pinch-zoom').status, 'fail', 'zoom is locked');
+    assert.equal(row(result, 'addons:/checkout:preselected').status, 'warn', 'shipping protection is pre-ticked');
+    assert.equal(row(result, 'currency:/checkout:GBP').status, 'fail', 'GBP shows the USD numbers');
     assert.equal(row(result, 'param-toggles:/:timer').status, 'fail', 'the countdown is not wired to timer=n');
     assert.equal(s.calls.length, 0, 'the unvalidated form was submitted, but the order call was blocked');
   } finally { await s.close(); }

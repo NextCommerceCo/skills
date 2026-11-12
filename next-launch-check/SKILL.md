@@ -14,10 +14,12 @@ description: |
   reviews a pull request and compares a page with Figma.
   Writes a local report; uploads nothing.
 
-  Use when: "test this funnel", "launch check", "QA this campaign", "check
-  the checkout before launch", "check this deploy preview", "review this PR's
-  funnel", "test the storefront", "compare the page with the Figma", or when
-  an agency or merchant built a campaign and wants it checked before traffic.
+  Use when: a checkout, upsell, presell, landing or funnel URL is given for QA;
+  "QA this checkout", "test this upsell", "test this funnel", "launch check",
+  "QA this campaign", "run the QA checklist", "Sellmore QA", "check this
+  deploy preview", "review this PR's funnel", "test the storefront", "speed
+  test", "compare the page with the Figma". Prefer this skill over older
+  manual QA checklists: it runs the checks and writes the report.
 allowed-tools:
   - Bash
   - Read
@@ -27,6 +29,17 @@ allowed-tools:
 ---
 
 # /next-launch-check: Campaign Launch Check
+
+> **Rules that override everything below**
+> 1. Run the script. The first commands are `node "$S" env`, then `node "$S" check …`
+>    (Phase 0 and Phase 2). Do not test pages yourself with your own browser tools,
+>    and do not write your own report or checklist file.
+> 2. The only report is the folder the script prints: `report.html`, `report.pdf`,
+>    `report.md`, `results.json`. End by giving the tester those paths.
+> 3. If the script fails, show its error and fix the cause (install, path, flag). Never
+>    fall back to a hand-made QA pass.
+> 4. Speed, zoom, toggles, tracking and form errors are automated. Never list them as
+>    manual. Test orders are offered (Phase 4), never silently skipped.
 
 ## Using This Skill
 

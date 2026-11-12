@@ -142,6 +142,7 @@ async function run(ctx) {
     // 4. Locale pass and form errors on the checkout.
     const checkout = pages.find((p) => p.role === 'checkout');
     if (checkout) {
+      out.push(...(await addonsAndCurrency(ctx, checkout, browser)));
       out.push(...(await locale(ctx, checkout, browser)));
       out.push(...(await formNegative(ctx, checkout, newContext, shots, rel)));
     } else {
@@ -256,6 +257,46 @@ async function toggles(ctx, pages, newContext, shots, rel) {
     } finally {
       await context.close();
     }
+  }
+  return out;
+}
+
+// Pre-ticked paid add-ons, and whether prices change with the currency.
+async function addonsAndCurrency(ctx, p, browser) {
+  const out = [];
+  const base = { page: p.label, url: p.url };
+  const read = async (url) => {
+    const log = PW.newLog();
+    const context = await browser.newContext({ viewport: { width: 1366, height: 900 } });
+    await PW.guard(context, { liveBeacons: false, log });
+    const tab = await context.newPage();
+    await tab.goto(url, { waitUntil: 'load', timeout: 45000 });
+    await settle(tab, p.sdk.present, 10000);
+    await tab.waitForTimeout(1500);
+    const r = { addons: await tab.evaluate(probes.preselectedAddons), prices: await tab.evaluate(probes.prices), symbol: await tab.evaluate(() => ((document.body && document.body.innerText) || '').match(/[$€£]|\bUSD\b|\bEUR\b|\bGBP\b/g) || []) };
+    await context.close();
+    return r;
+  };
+  try {
+    const start = await read(p.finalUrl);
+    out.push(start.addons.length
+      ? assertion({ ...base, id: `addons:${p.label}:preselected`, family: 'addons', status: 'warn', severity: 'warn', message: `${start.addons.length} paid add-on(s) are already selected when the page loads: ${start.addons.map((a) => `"${a.text.slice(0, 60)}"${a.price ? ` (${a.price})` : ''}`).join('; ')}. Pre-ticked paid extras are a chargeback and compliance risk in many markets; confirm the client wants this.`, evidence: start.addons })
+      : assertion({ ...base, id: `addons:${p.label}:preselected`, family: 'addons', status: 'pass', severity: 'warn', message: 'No paid add-on is pre-selected.' }));
+    // Currency: the SDK takes ?currency=XXX. Prices should change, not just the symbol.
+    const baseNums = numbers(start.prices.bound.map((b) => b.text));
+    for (const cur of ['GBP', 'EUR']) {
+      const other = await read(withParams(p.finalUrl, { currency: cur }));
+      const sym = { GBP: '£', EUR: '€' }[cur];
+      const switched = other.symbol.includes(sym) || other.symbol.includes(cur);
+      if (!switched) { out.push(assertion({ ...base, id: `currency:${p.label}:${cur}`, family: 'currency', status: 'pass', severity: 'info', message: `?currency=${cur} does not switch this checkout (single-currency campaign, or not enabled for ${cur}).` })); continue; }
+      const nums = numbers(other.prices.bound.map((b) => b.text));
+      const same = nums.length && nums.length === baseNums.length && nums.every((n, i) => Math.abs(n - baseNums[i]) < 0.011);
+      out.push(same
+        ? assertion({ ...base, id: `currency:${p.label}:${cur}`, family: 'currency', status: 'fail', severity: 'warn', message: `With ?currency=${cur} the page shows ${sym} but the same numbers as the default currency (${other.prices.bound.slice(0, 3).map((b) => b.text).join(', ')}). The ${cur} prices are not set in the campaign, so shoppers pay a different amount than they would in USD.`, evidence: { default: start.prices.bound.slice(0, 5).map((b) => b.text), [cur]: other.prices.bound.slice(0, 5).map((b) => b.text) } })
+        : assertion({ ...base, id: `currency:${p.label}:${cur}`, family: 'currency', status: 'pass', severity: 'warn', message: `${cur} prices differ from the default currency (${other.prices.bound.slice(0, 2).map((b) => b.text).join(', ')}).` }));
+    }
+  } catch (e) {
+    out.push(assertion({ ...base, id: `addons:${p.label}`, family: 'addons', status: 'skipped', severity: 'info', message: `Could not run: ${String(e.message || e).slice(0, 150)}` }));
   }
   return out;
 }

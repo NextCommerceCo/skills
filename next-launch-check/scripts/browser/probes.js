@@ -149,4 +149,30 @@ function toggleTargets(name) {
   return { present: hits.length, visible: hits.filter(isVisible).length, sample: hits.slice(0, 3).map((el) => `${el.tagName.toLowerCase()}.${(typeof el.className === 'string' ? el.className : '').split(/\s+/).filter(Boolean).slice(0, 2).join('.')}`) };
 }
 
-module.exports = { snapshot, toggleTargets, widest, visibleSummary, linksTo, prices, formState };
+// Paid add-ons that are already selected when the page loads (shipping
+// protection, warranties, priority handling…).
+function preselectedAddons() {
+  const ADDON = /protect|insur|warrant|guarantee|priority|express|rush|vip|club|membership|subscription|bump|upgrade|add-?on/i;
+  const out = [];
+  const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const label = (el) => {
+    const box = el.closest('label, [data-next-bump], [data-next-upsell], .bump, .order-bump, .addon, .add-on, li, .form-check, .checkbox, div');
+    return ((box && box.textContent) || el.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  };
+  for (const el of document.querySelectorAll('input[type="checkbox"], [role="switch"], [role="checkbox"]')) {
+    const on = el.matches('input') ? el.checked : el.getAttribute('aria-checked') === 'true';
+    if (!on) continue;
+    const text = label(el);
+    if (!ADDON.test(text) && !ADDON.test(`${el.name || ''} ${el.id || ''} ${el.className || ''}`)) continue;
+    if (/same as|billing|newsletter|remember|terms|agree/i.test(text)) continue;
+    if (!visible(el) && !visible(el.closest('label') || el)) continue;
+    out.push({ text, price: (text.match(/[$€£]\s?\d+(?:[.,]\d{2})?|\d+(?:[.,]\d{2})?\s?(?:[$€£]|USD|EUR|GBP)/) || [null])[0] });
+  }
+  // SDK order bumps that are in the cart before any click.
+  for (const el of document.querySelectorAll('[data-next-bump][data-next-in-cart="true"], [data-next-bump].next-in-cart, [data-next-toggle][data-next-in-cart="true"]')) {
+    if (visible(el)) out.push({ text: (el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120), price: null });
+  }
+  return out.slice(0, 8);
+}
+
+module.exports = { snapshot, toggleTargets, preselectedAddons, widest, visibleSummary, linksTo, prices, formState };

@@ -436,6 +436,7 @@ async function main(argv) {
     const has = (f) => fs.existsSync(path.join(done.outDir, f));
     process.stdout.write(`Report: ${path.join(done.outDir, 'report.html')}${has('report.pdf') ? ' (and report.pdf)' : ''}\n`);
     process.stdout.write(`Developer / AI notes: ${path.join(done.outDir, 'report.md')}\n`);
+    process.stdout.write('These files are the report. Give the tester report.html (or report.pdf) and a developer report.md; do not write a separate report.\n');
     if (o.json) process.stdout.write(JSON.stringify(r, null, 2) + '\n');
     return r.disposition === 'blocked' ? 4 : 0;
   } catch (e) {

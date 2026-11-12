@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Checkout</title>
 <meta name="description" content="A test funnel used by the launch check's offline tests.">
 <meta property="og:title" content="Checkout">
@@ -35,6 +35,7 @@
   <select data-next-checkout-field="exp-month"><option value="12">12</option></select>
   <select data-next-checkout-field="exp-year"><option value="2030">2030</option></select>
   <input type="text" data-next-checkout-field="cvv" placeholder="CVV">
+  <label class="addon"><input type="checkbox" name="shipping_protection" checked> Shipping Protection $4.99</label>
   <button type="submit">Complete purchase</button>
 </form>
 <footer>
