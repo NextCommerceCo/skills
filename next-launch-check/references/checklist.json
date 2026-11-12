@@ -718,12 +718,9 @@
    "severity": "blocker",
    "auto": [
     "order:created:*standard*",
-    "order:receipt:*standard*",
     "order:created:recorded",
-    "order:receipt:recorded",
     "cos:browser-test-order:browser-test-order:*",
-    "!cos:browser-test-order:browser-test-order:upsell-action-coverage",
-    "cos:browser-receipt-rendering:*"
+    "!cos:browser-test-order:browser-test-order:upsell-action-coverage"
    ]
   },
   {
@@ -735,8 +732,7 @@
    ],
    "severity": "warn",
    "auto": [
-    "order:created:*3ds*",
-    "order:receipt:*3ds*"
+    "order:created:*3ds*"
    ]
   },
   {
@@ -815,14 +811,17 @@
   {
    "id": "CP-11",
    "section": "Checkout: positive cases",
-   "text": "Upsell accept and decline both work after a real order",
+   "text": "Upsell accept and decline both work after a real order, through to the receipt",
    "roles": [
+    "checkout",
     "upsell"
    ],
    "severity": "warn",
    "auto": [
     "order:upsells:*",
-    "cos:browser-test-order:browser-test-order:upsell-action-coverage"
+    "order:receipt:*",
+    "cos:browser-test-order:browser-test-order:upsell-action-coverage",
+    "cos:browser-receipt-rendering:*"
    ]
   },
   {

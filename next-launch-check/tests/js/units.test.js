@@ -206,6 +206,15 @@ test('order: plans parse, and bad plans are refused', () => {
   assert.match(O.field('fname'), /data-next-checkout-field="first_name"/, 'SDK 0.5 name is matched too');
 });
 
+test('order: two different purchase events are not a duplicate; the same one twice is', () => {
+  const rec = require(path.join(S, 'browser/record'));
+  const base = { pages: [{ url: 'https://x.example.com/c/', params: {} }], calls: [{ kind: 'order', status: 201, body: {} }], receiptReached: true };
+  const two = rec.judge({ ...base, events: [{ layer: 'dataLayer', event: 'dl_purchase', page: '/u/' }, { layer: 'dataLayer', event: 'purchase', page: '/u/' }] }, 'x');
+  assert.equal(two.find((r) => r.id === 'order:purchase-event:x').status, 'pass');
+  const dup = rec.judge({ ...base, events: [{ layer: 'dataLayer', event: 'dl_purchase', page: '/u/' }, { layer: 'dataLayer', event: 'dl_purchase', page: '/r/' }] }, 'x');
+  assert.equal(dup.find((r) => r.id === 'order:purchase-event:x').status, 'warn');
+});
+
 test('speed: affiliate and click ids are removed before a speed visit', () => {
   const speed = require(path.join(S, 'lib/checks/speed'));
   assert.equal(speed.cleanUrl('https://x.example.com/p/?affid=7&sub1=a&utm_source=fb&gclid=1'), 'https://x.example.com/p/?utm_source=fb');

@@ -116,4 +116,37 @@ function formState() {
   return { visibleErrors: errors.length, invalidFields: invalid.length, sample: errors.slice(0, 5).map((e) => (e.textContent || e.getAttribute('aria-label') || e.name || '').trim().slice(0, 80)), url: location.href };
 }
 
-module.exports = { snapshot, widest, visibleSummary, linksTo, prices, formState };
+// Elements each content toggle is meant to hide, found by common markup and
+// text. Returns how many exist and how many are visible.
+function toggleTargets(name) {
+  // cls: class/id/data markers. text: text of a small element (under 80
+  // characters). must: text the element has to contain to count. not:
+  // markers or text that rule an element out.
+  const PAT = {
+    timer: { cls: /countdown|timer|clock/i, text: /\b(expires?|ends?|left|hurry)\b.{0,30}\d{1,2}\s*:\s*\d{2}|^\s*\d{1,2}\s*:\s*\d{2}(\s*:\s*\d{2})?\s*$/i },
+    reviews: { cls: /review|testimonial|star-?rating|trustpilot|ugc/i, text: /verified (buyer|customer|purchase)/i },
+    exit: { cls: /exit[-_ ]?(pop|intent|modal|offer)|exitpop|exit-popup/i },
+    banner: { cls: /banner|announcement|promo[-_ ]?bar|top[-_ ]?bar|sticky[-_ ]?bar|notice[-_ ]?bar/i, must: /%|\boff\b|free|promo|code|sale|deal|limited|today|save|discount/i, not: /secure|encrypted|ssl|guarantee|trusted/i },
+    seen: { cls: /as[-_ ]?seen|seen[-_ ]?on|featured[-_ ]?in|press[-_ ]?logos|media[-_ ]?logos/i, text: /\bas seen (on|in)\b|\bfeatured (on|in)\b/i },
+    loading: { cls: /fake[-_ ]?load|loading[-_ ]?bar|status[-_ ]?bar|progress[-_ ]?bar|stock[-_ ]?bar|scarcity/i, notCls: /checkout[-_ ]?progress|step|swiper|submit|button|spinner|next-loading/i, must: /%|\bleft\b|sold|stock|loading|processing|remaining|claimed|reserved/i, not: /secure|encrypted|ssl|guarantee/i },
+  }[name];
+  if (!PAT) return { present: 0, visible: 0, sample: [] };
+  const isVisible = (el) => { const r = el.getBoundingClientRect(); const st = getComputedStyle(el); return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none' && st.opacity !== '0'; };
+  const hits = [];
+  for (const el of document.querySelectorAll('body *')) {
+    if (el.closest('script,style,noscript,template,button')) continue;
+    if (hits.some((h) => h.contains(el))) continue;
+    const markers = `${typeof el.className === 'string' ? el.className : ''} ${el.id || ''} ${[...el.attributes].filter((a) => a.name.startsWith('data-')).map((a) => `${a.name}=${a.value}`).join(' ')}`;
+    const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+    let hit = PAT.cls.test(markers);
+    if (!hit && PAT.text && text.length > 0 && text.length < 80) hit = PAT.text.test(text);
+    if (hit && PAT.notCls && PAT.notCls.test(markers)) hit = false;
+    if (hit && PAT.must && !PAT.must.test(text)) hit = false;
+    if (hit && PAT.not && PAT.not.test(text)) hit = false;
+    if (hit) hits.push(el);
+    if (hits.length > 40) break;
+  }
+  return { present: hits.length, visible: hits.filter(isVisible).length, sample: hits.slice(0, 3).map((el) => `${el.tagName.toLowerCase()}.${(typeof el.className === 'string' ? el.className : '').split(/\s+/).filter(Boolean).slice(0, 2).join('.')}`) };
+}
+
+module.exports = { snapshot, toggleTargets, widest, visibleSummary, linksTo, prices, formState };

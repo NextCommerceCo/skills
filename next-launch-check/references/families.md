@@ -40,7 +40,7 @@ the form check blocks every write request. See `safety.md`.
 | `tags-observed` | Tag libraries that actually load (GTM, gtag, Meta, TikTok, Everflow), beacons that would have been sent, dataLayer event names | warn | GTM in source but `gtm.js` never loading usually means a blocked or broken snippet |
 | `responsive` | Content running off the right edge on a phone (`:mobile`, 390 px), at 125% (`:zoom-125`) and at 150% zoom (`:zoom-150`); a screenshot of each | warn | Find the elements listed in the evidence; usually fixed widths or long unbroken text |
 | `param-propagation` | Test UTM parameters survive each click from the entry page to the checkout | warn | Carry the query string onto funnel links; attribution depends on it |
-| `param-toggles` | One row per page and parameter (`param-toggles:<page>:timer`…): presell and landing pages get `exit`, `timer`, `reviews`, `loading`, `banner`, `seen`; checkouts all but `seen`; upsells `timer`, `reviews`, `banner`. Baseline and `=n` screenshots | check by hand | These are campaign-side conventions, not SDK features; wire the ones your campaign promises |
+| `param-toggles` | One row per page and parameter (`param-toggles:<page>:timer`…). The check finds what each toggle should hide (countdowns, reviews and testimonials, promo banners, "As seen on" logos, fake stock or loading bars) by markup and wording, loads the page with `=n` and compares: hidden → pass; still visible → fail; nothing of that kind on the page → pass (nothing to hide). Exit-intent pop-ups only show when the shopper leaves, so their presence is reported for a person to try. Baseline and `=n` screenshots are attached | warn |
 | `locale` | SDK-bound amounts agree between an en-US and a de-DE browser; amounts typed into the page (info) | warn | Custom code that parses formatted prices breaks in comma-decimal locales; read values from the SDK instead |
 | `form-negative` | Submitting the empty checkout is stopped with visible errors; an invalid email is flagged; no order call leaves the browser | blocker when an empty form tries to create an order | Use the SDK's checkout fields and validation |
 | `storefront-search`, `storefront-login`, `storefront-nav` | Storefront: a nonsense search shows a clean empty state; an empty login submit shows an error; header and footer links load | warn | — |
@@ -57,7 +57,7 @@ or `recorded`. `order --dry-run` adds `order:rehearsal:<label>` instead and send
 | `order:created` | An order call was made and answered 2xx | blocker |
 | `order:attribution` | Parameters on the entry URL reached the order's attribution | warn |
 | `order:upsells` | Each upsell call answered 2xx | blocker |
-| `order:purchase-event` | Exactly one purchase event reached the dataLayer | warn |
+| `order:purchase-event` | Each purchase event name fired once (the SDK's `dl_purchase` and a GA4 `purchase` side by side is fine; the same name twice is a duplicate) | warn |
 | `order:params-per-page` | The entry parameters stayed in the URL after checkout | info |
 | `order:receipt` | The receipt page was reached | blocker |
 

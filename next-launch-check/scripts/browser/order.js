@@ -129,6 +129,27 @@ async function passChallenge(page) {
   return false;
 }
 
+// The visible accept or decline control on an upsell page. Pages often carry
+// hidden duplicates (a sticky mobile bar, a second offer block), so the first
+// match in the DOM is not good enough. Falls back to the button's text.
+const ACCEPT_TEXT = /^(yes|add|upgrade|claim|get|i want|accept)\b|add (it|this|another|to (my )?order)|yes,? (please|add|upgrade)/i;
+const DECLINE_TEXT = /^(no|skip|decline)\b|no,? thanks|i('| a)?ll pass|don'?t want/i;
+async function upsellControl(page, mode) {
+  await page.waitForFunction(() => document.documentElement.hasAttribute('data-next-ready') || document.documentElement.classList.contains('next-display-ready'), null, { timeout: 10000 }).catch(() => {});
+  const attr = page.locator(mode === 'accept' ? ACCEPT : DECLINE).filter({ visible: true });
+  if (await attr.count().catch(() => 0)) return { loc: attr.first(), how: 'SDK attribute' };
+  const byText = page.locator('button, a, [role="button"], input[type="submit"]').filter({ visible: true }).filter({ hasText: mode === 'accept' ? ACCEPT_TEXT : DECLINE_TEXT });
+  if (await byText.count().catch(() => 0)) return { loc: byText.first(), how: 'button text' };
+  return null;
+}
+
+async function describeUpsellControls(page) {
+  return page.evaluate((sel) => [...document.querySelectorAll(sel)].slice(0, 6).map((el) => {
+    const r = el.getBoundingClientRect();
+    return `${el.tagName.toLowerCase()}${el.disabled ? '[disabled]' : ''} "${(el.textContent || '').trim().slice(0, 40)}" ${r.width && r.height ? 'visible' : 'hidden'}`;
+  }), `${ACCEPT}, ${DECLINE}`).catch(() => []);
+}
+
 async function atReceipt(page) {
   return page.evaluate((sel) => !!document.querySelector(sel) || /\/(receipt|thank-?you|confirmation)(\/|\.html?|$)/i.test(location.pathname), RECEIPT).catch(() => false);
 }
@@ -184,15 +205,24 @@ async function placeOne(browser, ctx, plan, n) {
     // Upsells.
     let step = 0;
     while (!receipt && step < 6) {
-      const acceptBtn = page.locator(ACCEPT).first();
-      const declineBtn = page.locator(DECLINE).first();
-      if (!(await acceptBtn.count().catch(() => 0)) && !(await declineBtn.count().catch(() => 0))) break;
       const mode = plan.upsell === 'accept-decline' ? (step % 2 ? 'decline' : 'accept') : plan.upsell === 'decline-accept' ? (step % 2 ? 'accept' : 'decline') : plan.upsell;
-      const target = mode === 'accept' && await acceptBtn.count() ? acceptBtn : declineBtn;
+      const anyControl = await page.locator(`${ACCEPT}, ${DECLINE}`).count().catch(() => 0);
+      const target = await upsellControl(page, mode);
+      if (!target) {
+        if (!anyControl && !(await upsellControl(page, mode === 'accept' ? 'decline' : 'accept'))) break; // not an upsell page
+        throw new Error(`no visible ${mode} control on ${pageLabel(page.url())}; controls found: ${(await describeUpsellControls(page)).join('; ') || 'none'}`);
+      }
       const before = page.url();
-      await target.scrollIntoViewIfNeeded().catch(() => {});
-      await Promise.all([page.waitForURL((x) => x.href !== before, { timeout: 30000 }).catch(() => null), target.click()]);
-      steps.push(`upsell ${step + 1}: ${mode} on ${pageLabel(before)}`);
+      const upsellCalls = calls.filter((c) => c.kind === 'upsell').length;
+      await target.loc.scrollIntoViewIfNeeded().catch(() => {});
+      let clicked = await target.loc.click({ timeout: 10000 }).then(() => true).catch(() => false);
+      if (!clicked) clicked = await target.loc.dispatchEvent('click').then(() => true).catch(() => false);
+      // Moved on when the URL changes or (on accept) the upsell call goes out.
+      const moved = await page.waitForURL((x) => x.href !== before, { timeout: 30000 }).then(() => true).catch(() => false);
+      const called = calls.filter((c) => c.kind === 'upsell').length > upsellCalls;
+      if (!moved && !called) throw new Error(`clicking the ${mode} control (${target.how}) on ${pageLabel(before)} did nothing within 30 s; controls: ${(await describeUpsellControls(page)).join('; ')}`);
+      steps.push(`upsell ${step + 1}: ${mode} on ${pageLabel(before)} (${target.how})`);
+      if (!moved) await page.waitForURL((x) => x.href !== before, { timeout: 20000 }).catch(() => {});
       await page.waitForTimeout(1500);
       receipt = await atReceipt(page);
       step++;

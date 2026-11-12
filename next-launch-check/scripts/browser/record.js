@@ -163,10 +163,18 @@ function judge(rec, label = 'recorded') {
   }
   const upsells = rec.calls.filter((c) => c.kind === 'upsell');
   if (upsells.length) out.push(assertion({ id: `order:upsells:${label}`, family: 'order', status: upsells.every((u) => u.status >= 200 && u.status < 300) ? 'pass' : 'fail', severity: 'blocker', message: `${upsells.length} upsell call(s): ${upsells.map((u) => u.status).join(', ')}.` }));
-  const purchase = rec.events.filter((e) => /purchase|checkout_completed/i.test(e.event) && !/upsell/i.test(e.event));
-  out.push(purchase.length === 1
-    ? assertion({ id: `order:purchase-event:${label}`, family: 'order', status: 'pass', severity: 'warn', message: `One purchase event (${purchase[0].event}) on ${purchase[0].page}${purchase[0].value ? `, value ${purchase[0].value} ${purchase[0].currency || ''}` : ''}.` })
-    : assertion({ id: `order:purchase-event:${label}`, family: 'order', status: purchase.length ? 'warn' : 'fail', severity: 'warn', message: purchase.length ? `${purchase.length} purchase events for one order. Revenue may count twice.` : 'No purchase event reached the dataLayer.', evidence: purchase }));
+  // A purchase event per name: a funnel may send the SDK's dl_purchase and a
+  // separate GA4 purchase on purpose. Only the same name twice is a duplicate.
+  const purchase = rec.events.filter((e) => /(^|_)purchase$|checkout_completed/i.test(e.event) && !/upsell/i.test(e.event));
+  const byName = {};
+  for (const e of purchase) (byName[`${e.layer}:${e.event}`] = byName[`${e.layer}:${e.event}`] || []).push(e);
+  const dupes = Object.entries(byName).filter(([, list]) => list.length > 1);
+  const names = Object.keys(byName).map((k) => k.split(':')[1]);
+  out.push(!purchase.length
+    ? assertion({ id: `order:purchase-event:${label}`, family: 'order', status: 'fail', severity: 'warn', message: 'No purchase event reached the dataLayer.' })
+    : dupes.length
+      ? assertion({ id: `order:purchase-event:${label}`, family: 'order', status: 'warn', severity: 'warn', message: `The same purchase event fired more than once for one order: ${dupes.map(([k, l]) => `${k.split(':')[1]} ×${l.length} (${[...new Set(l.map((e) => e.page))].join(', ')})`).join('; ')}. Revenue may count twice.`, evidence: purchase })
+      : assertion({ id: `order:purchase-event:${label}`, family: 'order', status: 'pass', severity: 'warn', message: `Purchase sent once per event name: ${names.join(', ')} (${purchase.map((e) => `${e.event} on ${e.page}${e.value ? ` ${e.value} ${e.currency || ''}` : ''}`).join('; ')}).` }));
   const dropped = rec.pages.slice(1).filter((p) => tracked.some((k) => !(k in p.params)) && !/\.(29next|nextcommerce)\./.test(p.url)).map((p) => p.label);
   if (tracked.length) out.push(assertion({ id: `order:params-per-page:${label}`, family: 'order', status: dropped.length ? 'warn' : 'pass', severity: 'info', message: dropped.length ? `Pages after checkout without the entry parameters in the URL: ${dropped.join(', ')}. Fine if attribution already reached the order.` : 'Entry parameters stayed in the URL on every page.' }));
   out.push(assertion({ id: `order:receipt:${label}`, family: 'order', status: rec.receiptReached ? 'pass' : 'fail', severity: 'blocker', message: rec.receiptReached ? 'Receipt page reached.' : 'The receipt page was not reached in the recording window.' }));

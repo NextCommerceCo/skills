@@ -213,18 +213,34 @@ async function toggles(ctx, pages, newContext, shots, rel) {
       const before = await tab.evaluate(probes.visibleSummary);
       const baseShot = shotName(p.label, 'baseline');
       await tab.screenshot({ path: path.join(shots, baseShot), fullPage: true, type: 'jpeg', quality: 50 });
+      const WHAT = { timer: 'countdown timer', reviews: 'reviews or testimonials', exit: 'exit-intent pop-up', banner: 'promotional banner', seen: '"As seen on" section', loading: 'loading or progress bar' };
       for (const name of names) {
+        const targetsBefore = await tab.evaluate(probes.toggleTargets, name);
         await tab.goto(withParams(p.finalUrl, { [name]: 'n' }), { waitUntil: 'load', timeout: 45000 });
         await settle(tab, p.sdk.present, 8000);
         const after = await tab.evaluate(probes.visibleSummary);
+        const targetsAfter = await tab.evaluate(probes.toggleTargets, name);
         const diff = before.elements - after.elements;
-        const shorter = before.textLength - after.textLength;
-        if (diff > 0 || shorter > 20) {
-          const file = shotName(p.label, `${name}-n`);
-          await tab.screenshot({ path: path.join(shots, file), fullPage: true, type: 'jpeg', quality: 50 });
-          out.push(assertion({ ...base, id: `param-toggles:${p.label}:${name}`, status: 'manual_review', severity: 'warn', message: `?${name}=n hides ${diff > 0 ? `${diff} element(s)` : 'some text'}. Compare the two screenshots and confirm the right thing disappears.`, screenshots: [rel(baseShot), rel(file)] }));
+        const file = shotName(p.label, `${name}-n`);
+        await tab.screenshot({ path: path.join(shots, file), fullPage: true, type: 'jpeg', quality: 50 });
+        const shotsFor = [rel(baseShot), rel(file)];
+        const id = `param-toggles:${p.label}:${name}`;
+        if (name === 'exit') {
+          // The pop-up is hidden until the shopper tries to leave, so only its presence can be read.
+          out.push(targetsBefore.present
+            ? assertion({ ...base, id, status: 'manual_review', severity: 'warn', message: `The page has exit-intent pop-up markup (${targetsBefore.sample.join(', ')}). Open it with ?exit=n, move the mouse out of the window, and confirm no pop-up appears.`, screenshots: shotsFor })
+            : assertion({ ...base, id, status: 'pass', severity: 'info', message: 'No exit-intent pop-up markup on this page, so ?exit=n has nothing to hide.' }));
+          continue;
+        }
+        if (targetsBefore.visible) {
+          const hidden = targetsBefore.visible - targetsAfter.visible;
+          out.push(targetsAfter.visible === 0
+            ? assertion({ ...base, id, status: 'pass', severity: 'warn', message: `?${name}=n hides the ${WHAT[name]} (${targetsBefore.visible} element(s): ${targetsBefore.sample.join(', ')}).`, screenshots: shotsFor })
+            : assertion({ ...base, id, status: 'fail', severity: 'warn', message: `?${name}=n left ${targetsAfter.visible} of ${targetsBefore.visible} ${WHAT[name]} element(s) visible (${targetsBefore.sample.join(', ')}). The toggle is not wired, or not for every element.${hidden > 0 ? ` It hid ${hidden}.` : ''}`, screenshots: shotsFor }));
+        } else if (diff > 0 || before.textLength - after.textLength > 20) {
+          out.push(assertion({ ...base, id, status: 'manual_review', severity: 'warn', message: `?${name}=n hides ${diff > 0 ? `${diff} element(s)` : 'some text'}, but this check could not tell what a ${WHAT[name]} looks like here. Compare the screenshots.`, screenshots: shotsFor }));
         } else {
-          out.push(assertion({ ...base, id: `param-toggles:${p.label}:${name}`, status: 'manual_review', severity: 'info', message: `?${name}=n changes nothing visible. Fine if this page has no such element; otherwise the toggle is not wired.`, screenshots: [rel(baseShot)] }));
+          out.push(assertion({ ...base, id, status: 'pass', severity: 'info', message: `No ${WHAT[name]} found when the page loads, and ?${name}=n changes nothing. If one appears only after an action (for example after picking a package), check it by hand.`, screenshots: [rel(baseShot)] }));
         }
       }
     } catch (e) {

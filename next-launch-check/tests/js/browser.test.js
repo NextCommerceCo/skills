@@ -33,7 +33,10 @@ test('browser lane: good funnel', { skip, timeout: 240000 }, async () => {
     assert.equal(row(result, 'locale:/checkout').status, 'pass');
     assert.equal(row(result, 'locale:/checkout:typed-amounts'), undefined, 'amounts inside SDK summaries are not typed amounts');
     assert.equal(row(result, 'responsive:/checkout:zoom-150').status, 'pass');
-    assert.equal(row(result, 'param-toggles:/checkout:exit').severity, 'warn', 'exit=n hides the exit offer');
+    assert.equal(row(result, 'param-toggles:/:timer').status, 'pass', 'timer=n hides the countdown');
+    assert.equal(row(result, 'param-toggles:/:reviews').status, 'pass');
+    assert.equal(row(result, 'param-toggles:/:seen').status, 'pass', 'nothing to hide is a pass, not a question');
+    assert.equal(result.checklist.find((i) => i.id === 'BP-04').status, 'pass');
     assert.equal(result.checklist.find((i) => i.id === 'CN-01').status, 'pass');
     assert.equal(row(result, 'tags-observed:/checkout').status, 'pass');
     assert.equal(s.calls.length, 0, 'the browser lane never places an order');
@@ -48,6 +51,7 @@ test('browser lane: broken funnel', { skip, timeout: 240000 }, async () => {
     assert.equal(row(result, 'form-negative:/checkout:empty').severity, 'blocker');
     assert.equal(row(result, 'form-negative:/checkout:empty').status, 'fail');
     assert.equal(row(result, 'responsive:/upsell:mobile').status, 'warn');
+    assert.equal(row(result, 'param-toggles:/:timer').status, 'fail', 'the countdown is not wired to timer=n');
     assert.equal(s.calls.length, 0, 'the unvalidated form was submitted, but the order call was blocked');
   } finally { await s.close(); }
 });
