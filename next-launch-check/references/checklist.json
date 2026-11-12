@@ -1,6 +1,6 @@
 {
  "version": 2,
- "note": "The QA checklist. Each item names the page types it applies to (roles), the automated rows that decide it (auto, globs over row ids; ! excludes) and rows shown to help a person judge it (evidence). Items with no auto rows, or whose rows did not run, are answered by the tester. Items with requires: campaigns-os appear only when a Campaigns OS verdict is part of the run.",
+ "note": "The QA checklist. Each item names the page types it applies to (roles), the automated rows that decide it (auto, globs over row ids; ! excludes) and rows shown to help a person judge it (evidence). Items with no auto rows, or whose rows did not run, are answered by the tester. Items with requires: campaigns-os appear only when a Campaigns OS verdict is part of the run. Item ids are readable names (for example toggle-timer); people see the title numbered within its section.",
  "roles": [
   "presell",
   "landing",
@@ -11,7 +11,7 @@
  ],
  "items": [
   {
-   "id": "BP-01",
+   "id": "speed-test",
    "section": "Browser & performance",
    "text": "Speed test (PageSpeed / Lighthouse), mobile and desktop",
    "roles": [
@@ -28,7 +28,7 @@
    ]
   },
   {
-   "id": "BP-02",
+   "id": "webpagetest",
    "section": "Browser & performance",
    "text": "WebPageTest run in the funnel's target country zone",
    "roles": [
@@ -42,7 +42,7 @@
    "hint": "https://www.webpagetest.org — pick a test location in the country the traffic comes from."
   },
   {
-   "id": "BP-03",
+   "id": "toggle-exit",
    "section": "Browser & performance",
    "text": "?exit=n blocks the exit-intent coupon",
    "roles": [
@@ -56,7 +56,7 @@
    ]
   },
   {
-   "id": "BP-04",
+   "id": "toggle-timer",
    "section": "Browser & performance",
    "text": "?timer=n blocks every countdown timer",
    "roles": [
@@ -71,7 +71,7 @@
    ]
   },
   {
-   "id": "BP-05",
+   "id": "toggle-reviews",
    "section": "Browser & performance",
    "text": "?reviews=n removes reviews and testimonials",
    "roles": [
@@ -86,7 +86,7 @@
    ]
   },
   {
-   "id": "BP-06",
+   "id": "toggle-loading",
    "section": "Browser & performance",
    "text": "?loading=n removes fake loading and status bars",
    "roles": [
@@ -100,7 +100,7 @@
    ]
   },
   {
-   "id": "BP-07",
+   "id": "toggle-banner",
    "section": "Browser & performance",
    "text": "?banner=n removes promotional banners",
    "roles": [
@@ -115,7 +115,7 @@
    ]
   },
   {
-   "id": "BP-08",
+   "id": "toggle-seen",
    "section": "Browser & performance",
    "text": "?seen=n hides the \"As seen on\" section",
    "roles": [
@@ -128,7 +128,7 @@
    ]
   },
   {
-   "id": "BP-09",
+   "id": "params-presell-to-checkout",
    "section": "Browser & performance",
    "text": "URL parameters kept from presell → landing → checkout",
    "roles": [
@@ -141,7 +141,7 @@
    ]
   },
   {
-   "id": "BP-10",
+   "id": "scripts-consistent",
    "section": "Browser & performance",
    "text": "Campaign scripts (SDK, config, API key) the same on every page",
    "roles": [
@@ -157,7 +157,7 @@
    ]
   },
   {
-   "id": "DB-01",
+   "id": "favicon",
    "section": "Design & branding",
    "text": "Correct favicon on every page",
    "roles": [
@@ -174,7 +174,7 @@
    ]
   },
   {
-   "id": "DB-02",
+   "id": "product-name-logo",
    "section": "Design & branding",
    "text": "Correct product name and logo, consistent throughout",
    "roles": [
@@ -187,7 +187,7 @@
    "severity": "warn"
   },
   {
-   "id": "DB-03",
+   "id": "product-images",
    "section": "Design & branding",
    "text": "Product images correct, sharp, not overlapping, on desktop and mobile",
    "roles": [
@@ -204,7 +204,7 @@
    ]
   },
   {
-   "id": "DB-04",
+   "id": "support-contact",
    "section": "Design & branding",
    "text": "Customer service phone number and email correct and consistent",
    "roles": [
@@ -217,7 +217,7 @@
    "severity": "warn"
   },
   {
-   "id": "DB-05",
+   "id": "prices-match-plan",
    "section": "Design & branding",
    "text": "Prices match the funnel guidelines (packages, discounts, currency)",
    "roles": [
@@ -236,7 +236,7 @@
    ]
   },
   {
-   "id": "DB-06",
+   "id": "currency-consistent",
    "section": "Design & branding",
    "text": "Currency consistent throughout",
    "roles": [
@@ -251,7 +251,7 @@
    ]
   },
   {
-   "id": "DB-07",
+   "id": "exit-popup-content",
    "section": "Design & branding",
    "text": "Exit pop-up: right packages, currency signs, \"each\", discount matrix",
    "roles": [
@@ -263,7 +263,7 @@
    ]
   },
   {
-   "id": "DB-08",
+   "id": "warranty-price",
    "section": "Design & branding",
    "text": "Extended protection / warranty price right for the package chosen (upsell or bump)",
    "roles": [
@@ -273,7 +273,7 @@
    "severity": "warn"
   },
   {
-   "id": "DB-09",
+   "id": "side-tickers",
    "section": "Design & branding",
    "text": "Side tickers show the right product image, name and details",
    "roles": [
@@ -282,7 +282,7 @@
    "severity": "warn"
   },
   {
-   "id": "DB-10",
+   "id": "reviews-right-product",
    "section": "Design & branding",
    "text": "Reviews reference the correct product and brand",
    "roles": [
@@ -294,7 +294,7 @@
    "severity": "warn"
   },
   {
-   "id": "DB-11",
+   "id": "faq-proofread",
    "section": "Design & branding",
    "text": "FAQs proofread: spelling, grammar, relevance, accuracy",
    "roles": [
@@ -304,7 +304,7 @@
    "severity": "warn"
   },
   {
-   "id": "DB-12",
+   "id": "no-placeholder-copy",
    "section": "Design & branding",
    "text": "No placeholder copy (lorem ipsum, TODO, template text)",
    "roles": [
@@ -323,7 +323,7 @@
    ]
   },
   {
-   "id": "DB-13",
+   "id": "locale-amounts",
    "section": "Design & branding",
    "text": "Amounts identical in a comma-decimal locale (de-DE)",
    "roles": [
@@ -337,7 +337,7 @@
    ]
   },
   {
-   "id": "DB-14",
+   "id": "typed-amounts",
    "section": "Design & branding",
    "text": "Every typed amount is SDK-bound or intended static copy (survives a reprice)",
    "roles": [
@@ -351,7 +351,7 @@
    ]
   },
   {
-   "id": "FF-01",
+   "id": "right-pages-cloned",
    "section": "Funnel flow & functionality",
    "text": "Correct funnel pages cloned for each part of the offer",
    "roles": [
@@ -364,7 +364,7 @@
    "severity": "warn"
   },
   {
-   "id": "FF-02",
+   "id": "ctas-and-links",
    "section": "Funnel flow & functionality",
    "text": "All CTA buttons and links work and go where they should",
    "roles": [
@@ -382,7 +382,7 @@
    ]
   },
   {
-   "id": "FF-03",
+   "id": "route-tags",
    "section": "Funnel flow & functionality",
    "text": "Each page leads to the correct next page (route tags)",
    "roles": [
@@ -398,7 +398,7 @@
    ]
   },
   {
-   "id": "FF-04",
+   "id": "upsell-products-prices",
    "section": "Funnel flow & functionality",
    "text": "Upsells show the correct products and prices",
    "roles": [
@@ -411,7 +411,7 @@
    ]
   },
   {
-   "id": "FF-05",
+   "id": "scrolling-cta",
    "section": "Funnel flow & functionality",
    "text": "Scrolling or sticky CTA at the top or bottom of the page",
    "roles": [
@@ -421,7 +421,7 @@
    "severity": "warn"
   },
   {
-   "id": "FF-06",
+   "id": "interactive-elements",
    "section": "Funnel flow & functionality",
    "text": "Interactive elements work on desktop and mobile (pop-ups, sliders, selectors)",
    "roles": [
@@ -436,7 +436,7 @@
    ]
   },
   {
-   "id": "FF-07",
+   "id": "pages-load",
    "section": "Funnel flow & functionality",
    "text": "Every page loads",
    "roles": [
@@ -455,7 +455,7 @@
    ]
   },
   {
-   "id": "TR-01",
+   "id": "gtm",
    "section": "Tracking & integrations",
    "text": "GTM present and the same on every page",
    "roles": [
@@ -474,7 +474,7 @@
    ]
   },
   {
-   "id": "TR-02",
+   "id": "google-analytics",
    "section": "Tracking & integrations",
    "text": "Google Analytics present and the same on every page",
    "roles": [
@@ -493,7 +493,7 @@
    ]
   },
   {
-   "id": "TR-03",
+   "id": "everflow",
    "section": "Tracking & integrations",
    "text": "Everflow pixel present and the same on every page",
    "roles": [
@@ -509,7 +509,7 @@
    ]
   },
   {
-   "id": "TR-04",
+   "id": "utm-carry-through",
    "section": "Tracking & integrations",
    "text": "UTM and click parameters carried through the whole funnel, onto the order",
    "roles": [
@@ -527,7 +527,7 @@
    ]
   },
   {
-   "id": "TR-05",
+   "id": "success-url-chain",
    "section": "Tracking & integrations",
    "text": "Success URLs chain to the next page in order",
    "roles": [
@@ -542,7 +542,7 @@
    ]
   },
   {
-   "id": "TR-06",
+   "id": "events-in-tag-preview",
    "section": "Tracking & integrations",
    "text": "In tag manager preview, purchase and upsell events fire once with the right value",
    "roles": [
@@ -561,7 +561,7 @@
    ]
   },
   {
-   "id": "TR-09",
+   "id": "purchase-event-once",
    "section": "Tracking & integrations",
    "text": "One purchase event per test order, with the order's value and currency",
    "roles": [
@@ -575,7 +575,7 @@
    ]
   },
   {
-   "id": "TR-07",
+   "id": "reject-test-conversion",
    "section": "Tracking & integrations",
    "text": "If you came through an affiliate test link, the test conversion was rejected afterwards",
    "roles": [
@@ -584,7 +584,7 @@
    "severity": "info"
   },
   {
-   "id": "LG-01",
+   "id": "legal-faq",
    "section": "Legal & subpages",
    "text": "FAQ opens in a new tab with the right content",
    "roles": [
@@ -600,7 +600,7 @@
    ]
   },
   {
-   "id": "LG-02",
+   "id": "legal-contact",
    "section": "Legal & subpages",
    "text": "Contact Us opens in a new tab with the right details",
    "roles": [
@@ -616,7 +616,7 @@
    ]
   },
   {
-   "id": "LG-03",
+   "id": "legal-shipping",
    "section": "Legal & subpages",
    "text": "Shipping page opens in a new tab",
    "roles": [
@@ -632,7 +632,7 @@
    ]
   },
   {
-   "id": "LG-04",
+   "id": "legal-terms",
    "section": "Legal & subpages",
    "text": "Terms & Conditions open in a new tab",
    "roles": [
@@ -648,7 +648,7 @@
    ]
   },
   {
-   "id": "LG-05",
+   "id": "legal-returns",
    "section": "Legal & subpages",
    "text": "Returns page opens in a new tab",
    "roles": [
@@ -664,7 +664,7 @@
    ]
   },
   {
-   "id": "LG-06",
+   "id": "legal-privacy",
    "section": "Legal & subpages",
    "text": "Privacy Policy opens in a new tab",
    "roles": [
@@ -680,7 +680,7 @@
    ]
   },
   {
-   "id": "LG-07",
+   "id": "no-default-store-address",
    "section": "Legal & subpages",
    "text": "No links to the default store address (no 29next subdomain)",
    "roles": [
@@ -697,7 +697,7 @@
    ]
   },
   {
-   "id": "CP-01",
+   "id": "valid-customer-details",
    "section": "Checkout: positive cases",
    "text": "Valid customer details (name, email, phone) accepted",
    "roles": [
@@ -709,7 +709,7 @@
    ]
   },
   {
-   "id": "CP-02",
+   "id": "standard-card-order",
    "section": "Checkout: positive cases",
    "text": "Standard test card 6011 1111 1111 1117 completes",
    "roles": [
@@ -724,7 +724,7 @@
    ]
   },
   {
-   "id": "CP-03",
+   "id": "3ds-card-order",
    "section": "Checkout: positive cases",
    "text": "3-D Secure test card 6011 0009 9013 9424 completes",
    "roles": [
@@ -736,7 +736,7 @@
    ]
   },
   {
-   "id": "CP-04",
+   "id": "expiry-cvv-accepted",
    "section": "Checkout: positive cases",
    "text": "Valid expiry and CVV accepted",
    "roles": [
@@ -748,7 +748,7 @@
    ]
   },
   {
-   "id": "CP-05",
+   "id": "same-as-billing",
    "section": "Checkout: positive cases",
    "text": "\"Shipping same as billing\" shows and hides the billing fields correctly",
    "roles": [
@@ -757,7 +757,7 @@
    "severity": "warn"
   },
   {
-   "id": "CP-06",
+   "id": "address-autocomplete",
    "section": "Checkout: positive cases",
    "text": "Predictive address autocomplete suggests and fills",
    "roles": [
@@ -766,7 +766,7 @@
    "severity": "info"
   },
   {
-   "id": "CP-07",
+   "id": "geo-content",
    "section": "Checkout: positive cases",
    "text": "Location-based content right per market (check with a VPN for multi-country)",
    "roles": [
@@ -775,7 +775,7 @@
    "severity": "warn"
   },
   {
-   "id": "CP-08",
+   "id": "exit-coupon-price",
    "section": "Checkout: positive cases",
    "text": "Exit-pop coupon works and its price is what the order records",
    "roles": [
@@ -787,7 +787,7 @@
    ]
   },
   {
-   "id": "CP-09",
+   "id": "order-every-package",
    "section": "Checkout: positive cases",
    "text": "Test order on every checkout option: right product ids, options and prices on the orders page",
    "roles": [
@@ -800,7 +800,7 @@
    ]
   },
   {
-   "id": "CP-10",
+   "id": "blank-phone-checkout",
    "section": "Checkout: positive cases",
    "text": "Checkout with the phone field blank goes through (or phone is marked required)",
    "roles": [
@@ -809,7 +809,7 @@
    "severity": "warn"
   },
   {
-   "id": "CP-11",
+   "id": "upsell-accept-decline",
    "section": "Checkout: positive cases",
    "text": "Upsell accept and decline both work after a real order, through to the receipt",
    "roles": [
@@ -825,7 +825,7 @@
    ]
   },
   {
-   "id": "CN-01",
+   "id": "error-empty-fields",
    "section": "Checkout: negative cases",
    "text": "Empty required fields show errors",
    "roles": [
@@ -837,7 +837,7 @@
    ]
   },
   {
-   "id": "CN-02",
+   "id": "error-invalid-email",
    "section": "Checkout: negative cases",
    "text": "Invalid email shows an error",
    "roles": [
@@ -849,7 +849,7 @@
    ]
   },
   {
-   "id": "CN-03",
+   "id": "error-invalid-card",
    "section": "Checkout: negative cases",
    "text": "Invalid or expired card shows an error",
    "roles": [
@@ -858,7 +858,7 @@
    "severity": "warn"
   },
   {
-   "id": "CN-04",
+   "id": "error-invalid-cvv",
    "section": "Checkout: negative cases",
    "text": "Invalid CVV shows an error",
    "roles": [
@@ -867,7 +867,7 @@
    "severity": "warn"
   },
   {
-   "id": "CN-05",
+   "id": "error-language",
    "section": "Checkout: negative cases",
    "text": "Error messages are in the shopper's language",
    "roles": [
@@ -876,7 +876,7 @@
    "severity": "warn"
   },
   {
-   "id": "AP-01",
+   "id": "order-campaign",
    "section": "Order data (orders_create)",
    "text": "Correct funnel / campaign on the order",
    "roles": [
@@ -889,7 +889,7 @@
    ]
   },
   {
-   "id": "AP-02",
+   "id": "order-gateway-group",
    "section": "Order data (orders_create)",
    "text": "Correct gateway group",
    "roles": [
@@ -898,7 +898,7 @@
    "severity": "warn"
   },
   {
-   "id": "AP-03",
+   "id": "order-language-code",
    "section": "Order data (orders_create)",
    "text": "Language sent as a two-letter language code (EN, not US)",
    "roles": [
@@ -910,7 +910,7 @@
    ]
   },
   {
-   "id": "AP-04",
+   "id": "order-shipping-code",
    "section": "Order data (orders_create)",
    "text": "Correct shipping codes",
    "roles": [
@@ -922,7 +922,7 @@
    ]
   },
   {
-   "id": "AP-05",
+   "id": "order-offers-discounts",
    "section": "Order data (orders_create)",
    "text": "Correct offer ids and discounts on the order",
    "roles": [
@@ -934,7 +934,7 @@
    ]
   },
   {
-   "id": "CM-01",
+   "id": "browsers",
    "section": "Compatibility & mobile",
    "text": "Tested in Chrome, Firefox, Edge, Safari and on mobile (automated run is Chromium only)",
    "roles": [
@@ -948,7 +948,7 @@
    "severity": "warn"
   },
   {
-   "id": "CM-02",
+   "id": "desktop-and-mobile",
    "section": "Compatibility & mobile",
    "text": "Fully works on desktop and mobile",
    "roles": [
@@ -966,7 +966,7 @@
    ]
   },
   {
-   "id": "CM-03",
+   "id": "zoom-100",
    "section": "Compatibility & mobile",
    "text": "Mobile at 100%: readable, no broken layout",
    "roles": [
@@ -983,7 +983,7 @@
    ]
   },
   {
-   "id": "CM-04",
+   "id": "zoom-125",
    "section": "Compatibility & mobile",
    "text": "Mobile zoom 125%: readable, no broken layout",
    "roles": [
@@ -1000,7 +1000,7 @@
    ]
   },
   {
-   "id": "CM-05",
+   "id": "zoom-150",
    "section": "Compatibility & mobile",
    "text": "Mobile zoom 150%: readable for older audiences, no broken layout",
    "roles": [
@@ -1017,7 +1017,7 @@
    ]
   },
   {
-   "id": "CM-06",
+   "id": "real-device",
    "section": "Compatibility & mobile",
    "text": "Tested on a real device",
    "roles": [
@@ -1031,7 +1031,7 @@
    "severity": "warn"
   },
   {
-   "id": "CM-07",
+   "id": "emulator",
    "section": "Compatibility & mobile",
    "text": "Tested in a device emulator",
    "roles": [
@@ -1048,7 +1048,7 @@
    ]
   },
   {
-   "id": "SN-01",
+   "id": "store-nav-targets",
    "section": "Storefront: navigation",
    "text": "Home, Shop, Support and Contact go to the right pages",
    "roles": [
@@ -1060,7 +1060,7 @@
    ]
   },
   {
-   "id": "SN-02",
+   "id": "store-nav-links",
    "section": "Storefront: navigation",
    "text": "No broken or missing navigation links",
    "roles": [
@@ -1073,7 +1073,7 @@
    ]
   },
   {
-   "id": "SS-01",
+   "id": "store-search-results",
    "section": "Storefront: search",
    "text": "A valid search returns relevant products",
    "roles": [
@@ -1082,7 +1082,7 @@
    "severity": "warn"
   },
   {
-   "id": "SS-02",
+   "id": "store-search-typos",
    "section": "Storefront: search",
    "text": "Partial or misspelled searches return suggestions",
    "roles": [
@@ -1091,7 +1091,7 @@
    "severity": "warn"
   },
   {
-   "id": "SS-03",
+   "id": "store-filters",
    "section": "Storefront: search",
    "text": "Filters and sorting work",
    "roles": [
@@ -1100,7 +1100,7 @@
    "severity": "warn"
   },
   {
-   "id": "SS-04",
+   "id": "store-search-empty",
    "section": "Storefront: search",
    "text": "Searching for something unavailable shows a clean empty state",
    "roles": [
@@ -1112,7 +1112,7 @@
    ]
   },
   {
-   "id": "SL-01",
+   "id": "store-login-form",
    "section": "Storefront: login & register",
    "text": "Login and register forms show the right fields and labels",
    "roles": [
@@ -1121,7 +1121,7 @@
    "severity": "warn"
   },
   {
-   "id": "SL-02",
+   "id": "store-login",
    "section": "Storefront: login & register",
    "text": "Valid credentials log in",
    "roles": [
@@ -1130,7 +1130,7 @@
    "severity": "warn"
   },
   {
-   "id": "SL-03",
+   "id": "store-register",
    "section": "Storefront: login & register",
    "text": "Registration completes",
    "roles": [
@@ -1139,7 +1139,7 @@
    "severity": "warn"
   },
   {
-   "id": "SL-04",
+   "id": "store-login-error",
    "section": "Storefront: login & register",
    "text": "Invalid credentials show a clear error",
    "roles": [
@@ -1148,7 +1148,7 @@
    "severity": "warn"
   },
   {
-   "id": "SL-05",
+   "id": "store-form-validation",
    "section": "Storefront: login & register",
    "text": "Empty or badly formatted inputs are flagged",
    "roles": [
@@ -1160,7 +1160,7 @@
    ]
   },
   {
-   "id": "SC-01",
+   "id": "cart-add",
    "section": "Storefront: cart",
    "text": "Adding a product updates the cart summary",
    "roles": [
@@ -1169,7 +1169,7 @@
    "severity": "warn"
   },
   {
-   "id": "SC-02",
+   "id": "cart-contents",
    "section": "Storefront: cart",
    "text": "Cart shows the right name, price, quantity and subtotal",
    "roles": [
@@ -1178,7 +1178,7 @@
    "severity": "blocker"
   },
   {
-   "id": "SC-03",
+   "id": "cart-quantity",
    "section": "Storefront: cart",
    "text": "Changing quantity recalculates the total",
    "roles": [
@@ -1187,7 +1187,7 @@
    "severity": "warn"
   },
   {
-   "id": "SC-04",
+   "id": "cart-checkout",
    "section": "Storefront: cart",
    "text": "Checkout starts from the cart",
    "roles": [
@@ -1196,7 +1196,7 @@
    "severity": "warn"
   },
   {
-   "id": "SC-05",
+   "id": "cart-remove-all",
    "section": "Storefront: cart",
    "text": "Removing every item causes no errors",
    "roles": [
@@ -1205,7 +1205,7 @@
    "severity": "warn"
   },
   {
-   "id": "SC-06",
+   "id": "cart-bad-quantity",
    "section": "Storefront: cart",
    "text": "Quantity 0 or invalid quantities are handled",
    "roles": [
@@ -1214,7 +1214,7 @@
    "severity": "warn"
   },
   {
-   "id": "SP-01",
+   "id": "product-sections",
    "section": "Storefront: product pages",
    "text": "Overview, Features, Tech specs and Reviews sections open",
    "roles": [
@@ -1223,7 +1223,7 @@
    "severity": "warn"
   },
   {
-   "id": "SP-02",
+   "id": "product-links",
    "section": "Storefront: product pages",
    "text": "No broken product page links",
    "roles": [
@@ -1235,7 +1235,7 @@
    ]
   },
   {
-   "id": "SF-01",
+   "id": "footer-legal",
    "section": "Storefront: footer",
    "text": "Footer: About, FAQ, Terms of Service and Privacy links work",
    "roles": [
@@ -1248,7 +1248,7 @@
    ]
   },
   {
-   "id": "SF-02",
+   "id": "footer-account",
    "section": "Storefront: footer",
    "text": "Footer: account, cart and login links work",
    "roles": [
@@ -1260,7 +1260,7 @@
    ]
   },
   {
-   "id": "SF-03",
+   "id": "footer-targets",
    "section": "Storefront: footer",
    "text": "Footer links open in the expected tab",
    "roles": [
@@ -1269,7 +1269,7 @@
    "severity": "warn"
   },
   {
-   "id": "SU-01",
+   "id": "store-ui",
    "section": "Storefront: usability",
    "text": "UI is consistent, clear and easy to navigate",
    "roles": [
@@ -1278,7 +1278,7 @@
    "severity": "warn"
   },
   {
-   "id": "SU-02",
+   "id": "store-interactions",
    "section": "Storefront: usability",
    "text": "Buttons, forms and links respond",
    "roles": [
@@ -1290,7 +1290,7 @@
    ]
   },
   {
-   "id": "SU-03",
+   "id": "store-messages",
    "section": "Storefront: usability",
    "text": "Error messages and notifications are clear",
    "roles": [
@@ -1299,7 +1299,7 @@
    "severity": "warn"
   },
   {
-   "id": "SU-04",
+   "id": "store-speed",
    "section": "Storefront: usability",
    "text": "Pages load quickly and run smoothly",
    "roles": [
@@ -1311,7 +1311,7 @@
    ]
   },
   {
-   "id": "EX-01",
+   "id": "meta-tags",
    "section": "Automated extras",
    "text": "Meta tags and social previews (title, description, og:image)",
    "roles": [
@@ -1328,7 +1328,7 @@
    ]
   },
   {
-   "id": "EX-02",
+   "id": "media-weight",
    "section": "Automated extras",
    "text": "Images and video on a CDN and under 500 KB",
    "roles": [
@@ -1345,7 +1345,7 @@
    ]
   },
   {
-   "id": "EX-03",
+   "id": "runtime-errors",
    "section": "Automated extras",
    "text": "No console or script errors; SDK reaches ready",
    "roles": [
@@ -1365,7 +1365,7 @@
    ]
   },
   {
-   "id": "EX-04",
+   "id": "tags-loaded",
    "section": "Automated extras",
    "text": "Tags and dataLayer events seen in the browser",
    "roles": [
@@ -1381,7 +1381,7 @@
    ]
   },
   {
-   "id": "EX-05",
+   "id": "pr-review",
    "section": "Automated extras",
    "text": "Pull request review (prices, cart calls, secrets, leftovers)",
    "roles": [
@@ -1397,9 +1397,9 @@
    ]
   },
   {
-   "id": "CO-01",
+   "id": "cos-verdict",
    "section": "Campaigns OS (spec-aware)",
-   "text": "Campaigns OS QA verdict for this build (runs when a Build Packet, built Page Kit folder or saved Map is available)",
+   "text": "Campaigns OS QA verdict",
    "roles": [
     "presell",
     "landing",
@@ -1411,10 +1411,11 @@
    "auto": [
     "campaigns-os:verdict"
    ],
-   "requires": "campaigns-os"
+   "requires": "campaigns-os",
+   "hint": "Runs when the campaign has a Build Packet, a built Page Kit folder or a saved Map."
   },
   {
-   "id": "CO-02",
+   "id": "cos-commerce-structure",
    "section": "Campaigns OS (spec-aware)",
    "text": "Checkout and upsells keep the template's commerce structure: payment fields, express wallets, bundle selector, order bumps",
    "roles": [
@@ -1433,7 +1434,7 @@
    "requires": "campaigns-os"
   },
   {
-   "id": "CO-03",
+   "id": "cos-template-residue",
    "section": "Campaigns OS (spec-aware)",
    "text": "No template residue: starter styles, demo images, payment chrome left from the template",
    "roles": [
@@ -1451,7 +1452,7 @@
    "requires": "campaigns-os"
   },
   {
-   "id": "CO-04",
+   "id": "cos-price-parity",
    "section": "Campaigns OS (spec-aware)",
    "text": "Prices shown match the campaign (visible price rows, price parity with the Campaigns App)",
    "roles": [
@@ -1465,7 +1466,7 @@
    "requires": "campaigns-os"
   },
   {
-   "id": "CO-05",
+   "id": "cos-map-binding",
    "section": "Campaigns OS (spec-aware)",
    "text": "Pages bind to the Campaign Map and its API metadata (page binding, store profile, SDK pin, live campaign refs)",
    "roles": [
@@ -1482,7 +1483,7 @@
    "requires": "campaigns-os"
   },
   {
-   "id": "CO-06",
+   "id": "cos-gates",
    "section": "Campaigns OS (spec-aware)",
    "text": "Theme and polish gates (brand theme applied, no hidden eager media)",
    "roles": [

@@ -36,8 +36,8 @@ test('browser lane: good funnel', { skip, timeout: 240000 }, async () => {
     assert.equal(row(result, 'param-toggles:/:timer').status, 'pass', 'timer=n hides the countdown');
     assert.equal(row(result, 'param-toggles:/:reviews').status, 'pass');
     assert.equal(row(result, 'param-toggles:/:seen').status, 'pass', 'nothing to hide is a pass, not a question');
-    assert.equal(result.checklist.find((i) => i.id === 'BP-04').status, 'pass');
-    assert.equal(result.checklist.find((i) => i.id === 'CN-01').status, 'pass');
+    assert.equal(result.checklist.find((i) => i.id === 'toggle-timer').status, 'pass');
+    assert.equal(result.checklist.find((i) => i.id === 'error-empty-fields').status, 'pass');
     assert.equal(row(result, 'tags-observed:/checkout').status, 'pass');
     assert.equal(s.calls.length, 0, 'the browser lane never places an order');
   } finally { await s.close(); }
@@ -64,7 +64,7 @@ test('recorder: --into adds the order to an existing run and its checklist', { s
     const code = await cli.main(['record', `${s.base}/checkout/?autotest=1&utm_source=fb`, '--headless', '--record-minutes', '0.5', '--into', out]);
     assert.equal(code, 0);
     const r = JSON.parse(fs.readFileSync(path.join(out, 'results.json'), 'utf8'));
-    assert.equal(r.checklist.find((i) => i.id === 'CP-02').status, 'pass');
+    assert.equal(r.checklist.find((i) => i.id === 'standard-card-order').status, 'pass');
     assert.ok(r.assertions.some((a) => a.id === 'form-negative:/checkout:empty' || a.family === 'http'), 'earlier rows kept');
   } finally { await s.close(); }
 });
@@ -79,8 +79,8 @@ test('order: two typed-card orders, accept and decline, land in the run', { skip
     for (const id of ['order:created:1-standard-accept', 'order:upsells:1-standard-accept', 'order:receipt:1-standard-accept', 'order:created:2-3ds-decline', 'order:receipt:2-3ds-decline']) assert.equal(row(r, id).status, 'pass', id);
     assert.equal(row(r, 'order:upsells:2-3ds-decline'), undefined, 'declined upsell sends no upsell call');
     const byId = Object.fromEntries(r.checklist.map((i) => [i.id, i]));
-    assert.equal(byId['CP-02'].status, 'pass');
-    assert.equal(byId['CP-03'].status, 'pass');
+    assert.equal(byId['standard-card-order'].status, 'pass');
+    assert.equal(byId['3ds-card-order'].status, 'pass');
     assert.equal(s.calls.filter((c) => c.kind === 'order').length, 2, 'exactly one order per plan');
   } finally { await s.close(); }
 });

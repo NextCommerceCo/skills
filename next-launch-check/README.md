@@ -94,7 +94,9 @@ can also do a rehearsal that fills the checkout and stops before paying.
 
 | File | What it is |
 |---|---|
-| `report.md` | The readable report: result, speed table, the checklist with every item marked pass, fail or to do, and screenshots |
+| `report.html` | The readable report: result, what to fix, what is left to check, speed, and the full checklist with screenshots. Opens in any browser |
+| `report.pdf` | The same report as a PDF, to send to a client or a teammate |
+| `report.md` | Notes for developers and AI coding assistants: what to fix, where, and how |
 | `results.json` | The same results for tools and spreadsheets |
 | `screenshots/` | Desktop, phone and zoomed views of each page |
 

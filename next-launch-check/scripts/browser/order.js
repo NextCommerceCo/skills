@@ -233,7 +233,7 @@ async function placeOne(browser, ctx, plan, n) {
     if (!e.rehearsal) error = String(e.message || e).slice(0, 300);
   }
   const file = `order-${label}${dry ? '-rehearsal' : ''}.jpg`;
-  await page.screenshot({ path: path.join(ctx.outDir, 'screenshots', file), fullPage: true, type: 'jpeg', quality: 55 }).catch(() => {});
+  await require('./funnel').capture(page, path.join(ctx.outDir, 'screenshots', file), 55).catch(() => {});
   await context.close();
   const rec = REC.toRecord(ctx.entryUrl, { pages, calls, events, beacons: log.beacons.length, receiptReached: receipt });
   rec.plan = plan; rec.steps = steps; rec.error = error; rec.rehearsal = dry;

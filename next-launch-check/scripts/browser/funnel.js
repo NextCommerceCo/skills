@@ -21,6 +21,14 @@ function withParams(url, params) {
   return u.href;
 }
 
+// Full-page screenshots, capped at 6000 CSS px so a very long page does not
+// make a huge file. JPEG keeps them small enough for the PDF.
+async function capture(tab, file, quality = 55) {
+  const h = await tab.evaluate(() => Math.max(document.documentElement.scrollHeight, document.body ? document.body.scrollHeight : 0)).catch(() => 6000);
+  const w = (tab.viewportSize() || { width: 1366 }).width;
+  await tab.screenshot({ path: file, fullPage: true, clip: { x: 0, y: 0, width: w, height: Math.min(h, 6000) }, type: 'jpeg', quality });
+}
+
 function shotName(label, suffix) {
   return `${(label === '/' ? 'root' : label.replace(/^\//, '')).replace(/[^a-z0-9]+/gi, '-').slice(0, 50)}-${suffix}.jpg`;
 }
@@ -68,7 +76,7 @@ async function run(ctx) {
         await tab.goto(withParams(p.finalUrl, TEST_PARAMS), { waitUntil: 'load', timeout: 45000 });
         await settle(tab, sdkExpected);
         snap = await tab.evaluate(probes.snapshot);
-        await tab.screenshot({ path: path.join(shots, shotName(p.label, 'desktop')), fullPage: true, type: 'jpeg', quality: 60 });
+        await capture(tab, path.join(shots, shotName(p.label, 'desktop')), 60);
       } catch (e) {
         errors.push(`navigation failed: ${String(e.message || e).slice(0, 200)}`);
       }
@@ -108,7 +116,7 @@ async function run(ctx) {
           await settle(mt, sdkExpected, 8000);
           const s = await mt.evaluate(probes.snapshot);
           const file = shotName(p.label, name);
-          await mt.screenshot({ path: path.join(shots, file), fullPage: true, type: 'jpeg', quality: 55 });
+          await capture(mt, path.join(shots, file), 55);
           if (s.overflowX > 4) overflow.push({ name, width, by: s.overflowX, file: rel(file), culprits: await mt.evaluate(probes.widest) });
         } catch (e) {
           overflow.push({ name, width, error: String(e.message || e).slice(0, 120) });
@@ -212,7 +220,7 @@ async function toggles(ctx, pages, newContext, shots, rel) {
       await settle(tab, p.sdk.present, 8000);
       const before = await tab.evaluate(probes.visibleSummary);
       const baseShot = shotName(p.label, 'baseline');
-      await tab.screenshot({ path: path.join(shots, baseShot), fullPage: true, type: 'jpeg', quality: 50 });
+      await capture(tab, path.join(shots, baseShot), 50);
       const WHAT = { timer: 'countdown timer', reviews: 'reviews or testimonials', exit: 'exit-intent pop-up', banner: 'promotional banner', seen: '"As seen on" section', loading: 'loading or progress bar' };
       for (const name of names) {
         const targetsBefore = await tab.evaluate(probes.toggleTargets, name);
@@ -222,7 +230,7 @@ async function toggles(ctx, pages, newContext, shots, rel) {
         const targetsAfter = await tab.evaluate(probes.toggleTargets, name);
         const diff = before.elements - after.elements;
         const file = shotName(p.label, `${name}-n`);
-        await tab.screenshot({ path: path.join(shots, file), fullPage: true, type: 'jpeg', quality: 50 });
+        await capture(tab, path.join(shots, file), 50);
         const shotsFor = [rel(baseShot), rel(file)];
         const id = `param-toggles:${p.label}:${name}`;
         if (name === 'exit') {
@@ -326,7 +334,7 @@ async function formNegative(ctx, p, newContext, shots, rel) {
     await tab.waitForTimeout(1500);
     const empty = await tab.evaluate(probes.formState);
     const file = shotName(p.label, 'empty-submit');
-    await tab.screenshot({ path: path.join(shots, file), fullPage: true, type: 'jpeg', quality: 55 });
+    await capture(tab, path.join(shots, file), 55);
     const tried = log.blockedOrders.length;
     if (tried) {
       out.push(assertion({ ...base, id: `form-negative:${p.label}:empty`, status: 'fail', severity: 'blocker', message: 'Submitting the empty checkout tried to create an order (the call was blocked by this check). Required fields are not validated before submit.', screenshots: [rel(file)] }));
@@ -360,4 +368,4 @@ async function formNegative(ctx, p, newContext, shots, rel) {
   return out;
 }
 
-module.exports = { run, withParams, numbers, TEST_PARAMS, TOGGLES };
+module.exports = { run, withParams, numbers, capture, TEST_PARAMS, TOGGLES };

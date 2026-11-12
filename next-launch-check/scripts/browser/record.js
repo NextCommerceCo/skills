@@ -137,7 +137,7 @@ async function record(ctx) {
     await new Promise((r) => setTimeout(r, 1000));
     void url;
   }
-  if (!tab.isClosed()) await tab.screenshot({ path: path.join(ctx.outDir, 'screenshots', 'order-last-page.jpg'), fullPage: true, type: 'jpeg', quality: 55 }).catch(() => {});
+  if (!tab.isClosed()) await require('./funnel').capture(tab, path.join(ctx.outDir, 'screenshots', 'order-last-page.jpg'), 55).catch(() => {});
   await browser.close();
   const rec = toRecord(ctx.entryUrl, { pages, calls, events, beacons: log.beacons.length, receiptReached: !!receiptAt });
   fs.writeFileSync(path.join(ctx.outDir, 'order-record.json'), JSON.stringify(rec, null, 2) + '\n');

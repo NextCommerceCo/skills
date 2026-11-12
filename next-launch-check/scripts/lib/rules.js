@@ -23,7 +23,7 @@ function fromMarkdown(text, file) {
     const item = /^\s{0,3}(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?(.+)$/.exec(line);
     if (item && item[1].trim().length > 3) {
       n += 1;
-      rules.manual.push({ id: `R-${String(n).padStart(2, '0')}`, section, text: item[1].trim(), severity: 'warn' });
+      rules.manual.push({ id: `rule-${n}`, section, text: item[1].trim(), severity: 'warn' });
     }
   }
   return rules;
@@ -36,7 +36,7 @@ function fromJson(obj, file) {
   rules.require = obj.require || {};
   rules.allowedParams = obj.allowedParams || null;
   rules.byDesign = Array.isArray(obj.byDesign) ? obj.byDesign : [];
-  rules.manual = (obj.manual || []).map((m, i) => ({ id: m.id || `R-${String(i + 1).padStart(2, '0')}`, section: m.section || rules.name, text: m.text, severity: m.severity || 'warn' }));
+  rules.manual = (obj.manual || []).map((m, i) => ({ id: m.id || `rule-${i + 1}`, section: m.section || rules.name, text: m.text, severity: m.severity || 'warn' }));
   return rules;
 }
 

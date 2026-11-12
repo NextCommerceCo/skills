@@ -165,6 +165,22 @@ node "$S" design "<page-url>" --figma-css figma.css [--frame desktop.png] [--fra
 - `--param key=value` adds a parameter to the carry-through test.
 - Exit codes: `0` done, `4` blocked, `2` usage error, `3` refused for safety.
 
+## The Report
+
+Every run writes one folder with:
+
+| File | For | What it holds |
+|---|---|---|
+| `report.html` | People: the tester, the merchant, the client | Result, what to fix, what is left to check, speed, pages, the full checklist with screenshots. Opens in any browser; prints cleanly |
+| `report.pdf` | Sharing | The same report as a PDF (written when Playwright is installed; `--no-pdf` skips it) |
+| `report.md` | Developers and AI agents | The fix list with item names, page URLs, evidence, screenshots and the likely fix; the open checks; the re-run command |
+| `results.json` | Tools | Everything, machine-readable |
+
+Point the tester to `report.html` (or the PDF) and a developer or a fixing agent to
+`report.md`. Checklist items have readable names (`toggle-timer`,
+`standard-card-order`, `legal-privacy`…); people see the title, numbered within its
+section; use the names in `answers.json`.
+
 ## Phase 3: Walk the Checklist
 
 The report is built around the QA checklist (`references/checklist.json`): every item
@@ -187,7 +203,7 @@ close the run:
 
 ```bash
 cat > answers.json <<'JSON'
-{ "DB-02": "pass", "DB-05": { "answer": "fail", "note": "3-pack shows $89, plan says $79" }, "CP-06": "na" }
+{ "product-name-logo": "pass", "prices-match-plan": { "answer": "fail", "note": "3-pack shows $89, plan says $79" }, "address-autocomplete": "na" }
 JSON
 node "$S" finalize "<report-folder>" --answers answers.json
 ```
@@ -200,12 +216,12 @@ file), `--campaigns-os-verdict <file>` folds it in without running it again. Eit
 our route and order rows defer to the families Campaigns OS proved, and its items
 appear in a "Campaigns OS (spec-aware)" section.
 
-Do not edit their code unless they ask. Do not edit `results.json` or `report.md` by
+Do not edit their code unless they ask. Do not edit `results.json` or the report files by
 hand; re-run or `finalize`.
 
 ## Phase 4: Test Orders (Checkout, Upsell or Full Funnel)
 
-The card, upsell and order-data items (CP-01 to CP-04, CP-11, TR-04, TR-09, AP-*) need
+The card, upsell and order-data items (`standard-card-order`, `3ds-card-order`, `upsell-accept-decline`, `utm-carry-through`, `purchase-event-once`, `order-*`) need
 real test orders. Never skip this phase silently and never decide on the tester's
 behalf that a host is "not a test host": ask. Explain once, then ask with
 AskUserQuestion:
@@ -251,8 +267,8 @@ Rules:
   or pass a rules file whose `allowedParams` lists them.
 - A 3-D Secure challenge the script cannot complete is reported; offer `--headed` so
   the tester can finish it, or `record`.
-- Afterwards: remind them to check each order in the store's orders page (CP-09, AP-*)
-  and to reject test conversions in their affiliate platform (TR-07).
+- Afterwards: remind them to check each order in the store's orders page (order-every-package, AP-*)
+  and to reject test conversions in their affiliate platform (reject-test-conversion).
 
 ## PR Mode
 
@@ -279,7 +295,7 @@ For a pull request on a campaign repo:
 - Never ask for an API key, token or password in the chat.
 - Never upload the report or screenshots anywhere, and never post to a
   ticket, chat or PR without an explicit yes for that post.
-- Never edit `results.json` or `report.md` by hand; re-run or `finalize`.
+- Never edit `results.json` or the report files by hand; re-run or `finalize`.
 
 ## Reference Files
 

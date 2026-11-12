@@ -30,11 +30,11 @@ const FAMILIES = {
   design: ['http'],
 };
 const DESIGN_ITEMS = [
-  { id: 'DS-01', section: 'Design review', text: 'Side by side with the design: layout, spacing and imagery match at desktop width', roles: ['design'], severity: 'warn', auto: ['design-parity:screens-*'] },
-  { id: 'DS-02', section: 'Design review', text: 'Text styles (font, size, weight) match the design', roles: ['design'], severity: 'warn', auto: ['design-parity:typography'] },
-  { id: 'DS-03', section: 'Design review', text: 'Colours match the design', roles: ['design'], severity: 'warn', auto: ['design-parity:colours'] },
-  { id: 'DS-04', section: 'Design review', text: 'The mobile layout matches the design', roles: ['design'], severity: 'warn' },
-  { id: 'DS-05', section: 'Design review', text: 'Copy matches the design word for word, including prices and claims', roles: ['design'], severity: 'warn' },
+  { id: 'design-layout', section: 'Design review', text: 'Side by side with the design: layout, spacing and imagery match at desktop width', roles: ['design'], severity: 'warn', auto: ['design-parity:screens-*'] },
+  { id: 'design-typography', section: 'Design review', text: 'Text styles (font, size, weight) match the design', roles: ['design'], severity: 'warn', auto: ['design-parity:typography'] },
+  { id: 'design-colours', section: 'Design review', text: 'Colours match the design', roles: ['design'], severity: 'warn', auto: ['design-parity:colours'] },
+  { id: 'design-mobile', section: 'Design review', text: 'The mobile layout matches the design', roles: ['design'], severity: 'warn' },
+  { id: 'design-copy', section: 'Design review', text: 'Copy matches the design word for word, including prices and claims', roles: ['design'], severity: 'warn' },
 ];
 
 const USAGE = `next-launch-check ${VERSION}
@@ -79,6 +79,7 @@ Options:
                             test customer (default a US address and qa+launchcheck@example.com)
   --headed                  show the browser window
   --dry-run                 rehearse: fill everything, stop before submit (no order is sent)
+  --no-pdf                  skip report.pdf (report.html and report.md are always written)
   --json                    print results.json to stdout as well
 `;
 
@@ -103,6 +104,7 @@ function parseArgs(argv) {
       case '--confirm-test-params': o.confirmTestParams = true; break;
       case '--headless': o.headless = true; break;
       case '--json': o.json = true; break;
+      case '--no-pdf': o.pdf = false; break;
       case '--rules': o.rules = val(); break;
       case '--diff': o.diff = val(); break;
       case '--campaigns-os-verdict': o.campaignsOsVerdict = val(); break;
@@ -380,17 +382,17 @@ async function runSpeed(url, o) {
     pages: pages.map((p) => ({ label: p.label, url: p.url, final_url: p.finalUrl, status: p.status, type: p.kind.type, role: null, in_scope: true, title: p.title, via: p.via })),
     campaigns_os: null,
   };
-  const speedItem = { id: 'BP-01', section: 'Speed', text: 'Speed test, mobile and desktop', roles: ['speed'], severity: 'warn', auto: ['speed:*', 'http:*'] };
+  const speedItem = { id: 'speed-test', section: 'Speed', text: 'Speed test, mobile and desktop', roles: ['speed'], severity: 'warn', auto: ['speed:*', 'http:*'] };
   result.assertions = rows;
   result.counts = report.counts(rows);
   result.disposition_automated = report.automatedDisposition(rows);
-  result.checklist = CL.build([{ label: '-', role: 'speed', in_scope: true }], rows, { extra: [speedItem] }).filter((i) => i.id === 'BP-01');
+  result.checklist = CL.build([{ label: '-', role: 'speed', in_scope: true }], rows, { extra: [speedItem] }).filter((i) => i.id === 'speed-test');
   result.disposition = CL.disposition(result.checklist, result.disposition_automated);
   report.write(outDir, result);
   return { result, outDir };
 }
 
-function finalize(dir, answersFile) {
+async function finalize(dir, answersFile, o = {}) {
   const file = path.join(dir, 'results.json');
   const result = JSON.parse(fs.readFileSync(file, 'utf8'));
   const answers = JSON.parse(fs.readFileSync(answersFile, 'utf8'));
@@ -406,6 +408,7 @@ function finalize(dir, answersFile) {
   result.disposition = CL.disposition(result.checklist, result.disposition_automated);
   result.finished_at = new Date().toISOString();
   report.write(dir, result);
+  if (o.pdf !== false) await report.pdf(dir);
   return { result, outDir: dir };
 }
 
@@ -417,19 +420,22 @@ async function main(argv) {
   try {
     let done;
     if (cmd === 'env') { process.stdout.write(JSON.stringify(envInfo(), null, 2) + '\n'); return 0; }
-    if (cmd === 'finalize') { if (!target || !o.answers) throw new Error('finalize needs <run-dir> and --answers <file>'); done = finalize(path.resolve(target), o.answers); }
+    if (cmd === 'finalize') { if (!target || !o.answers) throw new Error('finalize needs <run-dir> and --answers <file>'); done = await finalize(path.resolve(target), o.answers, o); }
     else if (cmd === 'record') done = await runRecord(checkUrl(target || ''), o);
     else if (cmd === 'order') done = await runRecord(checkUrl(target || ''), o, 'order');
     else if (cmd === 'check') done = await runCheck(o.scope || 'funnel', checkUrl(target || ''), o);
     else if (cmd === 'speed') done = await runSpeed(checkUrl(target || ''), o);
     else if (cmd === 'funnel' || cmd === 'storefront' || cmd === 'design') done = await runCheck(cmd === 'funnel' ? (o.scope || 'funnel') : cmd, checkUrl(target || ''), o);
     else throw new Error(`unknown command ${cmd}`);
+    if (cmd !== 'finalize' && o.pdf !== false) await report.pdf(done.outDir);
     const r = done.result;
     const open = r.checklist.filter((i) => i.status === 'open').length;
     const tally = (s) => r.checklist.filter((i) => i.status === s).length;
     process.stdout.write(`${r.disposition.toUpperCase()}  (${r.scope || r.mode})\n`);
     process.stdout.write(`Checklist: ${tally('pass')} pass · ${tally('fail')} fail · ${tally('warn')} warn · ${open} for you to check · ${tally('na')} n/a  (of ${r.checklist.length})\n`);
-    process.stdout.write(`Report: ${path.join(done.outDir, 'report.md')}\n`);
+    const has = (f) => fs.existsSync(path.join(done.outDir, f));
+    process.stdout.write(`Report: ${path.join(done.outDir, 'report.html')}${has('report.pdf') ? ' (and report.pdf)' : ''}\n`);
+    process.stdout.write(`Developer / AI notes: ${path.join(done.outDir, 'report.md')}\n`);
     if (o.json) process.stdout.write(JSON.stringify(r, null, 2) + '\n');
     return r.disposition === 'blocked' ? 4 : 0;
   } catch (e) {

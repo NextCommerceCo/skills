@@ -35,8 +35,11 @@ test('broken funnel: each planted fault is reported', async () => {
     }
     assert.equal(result.disposition, 'blocked');
     const md = fs.readFileSync(path.join(out, 'report.md'), 'utf8');
-    assert.match(md, /\*\*FAIL\*\* `FF-07` Every page loads · blocker/);
-    assert.match(md, /## Checklist/);
+    assert.match(md, /### `pages-load` — Every page loads/);
+    assert.match(md, /likely fix:/);
+    const html = fs.readFileSync(path.join(out, 'report.html'), 'utf8');
+    assert.match(html, /<b>Blocked<\/b>/);
+    assert.match(html, /What to fix/);
   } finally { await s.close(); }
 });
 
@@ -73,10 +76,10 @@ test('campaigns-os verdict: its rows join the checklist and our rows in the fami
     assert.ok(result.assertions.some((a) => a.id.startsWith('cos:browser-runtime:browser-payment-surface:')));
     assert.equal(result.campaigns_os.disposition, 'blocked');
     const byId = Object.fromEntries(result.checklist.map((i) => [i.id, i]));
-    assert.equal(byId['CO-01'].status, 'fail', 'the campaigns-os verdict is a checklist item');
-    assert.equal(byId['CO-02'].status, 'pass', 'commerce structure from campaigns-os');
-    assert.equal(byId['DB-12'].status, 'fail', 'template placeholder text from campaigns-os');
-    assert.equal(byId['CP-02'].status, 'pass', 'typed-card order from campaigns-os');
+    assert.equal(byId['cos-verdict'].status, 'fail', 'the campaigns-os verdict is a checklist item');
+    assert.equal(byId['cos-commerce-structure'].status, 'pass', 'commerce structure from campaigns-os');
+    assert.equal(byId['no-placeholder-copy'].status, 'fail', 'template placeholder text from campaigns-os');
+    assert.equal(byId['standard-card-order'].status, 'pass', 'typed-card order from campaigns-os');
     assert.equal(result.disposition, 'blocked');
   } finally { await s.close(); }
 });
@@ -108,12 +111,15 @@ test('finalize: answers close the checklist', async () => {
   try {
     const { result } = await cli.runCheck('funnel', `${s.base}/`, cli.parseArgs(['--no-browser', '--no-speed', '--out', dir]));
     const answers = Object.fromEntries(result.checklist.filter((i) => i.status === 'open').map((i) => [i.id, 'pass']));
-    answers['CM-01'] = { answer: 'fail', note: 'Safari cuts the footer' };
+    answers['browsers'] = { answer: 'fail', note: 'Safari cuts the footer' };
     fs.writeFileSync(path.join(dir, 'answers.json'), JSON.stringify(answers));
-    const done = cli.finalize(dir, path.join(dir, 'answers.json'));
+    const done = await cli.finalize(dir, path.join(dir, 'answers.json'), { pdf: false });
     assert.equal(done.result.disposition, 'ready_with_exceptions');
     assert.match(fs.readFileSync(path.join(dir, 'report.md'), 'utf8'), /Safari cuts the footer/);
-    assert.throws(() => { fs.writeFileSync(path.join(dir, 'bad.json'), '{"ZZ-99":"pass"}'); cli.finalize(dir, path.join(dir, 'bad.json')); });
+    fs.writeFileSync(path.join(dir, 'bad.json'), '{"no-such-item":"pass"}');
+    await assert.rejects(() => cli.finalize(dir, path.join(dir, 'bad.json'), { pdf: false }));
+    assert.ok(fs.existsSync(path.join(dir, 'report.html')), 'html report written');
+    assert.match(fs.readFileSync(path.join(dir, 'report.md'), 'utf8'), /## Fix list/);
   } finally { await s.close(); }
 });
 
@@ -123,9 +129,9 @@ test('scope: a checkout-only run checks that page and applies checkout items onl
     const { result } = await cli.runCheck('checkout', `${s.base}/checkout/`, cli.parseArgs(['--no-browser', '--no-speed', '--out', tmp()]));
     assert.deepEqual(result.pages.filter((p) => p.in_scope).map((p) => p.label), ['/checkout']);
     const ids = result.checklist.map((i) => i.id);
-    assert.ok(ids.includes('CN-03') && ids.includes('CP-09'));
-    assert.ok(!ids.includes('BP-08') && !ids.includes('FF-05'), 'presell-only items are absent');
-    assert.equal(result.checklist.find((i) => i.id === 'FF-03').status, 'fail');
+    assert.ok(ids.includes('error-invalid-card') && ids.includes('order-every-package'));
+    assert.ok(!ids.includes('toggle-seen') && !ids.includes('scrolling-cta'), 'presell-only items are absent');
+    assert.equal(result.checklist.find((i) => i.id === 'route-tags').status, 'fail');
   } finally { await s.close(); }
 });
 
@@ -143,8 +149,8 @@ test('storefront mode crawls header and footer links', async () => {
     const { result } = await cli.runCheck('storefront', `${s.base}/`, cli.parseArgs(['--no-browser', '--no-speed', '--out', tmp()]));
     assert.ok(result.pages.length > 1);
     assert.ok(result.assertions.some((a) => a.id === 'storefront-nav:footer'));
-    assert.ok(result.checklist.some((m) => m.id === 'SC-02'));
-    assert.ok(!result.checklist.some((m) => m.id === 'CN-01'), 'no checkout items on a storefront');
+    assert.ok(result.checklist.some((m) => m.id === 'cart-contents'));
+    assert.ok(!result.checklist.some((m) => m.id === 'error-empty-fields'), 'no checkout items on a storefront');
   } finally { await s.close(); }
 });
 
