@@ -103,18 +103,12 @@ test('rules: by-design waivers match ids with globs and leave passes alone', () 
   assert.equal(report.automatedDisposition(out.slice(0, 2)), 'ready');
 });
 
-test('report: dispositions', () => {
+test('report: automated row disposition', () => {
   const row = (status, severity) => U.assertion({ id: `x:${status}:${severity}`, family: 'x', status, severity });
   assert.equal(report.automatedDisposition([row('pass', 'blocker')]), 'ready');
   assert.equal(report.automatedDisposition([row('warn', 'info')]), 'ready', 'advice does not count');
   assert.equal(report.automatedDisposition([row('manual_review', 'warn')]), 'ready_with_exceptions');
   assert.equal(report.automatedDisposition([row('fail', 'blocker')]), 'blocked');
-  const manual = [{ id: 'F-1', severity: 'blocker', answer: null }];
-  assert.equal(report.finalDisposition('ready', manual), 'incomplete');
-  manual[0].answer = 'fail';
-  assert.equal(report.finalDisposition('ready', manual), 'blocked');
-  manual[0].answer = 'pass';
-  assert.equal(report.finalDisposition('ready', manual), 'ready');
 });
 
 test('pr-review: added lines keep their line numbers and patterns are flagged', () => {
@@ -172,10 +166,45 @@ test('record: order bodies are redacted before they are written', () => {
   assert.deepEqual(body.lines, [{ package_id: 3, quantity: 1 }]);
 });
 
-test('manual checklist ids are unique and severities valid', () => {
-  const m = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'references', 'manual-checklist.json'), 'utf8'));
-  const all = [...m.funnel, ...m.storefront, ...m.design];
-  assert.equal(new Set(all.map((x) => x.id)).size, all.length);
-  for (const x of all) assert.ok(U.SEVERITIES.includes(x.severity), x.id);
-  void os;
+test('checklist catalog: unique ids, known roles, valid severities, globs that match real row ids', () => {
+  const CL = require(path.join(S, 'lib/checklist'));
+  const items = CL.CATALOG.items;
+  assert.equal(new Set(items.map((x) => x.id)).size, items.length);
+  for (const x of items) {
+    assert.ok(U.SEVERITIES.includes(x.severity), x.id);
+    assert.ok(x.roles.length && x.roles.every((r) => CL.CATALOG.roles.includes(r)), x.id);
+  }
+  const m = CL.matcher(['locale:*', '!locale:*:typed-amounts']);
+  assert.equal(m('locale:/checkout'), true);
+  assert.equal(m('locale:/checkout:typed-amounts'), false);
+});
+
+test('checklist: items follow the page types tested and rows decide automated items', () => {
+  const CL = require(path.join(S, 'lib/checklist'));
+  const row = (id, page, status, severity = 'warn') => U.assertion({ id, family: id.split(':')[0], page, status, severity });
+  const pages = [{ label: '/checkout', role: 'checkout', in_scope: true }];
+  const items = CL.build(pages, [row('form-negative:/checkout:empty', '/checkout', 'fail', 'blocker'), row('param-toggles:/checkout:exit', '/checkout', 'manual_review')]);
+  const byId = Object.fromEntries(items.map((i) => [i.id, i]));
+  assert.ok(byId['CN-01'] && byId['CP-09'], 'checkout items present');
+  assert.equal(byId['BP-08'], undefined, '?seen=n is a presell item');
+  assert.equal(byId['SC-02'], undefined, 'storefront items absent');
+  assert.equal(byId['CN-01'].status, 'fail');
+  assert.equal(byId['CN-01'].severity, 'blocker');
+  assert.equal(byId['BP-03'].status, 'open', 'evidence to look at is still open');
+  assert.equal(byId['CP-09'].auto, 'manual');
+  assert.equal(CL.disposition(items, 'blocked'), 'blocked');
+  const answered = CL.build(pages, [], { prior: items.map((i) => ({ id: i.id, answer: 'pass' })) });
+  assert.equal(CL.disposition(answered, 'ready'), 'ready');
+});
+
+test('speed: affiliate and click ids are removed before a speed visit', () => {
+  const speed = require(path.join(S, 'lib/checks/speed'));
+  assert.equal(speed.cleanUrl('https://x.example.com/p/?affid=7&sub1=a&utm_source=fb&gclid=1'), 'https://x.example.com/p/?utm_source=fb');
+});
+
+test('speed: targets flag slow pages', () => {
+  const speed = require(path.join(S, 'lib/checks/speed'));
+  assert.deepEqual(speed.judge({ score: 90, fcp: 1000, lcp: 2000, tbt: 50, cls: 0.01, si: 2000 }), []);
+  const missed = speed.judge({ score: 30, fcp: 5000, lcp: 9000, tbt: 900, cls: 0.3, si: 9000 });
+  assert.equal(missed.length, 6);
 });

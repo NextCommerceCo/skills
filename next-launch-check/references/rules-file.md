@@ -4,8 +4,8 @@ Pass your own QA rules with `--rules <file>`. Two formats are accepted.
 
 ## Markdown
 
-Any Markdown checklist. Every list item becomes a manual checklist item,
-grouped under the nearest heading. Front matter and code blocks are ignored.
+Any Markdown checklist. Every list item becomes a checklist item for the
+tester to answer, grouped under the nearest heading. Front matter and code blocks are ignored.
 Use this to bring an existing QA document as it is.
 
 ## JSON
@@ -33,4 +33,4 @@ Use this to bring an existing QA document as it is.
 | `require.legal` | Which of `terms`, `privacy`, `returns`, `shipping`, `contact`, `faq` must be linked. Default: all but `faq`. |
 | `allowedParams` | Affiliate parameter values the order recorder accepts without `--confirm-test-params`. Any other value is refused. |
 | `byDesign` | Row ids (with `*` wildcards) that are intended. They stay in the report with your reason and stop counting against the result. |
-| `manual` | Extra manual checklist items. `severity` is `blocker`, `warn` or `info`. |
+| `manual` | Extra checklist items for the tester to answer. `severity` is `blocker`, `warn` or `info`. |

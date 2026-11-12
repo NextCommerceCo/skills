@@ -10,6 +10,7 @@ The launch check is meant to be safe to run against a live funnel.
 | Storefront checks | Every write request is blocked, so no account, cart or order is created. |
 | Test parameters | Browser runs add `utm_source=next-launch-check`, `utm_medium=qa`, `utm_campaign=launch-check`. Nothing else is added. |
 | Order recorder | Watches only; the tester places the order. Refuses URLs with affiliate parameters unless confirmed or allowed by the rules file. Emails, names, addresses, phone numbers and payment tokens are replaced with `•••` before the record is written. |
+| Speed test | Lighthouse loads each tested page in a local Chromium, like a visit. With a PageSpeed key, or when falling back to keyless PageSpeed, Google fetches the page URL. Beacons are not held back on a speed visit, so affiliate and click-id parameters (`affid`, `sub1`–`sub10`, `oid`, transaction and click ids) are removed from the URL first. |
 | Output | A local folder. Nothing is uploaded; there is no telemetry. The campaign API key is always masked; tracking ids are masked with `--mask-ids`. |
 
 What it cannot protect against: a page that sends data from its own server,

@@ -2,14 +2,15 @@
 name: next-launch-check
 version: 0.1.0
 description: |
-  Pre-launch check for a Next Commerce campaign funnel, storefront or page,
-  starting from its URL. Crawls the funnel, checks routes, SDK, tracking,
-  legal links, dead and placeholder links, copy, media weight and meta tags;
-  optionally renders every page in Chromium (runtime errors, tags that load,
-  phone and zoom layout, parameter carry-through, content toggles, locale,
-  checkout form errors), records one test order the tester places, reviews
-  a pull request diff, and compares a page with its Figma design. Writes a
-  local report; uploads nothing.
+  QA a Next Commerce campaign before launch: asks what is being tested
+  (presell, landing, checkout, upsell, full funnel or storefront), then
+  fills the full QA checklist for those page types. Automated checks decide
+  what a script can judge (routes, SDK, tracking on every page, legal and
+  dead links, copy, content toggles, phone and zoom layout, locale, form
+  errors, a speed test on mobile and desktop) and attach screenshots; the
+  rest is walked through with the tester. Can record one test order the
+  tester places, review a pull request and compare a page with Figma.
+  Writes a local report; uploads nothing.
 
   Use when: "test this funnel", "launch check", "QA this campaign", "check
   the checkout before launch", "check this deploy preview", "review this PR's
@@ -37,10 +38,12 @@ This skill works with any AI coding tool that can load a markdown file as contex
 
 ---
 
-Checks a campaign before it gets traffic, from its URL alone. It runs on the
-tester's machine, needs no account, key or Campaign Map, and writes a local
-report folder. It is built for agencies and merchants who build their own
-campaigns.
+Runs the full QA checklist on a campaign before it gets traffic, from its URL
+alone. It asks what is being tested, automates every checklist item a script
+can judge, attaches screenshots for the ones a person must confirm, and walks
+the tester through the rest. It runs on the tester's machine, needs no
+account, key or Campaign Map, and writes a local report folder. It is built
+for agencies and merchants who build their own campaigns.
 
 It **never** edits campaign code, never places an order by itself, never
 sends a purchase event, and never uploads anything. Analytics and ad beacons
@@ -67,137 +70,142 @@ node "$S" env
 ```
 
 - **Node 18 or newer** is required. The script has no npm dependencies.
-- **Playwright** is needed for the browser lane, design mode and the order
-  recorder. `env` prints where it was found, or `null`. If it is missing and
-  the tester wants those parts, ask before installing anything. Then either:
+- **Playwright** with Chromium runs the browser lane (on by default), design
+  mode and the order recorder; the speed test uses the same Chromium. `env`
+  prints where it was found, or `null`. Without it about a third of the
+  checklist falls back to manual, so recommend installing it, and ask before
+  installing anything. Then either:
   - in a Campaigns OS campaign folder: `npx campaigns-os qa install-browser`
     (the script finds that copy when run from the folder), or
   - anywhere else: `npm install -g playwright && npx playwright install chromium`.
-- **`campaigns_os`** in the `env` output tells you whether Phase 3 can
+- **`campaigns_os`** in the `env` output tells you whether Phase 4 can
   delegate the test order.
 - Run the commands from a working folder that is **not** inside a git
   repository you will commit, or add `next-launch-check-output/` to its
   `.gitignore`. Reports hold page URLs and screenshots.
 
-## Phase 1: Gather Inputs
+## Phase 1: Ask What Is Being Tested
 
-Ask only for what is missing. Use AskUserQuestion when the answer is a choice.
+Always ask first, with AskUserQuestion when it is available:
 
-| Input | Needed for | Notes |
+**"What are you testing?"**
+
+| Answer | `--scope` | What runs |
 |---|---|---|
-| Entry URL | everything | Presell, landing or checkout; a deploy preview is fine. |
-| Mode | everything | `funnel` (default), `storefront`, `design`, or PR (below). |
-| Page URLs | funnels the crawl cannot reach | The crawl follows route tags and call-to-action links. Upsells reached only after an order are found from the checkout's route tags; pass `--page` for anything else, in funnel order. |
-| Their QA rules | optional | A JSON rules file, or their Markdown checklist. See `references/rules-file.md`. |
-| Browser lane | recommended | Adds roughly a minute per page. |
-| Test order | optional | Phase 4. Ask separately; never assume. |
+| Presell page | `presell` | That page, plus a click-through to the landing page and checkout for parameter carry-through |
+| Landing page | `landing` | That page, plus a click-through to the checkout |
+| Checkout | `checkout` | That page and where its route tag leads |
+| Upsell | `upsell` | That page and where accept and decline lead |
+| Full funnel | `funnel` | Every page from the entry URL: presell, landing, checkout, upsells, receipt |
+| Storefront | `storefront` | The store's home page and its header and footer pages |
 
-If the entry URL already carries affiliate parameters (`affid`, `sub1`…,
-`oid`, `transaction_id`, click ids), say so now: Phase 1–3 are safe with
-them (beacons are held back), but Phase 4 will refuse them unless the tester
+AskUserQuestion takes 4 options: offer **Full funnel**, **Checkout**, **Upsell** and
+**Presell or landing page**, then ask which of the two if they pick the last one. A
+storefront, a design comparison or a pull request come through "Other".
+
+Then ask only for what is still missing:
+
+| Input | Notes |
+|---|---|
+| URL | The page being tested (for a full funnel, the first page). A deploy preview is fine. |
+| Other page URLs | Only if the crawl cannot reach them; pass `--page` in funnel order. |
+| Their QA rules | Optional: a JSON rules file or their own Markdown checklist (`references/rules-file.md`). Its items join the checklist. |
+
+If the URL carries affiliate parameters (`affid`, `sub1`…, `oid`, click ids), say so
+now: the checks are safe with them, but Phase 4 will refuse them unless the tester
 confirms they are agreed test values.
 
 ## Phase 2: Run the Check
 
 ```bash
-node "$S" funnel "<entry-url>" --browser [--page "<url>"]... [--rules <file>] [--pagespeed] [--mask-ids]
-```
-
-Other modes:
-
-```bash
-node "$S" storefront "<home-url>" --browser
+node "$S" check "<url>" --scope <presell|landing|checkout|upsell|funnel|storefront> [--page "<url>"]... [--rules <file>] [--mask-ids]
 node "$S" design "<page-url>" --figma-css figma.css [--frame desktop.png] [--frame mobile.png]
 ```
 
-- `--pagespeed` asks Google PageSpeed Insights for up to three pages. It
-  works without a key until the shared quota runs out; the tester can set
-  their own `PAGESPEED_API_KEY` in the environment. Never ask them to paste
-  a key into the chat.
-- `--mask-ids` masks tracking ids in the report. Use it when the report will
-  be pasted into a ticket or sent outside the team.
-- `--param key=value` adds a parameter to the carry-through test (for
-  example an agreed affiliate test value).
-- Exit codes: `0` done (ready, ready with exceptions, or incomplete), `4`
-  blocked, `2` usage error, `3` refused for safety.
+- The browser lane and the speed test run by default. A single page takes about 2
+  minutes; a full funnel about 6. Tell the tester before you start.
+- **Speed test**: mobile and desktop for the page (in a full funnel, the entry page,
+  the checkout and the first upsell). It uses the tester's `PAGESPEED_API_KEY` if set,
+  otherwise Lighthouse on this machine (npx downloads it once), otherwise keyless
+  PageSpeed. If none answers, the report links to pagespeed.web.dev to run it by hand.
+  Never ask for a key in the chat. `--no-speed` skips it.
+- `--no-browser` skips the browser lane; many checklist items then fall to manual.
+- `--mask-ids` masks tracking ids, for reports pasted into tickets.
+- `--param key=value` adds a parameter to the carry-through test.
+- Exit codes: `0` done, `4` blocked, `2` usage error, `3` refused for safety.
 
-The script prints the result line and the report path. Read `report.md`
-(and `results.json` when you need detail).
+## Phase 3: Walk the Checklist
 
-## Phase 3: Explain the Result
+The report is built around the QA checklist (`references/checklist.json`): every item
+from the funnel, presell and storefront checklists, applied only to the page types
+being tested. Each item is one of:
 
-Report in this order, in plain language:
+| Mark | Meaning | What you do |
+|---|---|---|
+| **PASS** | Decided by an automated check | Mention briefly |
+| **FAIL** / **WARN** | Decided by an automated check, with the evidence | Explain what is wrong, on which page, and the likely fix (`references/families.md`) |
+| **TODO** (look at the evidence) | The check ran and attached evidence, such as before and after screenshots for `?timer=n` | Open the screenshots, describe what you see, ask the tester to confirm |
+| **TODO** (check by hand) | No script can judge it, such as prices against the offer plan or a real device | Ask the tester |
 
-1. **The result**: `blocked`, `ready_with_exceptions`, `ready`, or
-   `incomplete` (automated checks done, manual items open). Say which lanes
-   ran. Never call a lane passed when it was skipped or not requested.
-2. **Blockers**, each with the page, what is wrong, and the likely fix. Use
-   `references/families.md` for the fix wording.
-3. **Failures and warnings**, grouped by family, most important first.
-4. **Check by hand** rows: open the screenshots they name and describe what
-   you see, then let the tester decide.
-5. **By design** rows from their rules file, briefly.
-
-If a Campaigns OS verdict exists for the same build (a `qa-output/…/<run>.json`
-file in the campaign folder), run again with
-`--campaigns-os-verdict <file>`. Rows in the families it covers are then
-marked deferred, and its disposition counts toward the result.
-
-Do not edit their code unless they ask. If they ask, fix in their repo and
-run the check again; do not edit `results.json` or `report.md` by hand.
-
-## Phase 4: Test Order (Optional, Gated)
-
-Ask once, and only after Phase 3: "Do you want to place one test order now?"
-A test order is a real order record on the store, marked as a test, with no
-real charge and no fulfillment when the platform's test card is used. It
-creates a customer record and sends confirmation emails to the address
-typed in.
-
-- **Campaigns OS campaign** (`env` shows a package or a Build Packet): use
-  its typed-card order proof, which is canonical:
-  `npx campaigns-os qa run --packet campaign-runtime.build.json --base-url <url> --browser --test-order common`.
-  Then fold the verdict in as in Phase 3.
-- **Otherwise**, record an order the tester places by hand:
-
-  ```bash
-  node "$S" record "<checkout-url>" [--rules <file>] [--confirm-test-params]
-  ```
-
-  A browser window opens. The tester fills the checkout with the platform's
-  public test card (`6011 1111 1111 1117`, any future expiry, CVV `123`;
-  3-D Secure: `6011 0009 9013 9424`), takes or declines each upsell, and
-  stops at the receipt. The script only watches: it records the order call,
-  upsell calls, dataLayer events and the parameters on each page, then
-  closes after the receipt. Order data is redacted before it is written.
-
-Rules:
-
-- One order per yes. Never re-run `record` to "try again" after an order was
-  created; report what happened and let the tester decide.
-- The script refuses (exit 3) when the URL carries affiliate parameters.
-  Re-run with `--confirm-test-params` only after the tester confirms they are
-  the agreed test values for this offer, or pass a rules file whose
-  `allowedParams` lists them. A live affiliate value can record a real
-  conversion and payout.
-- Afterwards, remind them to reject the test conversion in their affiliate
-  platform if they came through an affiliate test link (manual item F-18).
-
-## Phase 5: Manual Checklist
-
-The report ends with the items no script can judge (prices against the offer
-plan, product and brand details, devices, tag manager preview…). Walk the
-open items with the tester in small groups. Do not answer for them. Write
-their answers and close the run:
+Report the result first (`blocked`, `ready_with_exceptions`, `ready`, or
+`incomplete` while items are open), then the speed table, then the FAILs and WARNs.
+Then go through the open items **one section at a time**, in report order. Ask about
+each section's items together: "Design & branding, 9 items: …". Never answer for
+the tester. Accept pass, fail (with a note), warn, or n/a. Write their answers and
+close the run:
 
 ```bash
 cat > answers.json <<'JSON'
-{ "F-01": "pass", "F-05": { "answer": "fail", "note": "3-pack shows $89, plan says $79" }, "F-12": "na" }
+{ "DB-02": "pass", "DB-05": { "answer": "fail", "note": "3-pack shows $89, plan says $79" }, "CP-06": "na" }
 JSON
 node "$S" finalize "<report-folder>" --answers answers.json
 ```
 
-Then give them the **Summary to paste** block from the report.
+You can call `finalize` after each section; answers accumulate. Finish with the
+**Summary to paste** block from the report.
+
+If a Campaigns OS verdict exists for the same build (a `qa-output/…/<run>.json` file in
+the campaign folder), run again with `--campaigns-os-verdict <file>`. Rows in the
+families it covers are then deferred to it.
+
+Do not edit their code unless they ask. Do not edit `results.json` or `report.md` by
+hand; re-run or `finalize`.
+
+## Phase 4: Test Order (Checkout, Upsell or Full Funnel)
+
+The checkout items CP-01 to CP-04, CP-11 and the order-data items need an order. Ask
+once: "Do you want to place one test order now?" A test order is a real order record
+on the store, marked as a test, with no real charge and no fulfillment when the
+platform's test card is used. It creates a customer record and sends confirmation
+emails to the address typed in.
+
+- **Campaigns OS campaign** (`env` shows a package or a Build Packet): use its
+  typed-card order proof, which is canonical:
+  `npx campaigns-os qa run --packet campaign-runtime.build.json --base-url <url> --browser --test-order common`.
+  Then fold the verdict in as in Phase 3.
+- **Otherwise**, record an order the tester places by hand, into the same report:
+
+  ```bash
+  node "$S" record "<checkout-url>" --into "<report-folder>" [--rules <file>] [--confirm-test-params]
+  ```
+
+  A browser window opens. The tester fills the checkout with the platform's public
+  test card (`6011 1111 1111 1117`, any future expiry, CVV `123`; 3-D Secure:
+  `6011 0009 9013 9424`), takes or declines each upsell, and stops at the receipt.
+  The script only watches. It records the order call, upsell calls, dataLayer events
+  and the parameters on each page, then closes after the receipt and updates the
+  checklist. Order data is redacted before it is written.
+
+Rules:
+
+- One order per yes. Never re-run `record` to "try again" after an order was created;
+  report what happened and let the tester decide.
+- The script refuses (exit 3) when the URL carries affiliate parameters. Re-run with
+  `--confirm-test-params` only after the tester confirms they are the agreed test
+  values for this offer, or pass a rules file whose `allowedParams` lists them. A
+  live affiliate value can record a real conversion and payout.
+- Afterwards, remind them to reject the test conversion in their affiliate platform
+  if they came through an affiliate test link (TR-07).
 
 ## PR Mode
 
@@ -207,7 +215,7 @@ For a pull request on a campaign repo:
 2. Find the deploy preview URL: the PR's checks or the hosting bot's comment.
    If there is none, ask for it.
 3. Run the funnel check on the preview with the diff:
-   `node "$S" funnel "<preview-url>" --browser --diff pr.diff [--page …]`.
+   `node "$S" check "<preview-url>" --scope <what the PR changes> --diff pr.diff [--page …]`.
    The `pr-review` rows list file and line for typed prices, direct cart or
    order API calls, secrets, debug leftovers and placeholders.
 4. Post the summary as a PR comment **only** if the tester says yes, and show
@@ -228,7 +236,7 @@ For a pull request on a campaign repo:
 
 | File | What it holds |
 |---|---|
-| `references/families.md` | Every check family: what it checks, lane, severity, and what to do when it fails |
-| `references/manual-checklist.json` | The manual checklist items the report lists, by mode |
+| `references/checklist.json` | The QA checklist: every item, the page types it applies to, and the automated checks that decide or support it |
+| `references/families.md` | Every automated check: what it checks, severity, and what to do when it fails |
 | `references/rules-file.md` | The rules file format: required tracking, by-design items, allowed test parameters, extra manual items |
 | `references/safety.md` | What the script blocks, holds back and redacts, and why |

@@ -43,6 +43,7 @@ async function run(ctx) {
   fs.mkdirSync(shots, { recursive: true });
   const rel = (f) => path.join('screenshots', f);
   const browser = await pw.chromium.launch();
+  const allPages = (ctx.allPages || ctx.pages).filter((p) => p.ok);
   const pages = ctx.pages.filter((p) => p.ok).slice(0, ctx.options.maxBrowserPages || 8);
   const newContext = async (opts = {}) => {
     const log = PW.newLog();
@@ -114,19 +115,24 @@ async function run(ctx) {
         }
         await mob.context.close();
       }
-      const real = overflow.filter((o) => !o.error);
-      out.push(real.length
-        ? assertion({ ...base, id: `responsive:${p.label}`, family: 'responsive', status: 'warn', severity: 'warn', message: `Content runs off the right edge at ${real.map((o) => `${o.name} (${o.by}px)`).join(', ')}. Shoppers have to scroll sideways.`, evidence: real.map((o) => ({ at: o.name, overflowPx: o.by, elements: o.culprits })), screenshots: real.map((o) => o.file) })
-        : assertion({ ...base, id: `responsive:${p.label}`, family: 'responsive', status: 'pass', severity: 'warn', message: 'No sideways overflow on mobile, at 125% or at 150% zoom.', screenshots: [rel(shotName(p.label, 'mobile'))] }));
+      for (const [name] of layouts) {
+        const o = overflow.find((x) => x.name === name);
+        const label = name === 'mobile' ? 'a 390 px phone screen' : name === 'zoom-125' ? 'phone zoom 125%' : 'phone zoom 150%';
+        out.push(o && !o.error
+          ? assertion({ ...base, id: `responsive:${p.label}:${name}`, family: 'responsive', status: 'warn', severity: 'warn', message: `At ${label}, content runs ${o.by}px off the right edge. Shoppers have to scroll sideways.`, evidence: o.culprits.length ? o.culprits : undefined, screenshots: [o.file] })
+          : o && o.error
+            ? assertion({ ...base, id: `responsive:${p.label}:${name}`, family: 'responsive', status: 'skipped', severity: 'warn', message: `Could not load at ${label}: ${o.error}` })
+            : assertion({ ...base, id: `responsive:${p.label}:${name}`, family: 'responsive', status: 'pass', severity: 'warn', message: `No sideways overflow at ${label}.`, screenshots: [rel(shotName(p.label, name))] }));
+      }
       await desk.context.close();
     }
 
     // 2. Parameter carry-through across content pages up to the checkout.
-    out.push(...(await propagation(ctx, pages, newContext)));
+    out.push(...(await propagation(ctx, allPages, newContext)));
     // 3. Content toggles on the entry page and the checkout.
     out.push(...(await toggles(ctx, pages, newContext, shots, rel)));
     // 4. Locale pass and form errors on the checkout.
-    const checkout = pages.find((p) => p.kind.type === 'checkout');
+    const checkout = pages.find((p) => p.role === 'checkout');
     if (checkout) {
       out.push(...(await locale(ctx, checkout, browser)));
       out.push(...(await formNegative(ctx, checkout, newContext, shots, rel)));
@@ -141,6 +147,8 @@ async function run(ctx) {
 
 async function propagation(ctx, pages, newContext) {
   const out = [];
+  // Only when a presell or landing page is being tested.
+  if (!ctx.pages.some((p) => ['presell', 'landing'].includes(p.role))) return out;
   const content = pages.filter((p) => !isCommerce(p));
   if (!content.length) return out;
   const paths = pages.map((p) => { const u = new URL(p.finalUrl); let s = u.pathname.replace(/\/index\.html?$/i, '/'); if (s.length > 1 && s.endsWith('/')) s = s.slice(0, -1); return s; });
@@ -183,34 +191,44 @@ async function propagation(ctx, pages, newContext) {
   return out;
 }
 
+// Which content toggles each page type is expected to support.
+const TOGGLES_BY_ROLE = {
+  presell: ['exit', 'timer', 'reviews', 'loading', 'banner', 'seen'],
+  landing: ['exit', 'timer', 'reviews', 'loading', 'banner', 'seen'],
+  checkout: ['exit', 'timer', 'reviews', 'loading', 'banner'],
+  upsell: ['timer', 'reviews', 'banner'],
+};
+
 async function toggles(ctx, pages, newContext, shots, rel) {
   const out = [];
-  const targets = [pages[0], pages.find((p) => p.kind.type === 'checkout')].filter(Boolean).filter((p, i, a) => a.indexOf(p) === i);
-  const names = ctx.options.toggles || TOGGLES;
+  const targets = pages.filter((p) => p.in_scope !== false && TOGGLES_BY_ROLE[p.role]).slice(0, 5);
   for (const p of targets) {
+    const names = ctx.options.toggles || TOGGLES_BY_ROLE[p.role];
     const { context } = await newContext();
     const tab = await context.newPage();
+    const base = { family: 'param-toggles', page: p.label, url: p.url };
     try {
       await tab.goto(p.finalUrl, { waitUntil: 'load', timeout: 45000 });
       await settle(tab, p.sdk.present, 8000);
       const before = await tab.evaluate(probes.visibleSummary);
-      const changed = [];
-      const unchanged = [];
+      const baseShot = shotName(p.label, 'baseline');
+      await tab.screenshot({ path: path.join(shots, baseShot), fullPage: true, type: 'jpeg', quality: 50 });
       for (const name of names) {
         await tab.goto(withParams(p.finalUrl, { [name]: 'n' }), { waitUntil: 'load', timeout: 45000 });
         await settle(tab, p.sdk.present, 8000);
         const after = await tab.evaluate(probes.visibleSummary);
         const diff = before.elements - after.elements;
-        if (diff > 0 || before.textLength - after.textLength > 20) {
+        const shorter = before.textLength - after.textLength;
+        if (diff > 0 || shorter > 20) {
           const file = shotName(p.label, `${name}-n`);
           await tab.screenshot({ path: path.join(shots, file), fullPage: true, type: 'jpeg', quality: 50 });
-          changed.push({ param: `${name}=n`, hiddenElements: diff, shorterText: before.textLength - after.textLength, file: rel(file) });
-        } else unchanged.push(`${name}=n`);
+          out.push(assertion({ ...base, id: `param-toggles:${p.label}:${name}`, status: 'manual_review', severity: 'warn', message: `?${name}=n hides ${diff > 0 ? `${diff} element(s)` : 'some text'}. Compare the two screenshots and confirm the right thing disappears.`, screenshots: [rel(baseShot), rel(file)] }));
+        } else {
+          out.push(assertion({ ...base, id: `param-toggles:${p.label}:${name}`, status: 'manual_review', severity: 'info', message: `?${name}=n changes nothing visible. Fine if this page has no such element; otherwise the toggle is not wired.`, screenshots: [rel(baseShot)] }));
+        }
       }
-      if (changed.length) out.push(assertion({ id: `param-toggles:${p.label}`, family: 'param-toggles', page: p.label, url: p.url, status: 'manual_review', severity: 'warn', message: `${changed.map((c) => c.param).join(', ')} hide content here. Look at the screenshots and confirm the right thing disappears.`, evidence: changed.map((c) => `${c.param}: ${c.hiddenElements} fewer visible elements`), screenshots: changed.map((c) => c.file) }));
-      if (unchanged.length) out.push(assertion({ id: `param-toggles:${p.label}:no-effect`, family: 'param-toggles', page: p.label, url: p.url, status: 'manual_review', severity: 'info', message: `${unchanged.join(', ')} change nothing visible here. Fine if this page has no such element (no timer, no reviews…); otherwise the toggle is not wired.` }));
     } catch (e) {
-      out.push(assertion({ id: `param-toggles:${p.label}`, family: 'param-toggles', page: p.label, status: 'skipped', severity: 'info', message: `Could not run: ${String(e.message || e).slice(0, 150)}` }));
+      out.push(assertion({ ...base, id: `param-toggles:${p.label}`, status: 'skipped', severity: 'info', message: `Could not run: ${String(e.message || e).slice(0, 150)}` }));
     } finally {
       await context.close();
     }

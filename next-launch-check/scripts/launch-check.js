@@ -1,49 +1,64 @@
 #!/usr/bin/env node
 'use strict';
-// next-launch-check: test a campaign funnel, a storefront, or a page against
-// its design, from a URL. Runs on your machine. Reads pages with plain GETs,
-// optionally renders them in Chromium with order calls blocked and vendor
-// beacons held back, and writes report.md + results.json. Nothing is uploaded.
+// next-launch-check: QA a campaign page or funnel, or a storefront, from a URL.
+// You say what you are testing (presell, landing, checkout, upsell, the full
+// funnel, or a storefront). The script reads the pages, renders them in
+// Chromium (order calls blocked, vendor beacons held back), runs a speed
+// test, and fills the QA checklist for those page types: each item passes or
+// fails automatically, shows evidence for you to judge, or waits for your
+// answer. It writes report.md + results.json locally and uploads nothing.
 const fs = require('fs');
 const path = require('path');
 const { crawl } = require('./lib/crawl');
 const P = require('./lib/page');
 const R = require('./lib/rules');
 const report = require('./lib/report');
+const CL = require('./lib/checklist');
 const U = require('./lib/util');
 const H = require('./lib/html');
+const { isCommerce } = require('./lib/detect');
 
 const ROOT = path.join(__dirname, '..');
 const VERSION = (/^version:\s*([^\s]+)/m.exec(fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf8')) || [])[1] || '0.0.0';
-const MANUAL = JSON.parse(fs.readFileSync(path.join(ROOT, 'references', 'manual-checklist.json'), 'utf8'));
+const SCOPES = ['presell', 'landing', 'checkout', 'upsell', 'funnel', 'storefront'];
+const ALL_ROLES = ['presell', 'landing', 'checkout', 'upsell', 'receipt', 'storefront'];
 
-const SOURCE_FAMILIES = {
-  funnel: ['http', 'funnel-chain', 'sdk', 'tracking', 'legal-links', 'links', 'content', 'seo-meta', 'media', 'storefront-domain', 'pagespeed', 'pr-review'],
-  storefront: ['http', 'storefront-nav', 'tracking', 'legal-links', 'links', 'content', 'seo-meta', 'media', 'storefront-domain', 'pagespeed'],
+const FAMILIES = {
+  funnel: ['http', 'funnel-chain', 'sdk', 'tracking', 'legal-links', 'links', 'content', 'seo-meta', 'media', 'storefront-domain', 'speed', 'pr-review'],
+  storefront: ['http', 'storefront-nav', 'tracking', 'legal-links', 'links', 'content', 'seo-meta', 'media', 'storefront-domain', 'speed'],
   design: ['http'],
 };
 // Families a campaigns-os verdict already proves for the same build.
 const CAMPAIGNS_OS_COVERS = new Set(['http', 'funnel-chain', 'legal-links', 'param-propagation', 'param-toggles', 'browser-runtime', 'order']);
+const DESIGN_ITEMS = [
+  { id: 'DS-01', section: 'Design review', text: 'Side by side with the design: layout, spacing and imagery match at desktop width', roles: ['design'], severity: 'warn', auto: ['design-parity:screens-*'] },
+  { id: 'DS-02', section: 'Design review', text: 'Text styles (font, size, weight) match the design', roles: ['design'], severity: 'warn', auto: ['design-parity:typography'] },
+  { id: 'DS-03', section: 'Design review', text: 'Colours match the design', roles: ['design'], severity: 'warn', auto: ['design-parity:colours'] },
+  { id: 'DS-04', section: 'Design review', text: 'The mobile layout matches the design', roles: ['design'], severity: 'warn' },
+  { id: 'DS-05', section: 'Design review', text: 'Copy matches the design word for word, including prices and claims', roles: ['design'], severity: 'warn' },
+];
 
 const USAGE = `next-launch-check ${VERSION}
 
 Usage:
   node launch-check.js env
-  node launch-check.js funnel <url> [--page <url>]... [options]
-  node launch-check.js storefront <url> [options]
+  node launch-check.js check <url> --scope <presell|landing|checkout|upsell|funnel|storefront> [options]
   node launch-check.js design <url> [--figma-css <file>] [--frame <png>]... [--width <px>]
-  node launch-check.js record <checkout-url> [--confirm-test-params] [--rules <file>] [--out <dir>]
+  node launch-check.js record <checkout-url> [--into <run-dir>] [--confirm-test-params] [--rules <file>]
   node launch-check.js finalize <run-dir> --answers <answers.json>
+  (funnel <url> and storefront <url> are short for check --scope funnel|storefront)
 
 Options:
-  --browser                 also run the browser lane (needs Playwright)
-  --pagespeed               ask Google PageSpeed Insights (optional PAGESPEED_API_KEY)
+  --scope <type>            what you are testing (default: funnel)
+  --page <url>              another page of the funnel, in order (repeatable)
+  --no-browser              skip the browser lane (on by default when Playwright is installed)
+  --no-speed                skip the speed test (on by default)
+  --speed-pages <n>         pages to speed-test in a full funnel (default 3)
   --rules <file>            your QA rules: JSON, or a Markdown checklist
   --diff <file>             review a pull request diff (gh pr diff > pr.diff)
   --campaigns-os-verdict <file>  fold in a campaigns-os QA verdict for the same build
   --mask-ids                mask tracking ids in the report
   --max-pages <n>           pages to crawl (default 12)
-  --no-follow               only the pages you name
   --param key=value         extra parameter to test for carry-through (repeatable)
   --live-beacons            let analytics and ad beacons through (default: held back)
   --out <dir>               output folder (default ./next-launch-check-output/<host>-<time>)
@@ -51,16 +66,20 @@ Options:
 `;
 
 function parseArgs(argv) {
-  const o = { _: [], pages: [], frames: [], params: {} };
+  const o = { _: [], pages: [], frames: [], params: {}, browser: true, speed: true };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const val = () => { const v = argv[++i]; if (v === undefined) throw new Error(`${a} needs a value`); return v; };
     switch (a) {
+      case '--scope': o.scope = val(); if (!SCOPES.includes(o.scope)) throw new Error(`--scope must be one of ${SCOPES.join(', ')}`); break;
       case '--page': o.pages.push(val()); break;
       case '--frame': o.frames.push(val()); break;
       case '--param': { const [k, ...v] = val().split('='); o.params[k] = v.join('='); break; }
       case '--browser': o.browser = true; break;
-      case '--pagespeed': o.pagespeed = true; break;
+      case '--no-browser': o.browser = false; break;
+      case '--speed': case '--pagespeed': o.speed = true; break;
+      case '--no-speed': o.speed = false; break;
+      case '--speed-pages': o.speedPages = parseInt(val(), 10); break;
       case '--mask-ids': o.maskIds = true; break;
       case '--no-follow': o.follow = false; break;
       case '--live-beacons': o.liveBeacons = true; break;
@@ -74,6 +93,7 @@ function parseArgs(argv) {
       case '--width': o.width = parseInt(val(), 10); break;
       case '--max-pages': o.maxPages = parseInt(val(), 10); break;
       case '--out': o.out = val(); break;
+      case '--into': o.into = val(); break;
       case '--answers': o.answers = val(); break;
       case '--record-minutes': o.recordMinutes = parseFloat(val()); break;
       case '-h': case '--help': o.help = true; break;
@@ -99,31 +119,44 @@ function envInfo() {
   return {
     tool: 'next-launch-check', version: VERSION, node: process.version,
     playwright: PW.locate(),
-    campaigns_os: {
-      package: exists('node_modules/@nextcommerce/campaigns-os'),
-      build_packet: exists('campaign-runtime.build.json') ? 'campaign-runtime.build.json' : null,
-    },
+    campaigns_os: { package: exists('node_modules/@nextcommerce/campaigns-os'), build_packet: exists('campaign-runtime.build.json') ? 'campaign-runtime.build.json' : null },
     pagespeed_key: !!process.env.PAGESPEED_API_KEY,
   };
 }
 
-async function sourceLane(ctx, families) {
-  const out = [];
-  for (const f of families) {
-    const fn = require(`./lib/checks/${f}`);
-    try { out.push(...(await fn(ctx))); } catch (e) {
-      out.push(U.assertion({ id: `${f}:error`, family: f, status: 'skipped', severity: 'info', message: `This family crashed and was skipped: ${String(e.message || e).slice(0, 200)}` }));
-    }
+// Page types for the checklist. In a full funnel, content pages before the
+// checkout are presell pages except the last, which is the landing page; the
+// 0.4 `product` type is a landing page.
+function assignRoles(pages, scope) {
+  if (scope === 'storefront') { for (const p of pages) { p.role = 'storefront'; p.in_scope = true; } return []; }
+  const firstCommerce = pages.findIndex((p) => isCommerce(p));
+  const before = pages.filter((p, i) => !isCommerce(p) && (firstCommerce < 0 || i < firstCommerce));
+  for (const p of pages) {
+    if (!p.ok) { p.role = null; p.in_scope = scope === 'funnel'; continue; } // a page that did not load is checked by `http` only
+    if (isCommerce(p)) p.role = p.kind.type;
+    else if (p.kind.type === 'product') p.role = 'landing';
+    else if (before.includes(p)) p.role = before.indexOf(p) === before.length - 1 && before.length > 1 ? 'landing' : before.length === 1 ? 'landing' : 'presell';
+    else p.role = 'landing';
+    p.in_scope = scope === 'funnel';
   }
-  return out;
+  const notes = [];
+  if (scope !== 'funnel') {
+    const entry = pages[0];
+    const detected = entry.role;
+    entry.role = scope;
+    entry.in_scope = true;
+    const looksCommerce = isCommerce(entry);
+    const mismatch = (['checkout', 'upsell'].includes(scope) && entry.kind.type !== scope) || (['presell', 'landing'].includes(scope) && looksCommerce);
+    if (entry.ok && mismatch) notes.push(U.assertion({ id: 'scope:entry', family: 'scope', page: entry.label, url: entry.url, status: 'warn', severity: 'info', message: `You said this page is a ${scope}, but it looks like a ${detected} page (${entry.kind.source}). Checks follow what you said.` }));
+  }
+  return notes;
 }
 
 function storefrontPages(home, max) {
   const urls = [];
   const seen = new Set([U.pathKey(home.finalUrl)]);
   for (const a of home.anchors) {
-    const region = H.regionAt(home.html, a.index);
-    if (!['header', 'nav', 'footer'].includes(region)) continue;
+    if (!['header', 'nav', 'footer'].includes(H.regionAt(home.html, a.index))) continue;
     const u = U.resolve(a.href, home.finalUrl);
     if (!u || !U.sameOrigin(u, home.finalUrl)) continue;
     const k = U.pathKey(u);
@@ -135,9 +168,15 @@ function storefrontPages(home, max) {
   return urls;
 }
 
-function manualFor(mode, rules) {
-  const base = mode === 'storefront' ? MANUAL.storefront : mode === 'design' ? MANUAL.design : MANUAL.funnel;
-  return [...base, ...rules.manual].map((m) => ({ ...m, answer: null, note: null }));
+async function sourceLane(ctx, families) {
+  const out = [];
+  for (const f of families) {
+    const fn = require(`./lib/checks/${f}`);
+    try { out.push(...(await fn(ctx))); } catch (e) {
+      out.push(U.assertion({ id: `${f}:error`, family: f, status: 'skipped', severity: 'info', message: `This check crashed and was skipped: ${String(e.message || e).slice(0, 200)}` }));
+    }
+  }
+  return out;
 }
 
 function foldCampaignsOs(assertions, file) {
@@ -149,9 +188,23 @@ function foldCampaignsOs(assertions, file) {
   return { assertions: marked, info: { path: file, disposition, run_id: v.run_id || null } };
 }
 
-async function runCheck(mode, url, o) {
+function extraItems(rules, scopeRoles) {
+  return rules.manual.map((m) => ({ id: m.id, section: m.section || 'Your rules', text: m.text, roles: scopeRoles, severity: m.severity || 'warn' }));
+}
+
+function finish(result, rows, pagesForChecklist, { rules, prior = [], extra = [] }) {
+  result.assertions = rows;
+  result.counts = report.counts(rows);
+  result.disposition_automated = report.automatedDisposition(rows);
+  result.checklist = CL.build(pagesForChecklist, rows, { prior, extra: [...extra, ...extraItems(rules, ALL_ROLES.concat('design'))] });
+  result.disposition = CL.disposition(result.checklist, result.disposition_automated);
+  return result;
+}
+
+async function runCheck(scope, url, o) {
   const started = new Date();
   const rules = R.load(o.rules);
+  const mode = scope === 'design' ? 'design' : scope === 'storefront' ? 'storefront' : 'funnel';
   const outDir = path.resolve(o.out || path.join('next-launch-check-output', `${U.hostSlug(url)}-${U.timestamp(started)}`));
   fs.mkdirSync(path.join(outDir, 'screenshots'), { recursive: true });
   const cache = new Map();
@@ -159,56 +212,59 @@ async function runCheck(mode, url, o) {
   let pages;
   if (mode === 'storefront') {
     const home = await loadPage(url);
-    const extra = home.ok ? storefrontPages(home, o.maxPages || 15) : [];
-    pages = [home];
-    for (const u of [...o.pages, ...extra]) { const p = await loadPage(u); p.via = 'navigation link'; pages.push(p); }
     home.via = 'entry';
+    pages = [home];
+    for (const u of [...o.pages, ...(home.ok ? storefrontPages(home, o.maxPages || 15) : [])]) { const p = await loadPage(u); p.via = 'navigation link'; pages.push(p); }
   } else if (mode === 'design') {
     const p = await loadPage(url); p.via = 'entry'; pages = [p];
   } else {
-    const c = await crawl(url, { pages: o.pages, maxPages: o.maxPages || 12, follow: o.follow !== false, load: loadPage });
+    const follow = o.follow !== false && !['checkout', 'upsell'].includes(scope);
+    const c = await crawl(url, { pages: o.pages, maxPages: o.maxPages || (scope === 'funnel' ? 12 : 6), follow, load: loadPage });
     pages = c.pages;
   }
+  let notes = [];
+  if (mode === 'design') { pages[0].role = 'design'; pages[0].in_scope = true; } else notes = assignRoles(pages, scope);
+  const inScope = pages.filter((p) => p.in_scope);
+  const speedPages = (() => {
+    const ok = inScope.filter((p) => p.ok);
+    if (scope !== 'funnel') return ok.slice(0, 1);
+    const pick = [ok[0], ok.find((p) => p.role === 'checkout'), ok.find((p) => p.role === 'upsell')].filter(Boolean);
+    return [...new Set(pick)].slice(0, o.speedPages || 3);
+  })();
   const ctx = {
-    mode, entryUrl: url, pages, outDir, rules, loadPage,
+    mode, scope, entryUrl: url, pages: inScope, allPages: pages, speedPages, outDir, rules, loadPage,
     options: { ...o, pages: o.pages },
     showId: o.maskIds ? U.maskId : (x) => x,
   };
-  const lanes = { source: 'ran' };
-  let assertions = await sourceLane(ctx, SOURCE_FAMILIES[mode]);
+  const lanes = {};
+  let rows = [...notes, ...(await sourceLane(ctx, FAMILIES[mode]))];
+  lanes.source = 'ran';
+  lanes.speed = mode === 'design' ? 'not used' : o.speed === false ? 'off (--no-speed)' : rows.some((r) => r.family === 'speed' && r.status !== 'skipped') ? 'ran' : 'did not run';
   if (mode === 'design') {
-    assertions.push(...(await require('./browser/design').run(ctx)));
+    rows.push(...(await require('./browser/design').run(ctx)));
     lanes.browser = 'ran';
-  } else if (o.browser) {
+  } else if (o.browser !== false) {
     const mod = mode === 'storefront' ? require('./browser/storefront') : require('./browser/funnel');
-    const rows = await mod.run(ctx);
-    lanes.browser = rows.some((r) => /unavailable/.test(r.id)) ? 'skipped (no Playwright)' : 'ran';
-    assertions.push(...rows);
-  } else {
-    lanes.browser = 'not requested';
-  }
-  if (mode === 'funnel') lanes.order = 'not run (use `record`, or campaigns-os for a scripted order)';
+    const got = await mod.run(ctx);
+    lanes.browser = got.some((r) => /unavailable/.test(r.id)) ? 'skipped (Playwright not installed)' : 'ran';
+    rows.push(...got);
+  } else lanes.browser = 'off (--no-browser)';
+  if (mode === 'funnel') lanes.order = 'not run yet (record, or campaigns-os for a scripted order)';
   let campaignsOs = null;
-  if (o.campaignsOsVerdict) ({ assertions, info: campaignsOs } = foldCampaignsOs(assertions, o.campaignsOsVerdict));
-  assertions = R.applyByDesign(assertions, rules);
-  const manual = manualFor(mode, rules);
-  const automated = report.automatedDisposition(assertions);
+  if (o.campaignsOsVerdict) ({ assertions: rows, info: campaignsOs } = foldCampaignsOs(rows, o.campaignsOsVerdict));
+  rows = R.applyByDesign(rows, rules);
   const result = {
-    schema: 'next-launch-check/results/v1',
+    schema: 'next-launch-check/results/v2',
     tool_version: VERSION,
     run_id: `${U.timestamp(started)}-${Math.random().toString(36).slice(2, 6)}`,
-    mode, entry_url: url,
+    mode, scope, entry_url: url,
     started_at: started.toISOString(), finished_at: new Date().toISOString(),
-    options: { browser: !!o.browser, pagespeed: !!o.pagespeed, rules: rules.source, diff: o.diff || null, mask_ids: !!o.maskIds, live_beacons: !!o.liveBeacons, max_pages: o.maxPages || null },
+    options: { browser: o.browser !== false, speed: o.speed !== false, rules: rules.source, diff: o.diff || null, mask_ids: !!o.maskIds, live_beacons: !!o.liveBeacons, max_pages: o.maxPages || null },
     lanes,
-    pages: pages.map((p) => ({ label: p.label, url: p.url, final_url: p.finalUrl, status: p.status, type: p.kind.type, type_source: p.kind.source, title: p.title, via: p.via, sdk_version: p.sdk.version || null })),
-    assertions,
-    counts: report.counts(assertions),
-    disposition_automated: automated,
-    disposition: report.finalDisposition(automated, manual),
-    manual,
+    pages: pages.map((p) => ({ label: p.label, url: p.url, final_url: p.finalUrl, status: p.status, type: p.kind.type, role: p.role, in_scope: !!p.in_scope, title: p.title, via: p.via, sdk_version: p.sdk.version || null })),
     campaigns_os: campaignsOs,
   };
+  finish(result, rows, result.pages, { rules, extra: mode === 'design' ? DESIGN_ITEMS : [] });
   report.write(outDir, result);
   return { result, outDir };
 }
@@ -219,18 +275,31 @@ async function runRecord(url, o) {
   const gate = rec.paramGate(url, { confirmed: !!o.confirmTestParams, allowed: rules.allowedParams });
   if (!gate.ok) { const e = new Error(gate.reason); e.code = 3; throw e; }
   const started = new Date();
-  const outDir = path.resolve(o.out || path.join('next-launch-check-output', `${U.hostSlug(url)}-${U.timestamp(started)}-order`));
+  const into = o.into ? path.resolve(o.into) : null;
+  const outDir = into || path.resolve(o.out || path.join('next-launch-check-output', `${U.hostSlug(url)}-${U.timestamp(started)}-order`));
   fs.mkdirSync(path.join(outDir, 'screenshots'), { recursive: true });
-  const ctx = { entryUrl: url, outDir, options: { ...o, autodrive: o.autodrive }, rules };
-  const { assertions } = await rec.record(ctx);
-  const manual = MANUAL.funnel.filter((m) => ['F-10', 'F-16', 'F-17', 'F-18'].includes(m.id)).map((m) => ({ ...m, answer: null, note: null }));
-  const automated = report.automatedDisposition(assertions);
-  const result = {
-    schema: 'next-launch-check/results/v1', tool_version: VERSION, run_id: `${U.timestamp(started)}-order`, mode: 'record', entry_url: url,
-    started_at: started.toISOString(), finished_at: new Date().toISOString(), options: { live_beacons: !!o.liveBeacons, affiliate_params: gate.found.map(([k]) => k) },
-    lanes: { order: 'recorded (tester drove)' },
-    pages: [], assertions, counts: report.counts(assertions), disposition_automated: automated, disposition: report.finalDisposition(automated, manual), manual, campaigns_os: null,
-  };
+  const { assertions } = await rec.record({ entryUrl: url, outDir, options: o, rules });
+  let result;
+  let pages;
+  if (into) {
+    result = JSON.parse(fs.readFileSync(path.join(into, 'results.json'), 'utf8'));
+    pages = result.pages;
+    // An order is evidence for the checkout and upsells even when the run
+    // tested only one page type.
+    for (const p of pages) if (['checkout', 'upsell', 'receipt'].includes(p.role)) p.in_scope = p.in_scope || p.role === 'checkout';
+    const rows = result.assertions.filter((a) => a.family !== 'order').concat(assertions);
+    result.lanes.order = 'recorded (tester placed the order)';
+    result.finished_at = new Date().toISOString();
+    finish(result, rows, pages, { rules, prior: result.checklist });
+  } else {
+    pages = [{ label: U.pageLabel(url), url, role: 'checkout', in_scope: true, status: 200 }];
+    result = {
+      schema: 'next-launch-check/results/v2', tool_version: VERSION, run_id: `${U.timestamp(started)}-order`, mode: 'record', scope: 'checkout', entry_url: url,
+      started_at: started.toISOString(), finished_at: new Date().toISOString(), options: { live_beacons: !!o.liveBeacons, affiliate_params: gate.found.map(([k]) => k) },
+      lanes: { order: 'recorded (tester placed the order)' }, pages, campaigns_os: null,
+    };
+    finish(result, assertions, pages, { rules });
+  }
   report.write(outDir, result);
   return { result, outDir };
 }
@@ -241,13 +310,14 @@ function finalize(dir, answersFile) {
   const answers = JSON.parse(fs.readFileSync(answersFile, 'utf8'));
   const list = Array.isArray(answers) ? answers : Object.entries(answers).map(([id, v]) => (typeof v === 'string' ? { id, answer: v } : { id, ...v }));
   for (const a of list) {
-    const m = result.manual.find((x) => x.id === a.id);
-    if (!m) throw new Error(`no manual item ${a.id}`);
-    if (!['pass', 'fail', 'na'].includes(a.answer)) throw new Error(`${a.id}: answer must be pass, fail or na`);
-    m.answer = a.answer;
-    m.note = a.note || null;
+    const item = result.checklist.find((x) => x.id === a.id);
+    if (!item) throw new Error(`no checklist item ${a.id} in this run`);
+    if (!['pass', 'fail', 'na', 'warn'].includes(a.answer)) throw new Error(`${a.id}: answer must be pass, fail, warn or na`);
+    item.answer = a.answer;
+    item.note = a.note || null;
+    item.status = CL.finalStatus(item);
   }
-  result.disposition = report.finalDisposition(result.disposition_automated, result.manual);
+  result.disposition = CL.disposition(result.checklist, result.disposition_automated);
   result.finished_at = new Date().toISOString();
   report.write(dir, result);
   return { result, outDir: dir };
@@ -262,12 +332,15 @@ async function main(argv) {
     let done;
     if (cmd === 'env') { process.stdout.write(JSON.stringify(envInfo(), null, 2) + '\n'); return 0; }
     if (cmd === 'finalize') { if (!target || !o.answers) throw new Error('finalize needs <run-dir> and --answers <file>'); done = finalize(path.resolve(target), o.answers); }
-    else if (cmd === 'record') { done = await runRecord(checkUrl(target || ''), o); }
-    else if (['funnel', 'storefront', 'design'].includes(cmd)) { done = await runCheck(cmd, checkUrl(target || ''), o); }
+    else if (cmd === 'record') done = await runRecord(checkUrl(target || ''), o);
+    else if (cmd === 'check') done = await runCheck(o.scope || 'funnel', checkUrl(target || ''), o);
+    else if (cmd === 'funnel' || cmd === 'storefront' || cmd === 'design') done = await runCheck(cmd === 'funnel' ? (o.scope || 'funnel') : cmd, checkUrl(target || ''), o);
     else throw new Error(`unknown command ${cmd}`);
     const r = done.result;
-    process.stdout.write(`${r.disposition.toUpperCase()}  (automated: ${r.disposition_automated})\n`);
-    process.stdout.write(`${r.counts.pass} pass · ${r.counts.fail} fail · ${r.counts.warn} warn · ${r.counts.manual_review} to check · ${r.counts.skipped} skipped · manual ${r.manual.filter((m) => m.answer).length}/${r.manual.length}\n`);
+    const open = r.checklist.filter((i) => i.status === 'open').length;
+    const tally = (s) => r.checklist.filter((i) => i.status === s).length;
+    process.stdout.write(`${r.disposition.toUpperCase()}  (${r.scope || r.mode})\n`);
+    process.stdout.write(`Checklist: ${tally('pass')} pass · ${tally('fail')} fail · ${tally('warn')} warn · ${open} for you to check · ${tally('na')} n/a  (of ${r.checklist.length})\n`);
     process.stdout.write(`Report: ${path.join(done.outDir, 'report.md')}\n`);
     if (o.json) process.stdout.write(JSON.stringify(r, null, 2) + '\n');
     return r.disposition === 'blocked' ? 4 : 0;
@@ -279,4 +352,4 @@ async function main(argv) {
 
 if (require.main === module) main(process.argv.slice(2)).then((code) => { process.exitCode = code; });
 
-module.exports = { main, parseArgs, runCheck, finalize, foldCampaignsOs, VERSION };
+module.exports = { main, parseArgs, runCheck, runRecord, finalize, foldCampaignsOs, assignRoles, VERSION, SCOPES };

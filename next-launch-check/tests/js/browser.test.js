@@ -26,13 +26,15 @@ const row = (r, id) => r.assertions.find((a) => a.id === id);
 test('browser lane: good funnel', { skip, timeout: 240000 }, async () => {
   const s = await server.start('good');
   try {
-    const { result } = await cli.runCheck('funnel', `${s.base}/`, cli.parseArgs(['--browser', '--out', tmp()]));
+    const { result } = await cli.runCheck('funnel', `${s.base}/`, cli.parseArgs(['--no-speed', '--out', tmp()]));
     assert.equal(row(result, 'browser-runtime:/checkout:sdk-ready').status, 'pass');
     assert.equal(row(result, 'param-propagation:/landing->/checkout').status, 'pass');
     assert.equal(row(result, 'form-negative:/checkout:empty').status, 'pass');
     assert.equal(row(result, 'locale:/checkout').status, 'pass');
     assert.equal(row(result, 'locale:/checkout:typed-amounts'), undefined, 'amounts inside SDK summaries are not typed amounts');
-    assert.equal(row(result, 'responsive:/checkout').status, 'pass');
+    assert.equal(row(result, 'responsive:/checkout:zoom-150').status, 'pass');
+    assert.equal(row(result, 'param-toggles:/checkout:exit').severity, 'warn', 'exit=n hides the exit offer');
+    assert.equal(result.checklist.find((i) => i.id === 'CN-01').status, 'pass');
     assert.equal(row(result, 'tags-observed:/checkout').status, 'pass');
     assert.equal(s.calls.length, 0, 'the browser lane never places an order');
   } finally { await s.close(); }
@@ -41,12 +43,25 @@ test('browser lane: good funnel', { skip, timeout: 240000 }, async () => {
 test('browser lane: broken funnel', { skip, timeout: 240000 }, async () => {
   const s = await server.start('broken');
   try {
-    const { result } = await cli.runCheck('funnel', `${s.base}/`, cli.parseArgs(['--browser', '--page', `${s.base}/upsell/`, '--out', tmp()]));
+    const { result } = await cli.runCheck('funnel', `${s.base}/`, cli.parseArgs(['--no-speed', '--page', `${s.base}/upsell/`, '--out', tmp()]));
     assert.equal(row(result, 'param-propagation:/landing->/checkout').status, 'fail');
     assert.equal(row(result, 'form-negative:/checkout:empty').severity, 'blocker');
     assert.equal(row(result, 'form-negative:/checkout:empty').status, 'fail');
-    assert.equal(row(result, 'responsive:/upsell').status, 'warn');
+    assert.equal(row(result, 'responsive:/upsell:mobile').status, 'warn');
     assert.equal(s.calls.length, 0, 'the unvalidated form was submitted, but the order call was blocked');
+  } finally { await s.close(); }
+});
+
+test('recorder: --into adds the order to an existing run and its checklist', { skip, timeout: 120000 }, async () => {
+  const s = await server.start('good');
+  const out = tmp();
+  try {
+    await cli.runCheck('checkout', `${s.base}/checkout/`, cli.parseArgs(['--no-browser', '--no-speed', '--out', out]));
+    const code = await cli.main(['record', `${s.base}/checkout/?autotest=1&utm_source=fb`, '--headless', '--record-minutes', '0.5', '--into', out]);
+    assert.equal(code, 0);
+    const r = JSON.parse(fs.readFileSync(path.join(out, 'results.json'), 'utf8'));
+    assert.equal(r.checklist.find((i) => i.id === 'CP-02').status, 'pass');
+    assert.ok(r.assertions.some((a) => a.id === 'form-negative:/checkout:empty' || a.family === 'http'), 'earlier rows kept');
   } finally { await s.close(); }
 });
 

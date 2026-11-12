@@ -14,11 +14,12 @@ const ids = (r) => r.assertions.filter((a) => a.status !== 'pass').map((a) => a.
 test('good funnel: crawl finds every page and nothing fails', async () => {
   const s = await server.start('good');
   try {
-    const { result } = await cli.runCheck('funnel', `${s.base}/`, cli.parseArgs(['--out', tmp()]));
+    const { result } = await cli.runCheck('funnel', `${s.base}/`, cli.parseArgs(['--no-browser', '--no-speed', '--out', tmp()]));
     assert.deepEqual(result.pages.map((p) => p.label), ['/', '/landing', '/checkout', '/upsell', '/receipt']);
     assert.deepEqual(result.pages.map((p) => p.type), ['content', 'content', 'checkout', 'upsell', 'receipt']);
     assert.equal(result.disposition_automated, 'ready', ids(result).join(', '));
-    assert.equal(result.disposition, 'incomplete', 'manual checklist is still open');
+    assert.deepEqual(result.pages.map((p) => p.role), ['presell', 'landing', 'checkout', 'upsell', 'receipt']);
+    assert.equal(result.disposition, 'incomplete', 'manual checklist items are still open');
     assert.equal(s.calls.length, 0, 'the source lane never posts');
   } finally { await s.close(); }
 });
@@ -27,13 +28,15 @@ test('broken funnel: each planted fault is reported', async () => {
   const s = await server.start('broken');
   try {
     const out = tmp();
-    const { result } = await cli.runCheck('funnel', `${s.base}/`, cli.parseArgs(['--page', `${s.base}/upsell/`, '--out', out]));
+    const { result } = await cli.runCheck('funnel', `${s.base}/`, cli.parseArgs(['--no-browser', '--no-speed', '--page', `${s.base}/upsell/`, '--out', out]));
     const bad = ids(result);
     for (const want of ['http:/upsel', 'funnel-chain:/checkout:next-success-url', 'sdk:/upsell', 'sdk:version-consistency', 'tracking-consistency:gtm:differs', 'legal-links:privacy', 'legal-links:terms:new-tab', 'links:/landing:placeholder', 'links:dead', 'content-hygiene:/landing:placeholder', 'seo-meta:/landing:viewport', 'media-weight:heavy']) {
       assert.ok(bad.includes(want), `missing ${want}; got ${bad.join(', ')}`);
     }
     assert.equal(result.disposition, 'blocked');
-    assert.ok(fs.readFileSync(path.join(out, 'report.md'), 'utf8').includes('## Blockers'));
+    const md = fs.readFileSync(path.join(out, 'report.md'), 'utf8');
+    assert.match(md, /\*\*FAIL\*\* `FF-07` Every page loads · blocker/);
+    assert.match(md, /## Checklist/);
   } finally { await s.close(); }
 });
 
@@ -41,7 +44,7 @@ test('--mask-ids hides tracking ids in the report', async () => {
   const s = await server.start('broken');
   try {
     const out = tmp();
-    await cli.runCheck('funnel', `${s.base}/`, cli.parseArgs(['--mask-ids', '--out', out]));
+    await cli.runCheck('funnel', `${s.base}/`, cli.parseArgs(['--no-browser', '--no-speed', '--mask-ids', '--out', out]));
     const md = fs.readFileSync(path.join(out, 'report.md'), 'utf8');
     assert.equal(md.includes('GTM-TESTAA1'), false);
     assert.ok(md.includes('GTM-T'));
@@ -54,10 +57,10 @@ test('rules file: by-design items stop counting and Markdown items join the chec
   const rules = path.join(dir, 'rules.json');
   fs.writeFileSync(rules, JSON.stringify({ name: 'Client rules', byDesign: [{ id: 'tracking-consistency:gtm:*', reason: 'two containers by agreement' }], manual: [{ text: 'Shipping insurance sits before payment.' }] }));
   try {
-    const { result } = await cli.runCheck('funnel', `${s.base}/`, cli.parseArgs(['--rules', rules, '--out', dir]));
+    const { result } = await cli.runCheck('funnel', `${s.base}/`, cli.parseArgs(['--no-browser', '--no-speed', '--rules', rules, '--out', dir]));
     const row = result.assertions.find((a) => a.id === 'tracking-consistency:gtm:differs');
     assert.equal(row.waived, 'two containers by agreement');
-    assert.ok(result.manual.some((m) => m.text === 'Shipping insurance sits before payment.'));
+    assert.ok(result.checklist.some((m) => m.text === 'Shipping insurance sits before payment.'));
   } finally { await s.close(); }
 });
 
@@ -67,34 +70,56 @@ test('campaigns-os verdict: covered families defer to it', async () => {
   const v = path.join(dir, 'verdict.json');
   fs.writeFileSync(v, JSON.stringify({ disposition: 'blocked', run_id: 'RUN1', assertions: [] }));
   try {
-    const { result } = await cli.runCheck('funnel', `${s.base}/`, cli.parseArgs(['--campaigns-os-verdict', v, '--out', dir]));
+    const { result } = await cli.runCheck('funnel', `${s.base}/`, cli.parseArgs(['--no-browser', '--no-speed', '--campaigns-os-verdict', v, '--out', dir]));
     assert.ok(result.assertions.filter((a) => a.family === 'funnel-chain').every((a) => a.deferred));
     assert.equal(result.campaigns_os.disposition, 'blocked');
     assert.equal(result.disposition_automated, 'blocked');
   } finally { await s.close(); }
 });
 
-test('finalize: answers close the manual checklist', async () => {
+test('finalize: answers close the checklist', async () => {
   const s = await server.start('good');
   const dir = tmp();
   try {
-    const { result } = await cli.runCheck('funnel', `${s.base}/`, cli.parseArgs(['--out', dir]));
-    const answers = Object.fromEntries(result.manual.map((m) => [m.id, 'pass']));
-    answers['F-19'] = { answer: 'fail', note: 'Safari cuts the footer' };
+    const { result } = await cli.runCheck('funnel', `${s.base}/`, cli.parseArgs(['--no-browser', '--no-speed', '--out', dir]));
+    const answers = Object.fromEntries(result.checklist.filter((i) => i.status === 'open').map((i) => [i.id, 'pass']));
+    answers['CM-01'] = { answer: 'fail', note: 'Safari cuts the footer' };
     fs.writeFileSync(path.join(dir, 'answers.json'), JSON.stringify(answers));
     const done = cli.finalize(dir, path.join(dir, 'answers.json'));
     assert.equal(done.result.disposition, 'ready_with_exceptions');
     assert.match(fs.readFileSync(path.join(dir, 'report.md'), 'utf8'), /Safari cuts the footer/);
+    assert.throws(() => { fs.writeFileSync(path.join(dir, 'bad.json'), '{"ZZ-99":"pass"}'); cli.finalize(dir, path.join(dir, 'bad.json')); });
+  } finally { await s.close(); }
+});
+
+test('scope: a checkout-only run checks that page and applies checkout items only', async () => {
+  const s = await server.start('broken');
+  try {
+    const { result } = await cli.runCheck('checkout', `${s.base}/checkout/`, cli.parseArgs(['--no-browser', '--no-speed', '--out', tmp()]));
+    assert.deepEqual(result.pages.filter((p) => p.in_scope).map((p) => p.label), ['/checkout']);
+    const ids = result.checklist.map((i) => i.id);
+    assert.ok(ids.includes('CN-03') && ids.includes('CP-09'));
+    assert.ok(!ids.includes('BP-08') && !ids.includes('FF-05'), 'presell-only items are absent');
+    assert.equal(result.checklist.find((i) => i.id === 'FF-03').status, 'fail');
+  } finally { await s.close(); }
+});
+
+test('scope: a page that does not look like the type you said gets a note', async () => {
+  const s = await server.start('good');
+  try {
+    const { result } = await cli.runCheck('checkout', `${s.base}/`, cli.parseArgs(['--no-browser', '--no-speed', '--out', tmp()]));
+    assert.ok(result.assertions.some((a) => a.id === 'scope:entry'));
   } finally { await s.close(); }
 });
 
 test('storefront mode crawls header and footer links', async () => {
   const s = await server.start('good');
   try {
-    const { result } = await cli.runCheck('storefront', `${s.base}/`, cli.parseArgs(['--out', tmp()]));
+    const { result } = await cli.runCheck('storefront', `${s.base}/`, cli.parseArgs(['--no-browser', '--no-speed', '--out', tmp()]));
     assert.ok(result.pages.length > 1);
     assert.ok(result.assertions.some((a) => a.id === 'storefront-nav:footer'));
-    assert.ok(result.manual.every((m) => m.id.startsWith('S-')));
+    assert.ok(result.checklist.some((m) => m.id === 'SC-02'));
+    assert.ok(!result.checklist.some((m) => m.id === 'CN-01'), 'no checkout items on a storefront');
   } finally { await s.close(); }
 });
 

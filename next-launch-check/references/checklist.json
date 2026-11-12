@@ -1,0 +1,1337 @@
+{
+ "version": 2,
+ "note": "The QA checklist. Each item names the page types it applies to (roles), the automated rows that decide it (auto, globs over row ids; ! excludes) and rows shown to help a person judge it (evidence). Items with no auto rows, or whose rows did not run, are answered by the tester.",
+ "roles": [
+  "presell",
+  "landing",
+  "checkout",
+  "upsell",
+  "receipt",
+  "storefront"
+ ],
+ "items": [
+  {
+   "id": "BP-01",
+   "section": "Browser & performance",
+   "text": "Speed test (PageSpeed / Lighthouse), mobile and desktop",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt",
+    "storefront"
+   ],
+   "severity": "warn",
+   "auto": [
+    "speed:*"
+   ]
+  },
+  {
+   "id": "BP-02",
+   "section": "Browser & performance",
+   "text": "WebPageTest run in the funnel's target country zone",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "info",
+   "hint": "https://www.webpagetest.org — pick a test location in the country the traffic comes from."
+  },
+  {
+   "id": "BP-03",
+   "section": "Browser & performance",
+   "text": "?exit=n blocks the exit-intent coupon",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout"
+   ],
+   "severity": "warn",
+   "auto": [
+    "param-toggles:*:exit"
+   ]
+  },
+  {
+   "id": "BP-04",
+   "section": "Browser & performance",
+   "text": "?timer=n blocks every countdown timer",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell"
+   ],
+   "severity": "warn",
+   "auto": [
+    "param-toggles:*:timer"
+   ]
+  },
+  {
+   "id": "BP-05",
+   "section": "Browser & performance",
+   "text": "?reviews=n removes reviews and testimonials",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell"
+   ],
+   "severity": "warn",
+   "auto": [
+    "param-toggles:*:reviews"
+   ]
+  },
+  {
+   "id": "BP-06",
+   "section": "Browser & performance",
+   "text": "?loading=n removes fake loading and status bars",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout"
+   ],
+   "severity": "warn",
+   "auto": [
+    "param-toggles:*:loading"
+   ]
+  },
+  {
+   "id": "BP-07",
+   "section": "Browser & performance",
+   "text": "?banner=n removes promotional banners",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell"
+   ],
+   "severity": "warn",
+   "auto": [
+    "param-toggles:*:banner"
+   ]
+  },
+  {
+   "id": "BP-08",
+   "section": "Browser & performance",
+   "text": "?seen=n hides the \"As seen on\" section",
+   "roles": [
+    "presell",
+    "landing"
+   ],
+   "severity": "warn",
+   "auto": [
+    "param-toggles:*:seen"
+   ]
+  },
+  {
+   "id": "BP-09",
+   "section": "Browser & performance",
+   "text": "URL parameters kept from presell → landing → checkout",
+   "roles": [
+    "presell",
+    "landing"
+   ],
+   "severity": "warn",
+   "auto": [
+    "param-propagation:*"
+   ]
+  },
+  {
+   "id": "BP-10",
+   "section": "Browser & performance",
+   "text": "Campaign scripts (SDK, config, API key) the same on every page",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "warn",
+   "auto": [
+    "sdk:*"
+   ]
+  },
+  {
+   "id": "DB-01",
+   "section": "Design & branding",
+   "text": "Correct favicon on every page",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt",
+    "storefront"
+   ],
+   "severity": "warn",
+   "evidence": [
+    "seo-meta:*"
+   ]
+  },
+  {
+   "id": "DB-02",
+   "section": "Design & branding",
+   "text": "Correct product name and logo, consistent throughout",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "DB-03",
+   "section": "Design & branding",
+   "text": "Product images correct, sharp, not overlapping, on desktop and mobile",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "warn",
+   "evidence": [
+    "responsive:*:mobile",
+    "media-weight:*"
+   ]
+  },
+  {
+   "id": "DB-04",
+   "section": "Design & branding",
+   "text": "Customer service phone number and email correct and consistent",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "DB-05",
+   "section": "Design & branding",
+   "text": "Prices match the funnel guidelines (packages, discounts, currency)",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell"
+   ],
+   "severity": "blocker",
+   "evidence": [
+    "locale:*:typed-amounts"
+   ]
+  },
+  {
+   "id": "DB-06",
+   "section": "Design & branding",
+   "text": "Currency consistent throughout",
+   "roles": [
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "DB-07",
+   "section": "Design & branding",
+   "text": "Exit pop-up: right packages, currency signs, \"each\", discount matrix",
+   "roles": [
+    "checkout"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "DB-08",
+   "section": "Design & branding",
+   "text": "Extended protection / warranty price right for the package chosen (upsell or bump)",
+   "roles": [
+    "checkout",
+    "upsell"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "DB-09",
+   "section": "Design & branding",
+   "text": "Side tickers show the right product image, name and details",
+   "roles": [
+    "checkout"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "DB-10",
+   "section": "Design & branding",
+   "text": "Reviews reference the correct product and brand",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "DB-11",
+   "section": "Design & branding",
+   "text": "FAQs proofread: spelling, grammar, relevance, accuracy",
+   "roles": [
+    "presell",
+    "landing"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "DB-12",
+   "section": "Design & branding",
+   "text": "No placeholder copy (lorem ipsum, TODO, template text)",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt",
+    "storefront"
+   ],
+   "severity": "warn",
+   "auto": [
+    "content-hygiene:*:placeholder"
+   ]
+  },
+  {
+   "id": "DB-13",
+   "section": "Design & branding",
+   "text": "Amounts identical in a comma-decimal locale (de-DE)",
+   "roles": [
+    "checkout",
+    "upsell"
+   ],
+   "severity": "warn",
+   "auto": [
+    "locale:*",
+    "!locale:*:typed-amounts"
+   ]
+  },
+  {
+   "id": "DB-14",
+   "section": "Design & branding",
+   "text": "Every typed amount is SDK-bound or intended static copy (survives a reprice)",
+   "roles": [
+    "checkout",
+    "upsell"
+   ],
+   "severity": "warn",
+   "evidence": [
+    "locale:*:typed-amounts",
+    "pr-review:hardcoded-price"
+   ]
+  },
+  {
+   "id": "FF-01",
+   "section": "Funnel flow & functionality",
+   "text": "Correct funnel pages cloned for each part of the offer",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "FF-02",
+   "section": "Funnel flow & functionality",
+   "text": "All CTA buttons and links work and go where they should",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt",
+    "storefront"
+   ],
+   "severity": "warn",
+   "auto": [
+    "links:*"
+   ]
+  },
+  {
+   "id": "FF-03",
+   "section": "Funnel flow & functionality",
+   "text": "Each page leads to the correct next page (route tags)",
+   "roles": [
+    "checkout",
+    "upsell"
+   ],
+   "severity": "blocker",
+   "auto": [
+    "funnel-chain:*"
+   ]
+  },
+  {
+   "id": "FF-04",
+   "section": "Funnel flow & functionality",
+   "text": "Upsells show the correct products and prices",
+   "roles": [
+    "upsell"
+   ],
+   "severity": "blocker"
+  },
+  {
+   "id": "FF-05",
+   "section": "Funnel flow & functionality",
+   "text": "Scrolling or sticky CTA at the top or bottom of the page",
+   "roles": [
+    "presell",
+    "landing"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "FF-06",
+   "section": "Funnel flow & functionality",
+   "text": "Interactive elements work on desktop and mobile (pop-ups, sliders, selectors)",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell"
+   ],
+   "severity": "warn",
+   "evidence": [
+    "browser-runtime:*:errors"
+   ]
+  },
+  {
+   "id": "FF-07",
+   "section": "Funnel flow & functionality",
+   "text": "Every page loads",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt",
+    "storefront"
+   ],
+   "severity": "blocker",
+   "auto": [
+    "http:*"
+   ]
+  },
+  {
+   "id": "TR-01",
+   "section": "Tracking & integrations",
+   "text": "GTM present and the same on every page",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "warn",
+   "auto": [
+    "tracking-consistency:gtm*"
+   ],
+   "evidence": [
+    "tags-observed:*"
+   ]
+  },
+  {
+   "id": "TR-02",
+   "section": "Tracking & integrations",
+   "text": "Google Analytics present and the same on every page",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "warn",
+   "auto": [
+    "tracking-consistency:ga4*"
+   ],
+   "evidence": [
+    "tags-observed:*"
+   ]
+  },
+  {
+   "id": "TR-03",
+   "section": "Tracking & integrations",
+   "text": "Everflow pixel present and the same on every page",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "warn",
+   "auto": [
+    "tracking-consistency:everflow*"
+   ]
+  },
+  {
+   "id": "TR-04",
+   "section": "Tracking & integrations",
+   "text": "UTM and click parameters carried through the whole funnel, onto the order",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "warn",
+   "auto": [
+    "param-propagation:*",
+    "order:attribution",
+    "order:params-per-page"
+   ]
+  },
+  {
+   "id": "TR-05",
+   "section": "Tracking & integrations",
+   "text": "Success URLs chain to the next page in order",
+   "roles": [
+    "checkout",
+    "upsell"
+   ],
+   "severity": "warn",
+   "auto": [
+    "funnel-chain:*"
+   ]
+  },
+  {
+   "id": "TR-06",
+   "section": "Tracking & integrations",
+   "text": "In tag manager preview, purchase and upsell events fire once with the right value",
+   "roles": [
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "warn",
+   "evidence": [
+    "tags-observed:*",
+    "order:purchase-event"
+   ]
+  },
+  {
+   "id": "TR-07",
+   "section": "Tracking & integrations",
+   "text": "If you came through an affiliate test link, the test conversion was rejected afterwards",
+   "roles": [
+    "checkout"
+   ],
+   "severity": "info"
+  },
+  {
+   "id": "LG-01",
+   "section": "Legal & subpages",
+   "text": "FAQ opens in a new tab with the right content",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "warn",
+   "auto": [
+    "legal-links:faq*"
+   ]
+  },
+  {
+   "id": "LG-02",
+   "section": "Legal & subpages",
+   "text": "Contact Us opens in a new tab with the right details",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "warn",
+   "auto": [
+    "legal-links:contact*"
+   ]
+  },
+  {
+   "id": "LG-03",
+   "section": "Legal & subpages",
+   "text": "Shipping page opens in a new tab",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "warn",
+   "auto": [
+    "legal-links:shipping*"
+   ]
+  },
+  {
+   "id": "LG-04",
+   "section": "Legal & subpages",
+   "text": "Terms & Conditions open in a new tab",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "warn",
+   "auto": [
+    "legal-links:terms*"
+   ]
+  },
+  {
+   "id": "LG-05",
+   "section": "Legal & subpages",
+   "text": "Returns page opens in a new tab",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "warn",
+   "auto": [
+    "legal-links:returns*"
+   ]
+  },
+  {
+   "id": "LG-06",
+   "section": "Legal & subpages",
+   "text": "Privacy Policy opens in a new tab",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "warn",
+   "auto": [
+    "legal-links:privacy*"
+   ]
+  },
+  {
+   "id": "LG-07",
+   "section": "Legal & subpages",
+   "text": "No links to the default store address (no 29next subdomain)",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt",
+    "storefront"
+   ],
+   "severity": "warn",
+   "auto": [
+    "storefront-domain:*"
+   ]
+  },
+  {
+   "id": "CP-01",
+   "section": "Checkout: positive cases",
+   "text": "Valid customer details (name, email, phone) accepted",
+   "roles": [
+    "checkout"
+   ],
+   "severity": "warn",
+   "auto": [
+    "order:created"
+   ]
+  },
+  {
+   "id": "CP-02",
+   "section": "Checkout: positive cases",
+   "text": "Standard test card 6011 1111 1111 1117 completes",
+   "roles": [
+    "checkout"
+   ],
+   "severity": "blocker",
+   "auto": [
+    "order:created",
+    "order:receipt"
+   ]
+  },
+  {
+   "id": "CP-03",
+   "section": "Checkout: positive cases",
+   "text": "3-D Secure test card 6011 0009 9013 9424 completes",
+   "roles": [
+    "checkout"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "CP-04",
+   "section": "Checkout: positive cases",
+   "text": "Valid expiry and CVV accepted",
+   "roles": [
+    "checkout"
+   ],
+   "severity": "warn",
+   "auto": [
+    "order:created"
+   ]
+  },
+  {
+   "id": "CP-05",
+   "section": "Checkout: positive cases",
+   "text": "\"Shipping same as billing\" shows and hides the billing fields correctly",
+   "roles": [
+    "checkout"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "CP-06",
+   "section": "Checkout: positive cases",
+   "text": "Predictive address autocomplete suggests and fills",
+   "roles": [
+    "checkout"
+   ],
+   "severity": "info"
+  },
+  {
+   "id": "CP-07",
+   "section": "Checkout: positive cases",
+   "text": "Location-based content right per market (check with a VPN for multi-country)",
+   "roles": [
+    "checkout"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "CP-08",
+   "section": "Checkout: positive cases",
+   "text": "Exit-pop coupon works and its price is what the order records",
+   "roles": [
+    "checkout"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "CP-09",
+   "section": "Checkout: positive cases",
+   "text": "Test order on every checkout option: right product ids, options and prices on the orders page",
+   "roles": [
+    "checkout"
+   ],
+   "severity": "blocker"
+  },
+  {
+   "id": "CP-10",
+   "section": "Checkout: positive cases",
+   "text": "Checkout with the phone field blank goes through (or phone is marked required)",
+   "roles": [
+    "checkout"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "CP-11",
+   "section": "Checkout: positive cases",
+   "text": "Upsell accept and decline both work after a real order",
+   "roles": [
+    "upsell"
+   ],
+   "severity": "warn",
+   "auto": [
+    "order:upsells"
+   ]
+  },
+  {
+   "id": "CN-01",
+   "section": "Checkout: negative cases",
+   "text": "Empty required fields show errors",
+   "roles": [
+    "checkout"
+   ],
+   "severity": "warn",
+   "auto": [
+    "form-negative:*:empty"
+   ]
+  },
+  {
+   "id": "CN-02",
+   "section": "Checkout: negative cases",
+   "text": "Invalid email shows an error",
+   "roles": [
+    "checkout"
+   ],
+   "severity": "warn",
+   "auto": [
+    "form-negative:*:email"
+   ]
+  },
+  {
+   "id": "CN-03",
+   "section": "Checkout: negative cases",
+   "text": "Invalid or expired card shows an error",
+   "roles": [
+    "checkout"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "CN-04",
+   "section": "Checkout: negative cases",
+   "text": "Invalid CVV shows an error",
+   "roles": [
+    "checkout"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "CN-05",
+   "section": "Checkout: negative cases",
+   "text": "Error messages are in the shopper's language",
+   "roles": [
+    "checkout"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "AP-01",
+   "section": "Order data (orders_create)",
+   "text": "Correct funnel / campaign on the order",
+   "roles": [
+    "checkout"
+   ],
+   "severity": "warn",
+   "evidence": [
+    "order:created"
+   ]
+  },
+  {
+   "id": "AP-02",
+   "section": "Order data (orders_create)",
+   "text": "Correct gateway group",
+   "roles": [
+    "checkout"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "AP-03",
+   "section": "Order data (orders_create)",
+   "text": "Language sent as a two-letter language code (EN, not US)",
+   "roles": [
+    "checkout"
+   ],
+   "severity": "warn",
+   "evidence": [
+    "order:created"
+   ]
+  },
+  {
+   "id": "AP-04",
+   "section": "Order data (orders_create)",
+   "text": "Correct shipping codes",
+   "roles": [
+    "checkout"
+   ],
+   "severity": "warn",
+   "evidence": [
+    "order:created"
+   ]
+  },
+  {
+   "id": "AP-05",
+   "section": "Order data (orders_create)",
+   "text": "Correct offer ids and discounts on the order",
+   "roles": [
+    "checkout"
+   ],
+   "severity": "warn",
+   "evidence": [
+    "order:created"
+   ]
+  },
+  {
+   "id": "CM-01",
+   "section": "Compatibility & mobile",
+   "text": "Tested in Chrome, Firefox, Edge, Safari and on mobile (automated run is Chromium only)",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt",
+    "storefront"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "CM-02",
+   "section": "Compatibility & mobile",
+   "text": "Fully works on desktop and mobile",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt",
+    "storefront"
+   ],
+   "severity": "warn",
+   "evidence": [
+    "browser-runtime:*",
+    "responsive:*"
+   ]
+  },
+  {
+   "id": "CM-03",
+   "section": "Compatibility & mobile",
+   "text": "Mobile at 100%: readable, no broken layout",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt",
+    "storefront"
+   ],
+   "severity": "warn",
+   "auto": [
+    "responsive:*:mobile"
+   ]
+  },
+  {
+   "id": "CM-04",
+   "section": "Compatibility & mobile",
+   "text": "Mobile zoom 125%: readable, no broken layout",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt",
+    "storefront"
+   ],
+   "severity": "warn",
+   "auto": [
+    "responsive:*:zoom-125"
+   ]
+  },
+  {
+   "id": "CM-05",
+   "section": "Compatibility & mobile",
+   "text": "Mobile zoom 150%: readable for older audiences, no broken layout",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt",
+    "storefront"
+   ],
+   "severity": "warn",
+   "auto": [
+    "responsive:*:zoom-150"
+   ]
+  },
+  {
+   "id": "CM-06",
+   "section": "Compatibility & mobile",
+   "text": "Tested on a real device",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt",
+    "storefront"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "CM-07",
+   "section": "Compatibility & mobile",
+   "text": "Tested in a device emulator",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt",
+    "storefront"
+   ],
+   "severity": "warn",
+   "auto": [
+    "responsive:*:mobile"
+   ]
+  },
+  {
+   "id": "SN-01",
+   "section": "Storefront: navigation",
+   "text": "Home, Shop, Support and Contact go to the right pages",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn",
+   "evidence": [
+    "storefront-nav:*"
+   ]
+  },
+  {
+   "id": "SN-02",
+   "section": "Storefront: navigation",
+   "text": "No broken or missing navigation links",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn",
+   "auto": [
+    "storefront-nav:header",
+    "storefront-nav:nav"
+   ]
+  },
+  {
+   "id": "SS-01",
+   "section": "Storefront: search",
+   "text": "A valid search returns relevant products",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "SS-02",
+   "section": "Storefront: search",
+   "text": "Partial or misspelled searches return suggestions",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "SS-03",
+   "section": "Storefront: search",
+   "text": "Filters and sorting work",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "SS-04",
+   "section": "Storefront: search",
+   "text": "Searching for something unavailable shows a clean empty state",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn",
+   "auto": [
+    "storefront-search:*"
+   ]
+  },
+  {
+   "id": "SL-01",
+   "section": "Storefront: login & register",
+   "text": "Login and register forms show the right fields and labels",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "SL-02",
+   "section": "Storefront: login & register",
+   "text": "Valid credentials log in",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "SL-03",
+   "section": "Storefront: login & register",
+   "text": "Registration completes",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "SL-04",
+   "section": "Storefront: login & register",
+   "text": "Invalid credentials show a clear error",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "SL-05",
+   "section": "Storefront: login & register",
+   "text": "Empty or badly formatted inputs are flagged",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn",
+   "auto": [
+    "storefront-login:*"
+   ]
+  },
+  {
+   "id": "SC-01",
+   "section": "Storefront: cart",
+   "text": "Adding a product updates the cart summary",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "SC-02",
+   "section": "Storefront: cart",
+   "text": "Cart shows the right name, price, quantity and subtotal",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "blocker"
+  },
+  {
+   "id": "SC-03",
+   "section": "Storefront: cart",
+   "text": "Changing quantity recalculates the total",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "SC-04",
+   "section": "Storefront: cart",
+   "text": "Checkout starts from the cart",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "SC-05",
+   "section": "Storefront: cart",
+   "text": "Removing every item causes no errors",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "SC-06",
+   "section": "Storefront: cart",
+   "text": "Quantity 0 or invalid quantities are handled",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "SP-01",
+   "section": "Storefront: product pages",
+   "text": "Overview, Features, Tech specs and Reviews sections open",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "SP-02",
+   "section": "Storefront: product pages",
+   "text": "No broken product page links",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn",
+   "auto": [
+    "links:dead"
+   ]
+  },
+  {
+   "id": "SF-01",
+   "section": "Storefront: footer",
+   "text": "Footer: About, FAQ, Terms of Service and Privacy links work",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn",
+   "auto": [
+    "storefront-nav:footer",
+    "legal-links:*"
+   ]
+  },
+  {
+   "id": "SF-02",
+   "section": "Storefront: footer",
+   "text": "Footer: account, cart and login links work",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn",
+   "auto": [
+    "storefront-nav:footer"
+   ]
+  },
+  {
+   "id": "SF-03",
+   "section": "Storefront: footer",
+   "text": "Footer links open in the expected tab",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "SU-01",
+   "section": "Storefront: usability",
+   "text": "UI is consistent, clear and easy to navigate",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "SU-02",
+   "section": "Storefront: usability",
+   "text": "Buttons, forms and links respond",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn",
+   "evidence": [
+    "browser-runtime:*"
+   ]
+  },
+  {
+   "id": "SU-03",
+   "section": "Storefront: usability",
+   "text": "Error messages and notifications are clear",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn"
+  },
+  {
+   "id": "SU-04",
+   "section": "Storefront: usability",
+   "text": "Pages load quickly and run smoothly",
+   "roles": [
+    "storefront"
+   ],
+   "severity": "warn",
+   "auto": [
+    "speed:*"
+   ]
+  },
+  {
+   "id": "EX-01",
+   "section": "Automated extras",
+   "text": "Meta tags and social previews (title, description, og:image)",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt",
+    "storefront"
+   ],
+   "severity": "info",
+   "auto": [
+    "seo-meta:*"
+   ]
+  },
+  {
+   "id": "EX-02",
+   "section": "Automated extras",
+   "text": "Images and video on a CDN and under 500 KB",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt",
+    "storefront"
+   ],
+   "severity": "warn",
+   "auto": [
+    "media-weight:*"
+   ]
+  },
+  {
+   "id": "EX-03",
+   "section": "Automated extras",
+   "text": "No console or script errors; SDK reaches ready",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt",
+    "storefront"
+   ],
+   "severity": "warn",
+   "auto": [
+    "browser-runtime:*"
+   ]
+  },
+  {
+   "id": "EX-04",
+   "section": "Automated extras",
+   "text": "Tags and dataLayer events seen in the browser",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "warn",
+   "auto": [
+    "tags-observed:*"
+   ]
+  },
+  {
+   "id": "EX-05",
+   "section": "Automated extras",
+   "text": "Pull request review (prices, cart calls, secrets, leftovers)",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "warn",
+   "auto": [
+    "pr-review:*"
+   ]
+  }
+ ]
+}

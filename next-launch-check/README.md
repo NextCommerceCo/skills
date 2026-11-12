@@ -1,11 +1,13 @@
 # Campaign Launch Check
 
-A **before-you-launch check** for a campaign: the story or landing page, the
-checkout, the upsells and the thank-you page. You give your assistant the
-web address of the first page. It follows the funnel to the end and tells
-you what is broken, what looks risky, and what a person still has to look
-at. It can also check a storefront, a pull request's preview, or a page
-against its Figma design.
+A **QA check for a campaign before it goes live**. Your assistant asks what you
+are testing — a presell page, a landing page, a checkout, an upsell, the full
+funnel, or a storefront — and runs the full QA checklist for that kind of
+page. It checks everything a computer can check by itself, including a speed
+test on mobile and desktop. It shows you screenshots for the things you need
+to confirm with your own eyes, and asks you about the rest one section at a
+time. It can also check a pull request's preview or compare a page with its
+Figma design.
 
 It runs on your computer and needs no account or key. It does not change
 your campaign, does not place orders by itself, and does not upload
@@ -16,6 +18,7 @@ summary you can paste into a ticket or a message.
 
 | Area | Examples |
 |---|---|
+| Speed | A speed test on mobile and desktop, with scores and load times |
 | Pages and routes | Every page loads; the checkout and upsells lead to the right next page |
 | Checkout setup | The checkout script is present, pinned and the same on every page |
 | Tracking | The same tag manager, analytics and pixel ids on every page; which tags actually load |
@@ -27,8 +30,9 @@ summary you can paste into a ticket or a message.
 | Your rules | Your own checklist, added to the report |
 
 Some things only a person can judge, such as whether prices match the offer
-plan. The report lists those as a checklist, and your assistant walks you
-through them.
+plan. Those stay on the checklist, and your assistant walks you through them.
+Only the items that fit what you are testing are included: a checkout gets the
+card and form checks, a presell page gets the content and parameter checks.
 
 ## What You Need
 
@@ -56,7 +60,8 @@ Ask your assistant in plain words:
 
 | You say | What happens |
 |---|---|
-| "Run a launch check on https://offer.example.com/" | Checks the whole funnel and writes the report |
+| "QA this checkout: https://offer.example.com/checkout/" | Runs the checkout checklist and the speed test on that page |
+| "Run a launch check on the full funnel at https://offer.example.com/" | Checks every page from the first one to the thank-you page |
 | "Launch check this PR's preview" | Reviews the changed code and checks the preview pages |
 | "Test the storefront at https://shop.example.com" | Checks menus, footer, search and login |
 | "Compare this page with the Figma design" | Puts screenshots next to the design and compares fonts and colours |
@@ -78,7 +83,7 @@ before every test order, and you place it yourself.
 
 | File | What it is |
 |---|---|
-| `report.md` | The readable report: result, problems first, screenshots, your checklist |
+| `report.md` | The readable report: result, speed table, the checklist with every item marked pass, fail or to do, and screenshots |
 | `results.json` | The same results for tools and spreadsheets |
 | `screenshots/` | Desktop, phone and zoomed views of each page |
 

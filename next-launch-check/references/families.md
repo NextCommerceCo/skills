@@ -1,6 +1,8 @@
 # Check families
 
-Each row in the report has an id that starts with its family. Status is one
+The report is organised by the QA checklist (`checklist.json`). Each checklist
+item is decided by, or supported with evidence from, the automated rows below.
+Each row has an id that starts with its family. Status is one
 of `pass`, `fail`, `warn`, `manual_review` (a person must look; evidence is
 attached) or `skipped`. Severity is `blocker`, `warn` or `info`. Rows with
 severity `info` are advice and never change the result.
@@ -24,7 +26,7 @@ the result shows `incomplete`.
 | `seo-meta` | Title, description, `og:title`, `og:image`, `twitter:card`, favicon, `lang`; a missing viewport tag is a warn | info (viewport warn) | Add the tags; without a viewport tag phones render the desktop layout |
 | `media-weight` | Images and video over 500 KB; files over 300 KB not on a known CDN host; files that do not load | warn | Compress, resize or move to a CDN |
 | `storefront-domain` | Links, form actions, canonical and `og:url` that point at the platform's default `*.29next.store` address from a page on your own domain | warn | Use your own domain |
-| `pagespeed` | Google PageSpeed Insights mobile score and LCP, FCP, TBT, CLS against common targets (only with `--pagespeed`) | info | Treat as advice; lab scores vary |
+| `speed` | Mobile and desktop speed test per page (`speed:<page>:mobile`, `:desktop`): PageSpeed Insights with your key, else Lighthouse on your machine, else keyless PageSpeed. Targets: score ≥ 50, FCP ≤ 3 s, LCP ≤ 4 s, TBT ≤ 200 ms, CLS ≤ 0.1, Speed Index ≤ 4.4 s | warn | Use the PageSpeed link for the full audit; lab scores vary run to run |
 | `pr-review` | Lines a PR adds: typed money amounts not bound to the SDK, direct cart or order API calls, secrets, debug leftovers, placeholders, route tag and SDK version changes (only with `--diff`) | blocker for secrets; warn otherwise | Bind prices with `data-next-display`; use SDK attributes or its JS API; remove and rotate secrets |
 
 ## Browser lane (`--browser`, Chromium)
@@ -36,9 +38,9 @@ the form check blocks every write request. See `safety.md`.
 |---|---|---|---|
 | `browser-runtime` | Console and script errors; the SDK reaches ready (0.5: `data-next-ready` on `<html>`; 0.4: `next-display-ready` class) within 10 s; visible `NaN`, `undefined` or raw template text | blocker when the SDK is not ready on a checkout or upsell | Open the page with `?debug=1` (SDK 0.5) or `?debugger=true` (0.4) to see the cause |
 | `tags-observed` | Tag libraries that actually load (GTM, gtag, Meta, TikTok, Everflow), beacons that would have been sent, dataLayer event names | warn | GTM in source but `gtm.js` never loading usually means a blocked or broken snippet |
-| `responsive` | Content running off the right edge on a phone (390 px) and at 125% and 150% zoom; screenshots of each | warn | Find the elements listed in the evidence; usually fixed widths or long unbroken text |
+| `responsive` | Content running off the right edge on a phone (`:mobile`, 390 px), at 125% (`:zoom-125`) and at 150% zoom (`:zoom-150`); a screenshot of each | warn | Find the elements listed in the evidence; usually fixed widths or long unbroken text |
 | `param-propagation` | Test UTM parameters survive each click from the entry page to the checkout | warn | Carry the query string onto funnel links; attribution depends on it |
-| `param-toggles` | Each of `exit=n`, `timer=n`, `reviews=n`, `loading=n`, `banner=n`, `seen=n` on the entry page and the checkout, with screenshots of what disappears | check by hand | These are campaign-side conventions, not SDK features; wire the ones your campaign promises |
+| `param-toggles` | One row per page and parameter (`param-toggles:<page>:timer`…): presell and landing pages get `exit`, `timer`, `reviews`, `loading`, `banner`, `seen`; checkouts all but `seen`; upsells `timer`, `reviews`, `banner`. Baseline and `=n` screenshots | check by hand | These are campaign-side conventions, not SDK features; wire the ones your campaign promises |
 | `locale` | SDK-bound amounts agree between an en-US and a de-DE browser; amounts typed into the page (info) | warn | Custom code that parses formatted prices breaks in comma-decimal locales; read values from the SDK instead |
 | `form-negative` | Submitting the empty checkout is stopped with visible errors; an invalid email is flagged; no order call leaves the browser | blocker when an empty form tries to create an order | Use the SDK's checkout fields and validation |
 | `storefront-search`, `storefront-login`, `storefront-nav` | Storefront: a nonsense search shows a clean empty state; an empty login submit shows an error; header and footer links load | warn | — |
@@ -54,6 +56,10 @@ the form check blocks every write request. See `safety.md`.
 | `order:purchase-event` | Exactly one purchase event reached the dataLayer | warn |
 | `order:params-per-page` | The entry parameters stayed in the URL after checkout | info |
 | `order:receipt` | The receipt page was reached | blocker |
+
+## Scope
+
+`scope:entry` (info) appears when the page you named does not look like the type you said, for example a checkout with no checkout markers. Checks follow what you said.
 
 ## Campaigns OS
 
