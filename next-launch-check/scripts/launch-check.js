@@ -17,6 +17,7 @@ const CL = require('./lib/checklist');
 const U = require('./lib/util');
 const H = require('./lib/html');
 const { isCommerce } = require('./lib/detect');
+const COS = require('./lib/campaigns-os');
 
 const ROOT = path.join(__dirname, '..');
 const VERSION = (/^version:\s*([^\s]+)/m.exec(fs.readFileSync(path.join(ROOT, 'SKILL.md'), 'utf8')) || [])[1] || '0.0.0';
@@ -28,8 +29,6 @@ const FAMILIES = {
   storefront: ['http', 'storefront-nav', 'tracking', 'legal-links', 'links', 'content', 'seo-meta', 'media', 'storefront-domain', 'speed'],
   design: ['http'],
 };
-// Families a campaigns-os verdict already proves for the same build.
-const CAMPAIGNS_OS_COVERS = new Set(['http', 'funnel-chain', 'legal-links', 'param-propagation', 'param-toggles', 'browser-runtime', 'order']);
 const DESIGN_ITEMS = [
   { id: 'DS-01', section: 'Design review', text: 'Side by side with the design: layout, spacing and imagery match at desktop width', roles: ['design'], severity: 'warn', auto: ['design-parity:screens-*'] },
   { id: 'DS-02', section: 'Design review', text: 'Text styles (font, size, weight) match the design', roles: ['design'], severity: 'warn', auto: ['design-parity:typography'] },
@@ -43,6 +42,7 @@ const USAGE = `next-launch-check ${VERSION}
 Usage:
   node launch-check.js env
   node launch-check.js check <url> --scope <presell|landing|checkout|upsell|funnel|storefront> [options]
+  node launch-check.js speed <url> [--page <url>]...
   node launch-check.js design <url> [--figma-css <file>] [--frame <png>]... [--width <px>]
   node launch-check.js record <checkout-url> [--into <run-dir>] [--confirm-test-params] [--rules <file>]
   node launch-check.js finalize <run-dir> --answers <answers.json>
@@ -56,7 +56,14 @@ Options:
   --speed-pages <n>         pages to speed-test in a full funnel (default 3)
   --rules <file>            your QA rules: JSON, or a Markdown checklist
   --diff <file>             review a pull request diff (gh pr diff > pr.diff)
-  --campaigns-os-verdict <file>  fold in a campaigns-os QA verdict for the same build
+  Campaigns OS (runs campaigns-os qa and adds its results to the checklist):
+  --packet <file>           Build Packet (found automatically as ./campaign-runtime.build.json)
+  --site <dir> --family <f> [--slug <s>]   a built Page Kit folder and its template family
+  --map-id <id> --spec <file>              a saved Map id and its exported CampaignSpec
+  --campaigns-os-base-url <url>  the deployed campaign root, if not the URL being tested
+  --campaigns-os-orders <common|checkout|accept|decline|full>  place typed test-card orders (ask first)
+  --no-campaigns-os         skip it
+  --campaigns-os-verdict <file>  fold in a verdict from an earlier campaigns-os run instead
   --mask-ids                mask tracking ids in the report
   --max-pages <n>           pages to crawl (default 12)
   --param key=value         extra parameter to test for carry-through (repeatable)
@@ -89,6 +96,16 @@ function parseArgs(argv) {
       case '--rules': o.rules = val(); break;
       case '--diff': o.diff = val(); break;
       case '--campaigns-os-verdict': o.campaignsOsVerdict = val(); break;
+      case '--no-campaigns-os': o.campaignsOs = false; break;
+      case '--packet': o.packet = val(); break;
+      case '--site': o.site = val(); break;
+      case '--family': o.family = val(); break;
+      case '--slug': o.slug = val(); break;
+      case '--map-id': o.mapId = val(); break;
+      case '--spec': o.spec = val(); break;
+      case '--campaigns-os-base-url': o.campaignsOsBaseUrl = val(); break;
+      case '--campaigns-os-orders': o.campaignsOsOrders = val(); break;
+      case '--campaigns-os-bin': o.campaignsOsBin = val(); break;
       case '--figma-css': o.figmaCss = val(); break;
       case '--width': o.width = parseInt(val(), 10); break;
       case '--max-pages': o.maxPages = parseInt(val(), 10); break;
@@ -179,13 +196,12 @@ async function sourceLane(ctx, families) {
   return out;
 }
 
-function foldCampaignsOs(assertions, file) {
-  const v = JSON.parse(fs.readFileSync(file, 'utf8'));
-  const disposition = v.disposition || (v.verdict && v.verdict.disposition) || 'unknown';
-  const marked = assertions.map((a) => (CAMPAIGNS_OS_COVERS.has(a.family) ? { ...a, deferred: true } : a));
-  const status = disposition === 'ready' ? 'pass' : disposition === 'ready_with_exceptions' ? 'warn' : 'fail';
-  marked.push(U.assertion({ id: 'campaigns-os:verdict', family: 'campaigns-os', status, severity: 'blocker', message: `campaigns-os QA verdict: ${disposition}. It is the authority for routes, policy links, parameters, runtime and orders on this build.`, evidence: { path: file, run_id: v.run_id || null, assertions: Array.isArray(v.assertions) ? v.assertions.length : null } }));
-  return { assertions: marked, info: { path: file, disposition, run_id: v.run_id || null } };
+// Import a campaigns-os verdict: its rows join the checklist, and our rows in
+// the families it proved are marked deferred to it.
+function foldCampaignsOs(rows, file) {
+  const imp = COS.importVerdict(file);
+  const marked = rows.map((a) => (imp.defer.has(a.family) ? { ...a, deferred: true } : a));
+  return { assertions: [...marked, ...imp.rows], info: imp.info };
 }
 
 function extraItems(rules, scopeRoles) {
@@ -249,9 +265,25 @@ async function runCheck(scope, url, o) {
     lanes.browser = got.some((r) => /unavailable/.test(r.id)) ? 'skipped (Playwright not installed)' : 'ran';
     rows.push(...got);
   } else lanes.browser = 'off (--no-browser)';
-  if (mode === 'funnel') lanes.order = 'not run yet (record, or campaigns-os for a scripted order)';
+  if (mode === 'funnel') lanes.order = o.campaignsOsOrders ? `campaigns-os typed-card orders (${o.campaignsOsOrders})` : 'not run yet (record, or campaigns-os for a scripted order)';
   let campaignsOs = null;
-  if (o.campaignsOsVerdict) ({ assertions: rows, info: campaignsOs } = foldCampaignsOs(rows, o.campaignsOsVerdict));
+  if (o.campaignsOsVerdict) {
+    ({ assertions: rows, info: campaignsOs } = foldCampaignsOs(rows, o.campaignsOsVerdict));
+    lanes.campaigns_os = 'verdict folded in';
+  } else if (mode === 'funnel') {
+    const det = COS.detect(o);
+    if (det.run) {
+      const ran = await COS.run(det, { baseUrl: o.campaignsOsBaseUrl || url, outDir, o });
+      if (ran.verdict) {
+        ({ assertions: rows, info: campaignsOs } = foldCampaignsOs(rows, ran.verdict));
+        campaignsOs.command = ran.command;
+        lanes.campaigns_os = `ran (${det.kind}, ${ran.seconds} s)`;
+      } else {
+        rows.push(U.assertion({ id: 'campaigns-os:run', family: 'campaigns-os', status: 'skipped', severity: 'info', message: `campaigns-os qa did not produce a verdict (exit ${ran.code}): ${ran.tail}. Log: campaigns-os/campaigns-os.log` }));
+        lanes.campaigns_os = 'failed (see campaigns-os/campaigns-os.log)';
+      }
+    } else lanes.campaigns_os = `not run: ${det.reason}`;
+  }
   rows = R.applyByDesign(rows, rules);
   const result = {
     schema: 'next-launch-check/results/v2',
@@ -304,6 +336,31 @@ async function runRecord(url, o) {
   return { result, outDir };
 }
 
+// Speed test only: mobile and desktop for the URL and any --page URLs.
+async function runSpeed(url, o) {
+  const started = new Date();
+  const outDir = path.resolve(o.out || path.join('next-launch-check-output', `${U.hostSlug(url)}-${U.timestamp(started)}-speed`));
+  fs.mkdirSync(outDir, { recursive: true });
+  const pages = [];
+  for (const u of [url, ...o.pages]) { const p = await P.load(u); p.via = u === url ? 'entry' : 'named'; p.role = 'landing'; p.in_scope = true; pages.push(p); }
+  const rows = await require('./lib/checks/speed')({ pages, speedPages: pages.filter((p) => p.ok), options: { speed: true } });
+  for (const p of pages) if (!p.ok) rows.push(U.assertion({ id: `http:${p.label}`, family: 'http', page: p.label, url: p.url, status: 'fail', severity: 'blocker', message: `Page answered HTTP ${p.status || 'error'}.` }));
+  const result = {
+    schema: 'next-launch-check/results/v2', tool_version: VERSION, run_id: `${U.timestamp(started)}-speed`, mode: 'speed', scope: 'speed', entry_url: url,
+    started_at: started.toISOString(), finished_at: new Date().toISOString(), options: { speed: true }, lanes: { speed: 'ran' },
+    pages: pages.map((p) => ({ label: p.label, url: p.url, final_url: p.finalUrl, status: p.status, type: p.kind.type, role: null, in_scope: true, title: p.title, via: p.via })),
+    campaigns_os: null,
+  };
+  const speedItem = { id: 'BP-01', section: 'Speed', text: 'Speed test, mobile and desktop', roles: ['speed'], severity: 'warn', auto: ['speed:*', 'http:*'] };
+  result.assertions = rows;
+  result.counts = report.counts(rows);
+  result.disposition_automated = report.automatedDisposition(rows);
+  result.checklist = CL.build([{ label: '-', role: 'speed', in_scope: true }], rows, { extra: [speedItem] }).filter((i) => i.id === 'BP-01');
+  result.disposition = CL.disposition(result.checklist, result.disposition_automated);
+  report.write(outDir, result);
+  return { result, outDir };
+}
+
 function finalize(dir, answersFile) {
   const file = path.join(dir, 'results.json');
   const result = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -334,6 +391,7 @@ async function main(argv) {
     if (cmd === 'finalize') { if (!target || !o.answers) throw new Error('finalize needs <run-dir> and --answers <file>'); done = finalize(path.resolve(target), o.answers); }
     else if (cmd === 'record') done = await runRecord(checkUrl(target || ''), o);
     else if (cmd === 'check') done = await runCheck(o.scope || 'funnel', checkUrl(target || ''), o);
+    else if (cmd === 'speed') done = await runSpeed(checkUrl(target || ''), o);
     else if (cmd === 'funnel' || cmd === 'storefront' || cmd === 'design') done = await runCheck(cmd === 'funnel' ? (o.scope || 'funnel') : cmd, checkUrl(target || ''), o);
     else throw new Error(`unknown command ${cmd}`);
     const r = done.result;
@@ -352,4 +410,4 @@ async function main(argv) {
 
 if (require.main === module) main(process.argv.slice(2)).then((code) => { process.exitCode = code; });
 
-module.exports = { main, parseArgs, runCheck, runRecord, finalize, foldCampaignsOs, assignRoles, VERSION, SCOPES };
+module.exports = { main, parseArgs, runCheck, runRecord, runSpeed, finalize, foldCampaignsOs, assignRoles, VERSION, SCOPES };

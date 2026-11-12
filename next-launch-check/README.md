@@ -64,8 +64,17 @@ Ask your assistant in plain words:
 | "Run a launch check on the full funnel at https://offer.example.com/" | Checks every page from the first one to the thank-you page |
 | "Launch check this PR's preview" | Reviews the changed code and checks the preview pages |
 | "Test the storefront at https://shop.example.com" | Checks menus, footer, search and login |
+| "Just run a speed test on https://offer.example.com/" | Mobile and desktop speed scores and load times, nothing else |
 | "Compare this page with the Figma design" | Puts screenshots next to the design and compares fonts and colours |
 | "I want to place a test order" | Opens a browser window; you place one order with the test card and the assistant records what happened |
+
+## Campaigns OS Projects
+
+If your campaign was built with Campaigns OS, the check also runs Campaigns OS's own QA
+and puts its results on the same checklist: the checkout's payment fields and buttons,
+leftover template styles and images, prices against your campaign settings, analytics
+events, and (if you ask) automatic test orders. Your assistant tells you what it needs
+from your project.
 
 ## About Test Orders
 

@@ -98,10 +98,32 @@ Always ask first, with AskUserQuestion when it is available:
 | Upsell | `upsell` | That page and where accept and decline lead |
 | Full funnel | `funnel` | Every page from the entry URL: presell, landing, checkout, upsells, receipt |
 | Storefront | `storefront` | The store's home page and its header and footer pages |
+| Speed test only | `speed` command | Mobile and desktop speed for the URL (and any `--page`), nothing else |
 
 AskUserQuestion takes 4 options: offer **Full funnel**, **Checkout**, **Upsell** and
 **Presell or landing page**, then ask which of the two if they pick the last one. A
-storefront, a design comparison or a pull request come through "Other".
+storefront, a speed test only, a design comparison or a pull request come through
+"Other".
+
+**Campaigns OS projects.** If the campaign was built with Campaigns OS, the launch
+check also runs `campaigns-os qa` (the engine behind `next-campaigns-qa`) and adds its
+results to the same checklist: template commerce structure (payment fields, wallets,
+bundle selector, bumps), template residue, price parity with the Campaigns App, page
+binding to the Campaign Map, theme and polish gates, analytics correctness and, when
+asked, typed-card test orders. It needs one of these, so ask if `env` found none:
+
+| They have | Pass |
+|---|---|
+| A Build Packet (`campaign-runtime.build.json`) | nothing: run from the campaign folder and it is found, or `--packet <file>` |
+| A built Page Kit folder | `--site <folder> --family <template family>` (e.g. `olympus`) `[--slug <route>]` |
+| A saved Map | `--map-id <id> --spec <exported CampaignSpec.json>` |
+
+For `--site` and `--map-id`, also pass `--campaigns-os-base-url <deployed campaign root>`
+when the URL being tested is not the root (for example the root is `…/olympus/` and you
+test `…/olympus/landing/`). It runs locally and never publishes its verdict to the QA
+portal (`--no-post-verdict`). It uses the project's own `campaigns-os` when installed,
+otherwise `npx` downloads the pinned version once. It needs its own Playwright Chromium:
+`npx campaigns-os qa install-browser`. `--no-campaigns-os` skips it.
 
 Then ask only for what is still missing:
 
@@ -118,7 +140,8 @@ confirms they are agreed test values.
 ## Phase 2: Run the Check
 
 ```bash
-node "$S" check "<url>" --scope <presell|landing|checkout|upsell|funnel|storefront> [--page "<url>"]... [--rules <file>] [--mask-ids]
+node "$S" check "<url>" --scope <presell|landing|checkout|upsell|funnel|storefront> [--page "<url>"]... [--rules <file>] [--mask-ids] [Campaigns OS flags]
+node "$S" speed "<url>" [--page "<url>"]...
 node "$S" design "<page-url>" --figma-css figma.css [--frame desktop.png] [--frame mobile.png]
 ```
 
@@ -164,9 +187,10 @@ node "$S" finalize "<report-folder>" --answers answers.json
 You can call `finalize` after each section; answers accumulate. Finish with the
 **Summary to paste** block from the report.
 
-If a Campaigns OS verdict exists for the same build (a `qa-output/…/<run>.json` file in
-the campaign folder), run again with `--campaigns-os-verdict <file>`. Rows in the
-families it covers are then deferred to it.
+If a Campaigns OS verdict already exists for the same build (a `qa-output/…/<run>.json`
+file), `--campaigns-os-verdict <file>` folds it in without running it again. Either way,
+our route and order rows defer to the families Campaigns OS proved, and its items
+appear in a "Campaigns OS (spec-aware)" section.
 
 Do not edit their code unless they ask. Do not edit `results.json` or `report.md` by
 hand; re-run or `finalize`.
@@ -179,10 +203,10 @@ on the store, marked as a test, with no real charge and no fulfillment when the
 platform's test card is used. It creates a customer record and sends confirmation
 emails to the address typed in.
 
-- **Campaigns OS campaign** (`env` shows a package or a Build Packet): use its
-  typed-card order proof, which is canonical:
-  `npx campaigns-os qa run --packet campaign-runtime.build.json --base-url <url> --browser --test-order common`.
-  Then fold the verdict in as in Phase 3.
+- **Campaigns OS campaign**: its typed-card order proof is canonical. Run the check
+  again with the same Campaigns OS flags plus `--campaigns-os-orders common` (or
+  `full` for every package and upsell path; it plans the orders and caps them at 6).
+  The orders' results fill CP-02, CP-11 and the order-data evidence.
 - **Otherwise**, record an order the tester places by hand, into the same report:
 
   ```bash

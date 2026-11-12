@@ -27,8 +27,8 @@ function rowsFor(item, rows, pageRole, globs) {
   const m = matcher(globs);
   return rows.filter((r) => {
     if (r.waived || r.deferred || !m(r.id)) return false;
-    if (!r.page) return true; // run-wide rows (consistency across pages)
-    const role = pageRole.get(r.page);
+    if (!r.page && !r.role) return true; // run-wide rows (consistency across pages)
+    const role = r.role !== undefined ? r.role : pageRole.get(r.page);
     return !role || item.roles.includes(role);
   });
 }
@@ -52,8 +52,10 @@ function build(pages, rows, { prior = [], extra = [] } = {}) {
   const pageRole = new Map(pages.map((p) => [p.label, p.role]));
   const answers = new Map(prior.filter((i) => i.answer).map((i) => [i.id, { answer: i.answer, note: i.note || null }]));
   const items = [];
+  const cosRan = rows.some((r) => r.id === 'campaigns-os:verdict');
   for (const item of [...CATALOG.items, ...extra]) {
     if (!item.roles.some((r) => roles.has(r))) continue;
+    if (item.requires === 'campaigns-os' && !cosRan) continue;
     const autoRows = item.auto ? rowsFor(item, rows, pageRole, item.auto) : [];
     const evRows = item.evidence ? rowsFor(item, rows, pageRole, item.evidence) : [];
     const auto = autoStatus(autoRows);

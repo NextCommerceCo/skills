@@ -1,0 +1,241 @@
+{
+ "schema_version": "1.0",
+ "run_id": "FIXTURERUN01",
+ "campaign_slug": "olympus-fixture",
+ "base_url": "https://campaign.example.com/olympus/",
+ "disposition": "blocked",
+ "assertions": [
+  {
+   "id": "page_kit.store_profile",
+   "family": "api-metadata",
+   "page": "campaign",
+   "status": "skipped",
+   "actual": "Non-packet QA has no Build Packet target/config pair; Store Profile parity is not applicable."
+  },
+  {
+   "id": "page_kit.sdk_version",
+   "family": "api-metadata",
+   "page": "campaign",
+   "status": "skipped",
+   "actual": "Non-packet QA has no Build Packet spec/target pair; SDK-pin parity is not applicable."
+  },
+  {
+   "id": "polish.hidden_eager_media",
+   "family": "polish_gate",
+   "page": "campaign",
+   "status": "skipped",
+   "actual": "polish.hidden_eager_media.not_applicable: Non-packet QA has no Build Packet and Assembly Report pair; recorded page-load evidence is not applicable."
+  },
+  {
+   "id": "polish.not_applicable",
+   "family": "polish_gate",
+   "page": "campaign",
+   "status": "skipped",
+   "actual": "Non-packet built-site QA has no Assembly Report polish gate."
+  },
+  {
+   "id": "theme_gate.no_theme_context",
+   "family": "theme_gate",
+   "page": "campaign",
+   "status": "pass",
+   "actual": "No theme context exists for this campaign; run prepare-build/theme inspect to populate it."
+  },
+  {
+   "id": "template-brand-contract:olympus",
+   "family": "template_residue",
+   "page": "campaign",
+   "status": "pass",
+   "actual": "loaded for olympus"
+  },
+  {
+   "id": "page-binding:checkout",
+   "family": "api-metadata",
+   "page": "checkout",
+   "status": "manual_review",
+   "severity": "warn",
+   "actual": "unknown",
+   "cause": "unknown",
+   "cause_reason": "no_prior_run"
+  },
+  {
+   "id": "http:checkout",
+   "family": "funnel-flow",
+   "page": "checkout",
+   "status": "pass",
+   "actual": "200 OK",
+   "url": "https://campaign.example.com/olympus/"
+  },
+  {
+   "id": "live-campaign-refs",
+   "family": "api-metadata",
+   "page": "campaign",
+   "status": "skipped",
+   "actual": "not_run"
+  },
+  {
+   "id": "browser-load:checkout",
+   "family": "browser-runtime",
+   "page": "checkout",
+   "status": "pass",
+   "actual": "HTTP 200",
+   "url": "https://campaign.example.com/olympus/"
+  },
+  {
+   "id": "browser-payment-surface:checkout",
+   "family": "browser-runtime",
+   "page": "checkout",
+   "status": "pass",
+   "actual": "card_mounts=1; cvv_mounts=1; spreedly_frames=2",
+   "url": "https://campaign.example.com/olympus/"
+  },
+  {
+   "id": "browser-payment-geometry:checkout",
+   "family": "browser-runtime",
+   "page": "checkout",
+   "status": "pass",
+   "actual": "spreedly-number: host=48px iframe=20px center_delta=0px; spreedly-cvv: host=48px iframe=20px center_delta=0px",
+   "url": "https://campaign.example.com/olympus/"
+  },
+  {
+   "id": "browser-express-wallets:checkout",
+   "family": "browser-runtime",
+   "page": "checkout",
+   "status": "pass",
+   "actual": "paypal:256x44; apple_pay:256x44",
+   "url": "https://campaign.example.com/olympus/"
+  },
+  {
+   "id": "browser-bundle-selector:checkout",
+   "family": "browser-runtime",
+   "page": "checkout",
+   "status": "pass",
+   "actual": "1 selected; 3/3 cards with visible price",
+   "url": "https://campaign.example.com/olympus/"
+  },
+  {
+   "id": "browser-order-bump-state:checkout",
+   "family": "browser-runtime",
+   "page": "checkout",
+   "status": "pass",
+   "actual": "2/2 bump toggle(s) aligned",
+   "url": "https://campaign.example.com/olympus/"
+  },
+  {
+   "id": "template-residue:checkout:style:checkout_submit_button",
+   "family": "template_residue",
+   "page": "checkout",
+   "status": "warn",
+   "severity": "warn",
+   "actual": "rgb(10, 38, 92)",
+   "cause": "unknown",
+   "cause_reason": "no_prior_run",
+   "url": "https://campaign.example.com/olympus/"
+  },
+  {
+   "id": "template-residue:checkout:style:selected_bundle_card",
+   "family": "template_residue",
+   "page": "checkout",
+   "status": "pass",
+   "actual": "campaign palette applied",
+   "url": "https://campaign.example.com/olympus/"
+  },
+  {
+   "id": "template-residue:checkout:style:announcement_bar",
+   "family": "template_residue",
+   "page": "checkout",
+   "status": "skipped",
+   "actual": "selector not found",
+   "url": "https://campaign.example.com/olympus/"
+  },
+  {
+   "id": "template-residue:checkout:placeholder-text",
+   "family": "template_residue",
+   "page": "checkout",
+   "status": "fail",
+   "severity": "blocker",
+   "actual": "placeholder text rendered: Benefit one, Benefit two, Benefit three, Benefit four, Product Name, Lorem, lorem ipsum",
+   "cause": "unknown",
+   "cause_reason": "no_prior_run",
+   "url": "https://campaign.example.com/olympus/"
+  },
+  {
+   "id": "pricing.checkout_price_visible",
+   "family": "pricing",
+   "page": "checkout",
+   "status": "pass",
+   "actual": "4 visible price row(s); 1 visible cart-summary total(s)",
+   "url": "https://campaign.example.com/olympus/"
+  },
+  {
+   "id": "browser-sdk-debugger:checkout",
+   "family": "browser-runtime",
+   "page": "checkout",
+   "status": "pass",
+   "actual": "debugger overlay and selector controls mounted",
+   "url": "https://campaign.example.com/olympus/"
+  },
+  {
+   "id": "browser-request-failures:checkout",
+   "family": "browser-runtime",
+   "page": "checkout",
+   "status": "warn",
+   "severity": "warn",
+   "actual": "1 failed request(s)",
+   "cause": "unknown",
+   "cause_reason": "no_prior_run",
+   "url": "https://campaign.example.com/olympus/"
+  },
+  {
+   "id": "pricing.upsell_price_visible:upsell-bundle-stepper",
+   "family": "pricing",
+   "page": "upsell-bundle-stepper",
+   "status": "pass",
+   "actual": "4 visible price row(s)",
+   "url": "https://campaign.example.com/olympus/"
+  },
+  {
+   "id": "browser-test-order:upsell-action-coverage",
+   "family": "browser-test-order",
+   "page": "checkout",
+   "status": "manual_review",
+   "severity": "warn",
+   "actual": "browser test orders were off (--test-order off), so 5 of 5 page(s) with upsell actions are not proved clicked through: upsell-bundle-stepper, upsell-bundle-tier-cards, upsell-bundle-tier-pills, upsell-single, upsell-vsl",
+   "cause": "unknown",
+   "cause_reason": "no_prior_run",
+   "url": "https://campaign.example.com/olympus/"
+  },
+  {
+   "id": "qc.tracking.url:run:url",
+   "family": "browser-test-order",
+   "page": "run",
+   "status": "skipped",
+   "severity": "info",
+   "actual": "tracking.url excluded (test_order_not_requested)"
+  },
+  {
+   "id": "qc.tracking.order:run:order",
+   "family": "browser-test-order",
+   "page": "run",
+   "status": "skipped",
+   "severity": "info",
+   "actual": "tracking.order excluded (test_order_not_requested)"
+  },
+  {
+   "id": "qc.tracking.tag:run:tag",
+   "family": "browser-test-order",
+   "page": "run",
+   "status": "skipped",
+   "severity": "info",
+   "actual": "tracking.tag excluded (test_order_not_requested)"
+  },
+  {
+   "id": "browser-test-order:common-1",
+   "family": "browser-test-order",
+   "page": "checkout",
+   "url": "https://campaign.example.com/olympus/checkout/",
+   "status": "pass",
+   "severity": "blocker",
+   "actual": "order created; receipt rendered"
+  }
+ ]
+}

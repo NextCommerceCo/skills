@@ -1,6 +1,6 @@
 {
  "version": 2,
- "note": "The QA checklist. Each item names the page types it applies to (roles), the automated rows that decide it (auto, globs over row ids; ! excludes) and rows shown to help a person judge it (evidence). Items with no auto rows, or whose rows did not run, are answered by the tester.",
+ "note": "The QA checklist. Each item names the page types it applies to (roles), the automated rows that decide it (auto, globs over row ids; ! excludes) and rows shown to help a person judge it (evidence). Items with no auto rows, or whose rows did not run, are answered by the tester. Items with requires: campaigns-os appear only when a Campaigns OS verdict is part of the run.",
  "roles": [
   "presell",
   "landing",
@@ -229,6 +229,10 @@
    "severity": "blocker",
    "evidence": [
     "locale:*:typed-amounts"
+   ],
+   "auto": [
+    "cos:pricing:*",
+    "cos:pricing:commercial*"
    ]
   },
   {
@@ -240,7 +244,11 @@
     "upsell",
     "receipt"
    ],
-   "severity": "warn"
+   "severity": "warn",
+   "auto": [
+    "cos:browser-runtime:browser-order-currency:*",
+    "cos:pricing:commercial-currency:*"
+   ]
   },
   {
    "id": "DB-07",
@@ -249,7 +257,10 @@
    "roles": [
     "checkout"
    ],
-   "severity": "warn"
+   "severity": "warn",
+   "auto": [
+    "cos:browser-runtime:browser-exit-intent-surface:*"
+   ]
   },
   {
    "id": "DB-08",
@@ -306,7 +317,9 @@
    ],
    "severity": "warn",
    "auto": [
-    "content-hygiene:*:placeholder"
+    "content-hygiene:*:placeholder",
+    "cos:template_residue:template-residue:*:placeholder-text",
+    "cos:template_residue:template-brand-contract:*"
    ]
   },
   {
@@ -364,7 +377,8 @@
    ],
    "severity": "warn",
    "auto": [
-    "links:*"
+    "links:*",
+    "cos:browser-runtime:browser-primary-cta:*"
    ]
   },
   {
@@ -377,7 +391,10 @@
    ],
    "severity": "blocker",
    "auto": [
-    "funnel-chain:*"
+    "funnel-chain:*",
+    "cos:funnel-flow:route-*",
+    "cos:funnel-flow:forward-route:*",
+    "cos:meta-tags:*"
    ]
   },
   {
@@ -387,7 +404,11 @@
    "roles": [
     "upsell"
    ],
-   "severity": "blocker"
+   "severity": "blocker",
+   "evidence": [
+    "cos:browser-runtime:browser-upsell-control:*",
+    "cos:pricing:pricing.upsell_price_visible*"
+   ]
   },
   {
    "id": "FF-05",
@@ -428,7 +449,9 @@
    ],
    "severity": "blocker",
    "auto": [
-    "http:*"
+    "http:*",
+    "cos:funnel-flow:http:*",
+    "cos:browser-runtime:browser-load:*"
    ]
   },
   {
@@ -513,7 +536,9 @@
    ],
    "severity": "warn",
    "auto": [
-    "funnel-chain:*"
+    "funnel-chain:*",
+    "cos:funnel-flow:route-*",
+    "cos:funnel-flow:forward-route:*"
    ]
   },
   {
@@ -529,6 +554,10 @@
    "evidence": [
     "tags-observed:*",
     "order:purchase-event"
+   ],
+   "auto": [
+    "cos:analytics-correctness:*",
+    "cos:analytics-parity:*"
    ]
   },
   {
@@ -675,7 +704,10 @@
    "severity": "blocker",
    "auto": [
     "order:created",
-    "order:receipt"
+    "order:receipt",
+    "cos:browser-test-order:browser-test-order:*",
+    "!cos:browser-test-order:browser-test-order:upsell-action-coverage",
+    "cos:browser-receipt-rendering:*"
    ]
   },
   {
@@ -733,7 +765,10 @@
    "roles": [
     "checkout"
    ],
-   "severity": "warn"
+   "severity": "warn",
+   "evidence": [
+    "cos:browser-runtime:browser-promo-code-surface:*"
+   ]
   },
   {
    "id": "CP-09",
@@ -742,7 +777,10 @@
    "roles": [
     "checkout"
    ],
-   "severity": "blocker"
+   "severity": "blocker",
+   "evidence": [
+    "cos:browser-test-order:*"
+   ]
   },
   {
    "id": "CP-10",
@@ -762,7 +800,8 @@
    ],
    "severity": "warn",
    "auto": [
-    "order:upsells"
+    "order:upsells",
+    "cos:browser-test-order:browser-test-order:upsell-action-coverage"
    ]
   },
   {
@@ -825,7 +864,8 @@
    ],
    "severity": "warn",
    "evidence": [
-    "order:created"
+    "order:created",
+    "cos:api-metadata:*"
    ]
   },
   {
@@ -1298,7 +1338,10 @@
    ],
    "severity": "warn",
    "auto": [
-    "browser-runtime:*"
+    "browser-runtime:*",
+    "cos:browser-runtime:browser-sdk-error:*",
+    "cos:browser-runtime:browser-request-failures:*",
+    "cos:browser-runtime:browser-sdk-debugger:*"
    ]
   },
   {
@@ -1332,6 +1375,109 @@
    "auto": [
     "pr-review:*"
    ]
+  },
+  {
+   "id": "CO-01",
+   "section": "Campaigns OS (spec-aware)",
+   "text": "Campaigns OS QA verdict for this build (runs when a Build Packet, built Page Kit folder or saved Map is available)",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "blocker",
+   "auto": [
+    "campaigns-os:verdict"
+   ],
+   "requires": "campaigns-os"
+  },
+  {
+   "id": "CO-02",
+   "section": "Campaigns OS (spec-aware)",
+   "text": "Checkout and upsells keep the template's commerce structure: payment fields, express wallets, bundle selector, order bumps",
+   "roles": [
+    "checkout",
+    "upsell"
+   ],
+   "severity": "warn",
+   "auto": [
+    "cos:browser-runtime:browser-payment-surface:*",
+    "cos:browser-runtime:browser-payment-geometry:*",
+    "cos:browser-runtime:browser-express-wallets:*",
+    "cos:browser-runtime:browser-bundle-selector:*",
+    "cos:browser-runtime:browser-order-bump-state:*",
+    "cos:browser-runtime:browser-commerce-structure:*"
+   ],
+   "requires": "campaigns-os"
+  },
+  {
+   "id": "CO-03",
+   "section": "Campaigns OS (spec-aware)",
+   "text": "No template residue: starter styles, demo images, payment chrome left from the template",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "warn",
+   "auto": [
+    "cos:template_residue:*",
+    "!cos:template_residue:template-residue:*:placeholder-text"
+   ],
+   "requires": "campaigns-os"
+  },
+  {
+   "id": "CO-04",
+   "section": "Campaigns OS (spec-aware)",
+   "text": "Prices shown match the campaign (visible price rows, price parity with the Campaigns App)",
+   "roles": [
+    "checkout",
+    "upsell"
+   ],
+   "severity": "warn",
+   "auto": [
+    "cos:pricing:*"
+   ],
+   "requires": "campaigns-os"
+  },
+  {
+   "id": "CO-05",
+   "section": "Campaigns OS (spec-aware)",
+   "text": "Pages bind to the Campaign Map and its API metadata (page binding, store profile, SDK pin, live campaign refs)",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "warn",
+   "auto": [
+    "cos:api-metadata:*"
+   ],
+   "requires": "campaigns-os"
+  },
+  {
+   "id": "CO-06",
+   "section": "Campaigns OS (spec-aware)",
+   "text": "Theme and polish gates (brand theme applied, no hidden eager media)",
+   "roles": [
+    "presell",
+    "landing",
+    "checkout",
+    "upsell",
+    "receipt"
+   ],
+   "severity": "warn",
+   "auto": [
+    "cos:theme_gate:*",
+    "cos:polish_gate:*"
+   ],
+   "requires": "campaigns-os"
   }
  ]
 }

@@ -120,11 +120,11 @@ module.exports = async function speed(ctx) {
       const base = { id: `speed:${p.label}:${strategy}`, family: 'speed', page: p.label, url: p.url };
       const m = await measure(cleanUrl(p.finalUrl), strategy, tried);
       if (!m) {
-        out.push(assertion({ ...base, status: 'skipped', severity: 'warn', message: `No speed engine answered (${tried.slice(-3).join('; ')}). Run it by hand: ${reportUrl(p.finalUrl, strategy)}. Setting PAGESPEED_API_KEY fixes the shared-quota problem.` }));
+        out.push(assertion({ ...base, status: 'skipped', severity: 'warn', message: `No speed engine answered (${tried.slice(-3).join('; ')}). Run it by hand: ${reportUrl(cleanUrl(p.finalUrl), strategy)}. Setting PAGESPEED_API_KEY fixes the shared-quota problem.` }));
         continue;
       }
       const missed = judge(m);
-      out.push(assertion({ ...base, status: missed.length ? 'warn' : 'pass', severity: 'warn', message: `${strategy === 'mobile' ? 'Mobile' : 'Desktop'} ${m.score}/100 — FCP ${ms(m.fcp)}, LCP ${ms(m.lcp)}, TBT ${ms(m.tbt)}, CLS ${m.cls === null ? '—' : m.cls.toFixed(2)}, Speed Index ${ms(m.si)}${missed.length ? `. Over target: ${missed.join(', ')}` : ''}. (${m.engine})`, actual: m, evidence: reportUrl(p.finalUrl, strategy) }));
+      out.push(assertion({ ...base, status: missed.length ? 'warn' : 'pass', severity: 'warn', message: `${strategy === 'mobile' ? 'Mobile' : 'Desktop'} ${m.score}/100 — FCP ${ms(m.fcp)}, LCP ${ms(m.lcp)}, TBT ${ms(m.tbt)}, CLS ${m.cls === null ? '—' : m.cls.toFixed(2)}, Speed Index ${ms(m.si)}${missed.length ? `. Over target: ${missed.join(', ')}` : ''}. (${m.engine})`, actual: m, evidence: reportUrl(cleanUrl(p.finalUrl), strategy) }));
     }
   }
   return out;

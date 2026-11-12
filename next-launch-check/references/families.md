@@ -63,7 +63,13 @@ the form check blocks every write request. See `safety.md`.
 
 ## Campaigns OS
 
-`campaigns-os:verdict` appears when you pass `--campaigns-os-verdict`. Rows
-in `http`, `funnel-chain`, `legal-links`, `param-propagation`,
-`param-toggles`, `browser-runtime` and `order` are then marked deferred:
-that verdict is the authority for them on the same build.
+When `campaigns-os qa` runs (or `--campaigns-os-verdict` is given), every verdict row is
+imported as `cos:<family>:<id>`, with its page type taken from the Campaign Map page id.
+Families: `funnel-flow`, `meta-tags`, `api-metadata`, `browser-runtime` (payment surface,
+wallets, bundle selector, bumps, SDK debugger, request failures), `template_residue`,
+`pricing`, `browser-test-order`, `browser-receipt-rendering`, `analytics-correctness`,
+`analytics-parity`, `parity-capture`, `theme_gate`, `polish_gate`. They decide the
+"Campaigns OS (spec-aware)" items and add evidence to others (prices, exit pop, CTAs,
+test orders, purchase events). `campaigns-os:verdict` is its overall disposition. Our
+`http` and `funnel-chain` rows defer to its `funnel-flow`, and `order` rows to its
+`browser-test-order`, when it proved them.

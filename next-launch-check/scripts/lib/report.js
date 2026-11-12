@@ -97,8 +97,16 @@ function markdown(r) {
     const how = i.answer ? `answered by tester${i.note ? `: ${i.note}` : ''}` : i.auto === 'manual' ? 'check by hand' : i.auto === 'not_run' ? 'check by hand (the automated check did not run)' : i.auto === 'check' ? 'look at the evidence and answer' : 'automated';
     L.push(`- **${MARK[i.status]}** \`${i.id}\` ${i.text}${i.severity === 'blocker' ? ' · blocker' : ''} — _${how}_`);
     const shown = i.rows.map((id) => byId.get(id)).filter(Boolean);
-    const showAll = i.status !== 'pass';
-    for (const a of (showAll ? shown : shown.slice(0, 2))) L.push(...rowLines(a));
+    if (i.status === 'pass') {
+      for (const a of shown.slice(0, 2)) L.push(...rowLines(a));
+      if (shown.length > 2) L.push(`  - …and ${shown.length - 2} more passing check(s)`);
+    } else {
+      const bad = shown.filter((a) => a.status !== 'pass' && a.status !== 'skipped');
+      for (const a of bad.slice(0, 8)) L.push(...rowLines(a));
+      if (bad.length > 8) L.push(`  - …and ${bad.length - 8} more in results.json`);
+      const ok = shown.length - bad.length;
+      if (ok) L.push(`  - (${ok} other check(s) for this item passed or did not apply)`);
+    }
     for (const a of i.evidence_rows.map((id) => byId.get(id)).filter((a) => a && a.status !== 'pass' && a.status !== 'skipped').slice(0, 4)) L.push(...rowLines(a));
     if (i.hint && i.status === 'open') L.push(`  - ${i.hint}`);
   }

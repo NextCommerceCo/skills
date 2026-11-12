@@ -64,17 +64,42 @@ test('rules file: by-design items stop counting and Markdown items join the chec
   } finally { await s.close(); }
 });
 
-test('campaigns-os verdict: covered families defer to it', async () => {
+test('campaigns-os verdict: its rows join the checklist and our rows in the families it proved defer to it', async () => {
   const s = await server.start('good');
-  const dir = tmp();
-  const v = path.join(dir, 'verdict.json');
-  fs.writeFileSync(v, JSON.stringify({ disposition: 'blocked', run_id: 'RUN1', assertions: [] }));
+  const v = path.join(__dirname, '..', 'fixtures', 'campaigns-os-verdict.json');
   try {
-    const { result } = await cli.runCheck('funnel', `${s.base}/`, cli.parseArgs(['--no-browser', '--no-speed', '--campaigns-os-verdict', v, '--out', dir]));
-    assert.ok(result.assertions.filter((a) => a.family === 'funnel-chain').every((a) => a.deferred));
+    const { result } = await cli.runCheck('funnel', `${s.base}/`, cli.parseArgs(['--no-browser', '--no-speed', '--campaigns-os-verdict', v, '--out', tmp()]));
+    assert.ok(result.assertions.filter((a) => a.family === 'funnel-chain').every((a) => a.deferred), 'route checks defer to funnel-flow');
+    assert.ok(result.assertions.some((a) => a.id.startsWith('cos:browser-runtime:browser-payment-surface:')));
     assert.equal(result.campaigns_os.disposition, 'blocked');
-    assert.equal(result.disposition_automated, 'blocked');
+    const byId = Object.fromEntries(result.checklist.map((i) => [i.id, i]));
+    assert.equal(byId['CO-01'].status, 'fail', 'the campaigns-os verdict is a checklist item');
+    assert.equal(byId['CO-02'].status, 'pass', 'commerce structure from campaigns-os');
+    assert.equal(byId['DB-12'].status, 'fail', 'template placeholder text from campaigns-os');
+    assert.equal(byId['CP-02'].status, 'pass', 'typed-card order from campaigns-os');
+    assert.equal(result.disposition, 'blocked');
   } finally { await s.close(); }
+});
+
+test('campaigns-os items stay out of a run where it did not run', async () => {
+  const s = await server.start('good');
+  try {
+    const { result } = await cli.runCheck('funnel', `${s.base}/`, cli.parseArgs(['--no-browser', '--no-speed', '--out', tmp()]));
+    assert.ok(!result.checklist.some((i) => i.id.startsWith('CO-')));
+    assert.match(result.lanes.campaigns_os, /not run/);
+  } finally { await s.close(); }
+});
+
+test('campaigns-os: project detection and page types', () => {
+  const COS = require(path.join(__dirname, '..', '..', 'scripts', 'lib', 'campaigns-os'));
+  assert.equal(COS.detect({}, os.tmpdir()).run, false);
+  assert.equal(COS.detect({ site: '.', family: 'olympus' }).kind, 'site');
+  assert.equal(COS.detect({ site: '.' }).run, false, '--site needs --family');
+  assert.equal(COS.detect({ mapId: 'm1', spec: 's.json' }).kind, 'map');
+  assert.equal(COS.detect({ packet: 'p.json', campaignsOs: false }).run, false);
+  assert.equal(COS.roleOf('upsell-bundle-stepper'), 'upsell');
+  assert.equal(COS.roleOf('checkout'), 'checkout');
+  assert.equal(COS.roleOf('campaign'), null);
 });
 
 test('finalize: answers close the checklist', async () => {

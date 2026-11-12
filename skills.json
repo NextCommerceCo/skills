@@ -376,7 +376,7 @@
       "version": "0.1.0",
       "path": "next-launch-check/SKILL.md",
       "domain": "campaigns",
-      "description": "QA a campaign before launch: asks what you are testing (presell, landing, checkout, upsell, full funnel or storefront) and fills the full QA checklist for it, with automated checks, a mobile and desktop speed test, screenshots, and an optional recorded test order.",
+      "description": "QA a campaign before launch: asks what you are testing (presell, landing, checkout, upsell, full funnel or storefront) and fills the full QA checklist for it, with automated checks, a mobile and desktop speed test, Campaigns OS spec-aware QA on Campaigns OS projects, screenshots, and an optional test order.",
       "related_skills": [
         "next-campaigns-setup",
         "next-campaigns-create"
@@ -399,15 +399,16 @@
         "Node.js 18 or newer (no npm dependencies)",
         "Playwright with Chromium for the browser checks, design mode and the order recorder (recommended)",
         "Lighthouse via npx for the speed test, or PAGESPEED_API_KEY in the environment",
+        "Optional: @nextcommerce/campaigns-os (project install or npx) for spec-aware QA on Campaigns OS projects",
         "Optional: gh CLI for pull request mode"
       ],
       "safety": {
         "mutates_remote": true,
         "writes_local": true,
         "requires_approval": true,
-        "network": "funnel pages (GET/HEAD; the browser lane renders pages with analytics beacons answered locally and order calls blocked); speed test via local Lighthouse or PageSpeed Insights, with affiliate parameters removed; optional GitHub in PR mode",
+        "network": "funnel pages (GET/HEAD; the browser lane renders pages with analytics beacons answered locally and order calls blocked); speed test via local Lighthouse or PageSpeed Insights, with affiliate parameters removed; campaigns-os qa on Campaigns OS projects (local verdict, never published); optional GitHub in PR mode",
         "token_env": "none (optional PAGESPEED_API_KEY)",
-        "notes": "Read-only by default; writes a local report folder. The only remote writes are a test order the tester places by hand in the recorder (asked first; affiliate parameters refused unless confirmed) and a PR comment posted only on an explicit yes. Never submits an order itself and never sends a purchase event."
+        "notes": "Read-only by default; writes a local report folder. The only remote writes are a test order the tester places by hand in the recorder or campaigns-os typed-card test orders, each asked first (affiliate parameters refused unless confirmed), and a PR comment posted only on an explicit yes. Never submits an order itself and never sends a purchase event."
       }
     }
   ]
