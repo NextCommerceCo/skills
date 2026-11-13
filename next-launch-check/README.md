@@ -85,6 +85,12 @@ store records a customer and sends confirmation emails. The assistant asks
 before every test order and tells you exactly which orders it will place. It
 can also do a rehearsal that fills the checkout and stops before paying.
 
+The recommended set is one order per package, with the last one on the
+3-D Secure card. That fills every order item in the checklist at once.
+
+The browser runs in the background, so no window opens while the checks and
+orders run. That is normal. Ask for a "headed" run if you want to watch.
+
 > [!IMPORTANT]
 > Campaigns built with Campaigns OS have their own QA command that places
 > test orders automatically. When your campaign has one, the assistant uses
@@ -103,3 +109,12 @@ can also do a rehearsal that fills the checkout and stops before paying.
 The result is one of: **Ready**, **Ready with exceptions** (no blockers, but
 things to look at), **Blocked** (something must be fixed first) or
 **Incomplete** (the checklist still has open items).
+
+Every checklist item that is not yet passed or failed is marked as one of:
+
+| Mark | Meaning |
+|---|---|
+| **Confirm** | The assistant ran the check and attached evidence, such as before and after screenshots. You look and answer |
+| **Not run** | An automated check that did not run this time. The report says why, for example "no 3-D Secure order in this run" |
+| **Manual** | Always checked by a person, such as prices against the offer plan or testing on a real phone |
+

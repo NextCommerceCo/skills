@@ -126,7 +126,7 @@ function toggleTargets(name) {
     timer: { cls: /countdown|timer|clock/i, text: /\b(expires?|ends?|left|hurry)\b.{0,30}\d{1,2}\s*:\s*\d{2}|^\s*\d{1,2}\s*:\s*\d{2}(\s*:\s*\d{2})?\s*$/i },
     reviews: { cls: /review|testimonial|star-?rating|trustpilot|ugc/i, text: /verified (buyer|customer|purchase)/i },
     exit: { cls: /exit[-_ ]?(pop|intent|modal|offer)|exitpop|exit-popup/i },
-    banner: { cls: /banner|announcement|promo[-_ ]?bar|top[-_ ]?bar|sticky[-_ ]?bar|notice[-_ ]?bar/i, must: /%|\boff\b|free|promo|code|sale|deal|limited|today|save|discount/i, not: /secure|encrypted|ssl|guarantee|trusted/i },
+    banner: { cls: /banner|announcement|promo[-_ ]?(bar|sale|strip)|sale[-_ ]?(bar|strip)|top[-_ ]?bar|sticky[-_ ]?bar|notice[-_ ]?bar/i, notCls: /applied|coupon|voucher|summary|cart|order[-_ ]?total/i, must: /%|\boff\b|free|promo|code|sale|deal|limited|today|save|discount/i, not: /secure|encrypted|ssl|guarantee|trusted/i },
     seen: { cls: /as[-_ ]?seen|seen[-_ ]?on|featured[-_ ]?in|press[-_ ]?logos|media[-_ ]?logos/i, text: /\bas seen (on|in)\b|\bfeatured (on|in)\b/i },
     loading: { cls: /fake[-_ ]?load|loading[-_ ]?bar|status[-_ ]?bar|progress[-_ ]?bar|stock[-_ ]?bar|scarcity/i, notCls: /checkout[-_ ]?progress|step|swiper|submit|button|spinner|next-loading/i, must: /%|\bleft\b|sold|stock|loading|processing|remaining|claimed|reserved/i, not: /secure|encrypted|ssl|guarantee/i },
   }[name];

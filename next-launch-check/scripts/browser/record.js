@@ -152,7 +152,23 @@ function judge(rec, label = 'recorded') {
     return out;
   }
   const okOrder = order.status >= 200 && order.status < 300;
-  out.push(assertion({ id: `order:created:${label}`, family: 'order', status: okOrder ? 'pass' : 'fail', severity: 'blocker', message: okOrder ? `Order created${order.ref && order.ref.number ? ` (number ${order.ref.number})` : ''}. Check it in the store's orders page against F-10 and F-16.` : `Order call answered HTTP ${order.status}.`, evidence: order.body }));
+  out.push(assertion({ id: `order:created:${label}`, family: 'order', status: okOrder ? 'pass' : 'fail', severity: 'blocker', message: okOrder ? `Order created${order.ref && order.ref.number ? ` (number ${order.ref.number})` : ''}. Open it in the store's orders page to see the products, prices and customer.` : `Order call answered HTTP ${order.status}.`, evidence: order.body }));
+  if (okOrder) {
+    const b = order.body || {};
+    const lang = b.language;
+    out.push(!lang
+      ? assertion({ id: `order:language:${label}`, family: 'order', status: 'warn', severity: 'warn', message: 'The order was sent without a language code; the platform falls back to the store default.' })
+      : /^[a-z]{2}$/i.test(String(lang))
+        ? assertion({ id: `order:language:${label}`, family: 'order', status: 'pass', severity: 'warn', message: `Language sent as "${lang}", a two-letter code.` })
+        : assertion({ id: `order:language:${label}`, family: 'order', status: 'fail', severity: 'warn', message: `Language sent as "${lang}". It must be a two-letter language code such as "en".` }));
+    out.push(b.shipping_method !== undefined && b.shipping_method !== null && b.shipping_method !== ''
+      ? assertion({ id: `order:shipping:${label}`, family: 'order', status: 'pass', severity: 'warn', message: `Shipping method ${b.shipping_method} sent with the order.` })
+      : assertion({ id: `order:shipping:${label}`, family: 'order', status: 'warn', severity: 'warn', message: 'No shipping method on the order; the store default is used. Confirm that is the right shipping.' }));
+    const lines = (b.lines || []).map((l) => `package ${l.package_id} ×${l.quantity || 1}${l.is_upsell ? ' (upsell)' : ''}`);
+    out.push(assertion({ id: `order:lines:${label}`, family: 'order', status: 'manual_review', severity: 'info', message: `Sent on the order: ${lines.join(', ') || 'no lines'}${b.vouchers && b.vouchers.length ? `; vouchers ${b.vouchers.join(', ')}` : '; no vouchers'}${b.currency ? `; currency ${b.currency}` : ''}. Compare with the offer plan.`, evidence: { lines: b.lines, vouchers: b.vouchers || [] } }));
+    if (rec.phone === 'blank') out.push(assertion({ id: `order:blank-phone:${label}`, family: 'order', status: 'pass', severity: 'warn', message: 'The order went through with the phone field left blank.' }));
+    else if (rec.phone === 'no phone field') out.push(assertion({ id: `order:blank-phone:${label}`, family: 'order', status: 'pass', severity: 'warn', message: 'This checkout has no phone field.' }));
+  }
   const attribution = (order.body && order.body.attribution) || {};
   const firstParams = (rec.pages[0] && rec.pages[0].params) || {};
   const tracked = Object.keys(firstParams).filter((k) => /^utm_|^(affid|sub\d+|oid|offer_id|gclid|fbclid)$/i.test(k));
@@ -175,6 +191,19 @@ function judge(rec, label = 'recorded') {
     : dupes.length
       ? assertion({ id: `order:purchase-event:${label}`, family: 'order', status: 'warn', severity: 'warn', message: `The same purchase event fired more than once for one order: ${dupes.map(([k, l]) => `${k.split(':')[1]} ×${l.length} (${[...new Set(l.map((e) => e.page))].join(', ')})`).join('; ')}. Revenue may count twice.`, evidence: purchase })
       : assertion({ id: `order:purchase-event:${label}`, family: 'order', status: 'pass', severity: 'warn', message: `Purchase sent once per event name: ${names.join(', ')} (${purchase.map((e) => `${e.event} on ${e.page}${e.value ? ` ${e.value} ${e.currency || ''}` : ''}`).join('; ')}).` }));
+  // Upsell events: one per accepted upsell.
+  const accepted = upsells.filter((u) => u.status >= 200 && u.status < 300).length;
+  if (accepted) {
+    const ups = rec.events.filter((e) => /upsell/i.test(e.event) && /purchase|accept|add|complete/i.test(e.event));
+    const perName = {};
+    for (const e of ups) perName[e.event] = (perName[e.event] || 0) + 1;
+    const extra = Object.entries(perName).filter(([, n]) => n > accepted);
+    out.push(!ups.length
+      ? assertion({ id: `order:upsell-events:${label}`, family: 'order', status: 'warn', severity: 'warn', message: `${accepted} upsell(s) accepted, but no upsell event reached the dataLayer. Upsell revenue will not show in analytics.` })
+      : extra.length
+        ? assertion({ id: `order:upsell-events:${label}`, family: 'order', status: 'warn', severity: 'warn', message: `More upsell events than accepted upsells (${accepted}): ${extra.map(([k, n]) => `${k} ×${n}`).join(', ')}. Upsell revenue may count twice.`, evidence: ups })
+        : assertion({ id: `order:upsell-events:${label}`, family: 'order', status: 'pass', severity: 'warn', message: `Upsell events for ${accepted} accepted upsell(s): ${Object.entries(perName).map(([k, n]) => `${k} ×${n}`).join(', ')}${ups.some((e) => e.value) ? ` (values ${ups.map((e) => e.value).filter(Boolean).join(', ')})` : ''}.` }));
+  }
   const dropped = rec.pages.slice(1).filter((p) => tracked.some((k) => !(k in p.params)) && !/\.(29next|nextcommerce)\./.test(p.url)).map((p) => p.label);
   if (tracked.length) out.push(assertion({ id: `order:params-per-page:${label}`, family: 'order', status: dropped.length ? 'warn' : 'pass', severity: 'info', message: dropped.length ? `Pages after checkout without the entry parameters in the URL: ${dropped.join(', ')}. Fine if attribution already reached the order.` : 'Entry parameters stayed in the URL on every page.' }));
   out.push(assertion({ id: `order:receipt:${label}`, family: 'order', status: rec.receiptReached ? 'pass' : 'fail', severity: 'blocker', message: rec.receiptReached ? 'Receipt page reached.' : 'The receipt page was not reached in the recording window.' }));

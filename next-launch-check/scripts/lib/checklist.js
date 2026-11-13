@@ -53,9 +53,11 @@ function build(pages, rows, { prior = [], extra = [] } = {}) {
   const answers = new Map(prior.filter((i) => i.answer).map((i) => [i.id, { answer: i.answer, note: i.note || null }]));
   const items = [];
   const cosRan = rows.some((r) => r.id === 'campaigns-os:verdict');
+  const prRan = rows.some((r) => r.family === 'pr-review' && r.status !== 'skipped');
   for (const item of [...CATALOG.items, ...extra]) {
     if (!item.roles.some((r) => roles.has(r))) continue;
     if (item.requires === 'campaigns-os' && !cosRan) continue;
+    if (item.requires === 'pr' && !prRan) continue;
     const autoRows = item.auto ? rowsFor(item, rows, pageRole, item.auto) : [];
     const evRows = item.evidence ? rowsFor(item, rows, pageRole, item.evidence) : [];
     const auto = autoStatus(autoRows);
@@ -63,7 +65,10 @@ function build(pages, rows, { prior = [], extra = [] } = {}) {
     const out = {
       id: item.id, section: item.section, text: item.text, severity: blocker ? 'blocker' : item.severity,
       roles: item.roles.filter((r) => roles.has(r)),
+      // manual: always a person; not_run: automated, but it did not run this
+      // time; check: automated evidence a person confirms.
       auto: auto || (item.auto ? 'not_run' : 'manual'),
+      auto_globs: item.auto || [],
       rows: autoRows.map((r) => r.id),
       evidence_rows: evRows.map((r) => r.id),
       hint: item.hint || null,

@@ -203,12 +203,16 @@ being tested. Each item is one of:
 |---|---|---|
 | **PASS** | Decided by an automated check | Mention briefly |
 | **FAIL** / **WARN** | Decided by an automated check, with the evidence | Explain what is wrong, on which page, and the likely fix (`references/families.md`) |
-| **TODO** (look at the evidence) | The check ran and attached evidence, such as before and after screenshots for `?timer=n` | Open the screenshots, describe what you see, ask the tester to confirm |
-| **TODO** (check by hand) | No script can judge it, such as prices against the offer plan or a real device | Ask the tester |
+| **CONFIRM** | The check ran and attached evidence, such as before and after screenshots for `?timer=n` | Open the screenshots, describe what you see, ask the tester to confirm |
+| **NOT RUN** | An automated check that did not run this time; the report says why (for example "no 3-D Secure order in the plan") | Offer to run it (usually Phase 4), do not ask the tester to do it by hand |
+| **MANUAL** | Always a person: no script can judge it, such as prices against the offer plan or a real device | Ask the tester |
 
 Report the result first (`blocked`, `ready_with_exceptions`, `ready`, or
-`incomplete` while items are open), then the speed table, then the FAILs and WARNs.
-Then go through the open items **one section at a time**, in report order. Ask about
+`incomplete` while items are open), then the test orders, the speed table, then the
+FAILs and WARNs. Use the report's words: a speed row that passed is a pass, even
+with notes; an order marked PLACED went through. Then the NOT RUN items and how to
+run them, then CONFIRM, then the MANUAL items **one section at a time**, in report
+order. Ask about
 each section's items together: "Design & branding, 9 items: …". Never answer for
 the tester. Accept pass, fail (with a note), warn, or n/a. Write their answers and
 close the run:
@@ -243,10 +247,16 @@ AskUserQuestion:
 > confirmation emails (to `qa+launchcheck@example.com` unless you give another).
 > Which orders should I place?
 
-Offer: **Standard card, accept upsells** (recommended minimum); **Standard + 3-D
-Secure** (`standard:accept,3ds:decline`); **Every package** (one order per package
-option, e.g. `standard:accept@1,standard:decline@2,standard:accept@3`); **Rehearsal
-only** (`--dry-run`: fills everything and stops before submit).
+Count the package options on the checkout first (the report's screenshots show them).
+Offer: **Full set (recommended)**: one order per package, the first accepting upsells,
+the others declining, and the last one on the 3-D Secure card, up to 4 orders; for 3
+packages `standard:accept@1,standard:decline@2,3ds:decline@3`. This fills
+`standard-card-order`, `3ds-card-order`, `order-every-package`, `upsell-accept-decline`
+and the order-data items in one go. **Standard card only** (`standard:accept`);
+**Rehearsal only** (`--dry-run`: fills everything and stops before submit).
+
+The browser runs in the background (headless), so no window opens. That is
+expected. Add `--headed` if the tester wants to watch the orders being placed.
 
 - **Campaigns OS campaign**: its typed-card order proof is canonical. Run the check again
   with the same Campaigns OS flags plus `--campaigns-os-orders common` (or `full`).
@@ -279,8 +289,9 @@ Rules:
   or pass a rules file whose `allowedParams` lists them.
 - A 3-D Secure challenge the script cannot complete is reported; offer `--headed` so
   the tester can finish it, or `record`.
-- Afterwards: remind them to check each order in the store's orders page (order-every-package, AP-*)
-  and to reject test conversions in their affiliate platform (reject-test-conversion).
+- Afterwards: remind them to check each order in the store's orders page
+  (`order-campaign`, `order-gateway-group`, `order-offers-discounts`) and to reject test
+  conversions in their affiliate platform (`reject-test-conversion`).
 
 ## PR Mode
 

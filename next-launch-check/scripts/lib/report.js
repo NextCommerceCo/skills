@@ -30,10 +30,26 @@ const RESULT = {
   ready: ['Ready', 'Every checklist item passed.'],
   ready_with_exceptions: ['Ready with exceptions', 'No blockers, but some items failed or need attention.'],
   blocked: ['Blocked', 'At least one blocker must be fixed before launch.'],
-  incomplete: ['Incomplete', 'Automated checks are done; some items still need a person to check them.'],
+  incomplete: ['Incomplete', 'Automated checks are done. Manual items, and items to confirm from the evidence, still need a person.'],
 };
-const STATUS_WORD = { pass: 'Pass', fail: 'Fail', warn: 'Warning', na: 'N/A', open: 'To check' };
-const HOW = (i) => (i.answer ? `Answered by tester${i.note ? `: ${i.note}` : ''}` : i.auto === 'manual' ? 'Check by hand' : i.auto === 'not_run' ? 'Check by hand (the automated check did not run)' : i.auto === 'check' ? 'Look at the evidence and confirm' : 'Automated');
+const STATUS_WORD = { pass: 'Pass', fail: 'Fail', warn: 'Warning', na: 'N/A', open: 'To check', manual: 'Manual', check: 'Confirm', not_run: 'Not run' };
+// What an open item is waiting for.
+const KIND = (i) => (i.status !== 'open' ? i.status : i.auto === 'manual' ? 'manual' : i.auto === 'check' ? 'check' : 'not_run');
+const HOW = (i) => (i.answer ? `Answered by tester${i.note ? `: ${i.note}` : ''}` : i.auto === 'manual' ? 'Manual: always checked by a person' : i.auto === 'not_run' ? 'Automated, did not run this time' : i.auto === 'check' ? 'Automated evidence: a person confirms' : 'Automated');
+
+// Why an automated item has no result in this run.
+function notRunReason(i, r) {
+  const g = i.auto_globs || [];
+  const orderPlaced = /placed by the script|recorded/.test((r.lanes && r.lanes.order) || '');
+  if (g.length && g.every((x) => /^(order:|cos:browser-test-order|!)/.test(x))) {
+    return orderPlaced ? `Not in this run's order plan. ${i.hint || ''}`.trim() : `Filled by a test order; none was placed in this run. ${i.hint || ''}`.trim();
+  }
+  if (g.some((x) => x.startsWith('order:'))) return orderPlaced ? (i.hint || 'Not covered by this run\'s orders.') : `Filled by a test order; none was placed in this run. ${i.hint || ''}`.trim();
+  if (g.some((x) => x.startsWith('speed:'))) return 'The speed test did not run (--no-speed, or no engine answered).';
+  if (g.some((x) => /^(form-negative|param-toggles|responsive|tags-observed|images|locale|currency|addons|browser-runtime)/.test(x))) return /ran/.test((r.lanes && r.lanes.browser) || '') ? 'The browser check could not run on this page; see results.json.' : 'Needs the browser checks (Playwright with Chromium), which did not run.';
+  if (g.some((x) => x.startsWith('cos:'))) return 'Comes from Campaigns OS QA, which did not run.';
+  return i.hint || 'The automated check did not run on this page.';
+}
 
 // Likely fix per family, for the developer report.
 const FIX = {
@@ -56,8 +72,28 @@ const FIX = {
   locale: 'Read amounts from the SDK instead of parsing formatted price text.',
   'form-negative': 'Use the SDK checkout fields so required fields and email format are validated before submit.',
   order: 'Open the order screenshot and the order request in order-record.json.',
+  favicon: 'Add <link rel="icon" href="…"> pointing at a file that loads.',
+  images: 'Fix or replace the image URLs listed.',
+  contact: 'Use one support email and phone number on every page.',
   'pr-review': 'See the file and line listed.',
 };
+
+const FIX_BY_ID = [
+  [/:pinch-zoom$/, 'Remove maximum-scale=1 and user-scalable=no from the viewport meta tag.'],
+  [/:same-as-billing$/, 'Bind the checkbox to the billing form (SDK billing fields) so unticking it shows them.'],
+  [/:autocomplete$/, 'Check the address autocomplete settings in the campaign config (and its Maps key).'],
+  [/:invalid-(card|cvv)$/, 'Use the SDK hosted card fields; they validate the number and CVV before any order call.'],
+  [/:error-language$/, "Translate the checkout's error messages, or set the SDK language for this market."],
+  [/^tags-observed:.*:ga4$/, 'Add a Google Analytics tag to the GTM container (or the page), or answer n/a if GA4 is not used.'],
+  [/^order:(language|shipping)/, 'Check the checkout config: language code and shipping method sent with the order.'],
+  [/^order:upsell-events/, 'Fire one upsell event per accepted upsell (the SDK does this when analytics is on).'],
+];
+function fixFor(a) {
+  const hit = FIX_BY_ID.find(([re]) => re.test(a.id));
+  if (hit) return hit[1];
+  if (a.family === 'speed') return a.status === 'fail' ? FIX.speed : null;
+  return FIX[a.family.replace(/^cos-/, '')] || null;
+}
 
 // Evidence as short readable lines: objects become "key: value · key: value".
 function flat(o) {
@@ -80,6 +116,21 @@ function numbered(items) {
   const bySec = new Map();
   return items.map((i) => { const n = (bySec.get(i.section) || 0) + 1; bySec.set(i.section, n); return { ...i, n }; });
 }
+// One line per test order, from the order rows.
+function orderSummary(r) {
+  return r.assertions.filter((a) => /^order:created:/.test(a.id)).map((a) => {
+    const label = a.id.replace(/^order:created:/, '');
+    const rel = (k) => r.assertions.find((x) => x.id === `order:${k}:${label}`);
+    const up = rel('upsells');
+    const rc = rel('receipt');
+    const bits = [a.message.replace(/\s+Stopped:.*$/, '')];
+    if (up) bits.push(up.status === 'pass' ? `upsells ok (${up.message})` : `upsells: ${up.message}`);
+    if (rc) bits.push(rc.status === 'pass' ? 'receipt reached' : 'receipt NOT reached');
+    const stopped = /Stopped: (.*)$/.exec(a.message);
+    if (stopped) bits.push(`stopped early: ${stopped[1]}`);
+    return { label, ok: a.status === 'pass', text: bits.join(' · '), shot: (a.screenshots || [])[0] || null };
+  });
+}
 function speedRows(r) { return r.assertions.filter((a) => a.family === 'speed' && a.actual); }
 const ms = (v) => (v === null || v === undefined ? '—' : v >= 1000 ? `${(v / 1000).toFixed(1)} s` : `${Math.round(v)} ms`);
 
@@ -96,6 +147,13 @@ function markdown(r) {
   L.push(`- Pages: ${r.pages.filter((p) => p.in_scope).map((p) => `${p.role || '?'} ${p.final_url || p.url} (${p.status || 'error'})`).join(' · ')}`);
   L.push(`- Full data: \`results.json\` (rows in \`assertions\`, checklist in \`checklist\`). Human report: \`report.html\`.`);
   L.push('');
+  const orders = orderSummary(r);
+  if (orders.length) {
+    L.push(`## Test orders (${orders.length})`);
+    L.push('');
+    for (const o of orders) L.push(`- ${o.ok ? 'PLACED' : 'NOT PLACED'} · ${o.label}: ${o.text}${o.shot ? ` (screenshot: ${o.shot})` : ''}`);
+    L.push('');
+  }
   const bad = items.filter((i) => i.status === 'fail' || i.status === 'warn').sort((a, b) => (a.severity === 'blocker' ? -1 : 0) - (b.severity === 'blocker' ? -1 : 0) || (a.status === 'fail' ? -1 : 1) - (b.status === 'fail' ? -1 : 1));
   L.push(`## Fix list (${bad.length})`);
   L.push('');
@@ -110,22 +168,36 @@ function markdown(r) {
       L.push(`  - ${a.message}`);
       for (const e of evidenceLines(rowEvidence(a)).slice(0, 6)) L.push(`  - evidence: ${e.slice(0, 300)}`);
       if (a.screenshots) L.push(`  - screenshots: ${a.screenshots.join(', ')}`);
-      const fam = a.family.replace(/^cos-/, '');
-      if (FIX[fam]) L.push(`  - likely fix: ${FIX[fam]}`);
+      const fix = fixFor(a);
+      if (fix) L.push(`  - likely fix: ${fix}`);
     }
     if (rows.length > 10) L.push(`- …${rows.length - 10} more rows in results.json`);
     L.push('');
   }
   const open = items.filter((i) => i.status === 'open');
-  L.push(`## Still to check by a person (${open.length})`);
+  const groups = [
+    ['check', 'Confirm from the evidence', 'The script ran these and collected evidence; a person looks and answers.'],
+    ['not_run', 'Automated, but not run this time', 'Each line says why and how to run it.'],
+    ['manual', 'Manual checks (always done by a person)', 'No script can judge these.'],
+  ];
+  L.push(`## Open items (${open.length})`);
   L.push('');
   L.push('Answer with `node <skill>/scripts/launch-check.js finalize <this folder> --answers answers.json`, where answers.json maps item name to `pass`, `fail`, `warn` or `na` (or `{ "answer": "fail", "note": "…" }`).');
   L.push('');
-  for (const i of open) {
-    const ev = [...i.rows, ...i.evidence_rows].map((id) => byId.get(id)).filter((a) => a && a.status !== 'pass' && a.status !== 'skipped');
-    L.push(`- \`${i.id}\` (${i.section}) ${i.text}${i.severity === 'blocker' ? ' · blocker' : ''}${ev.length ? ` — evidence: ${ev.slice(0, 2).map((a) => a.message).join(' / ').slice(0, 220)}${ev.some((a) => a.screenshots) ? ` (screenshots: ${ev.flatMap((a) => a.screenshots || []).slice(0, 2).join(', ')})` : ''}` : ''}`);
+  for (const [kind, title, line] of groups) {
+    const list = open.filter((i) => KIND(i) === kind);
+    if (!list.length) continue;
+    L.push(`### ${title} (${list.length})`);
+    L.push('');
+    L.push(line);
+    L.push('');
+    for (const i of list) {
+      const ev = [...i.rows, ...i.evidence_rows].map((id) => byId.get(id)).filter((a) => a && a.status !== 'pass' && a.status !== 'skipped');
+      const why = kind === 'not_run' ? ` — ${notRunReason(i, r)}` : ev.length ? ` — evidence: ${ev.slice(0, 2).map((a) => a.message).join(' / ').slice(0, 260)}${ev.some((a) => a.screenshots) ? ` (screenshots: ${ev.flatMap((a) => a.screenshots || []).slice(0, 2).join(', ')})` : ''}` : '';
+      L.push(`- \`${i.id}\` (${i.section}) ${i.text}${i.severity === 'blocker' ? ' · blocker' : ''}${why}`);
+    }
+    L.push('');
   }
-  L.push('');
   const passed = items.filter((i) => i.status === 'pass' || i.status === 'na');
   L.push(`## Passed or not applicable (${passed.length})`);
   L.push('');
@@ -157,6 +229,7 @@ function html(r) {
   const [word, line] = RESULT[r.disposition] || [r.disposition, ''];
   const tone = { ready: 'ok', ready_with_exceptions: 'warn', blocked: 'bad', incomplete: 'info' }[r.disposition] || 'info';
   const pill = (s) => `<span class="pill ${s}">${STATUS_WORD[s] || s}</span>`;
+  const orders = orderSummary(r);
   const shots = (list) => (list && list.length ? `<div class="shots">${list.map((s) => `<a href="${esc(s)}" target="_blank"><img src="${esc(s)}" alt="${esc(path.basename(s))}" loading="lazy"></a>`).join('')}</div>` : '');
   const detail = (i) => {
     const rows = i.rows.map((id) => byId.get(id)).filter(Boolean);
@@ -166,11 +239,11 @@ function html(r) {
       const evid = evidenceLines(rowEvidence(a)).slice(0, 4).map((e) => `<li class="ev">${esc(e.slice(0, 240))}</li>`).join('');
       return `<li><span class="where">${esc(a.page ? a.page.replace(/^cos:/, '') : '')}</span> ${esc(a.message)}${evid ? `<ul>${evid}</ul>` : ''}${shots(a.screenshots)}</li>`;
     }).join('');
-    const hint = i.hint && i.status === 'open' ? `<p class="hint">${esc(i.hint)}</p>` : '';
+    const hint = i.status === 'open' && KIND(i) === 'not_run' ? `<p class="hint">${esc(notRunReason(i, r))}</p>` : i.hint && i.status === 'open' ? `<p class="hint">${esc(i.hint)}</p>` : '';
     return parts || hint ? `<ul class="rows">${parts}</ul>${hint}` : '';
   };
   const itemHtml = (i, withSection) => `<div class="item s-${i.status}">
-      <div class="head">${pill(i.status)}<span class="num">${withSection ? `${esc(i.section)} · ` : ''}${i.n}.</span><span class="title">${esc(i.text)}</span>${i.severity === 'blocker' && i.status !== 'pass' ? '<span class="blocker">Blocker</span>' : ''}<span class="how">${esc(HOW(i))}</span></div>
+      <div class="head">${pill(KIND(i))}<span class="num">${withSection ? `${esc(i.section)} · ` : ''}${i.n}.</span><span class="title">${esc(i.text)}</span>${i.severity === 'blocker' && i.status !== 'pass' ? '<span class="blocker">Blocker</span>' : ''}<span class="how">${esc(HOW(i))}</span></div>
       ${detail(i)}
     </div>`;
   const fix = items.filter((i) => i.status === 'fail' || i.status === 'warn').sort((a, b) => (b.severity === 'blocker') - (a.severity === 'blocker') || (a.status === 'fail' ? -1 : 1));
@@ -187,10 +260,10 @@ function html(r) {
 main{max-width:980px;margin:0 auto;padding:32px 24px 64px}h1{font-size:24px;margin:0 0 4px}h2{font-size:18px;margin:36px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--line)}h3{font-size:15px;margin:22px 0 8px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 .meta{color:var(--muted);font-size:13px;word-break:break-all}.banner{margin:20px 0;padding:18px 20px;border-radius:10px;background:#fff;border:1px solid var(--line);border-left:6px solid}
 .banner.ok{border-left-color:var(--ok)}.banner.warn{border-left-color:#e0a100}.banner.bad{border-left-color:var(--bad)}.banner.info{border-left-color:var(--info)}.banner b{font-size:20px;display:block}
-.cards{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:14px 0}.card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px;text-align:center}.card b{display:block;font-size:24px}.card span{font-size:12px;color:var(--muted)}
+.cards{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin:14px 0}.card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px;text-align:center}.card b{display:block;font-size:24px}.card span{font-size:12px;color:var(--muted)}
 table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:14px}th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}th{background:#fafbfc;font-weight:600;font-size:13px;color:var(--muted)}td.num{font-variant-numeric:tabular-nums}
 .item{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin:8px 0;break-inside:avoid}.head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}.title{font-weight:600;flex:1;min-width:220px}.num{color:var(--muted);font-size:13px}.how{color:var(--muted);font-size:12px}
-.pill{display:inline-block;min-width:70px;text-align:center;font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px}.pill.pass{color:var(--ok);background:var(--ok-bg)}.pill.fail{color:var(--bad);background:var(--bad-bg)}.pill.warn{color:var(--warn);background:var(--warn-bg)}.pill.open{color:var(--info);background:var(--info-bg)}.pill.na{color:var(--na);background:var(--na-bg)}
+.pill{display:inline-block;min-width:70px;text-align:center;font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px}.pill.pass{color:var(--ok);background:var(--ok-bg)}.pill.fail{color:var(--bad);background:var(--bad-bg)}.pill.warn{color:var(--warn);background:var(--warn-bg)}.pill.open,.pill.check{color:var(--info);background:var(--info-bg)}.pill.manual{color:#5b3a99;background:#efe9fb}.pill.not_run{color:var(--na);background:var(--na-bg)}.pill.na{color:var(--na);background:var(--na-bg)}
 .blocker{font-size:11px;font-weight:700;color:#fff;background:var(--bad);padding:1px 7px;border-radius:4px}
 .rows{margin:8px 0 2px;padding-left:18px;font-size:14px;color:#2b3038}.rows li{margin:4px 0}.rows ul{padding-left:16px}.ev{color:var(--muted);font-size:12.5px;word-break:break-all}.where{color:var(--muted);font-size:12px;font-family:ui-monospace,Menlo,monospace}
 .shots{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0}.shots img{height:110px;max-width:220px;object-fit:cover;object-position:top;border:1px solid var(--line);border-radius:6px}
@@ -202,14 +275,17 @@ details>summary{cursor:pointer;color:var(--muted);font-size:14px;margin:8px 0}fo
 <h1>QA report</h1>
 <div class="meta">${esc(r.entry_url)}<br>Tested as <b>${esc(r.scope || r.mode)}</b> · ${esc(new Date(r.finished_at).toUTCString())} · run ${esc(r.run_id)}</div>
 <div class="banner ${tone}"><b>${esc(word)}</b>${esc(line)}</div>
-<div class="cards"><div class="card"><b>${tally('pass')}</b><span>Passed</span></div><div class="card"><b>${tally('fail')}</b><span>Failed</span></div><div class="card"><b>${tally('warn')}</b><span>Warnings</span></div><div class="card"><b>${tally('open')}</b><span>To check</span></div><div class="card"><b>${tally('na')}</b><span>N/A</span></div></div>
+<div class="cards"><div class="card"><b>${tally('pass')}</b><span>Passed</span></div><div class="card"><b>${tally('fail')}</b><span>Failed</span></div><div class="card"><b>${tally('warn')}</b><span>Warnings</span></div><div class="card"><b>${open.filter((i) => KIND(i) === 'manual').length}</b><span>Manual</span></div><div class="card"><b>${open.filter((i) => KIND(i) !== 'manual').length}</b><span>Confirm / not run</span></div><div class="card"><b>${tally('na')}</b><span>N/A</span></div></div>
 <div class="meta">What ran: ${esc(Object.entries(r.lanes || {}).map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`).join(' · '))}</div>
+
+${orders.length ? `<h2>Test orders (${orders.length})</h2><table><tr><th>Order</th><th>Result</th><th>What happened</th></tr>${orders.map((o) => `<tr><td>${esc(o.label)}</td><td>${pill(o.ok ? 'pass' : 'fail').replace(/>[^<]+</, `>${o.ok ? 'Placed' : 'Not placed'}<`)}</td><td>${esc(o.text)}${o.shot ? ` · <a href="${esc(o.shot)}">screenshot</a>` : ''}</td></tr>`).join('')}</table>` : ''}
 
 ${fix.length ? `<h2>What to fix (${fix.length})</h2>${fix.map((i) => itemHtml(i, true)).join('')}` : '<h2>What to fix</h2><p>Nothing failed.</p>'}
 
-${open.length ? `<h2>Still to check (${open.length})</h2><p class="meta">These need a person. Your assistant will go through them with you.</p>${open.map((i) => itemHtml(i, true)).join('')}` : ''}
 
-${speed.length ? `<h2>Speed</h2><table><tr><th>Page</th><th>Device</th><th>Score</th><th>First paint</th><th>Largest paint</th><th>Blocking</th><th>Layout shift</th><th>Speed index</th></tr>${speed.map((a) => { const m = a.actual; return `<tr><td>${esc(a.page)}</td><td>${esc(a.id.split(':').pop())}</td><td class="num">${pill(a.status === 'pass' ? 'pass' : 'warn').replace(/>[^<]+</, `>${m.score}<`)}</td><td class="num">${ms(m.fcp)}</td><td class="num">${ms(m.lcp)}</td><td class="num">${ms(m.tbt)}</td><td class="num">${m.cls === null ? '—' : m.cls.toFixed(2)}</td><td class="num">${ms(m.si)}</td></tr>`; }).join('')}</table><p class="meta">Targets: score ≥ 50, first paint ≤ 3 s, largest paint ≤ 4 s, blocking ≤ 200 ms, layout shift ≤ 0.1, speed index ≤ 4.4 s. Measured with ${esc(speed[0].actual.engine)}.</p>` : ''}
+${[['check', 'Confirm from the evidence', 'The script ran these and collected the evidence below. Look and answer.'], ['not_run', 'Automated, but not run this time', 'Each item says why and how to run it.'], ['manual', 'Manual checks', 'Always done by a person; no script can judge these. Your assistant goes through them with you.']].map(([k, t, line]) => { const list = open.filter((i) => KIND(i) === k); return list.length ? `<h2>${t} (${list.length})</h2><p class="meta">${line}</p>${list.map((i) => itemHtml(i, true)).join('')}` : ''; }).join('\n')}
+
+${speed.length ? `<h2>Speed</h2><table><tr><th>Page</th><th>Device</th><th>Score</th><th>First paint</th><th>Largest paint</th><th>Blocking</th><th>Layout shift</th><th>Speed index</th></tr>${speed.map((a) => { const m = a.actual; return `<tr><td>${esc(a.page)}</td><td>${esc(a.id.split(':').pop())}</td><td class="num">${pill(a.status === 'pass' ? 'pass' : 'fail').replace(/>[^<]+</, `>${m.score}<`)}</td><td class="num">${ms(m.fcp)}</td><td class="num">${ms(m.lcp)}</td><td class="num">${ms(m.tbt)}</td><td class="num">${m.cls === null ? '—' : m.cls.toFixed(2)}</td><td class="num">${ms(m.si)}</td></tr>`; }).join('')}</table><p class="meta">A page fails only when Lighthouse rates it poor: score under 50, largest paint over 4 s, blocking over 600 ms or layout shift over 0.25. Good is a score of 90+, largest paint under 2.5 s, blocking under 200 ms, layout shift under 0.1. Measured with ${esc(speed[0].actual.engine)}.</p>` : ''}
 
 <h2>Pages tested</h2>
 <table><tr><th>Page</th><th>Type</th><th>Status</th><th>Title</th></tr>${pages.map((p) => `<tr><td><a href="${esc(p.url)}">${esc(p.label)}</a></td><td>${esc(p.role || p.type)}${p.in_scope ? '' : ' <span class="meta">(followed, not tested)</span>'}</td><td>${p.status || 'error'}</td><td>${esc((p.title || '').slice(0, 70))}</td></tr>`).join('')}</table>
@@ -238,8 +314,10 @@ function summaryText(r) {
       lines.push(`- ${i.text}${i.note ? ` — ${i.note}` : first ? ` — ${first.page ? `[${first.page.replace(/^cos:/, '')}] ` : ''}${first.message}` : ''}`);
     }
   } else lines.push('No failed checklist items.');
-  const open = items.filter((i) => i.status === 'open').length;
-  if (open) lines.push(`Still to check by hand: ${open} item(s).`);
+  const orders = orderSummary(r);
+  if (orders.length) lines.push(`Test orders: ${orders.map((o) => `${o.label} ${o.ok ? 'placed' : 'NOT placed'}`).join(', ')}`);
+  const open = items.filter((i) => i.status === 'open');
+  if (open.length) lines.push(`Open: ${open.filter((i) => KIND(i) === 'manual').length} manual, ${open.filter((i) => KIND(i) === 'check').length} to confirm, ${open.filter((i) => KIND(i) === 'not_run').length} not run.`);
   return lines.join('\n');
 }
 
@@ -265,4 +343,4 @@ async function pdf(outDir) {
   } catch (_) { return null; } finally { if (browser) await browser.close().catch(() => {}); }
 }
 
-module.exports = { automatedDisposition, counts, markdown, html, summaryText, write, pdf };
+module.exports = { KIND, notRunReason, orderSummary, automatedDisposition, counts, markdown, html, summaryText, write, pdf };

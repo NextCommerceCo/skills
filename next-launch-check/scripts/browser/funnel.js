@@ -102,7 +102,23 @@ async function run(ctx) {
         const missing = expectedGtm && !libs.includes('gtm');
         const t = p.tracking;
         const hasSourceIds = !!(t.gtm.length || t.ga4.length || t.meta.length || t.tiktok.length || t.everflow.present);
+        // Google Analytics and Everflow, as loaded in the browser (often through GTM).
+        const ga = libs.includes('gtag') || !!beacons.ga4 || t.ga4.length > 0;
+        out.push(ga
+          ? assertion({ ...base, id: `tags-observed:${p.label}:ga4`, family: 'tags-observed', status: 'pass', severity: 'warn', message: `Google Analytics loads${beacons.ga4 ? ` and tried to send ${beacons.ga4} hit(s)` : ''}${libs.includes('gtag') ? ' (gtag.js)' : ''}.` })
+          : assertion({ ...base, id: `tags-observed:${p.label}:ga4`, family: 'tags-observed', status: 'warn', severity: 'warn', message: `Google Analytics did not load on this page${libs.includes('gtm') ? ', even through GTM' : ''}. If GA4 runs only server-side or after consent, answer n/a.` }));
+        const ef = libs.includes('everflow') || !!beacons.everflow || t.everflow.present;
+        out.push(ef
+          ? assertion({ ...base, id: `tags-observed:${p.label}:everflow`, family: 'tags-observed', status: 'pass', severity: 'warn', message: `Everflow click script loads${beacons.everflow ? ` and tried to send ${beacons.everflow} call(s)` : ''}.` })
+          : assertion({ ...base, id: `tags-observed:${p.label}:everflow`, family: 'tags-observed', status: 'manual_review', severity: 'info', message: 'No Everflow script on this page. Confirm: pass if the store uses the NEXT Everflow app (it reports conversions server-side), n/a if this funnel does not use Everflow, fail if the click script is missing.' }));
         out.push(assertion({ ...base, id: `tags-observed:${p.label}`, family: 'tags-observed', status: missing ? 'fail' : libs.length || Object.keys(beacons).length ? 'pass' : 'warn', severity: missing || hasSourceIds ? 'warn' : 'info', message: missing ? 'GTM is in the source but gtm.js never loaded.' : libs.length || Object.keys(beacons).length ? `Loaded: ${libs.join(', ') || 'no tag libraries'}. Beacons${ctx.options.liveBeacons ? ' sent' : ' held back'}: ${Object.entries(beacons).map(([k, v]) => `${k} ×${v}`).join(', ') || 'none'}.` : 'No tag library loaded and no beacon was attempted on this page.', evidence: events.length ? [`dataLayer events: ${events.join(', ')}`] : undefined }));
+      }
+      // Images that failed to load (broken icon or empty box for shoppers).
+      if (snap) {
+        const broken = await tab.evaluate(() => [...document.images].filter((im) => { const r = im.getBoundingClientRect(); return im.complete && im.naturalWidth === 0 && (im.currentSrc || im.src) && r.width > 0 && r.height > 0; }).map((im) => (im.currentSrc || im.src).slice(0, 160))).catch(() => []);
+        out.push(broken.length
+          ? assertion({ ...base, id: `images:${p.label}`, family: 'images', status: 'fail', severity: 'warn', message: `${broken.length} image(s) do not load.`, evidence: broken.slice(0, 8), screenshots: [rel(shotName(p.label, 'desktop'))] })
+          : assertion({ ...base, id: `images:${p.label}`, family: 'images', status: 'pass', severity: 'warn', message: 'Every visible image loads.' }));
       }
       // Layout: mobile, then mobile zoomed to 125% and 150% (simulated by a
       // narrower viewport at the same device scale, as browser zoom does).
@@ -243,9 +259,14 @@ async function toggles(ctx, pages, newContext, shots, rel) {
         }
         if (targetsBefore.visible) {
           const hidden = targetsBefore.visible - targetsAfter.visible;
+          const changed = hidden > 0 || diff > 0 || before.textLength - after.textLength > 20;
           out.push(targetsAfter.visible === 0
             ? assertion({ ...base, id, status: 'pass', severity: 'warn', message: `?${name}=n hides the ${WHAT[name]} (${targetsBefore.visible} element(s): ${targetsBefore.sample.join(', ')}).`, screenshots: shotsFor })
-            : assertion({ ...base, id, status: 'fail', severity: 'warn', message: `?${name}=n left ${targetsAfter.visible} of ${targetsBefore.visible} ${WHAT[name]} element(s) visible (${targetsBefore.sample.join(', ')}). The toggle is not wired, or not for every element.${hidden > 0 ? ` It hid ${hidden}.` : ''}`, screenshots: shotsFor }));
+            : changed
+              // The toggle is wired (something disappeared), but elements that
+              // look like a ${name} are still there: a person decides whether they count.
+              ? assertion({ ...base, id, status: 'manual_review', severity: 'warn', message: `?${name}=n works: it hid ${hidden > 0 ? hidden : Math.max(diff, 1)} element(s). Still showing ${targetsAfter.visible} element(s) that look like a ${WHAT[name]} (${targetsBefore.sample.join(', ')}). Compare the two screenshots and confirm nothing that should hide is left.`, screenshots: shotsFor })
+              : assertion({ ...base, id, status: 'fail', severity: 'warn', message: `?${name}=n changes nothing: ${targetsAfter.visible} ${WHAT[name]} element(s) stay visible (${targetsBefore.sample.join(', ')}). The toggle is not wired on this page.`, screenshots: shotsFor }));
         } else if (diff > 0 || before.textLength - after.textLength > 20) {
           out.push(assertion({ ...base, id, status: 'manual_review', severity: 'warn', message: `?${name}=n hides ${diff > 0 ? `${diff} element(s)` : 'some text'}, but this check could not tell what a ${WHAT[name]} looks like here. Compare the screenshots.`, screenshots: shotsFor }));
         } else {
@@ -292,7 +313,7 @@ async function addonsAndCurrency(ctx, p, browser) {
       const nums = numbers(other.prices.bound.map((b) => b.text));
       const same = nums.length && nums.length === baseNums.length && nums.every((n, i) => Math.abs(n - baseNums[i]) < 0.011);
       out.push(same
-        ? assertion({ ...base, id: `currency:${p.label}:${cur}`, family: 'currency', status: 'fail', severity: 'warn', message: `With ?currency=${cur} the page shows ${sym} but the same numbers as the default currency (${other.prices.bound.slice(0, 3).map((b) => b.text).join(', ')}). The ${cur} prices are not set in the campaign, so shoppers pay a different amount than they would in USD.`, evidence: { default: start.prices.bound.slice(0, 5).map((b) => b.text), [cur]: other.prices.bound.slice(0, 5).map((b) => b.text) } })
+        ? assertion({ ...base, id: `currency:${p.label}:${cur}`, family: 'currency', status: 'fail', severity: 'warn', message: `With ?currency=${cur} the page shows ${sym} but the same numbers as the default currency (${other.prices.bound.slice(0, 3).map((b) => b.text).join(', ')}). The campaign charges the same numbers in ${cur} as in the default currency, which is a different real price. Set ${cur} prices in the campaign, or confirm the client wants the same numbers.`, evidence: { default: start.prices.bound.slice(0, 5).map((b) => b.text), [cur]: other.prices.bound.slice(0, 5).map((b) => b.text) } })
         : assertion({ ...base, id: `currency:${p.label}:${cur}`, family: 'currency', status: 'pass', severity: 'warn', message: `${cur} prices differ from the default currency (${other.prices.bound.slice(0, 2).map((b) => b.text).join(', ')}).` }));
     }
   } catch (e) {
@@ -336,7 +357,9 @@ async function locale(ctx, p, browser) {
     } else {
       out.push(assertion({ id: `locale:${p.label}`, family: 'locale', page: p.label, url: p.url, status: en.bound.length ? 'pass' : 'manual_review', severity: 'warn', message: en.bound.length ? `${en.bound.length} SDK-bound amount(s) agree between en-US and de-DE browsers.` : 'No SDK-bound amounts found on the checkout to compare.' }));
     }
-    if (en.free.length) {
+    if (!en.free.length) {
+      out.push(assertion({ id: `locale:${p.label}:typed-amounts`, family: 'locale', page: p.label, url: p.url, status: 'pass', severity: 'warn', message: 'Every visible amount comes from the SDK, so a reprice or currency switch updates all of them.' }));
+    } else {
       out.push(assertion({ id: `locale:${p.label}:typed-amounts`, family: 'locale', page: p.label, url: p.url, status: 'manual_review', severity: 'info', message: `${en.free.length} visible amount(s) are typed into the page rather than bound to the SDK. They will not follow a reprice or a currency switch; confirm each is meant to be fixed copy.`, evidence: [...new Set(en.free)].slice(0, 12) }));
     }
   } catch (e) {
@@ -400,11 +423,156 @@ async function formNegative(ctx, p, newContext, shots, rel) {
         ? assertion({ ...base, id: `form-negative:${p.label}:email`, status: 'pass', severity: 'warn', message: 'An invalid email is rejected.' })
         : assertion({ ...base, id: `form-negative:${p.label}:email`, status: 'fail', severity: 'warn', message: 'An invalid email ("not-an-email") was not flagged.' }));
     }
-    out.push(assertion({ ...base, id: `form-negative:${p.label}:no-order`, status: 'pass', severity: 'info', message: `No order was sent. Every write request during this check was blocked (${log.blockedWrites.length} held back).` }));
+    const errorTexts = [...empty.sample];
+    out.push(...(await checkoutExtras(ctx, p, tab, log, shots, rel, base, errorTexts)));
+    out.push(assertion({ ...base, id: `form-negative:${p.label}:no-order`, status: log.blockedOrders.length ? 'fail' : 'pass', severity: log.blockedOrders.length ? 'blocker' : 'info', message: log.blockedOrders.length ? `The checkout tried to create an order during the error tests ${log.blockedOrders.length} time(s); the calls were blocked. A form with an invalid card or empty fields should not reach the order step.` : `No order was sent. Every write request during this check was blocked (${log.blockedWrites.length} held back).` }));
   } catch (e) {
     out.push(assertion({ ...base, id: `form-negative:${p.label}`, status: 'skipped', severity: 'info', message: `Could not run: ${String(e.message || e).slice(0, 150)}` }));
   } finally {
     await context.close();
+  }
+  return out;
+}
+
+// Text lines that look like form errors and were not on the page before.
+async function newErrorLines(tab, beforeText) {
+  const now = await tab.evaluate(() => (document.body ? document.body.innerText : '')).catch(() => '');
+  const had = new Set(String(beforeText).split('\n').map((l) => l.trim()));
+  return [...new Set(now.split('\n').map((l) => l.trim()))]
+    .filter((l) => l && l.length < 140 && !had.has(l) && /invalid|not valid|incorrect|declined|required|enter (a|your)|check (your|the)|error|expired|ungültig|inválid|non valide|erforderlich|obligatoire|obligatorio/i.test(l))
+    .slice(0, 6);
+}
+
+const SAME_AS = '#use_shipping_address, [data-next-field="billing_same_as_shipping"], [data-next-checkout-field="use_shipping_address"], input[name="use_shipping_address"], input[name="billing_same_as_shipping"]';
+const BILLING = '[data-next-checkout-field^="billing"], [data-next-field^="billing"], input[name^="billing"], select[name^="billing"]';
+const SUGGESTIONS = '.pac-container .pac-item, [class*="autocomplete"] li, [class*="suggestion"] li, [class*="autocomplete-item"], [role="listbox"] [role="option"]';
+
+// Checkout behaviour that needs no order: "same as billing", address
+// autocomplete, an invalid card, an invalid CVV, and the language of the
+// errors. All writes stay blocked (the caller set log.blockAllWrites).
+async function checkoutExtras(ctx, p, tab, log, shots, rel, base, errorTexts) {
+  const O = require('./order');
+  const out = [];
+  const reload = async () => { await tab.goto(p.finalUrl, { waitUntil: 'load', timeout: 45000 }); await settle(tab, p.sdk.present, 10000); };
+  // Visible to a shopper: has a box, and no ancestor hides it (display,
+  // visibility, opacity, or a collapsed box that clips it).
+  const visibleCount = (sel) => tab.evaluate((q) => [...document.querySelectorAll(q)].filter((el) => {
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return false;
+    for (let a = el; a && a !== document.body; a = a.parentElement) {
+      const st = getComputedStyle(a);
+      if (st.display === 'none' || st.visibility === 'hidden' || st.opacity === '0') return false;
+      if (a !== el && /(hidden|clip)/.test(st.overflow + st.overflowY)) {
+        const ar = a.getBoundingClientRect();
+        if (ar.height < 2 || r.bottom <= ar.top || r.top >= ar.bottom) return false;
+      }
+    }
+    return true;
+  }).length, sel).catch(() => 0);
+
+  // Phone required? Then a blank phone cannot go through, which settles that item.
+  try {
+    await reload();
+    const phone = tab.locator(O.field('phone')).first();
+    if (await O.usable(phone) && await phone.evaluate((el) => el.required || el.getAttribute('aria-required') === 'true')) {
+      out.push(assertion({ ...base, id: `form-negative:${p.label}:phone-required`, status: 'pass', severity: 'warn', message: 'The phone field is required, so a checkout with a blank phone cannot go through by design.' }));
+    }
+  } catch (_) { /* the order run covers it */ }
+
+  // "Shipping same as billing".
+  try {
+    const same = tab.locator(SAME_AS).first();
+    if (!(await same.count())) {
+      out.push(assertion({ ...base, id: `form-negative:${p.label}:same-as-billing`, status: 'pass', severity: 'info', message: 'This checkout has no "billing same as shipping" option, so there is nothing to toggle.' }));
+    } else {
+      await same.setChecked(true, { force: true, timeout: 3000 }).catch(() => {});
+      await tab.waitForTimeout(500);
+      const on = await visibleCount(BILLING);
+      await same.setChecked(false, { force: true, timeout: 3000 }).catch(() => same.click({ force: true }).catch(() => {}));
+      await tab.waitForTimeout(700);
+      const off = await visibleCount(BILLING);
+      const file = shotName(p.label, 'billing-fields');
+      await capture(tab, path.join(shots, file), 50);
+      await same.setChecked(true, { force: true, timeout: 3000 }).catch(() => {});
+      await tab.waitForTimeout(500);
+      const back = await visibleCount(BILLING);
+      out.push(off > on && back <= on
+        ? assertion({ ...base, id: `form-negative:${p.label}:same-as-billing`, status: 'pass', severity: 'warn', message: `Unticking "same as shipping" shows ${off - on} billing field(s); ticking it again hides them.`, screenshots: [rel(file)] })
+        : assertion({ ...base, id: `form-negative:${p.label}:same-as-billing`, status: 'fail', severity: 'warn', message: `Toggling "same as shipping" did not show and hide the billing fields (visible billing fields: ticked ${on}, unticked ${off}, ticked again ${back}).`, screenshots: [rel(file)] }));
+    }
+  } catch (e) {
+    out.push(assertion({ ...base, id: `form-negative:${p.label}:same-as-billing`, status: 'skipped', severity: 'info', message: `Could not run: ${String(e.message || e).slice(0, 120)}` }));
+  }
+
+  // Address autocomplete.
+  try {
+    const cfg = await tab.evaluate(() => { const c = window.nextConfig || window.next_config || {}; return { enabled: c.addressConfig && typeof c.addressConfig.enableAutocomplete === 'boolean' ? c.addressConfig.enableAutocomplete : null, key: !!(c.googleMaps && c.googleMaps.apiKey) }; }).catch(() => ({ enabled: null }));
+    const addr = tab.locator(O.field('address1')).first();
+    if (cfg.enabled === false) {
+      out.push(assertion({ ...base, id: `form-negative:${p.label}:autocomplete`, status: 'pass', severity: 'info', message: 'Address autocomplete is switched off in the campaign config, so there is nothing to check.' }));
+    } else if (await O.usable(addr)) {
+      const textBefore = await tab.evaluate(() => (document.body ? document.body.innerText : '')).catch(() => '');
+      await addr.click().catch(() => {});
+      await addr.pressSequentially('1600 Amphitheatre', { delay: 60 });
+      await tab.waitForTimeout(3000);
+      // Suggestions, by common markup or as new visible lines that extend
+      // what was typed (any autocomplete widget shows those).
+      const textAfter = await tab.evaluate(() => (document.body ? document.body.innerText : '')).catch(() => '');
+      const had = new Set(textBefore.split('\n').map((l) => l.trim()));
+      const newLines = textAfter.split('\n').map((l) => l.trim()).filter((l) => l && !had.has(l) && /amphitheatre/i.test(l) && l.length > '1600 Amphitheatre'.length);
+      const n = Math.max(await visibleCount(SUGGESTIONS), newLines.length);
+      const file = shotName(p.label, 'autocomplete');
+      await capture(tab, path.join(shots, file), 50);
+      out.push(n
+        ? assertion({ ...base, id: `form-negative:${p.label}:autocomplete`, status: 'pass', severity: 'warn', message: `Typing an address shows ${n} suggestion(s).`, screenshots: [rel(file)] })
+        : cfg.enabled
+          ? assertion({ ...base, id: `form-negative:${p.label}:autocomplete`, status: 'warn', severity: 'warn', message: `Autocomplete is switched on in the campaign config, but typing an address showed no suggestions.${cfg.key ? '' : ' No Google Maps key is set in the config.'}`, screenshots: [rel(file)] })
+          : assertion({ ...base, id: `form-negative:${p.label}:autocomplete`, status: 'pass', severity: 'info', message: 'No address suggestions, and autocomplete is not switched on in the campaign config, so there is nothing to check.', screenshots: [rel(file)] }));
+      await addr.fill('').catch(() => {});
+      await tab.keyboard.press('Escape').catch(() => {});
+    }
+  } catch (e) {
+    out.push(assertion({ ...base, id: `form-negative:${p.label}:autocomplete`, status: 'skipped', severity: 'info', message: `Could not run: ${String(e.message || e).slice(0, 120)}` }));
+  }
+
+  // Invalid card number, then an invalid CVV. Writes are blocked, so even a
+  // checkout that tried to pay could not send anything.
+  const cardCase = async (kind, number, cvv) => {
+    const id = `form-negative:${p.label}:${kind}`;
+    try {
+      await reload();
+      await O.fillCheckout(tab, O.DEFAULT_CUSTOMER);
+      await O.fillCard(tab, number, cvv);
+      const before = await tab.evaluate(() => (document.body ? document.body.innerText : '')).catch(() => '');
+      const orders = log.blockedOrders.length;
+      await O.submit(tab);
+      await tab.waitForTimeout(3500);
+      const lines = await newErrorLines(tab, before);
+      const st = await tab.evaluate(probes.formState);
+      const file = shotName(p.label, kind);
+      await capture(tab, path.join(shots, file), 55);
+      errorTexts.push(...lines, ...st.sample);
+      const what = kind === 'invalid-card' ? 'an invalid card number' : 'an invalid CVV';
+      if (log.blockedOrders.length > orders) return assertion({ ...base, id, status: 'fail', severity: 'warn', message: `With ${what} the checkout went on to create the order (the call was blocked by this check) instead of showing an error.`, screenshots: [rel(file)] });
+      if (lines.length || st.visibleErrors) return assertion({ ...base, id, status: 'pass', severity: 'warn', message: `${what[0].toUpperCase()}${what.slice(1)} shows an error${lines.length ? `: "${lines[0]}"` : ''}.`, evidence: lines.length ? lines : st.sample, screenshots: [rel(file)] });
+      return assertion({ ...base, id, status: 'manual_review', severity: 'warn', message: `With ${what} no error text appeared on the page and no order was attempted. The error may show inside the card field. Look at the screenshot.`, screenshots: [rel(file)] });
+    } catch (e) {
+      return assertion({ ...base, id, status: 'skipped', severity: 'info', message: `Could not run: ${String(e.message || e).slice(0, 140)}` });
+    }
+  };
+  if (p.sdk.present) {
+    out.push(await cardCase('invalid-card', '4111111111111112', '123'));
+    out.push(await cardCase('invalid-cvv', O.CARDS.standard.number, '1'));
+  }
+
+  // Error language: the errors should be in the page's language.
+  const lang = String((await tab.evaluate(() => document.documentElement.lang).catch(() => '')) || p.lang || '').toLowerCase();
+  const texts = [...new Set(errorTexts.filter(Boolean))];
+  if (texts.length) {
+    const english = texts.filter((t) => /\b(required|invalid|please|enter|field|valid|error)\b/i.test(t));
+    out.push(!lang || lang.startsWith('en')
+      ? assertion({ ...base, id: `form-negative:${p.label}:error-language`, status: english.length ? 'pass' : 'manual_review', severity: 'warn', message: english.length ? `Errors are in English, the page's language${lang ? ` (${lang})` : ''}.` : `The page is in ${lang || 'an unset language'}; read the error texts and confirm.`, evidence: texts.slice(0, 5) })
+      : assertion({ ...base, id: `form-negative:${p.label}:error-language`, status: english.length ? 'fail' : 'pass', severity: 'warn', message: english.length ? `The page is in ${lang} but ${english.length} error message(s) are in English.` : `Errors are not in English on this ${lang} page.`, evidence: texts.slice(0, 5) }));
   }
   return out;
 }

@@ -1,6 +1,8 @@
 'use strict';
 const { assertion } = require('../util');
 const H = require('../html');
+const net = require('../net');
+const { resolve } = require('../util');
 
 module.exports = async function seoMeta(ctx) {
   const out = [];
@@ -15,8 +17,12 @@ module.exports = async function seoMeta(ctx) {
     if (!m['og:image']) issues.push('no og:image (shared links show no picture)');
     if (!m['og:title']) issues.push('no og:title');
     if (!m['twitter:card']) issues.push('no twitter:card');
-    const icon = H.tags(p.html, 'link').some((l) => /\bicon\b/i.test(l.attrs.rel || ''));
-    if (!icon) issues.push('no favicon link');
+    const iconTag = H.tags(p.html, 'link').find((l) => /\bicon\b/i.test(l.attrs.rel || '') && !/apple/i.test(l.attrs.rel || ''));
+    const iconUrl = iconTag ? resolve(iconTag.attrs.href || '', p.finalUrl) : resolve('/favicon.ico', p.finalUrl);
+    const iconStatus = iconUrl ? await net.status(iconUrl) : { ok: false };
+    out.push(iconStatus.ok
+      ? assertion({ family: 'favicon', page: p.label, url: p.url, id: `favicon:${p.label}`, status: 'pass', severity: 'warn', message: `Favicon loads (${iconUrl}).`, evidence: iconUrl })
+      : assertion({ family: 'favicon', page: p.label, url: p.url, id: `favicon:${p.label}`, status: 'fail', severity: 'warn', message: iconTag ? `The favicon link points at ${iconUrl}, which does not load (HTTP ${iconStatus.status || 'error'}).` : 'No favicon: no <link rel="icon"> and no /favicon.ico. The browser tab shows a blank icon.' }));
     if (!p.lang) issues.push('no lang on <html>');
     if (!m.viewport) {
       out.push(assertion({ ...base, id: `seo-meta:${p.label}:viewport`, status: 'fail', severity: 'warn', message: 'No viewport meta tag. Phones will render the desktop layout zoomed out.' }));

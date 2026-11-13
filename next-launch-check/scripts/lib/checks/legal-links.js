@@ -26,7 +26,9 @@ module.exports = async function legalLinks(ctx) {
       found.push({ p, a, abs: resolve(a.href, p.finalUrl) });
     }
     if (!found.length) {
-      out.push(assertion({ id: `legal-links:${kind}`, family: 'legal-links', status: required.has(kind) ? 'fail' : 'skipped', severity: required.has(kind) ? 'warn' : 'info', message: required.has(kind) ? `No ${name} link on any page.` : `No ${name} link found (optional).` }));
+      out.push(required.has(kind)
+        ? assertion({ id: `legal-links:${kind}`, family: 'legal-links', status: 'fail', severity: 'warn', message: `No ${name} link on any page.${['returns', 'shipping'].includes(kind) ? ` If this policy is part of the Terms page, answer n/a for this item.` : ''}` })
+        : assertion({ id: `legal-links:${kind}`, family: 'legal-links', status: 'pass', severity: 'info', message: `No ${name} link on the page. It is optional, so there is nothing to check.` }));
       continue;
     }
     const targets = [...new Set(found.map((f) => f.abs).filter(Boolean))];

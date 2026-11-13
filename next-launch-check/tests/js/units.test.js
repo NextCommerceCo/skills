@@ -191,7 +191,8 @@ test('checklist: items follow the page types tested and rows decide automated it
   assert.equal(byId['error-empty-fields'].status, 'fail');
   assert.equal(byId['error-empty-fields'].severity, 'blocker');
   assert.equal(byId['toggle-exit'].status, 'open', 'evidence to look at is still open');
-  assert.equal(byId['order-every-package'].auto, 'manual');
+  assert.equal(byId['order-every-package'].auto, 'not_run', 'filled by a test order, none placed');
+  assert.equal(byId['product-name-logo'].auto, 'manual', 'always a person');
   assert.equal(CL.disposition(items, 'blocked'), 'blocked');
   const answered = CL.build(pages, [], { prior: items.map((i) => ({ id: i.id, answer: 'pass' })) });
   assert.equal(CL.disposition(answered, 'ready'), 'ready');
@@ -224,5 +225,56 @@ test('speed: targets flag slow pages', () => {
   const speed = require(path.join(S, 'lib/checks/speed'));
   assert.deepEqual(speed.judge({ score: 90, fcp: 1000, lcp: 2000, tbt: 50, cls: 0.01, si: 2000 }), []);
   const missed = speed.judge({ score: 30, fcp: 5000, lcp: 9000, tbt: 900, cls: 0.3, si: 9000 });
-  assert.equal(missed.length, 6);
+  assert.equal(missed.length, 4); // score, LCP, TBT, CLS; FCP and speed index are notes only
+  // The Strand10 case: 88/100 with a speed index of 4.5 s passes.
+  assert.deepEqual(speed.judge({ score: 88, fcp: 1800, lcp: 3400, tbt: 34, cls: 0, si: 4510 }), []);
+});
+
+test('order rows: language, shipping, blank phone, upsell events and package coverage', () => {
+  const O = require(path.join(S, 'browser/order'));
+  const r = {
+    pages: [{ url: 'https://x.example.com/checkout/', params: {} }],
+    calls: [
+      { kind: 'order', status: 201, ref: { number: '1001' }, body: { lines: [{ package_id: 3, quantity: 1 }], shipping_method: 2, language: 'en', vouchers: [] } },
+      { kind: 'upsell', status: 201 },
+    ],
+    events: [{ layer: 'dataLayer', event: 'dl_purchase', page: '/receipt/' }, { layer: 'dataLayer', event: 'dl_upsell_purchase', page: '/upsell/' }],
+    receiptReached: true, phone: 'blank',
+  };
+  const rows = Object.fromEntries(rec.judge(r, 'a').map((x) => [x.id, x]));
+  assert.equal(rows['order:language:a'].status, 'pass');
+  assert.equal(rows['order:shipping:a'].status, 'pass');
+  assert.equal(rows['order:blank-phone:a'].status, 'pass');
+  assert.equal(rows['order:upsell-events:a'].status, 'pass');
+  assert.equal(rows['order:lines:a'].status, 'manual_review');
+  assert.doesNotMatch(rows['order:created:a'].message, /F-\d/, 'no internal codes');
+  const us = Object.fromEntries(rec.judge({ ...r, calls: [{ ...r.calls[0], body: { ...r.calls[0].body, language: 'en-US' } }, r.calls[1]], events: [r.events[0]] }, 'b').map((x) => [x.id, x]));
+  assert.equal(us['order:language:b'].status, 'fail', 'en-US is not a two-letter code');
+  assert.equal(us['order:upsell-events:b'].status, 'warn', 'accepted upsell with no event');
+  const placed = (pkg) => ({ plan: { pkg }, packageCount: 3, calls: [{ kind: 'order', status: 201 }] });
+  assert.equal(O.packageCoverage([placed(1), placed(2), placed(3)]).status, 'pass');
+  const part = O.packageCoverage([placed(null)]);
+  assert.equal(part.status, 'manual_review');
+  assert.match(part.message, /package 1, 2, 3|standard:decline@1/);
+});
+
+test('report: open items are manual, to confirm, or not run with a reason', () => {
+  const CL = require(path.join(S, 'lib/checklist'));
+  const pages = [{ label: '/checkout', role: 'checkout', in_scope: true }];
+  const rows = [U.assertion({ id: 'param-toggles:/checkout:exit', family: 'param-toggles', page: '/checkout', status: 'manual_review', severity: 'warn', message: 'look' }), U.assertion({ id: 'order:created:1-standard-accept', family: 'order', status: 'pass', severity: 'blocker', message: 'standard test card, upsells: accept. Order created (number 1001).' })];
+  const items = CL.build(pages, rows);
+  const by = Object.fromEntries(items.map((i) => [i.id, i]));
+  assert.equal(report.KIND(by['product-name-logo']), 'manual');
+  assert.equal(report.KIND(by['toggle-exit']), 'check');
+  assert.equal(report.KIND(by['3ds-card-order']), 'not_run');
+  const r = { lanes: { order: 'placed by the script (standard:accept)' }, assertions: rows, checklist: items };
+  assert.match(report.notRunReason(by['3ds-card-order'], r), /order plan/);
+  assert.equal(by['pr-review'], undefined, 'PR review only in PR mode');
+  assert.deepEqual(report.orderSummary(r).map((o) => [o.label, o.ok]), [['1-standard-accept', true]]);
+});
+
+test('contact: support details are read from links and text', () => {
+  const C = require(path.join(S, 'lib/checks/contact'));
+  const d = C.details({ html: '<a href="tel:+13305550100">Call: (330) 555-0100</a> 100% secure <a href="mailto:help@example.com">Email us</a> <p>Enter a valid email, like name@example.com</p>', anchors: [{ href: 'tel:+13305550100', text: 'Call' }, { href: 'mailto:help@example.com', text: 'Email us' }] });
+  assert.deepEqual(d, { emails: ['help@example.com'], phones: ['+13305550100'] }, 'placeholder emails in text are ignored');
 });

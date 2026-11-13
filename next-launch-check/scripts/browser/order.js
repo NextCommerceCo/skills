@@ -69,8 +69,11 @@ async function fillCheckout(page, d) {
   await fill(page, 'email', d.email);
   await fill(page, 'fname', d.firstName);
   await fill(page, 'lname', d.lastName);
-  const phone = page.locator(field('phone')).first();
-  if (d.phone || (await usable(phone) && await phone.evaluate((el) => el.required))) await fill(page, 'phone', d.phone || '+16505550100', false);
+  const phoneLoc = page.locator(field('phone')).first();
+  const phoneShown = await usable(phoneLoc);
+  const phoneRequired = phoneShown && await phoneLoc.evaluate((el) => el.required || el.getAttribute('aria-required') === 'true').catch(() => false);
+  let phone = phoneShown ? 'blank' : 'no phone field';
+  if (d.phone || phoneRequired) { await fill(page, 'phone', d.phone || '+16505550100', false); phone = phoneRequired ? 'required, filled' : 'filled'; }
   const country = await choose(page, 'country', d.country, false);
   await fill(page, 'address1', d.address1);
   await page.keyboard.press('Escape').catch(() => {});
@@ -84,10 +87,10 @@ async function fillCheckout(page, d) {
   await page.locator('h1, h2').first().click({ timeout: 2000 }).catch(() => {});
   const same = page.locator('#use_shipping_address, [data-next-field="billing_same_as_shipping"]').first();
   if (await same.count().catch(() => 0)) await same.check({ timeout: 3000 }).catch(() => {});
-  return { country };
+  return { country, phone };
 }
 
-async function fillCard(page, card) {
+async function fillCard(page, card, cvvValue = '123') {
   for (const sel of ['#combo_mode_credit', '[data-next-payment-method="credit"]', '[data-next-payment-method="card"]', 'input[name="payment_method"][value="credit"]', 'input[name="payment_method"][value="card"]', '[data-next-field="payment_method"][value="card_token"]']) {
     const t = page.locator(sel).first();
     if (await t.count().catch(() => 0)) { await t.click({ force: true }).catch(() => {}); break; }
@@ -102,10 +105,10 @@ async function fillCard(page, card) {
     const num = page.frameLocator(NUMBER_FRAME).locator('input').first();
     const cvv = page.frameLocator(CVV_FRAME).locator('input').first();
     await num.click(); await num.pressSequentially(card, { delay: 20 });
-    await cvv.click(); await cvv.pressSequentially('123', { delay: 20 });
+    await cvv.click(); await cvv.pressSequentially(cvvValue, { delay: 20 });
   } else {
     await fill(page, 'cc-number', card);
-    await fill(page, 'cvv', '123');
+    await fill(page, 'cvv', cvvValue);
   }
   return hosted ? 'hosted card fields' : 'plain card fields';
 }
@@ -167,21 +170,25 @@ async function placeOne(browser, ctx, plan, n) {
   const steps = [];
   let receipt = false;
   let error = null;
+  let phoneState = null;
+  let packageCount = null;
   try {
     const u = new URL(ctx.entryUrl);
     for (const [k, v] of Object.entries(TEST_PARAMS)) if (!u.searchParams.has(k)) u.searchParams.set(k, v);
     await page.goto(u.href, { waitUntil: 'load', timeout: 60000 });
     await page.waitForFunction(() => document.documentElement.hasAttribute('data-next-ready') || document.documentElement.classList.contains('next-display-ready'), null, { timeout: 15000 }).catch(() => {});
     steps.push('checkout opened');
+    const cards = page.locator('[data-next-bundle-card], [data-next-package-id][data-next-selector-card], [data-next-selector-card]').filter({ visible: true });
+    packageCount = await cards.count().catch(() => null);
     if (plan.pkg) {
-      const cards = page.locator('[data-next-bundle-card], [data-next-package-id][data-next-selector-card], [data-next-selector-card]');
-      const count = await cards.count();
+      const count = packageCount;
       if (plan.pkg > count) throw new Error(`package ${plan.pkg} asked for, but the page shows ${count} package option(s)`);
       await cards.nth(plan.pkg - 1).click();
       steps.push(`package ${plan.pkg} selected`);
     }
     const filled = await fillCheckout(page, ctx.customer);
-    steps.push(`customer filled (country ${filled.country || 'n/a'})`);
+    steps.push(`customer filled (country ${filled.country || 'n/a'}, phone ${filled.phone})`);
+    phoneState = filled.phone;
     steps.push(`card filled (${await fillCard(page, CARDS[plan.card].number)})`);
     if (calls.some((c) => c.kind === 'order')) throw new Error('an order call was already sent before submit; stopping');
     if (dry) {
@@ -236,13 +243,27 @@ async function placeOne(browser, ctx, plan, n) {
   await require('./funnel').capture(page, path.join(ctx.outDir, 'screenshots', file), 55).catch(() => {});
   await context.close();
   const rec = REC.toRecord(ctx.entryUrl, { pages, calls, events, beacons: log.beacons.length, receiptReached: receipt });
-  rec.plan = plan; rec.steps = steps; rec.error = error; rec.rehearsal = dry;
+  rec.plan = plan; rec.steps = steps; rec.error = error; rec.rehearsal = dry; rec.phone = phoneState; rec.packageCount = packageCount;
   if (dry) {
     const ok = !error && steps.includes('stopped before submit (rehearsal)');
     return { rec, rows: [assertion({ id: `order:rehearsal:${label}`, family: 'order-rehearsal', status: ok ? 'pass' : 'fail', severity: 'warn', message: ok ? `Rehearsal: the checkout could be filled with the ${CARDS[plan.card].label} and was ready to submit. No order was sent.` : `Rehearsal stopped: ${error}`, evidence: { steps }, screenshots: [path.join('screenshots', file)] })] };
   }
   const rows = REC.judge(rec, label).map((r) => (r.id.startsWith('order:created:') ? { ...r, message: `${CARDS[plan.card].label}, upsells: ${plan.upsell}${plan.pkg ? `, package ${plan.pkg}` : ''}. ${r.message}${error ? ` Stopped: ${error}` : ''}`, screenshots: [path.join('screenshots', file)], evidence: { steps, order: r.evidence } } : r));
   return { rec, rows };
+}
+
+// Did the run place an order on every package the checkout offers?
+function packageCoverage(records) {
+  const placed = records.filter((r) => r.calls.some((c) => c.kind === 'order' && c.status >= 200 && c.status < 300));
+  const total = Math.max(0, ...records.map((r) => r.packageCount || 0));
+  const chosen = new Set(placed.map((r) => r.plan.pkg || 0));
+  const base = { id: 'order:packages', family: 'order' };
+  if (!placed.length) return assertion({ ...base, status: 'fail', severity: 'blocker', message: 'No test order went through, so no package was tested.' });
+  if (total <= 1) return assertion({ ...base, status: 'pass', severity: 'warn', message: `The checkout offers ${total || 'one'} package option; it was ordered.` });
+  const covered = [...Array(total).keys()].map((i) => i + 1).filter((n) => chosen.has(n));
+  const missing = [...Array(total).keys()].map((i) => i + 1).filter((n) => !chosen.has(n));
+  if (!missing.length) return assertion({ ...base, status: 'pass', severity: 'warn', message: `An order went through on each of the ${total} packages.` });
+  return assertion({ ...base, status: 'manual_review', severity: 'warn', message: `The checkout offers ${total} packages; orders went through on ${covered.length ? `package ${covered.join(', ')}` : 'the default package only'}. Still untested: package ${missing.join(', ')}. Run them with --orders ${missing.map((n) => `standard:decline@${n}`).join(',')}, or check them by hand.` });
 }
 
 async function run(ctx) {
@@ -264,7 +285,10 @@ async function run(ctx) {
     await browser.close();
   }
   fs.writeFileSync(path.join(ctx.outDir, 'order-record.json'), JSON.stringify(records, null, 2) + '\n');
+  if (!ctx.options.dryRun) rows.push(packageCoverage(records));
   return { rows, records };
 }
 
-module.exports = { run, parsePlans, field, CARDS };
+const DEFAULT_CUSTOMER = { email: 'qa+launchcheck@example.com', firstName: 'QA', lastName: 'Launchcheck', phone: '', country: 'US', address1: '1600 Amphitheatre Pkwy', city: 'Mountain View', province: 'CA', postal: '94043' };
+
+module.exports = { run, packageCoverage, parsePlans, field, CARDS, fillCheckout, fillCard, submit, usable, DEFAULT_CUSTOMER };

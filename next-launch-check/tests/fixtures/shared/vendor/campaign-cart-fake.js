@@ -47,6 +47,20 @@
             if (!ok) bad++;
           });
         }
+        // Card checks, as the hosted card fields do before any order call.
+        if (validate) {
+          var luhn = function (n) { var sum = 0; var alt = false; for (var i = n.length - 1; i >= 0; i--) { var d = +n[i]; if (alt) { d *= 2; if (d > 9) d -= 9; } sum += d; alt = !alt; } return n.length >= 12 && sum % 10 === 0; };
+          [['cc-number', function (v) { return luhn(v.replace(/\D/g, '')); }, 'Enter a valid card number'], ['cvv', function (v) { return /^\d{3,4}$/.test(v); }, 'Enter a valid security code']].forEach(function (c) {
+            var f = form.querySelector('[data-next-checkout-field="' + c[0] + '"]');
+            if (!f || !f.value) return;
+            var ok = c[1](f.value);
+            f.classList.toggle('next-error-field', !ok);
+            var msg = f.nextElementSibling && f.nextElementSibling.classList.contains('next-error') ? f.nextElementSibling : null;
+            if (!ok && !msg) { msg = document.createElement('div'); msg.className = 'next-error'; msg.textContent = c[2]; f.insertAdjacentElement('afterend', msg); }
+            if (ok && msg) msg.remove();
+            if (!ok) bad++;
+          });
+        }
         if (bad) return;
         fetch('/api/v1/orders/', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ lines: [{ package_id: 1, quantity: 1 }], shipping_method: 1, attribution: { utm_source: params.get('utm_source'), affid: params.get('affid') }, payment_detail: { payment_method: 'card_token', card_token: 'tok_test', test_card_last4: (form.querySelector('[data-next-checkout-field="cc-number"]') || {}).value ? form.querySelector('[data-next-checkout-field="cc-number"]').value.slice(-4) : null }, user: { email: form.querySelector('[type=email]').value, language: 'en' }, success_url: meta('next-success-url') }) })
           .then(function (r) { return r.json(); })
@@ -62,7 +76,7 @@
       });
     });
     if (params.get('autotest') === '1' && form) {
-      form.querySelectorAll('input[data-next-checkout-field]').forEach(function (f) { f.value = f.type === 'email' ? 'qa@example.com' : 'Test'; });
+      form.querySelectorAll('input[data-next-checkout-field]').forEach(function (f) { var name = f.getAttribute('data-next-checkout-field'); f.value = f.type === 'email' ? 'qa@example.com' : name === 'cc-number' ? '6011111111111117' : name === 'cvv' ? '123' : 'Test'; });
       setTimeout(function () { form.requestSubmit(); }, 300);
     }
     if (params.get('autotest') === '1' && type === 'upsell') setTimeout(function () { document.querySelector('[data-next-upsell-action="add"]').click(); }, 500);

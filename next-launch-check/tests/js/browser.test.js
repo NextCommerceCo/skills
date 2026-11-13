@@ -34,7 +34,7 @@ test('browser lane: good funnel', { skip, timeout: 240000 }, async () => {
     assert.equal(row(result, 'responsive:/checkout:pinch-zoom').status, 'pass');
     assert.equal(row(result, 'addons:/checkout:preselected').status, 'pass');
     assert.equal(row(result, 'currency:/checkout:GBP').status, 'pass', 'GBP prices are converted');
-    assert.equal(row(result, 'locale:/checkout:typed-amounts'), undefined, 'amounts inside SDK summaries are not typed amounts');
+    assert.equal(row(result, 'locale:/checkout:typed-amounts').status, 'pass', 'amounts inside SDK summaries are not typed amounts');
     assert.equal(row(result, 'responsive:/checkout:zoom-150').status, 'pass');
     assert.equal(row(result, 'param-toggles:/:timer').status, 'pass', 'timer=n hides the countdown');
     assert.equal(row(result, 'param-toggles:/:reviews').status, 'pass');
@@ -42,6 +42,10 @@ test('browser lane: good funnel', { skip, timeout: 240000 }, async () => {
     assert.equal(result.checklist.find((i) => i.id === 'toggle-timer').status, 'pass');
     assert.equal(result.checklist.find((i) => i.id === 'error-empty-fields').status, 'pass');
     assert.equal(row(result, 'tags-observed:/checkout').status, 'pass');
+    for (const k of ['invalid-card', 'invalid-cvv', 'error-language', 'no-order']) assert.equal(row(result, `form-negative:/checkout:${k}`).status, 'pass', k);
+    assert.equal(row(result, 'tags-observed:/checkout:ga4').status, 'pass');
+    assert.equal(row(result, 'images:/checkout').status, 'pass');
+    assert.equal(result.checklist.find((i) => i.id === 'error-invalid-card').status, 'pass');
     assert.equal(s.calls.length, 0, 'the browser lane never places an order');
   } finally { await s.close(); }
 });
@@ -58,6 +62,9 @@ test('browser lane: broken funnel', { skip, timeout: 240000 }, async () => {
     assert.equal(row(result, 'addons:/checkout:preselected').status, 'warn', 'shipping protection is pre-ticked');
     assert.equal(row(result, 'currency:/checkout:GBP').status, 'fail', 'GBP shows the USD numbers');
     assert.equal(row(result, 'param-toggles:/:timer').status, 'fail', 'the countdown is not wired to timer=n');
+    assert.equal(row(result, 'form-negative:/checkout:invalid-card').status, 'fail', 'an unvalidated card reaches the order step');
+    assert.equal(result.checklist.find((i) => i.id === 'pinch-zoom').status, 'fail');
+    assert.equal(result.checklist.find((i) => i.id === 'zoom-150').status === 'fail', false, 'zoom items judge overflow only');
     assert.equal(s.calls.length, 0, 'the unvalidated form was submitted, but the order call was blocked');
   } finally { await s.close(); }
 });

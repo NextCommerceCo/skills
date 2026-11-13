@@ -25,7 +25,7 @@ const SCOPES = ['presell', 'landing', 'checkout', 'upsell', 'funnel', 'storefron
 const ALL_ROLES = ['presell', 'landing', 'checkout', 'upsell', 'receipt', 'storefront'];
 
 const FAMILIES = {
-  funnel: ['http', 'funnel-chain', 'sdk', 'tracking', 'legal-links', 'links', 'content', 'seo-meta', 'media', 'storefront-domain', 'speed', 'pr-review'],
+  funnel: ['http', 'funnel-chain', 'sdk', 'tracking', 'legal-links', 'contact', 'links', 'content', 'seo-meta', 'media', 'storefront-domain', 'speed', 'pr-review'],
   storefront: ['http', 'storefront-nav', 'tracking', 'legal-links', 'links', 'content', 'seo-meta', 'media', 'storefront-domain', 'speed'],
   design: ['http'],
 };

@@ -14,8 +14,12 @@ const { assertion } = require('../util');
 const net = require('../net');
 
 const LIGHTHOUSE = 'lighthouse@12.8.2';
-// Targets used by the QA report: performance score and lab metrics.
-const TARGETS = { score: 50, fcp: 3000, lcp: 4000, tbt: 200, cls: 0.1, si: 4400 };
+// A page fails the speed test only when Lighthouse rates it poor: a
+// performance score under 50, or a Core Web Vital in Google's "poor" band
+// (LCP over 4 s, TBT over 600 ms, CLS over 0.25). Other lab numbers over
+// Google's "good" line are listed as notes and do not fail the test.
+const TARGETS = { score: 50, lcp: 4000, tbt: 600, cls: 0.25 };
+const GOOD = { score: 90, fcp: 1800, lcp: 2500, tbt: 200, cls: 0.1, si: 3400 };
 
 function reportUrl(url, strategy) {
   const u = new URL('https://pagespeed.web.dev/report');
@@ -87,12 +91,22 @@ async function measure(url, strategy, tried) {
   return null;
 }
 
+const ms = (v) => (v === null ? '—' : v >= 1000 ? `${(v / 1000).toFixed(1)} s` : `${Math.round(v)} ms`);
+const NAMES = { fcp: 'first paint', lcp: 'largest paint', tbt: 'blocking time', si: 'speed index' };
 function judge(m) {
   const missed = [];
-  if (m.score < TARGETS.score) missed.push(`score ${m.score} < ${TARGETS.score}`);
-  for (const k of ['fcp', 'lcp', 'tbt', 'si']) if (m[k] !== null && m[k] > TARGETS[k]) missed.push(`${k.toUpperCase()} ${Math.round(m[k])} ms > ${TARGETS[k]}`);
-  if (m.cls !== null && m.cls > TARGETS.cls) missed.push(`CLS ${m.cls.toFixed(2)} > ${TARGETS.cls}`);
+  if (m.score < TARGETS.score) missed.push(`score ${m.score} is under ${TARGETS.score}`);
+  for (const k of ['lcp', 'tbt']) if (m[k] !== null && m[k] > TARGETS[k]) missed.push(`${NAMES[k]} ${ms(m[k])} is over ${ms(TARGETS[k])}`);
+  if (m.cls !== null && m.cls > TARGETS.cls) missed.push(`layout shift ${m.cls.toFixed(2)} is over ${TARGETS.cls}`);
   return missed;
+}
+
+// Lab numbers between "good" and "poor": worth improving, not a failure.
+function notes(m) {
+  const out = [];
+  for (const k of ['fcp', 'lcp', 'tbt', 'si']) if (m[k] !== null && m[k] > GOOD[k] && !(TARGETS[k] && m[k] > TARGETS[k])) out.push(`${NAMES[k]} ${ms(m[k])} (good is under ${ms(GOOD[k])})`);
+  if (m.cls !== null && m.cls > GOOD.cls && m.cls <= TARGETS.cls) out.push(`layout shift ${m.cls.toFixed(2)} (good is under ${GOOD.cls})`);
+  return out;
 }
 
 // Speed visits are real page loads with no beacon blocking, so affiliate and
@@ -105,7 +119,6 @@ function cleanUrl(url) {
   return u.href;
 }
 
-const ms = (v) => (v === null ? '—' : v >= 1000 ? `${(v / 1000).toFixed(1)} s` : `${Math.round(v)} ms`);
 
 module.exports = async function speed(ctx) {
   if (ctx.options.speed === false) return [];
@@ -124,7 +137,9 @@ module.exports = async function speed(ctx) {
         continue;
       }
       const missed = judge(m);
-      out.push(assertion({ ...base, status: missed.length ? 'warn' : 'pass', severity: 'warn', message: `${strategy === 'mobile' ? 'Mobile' : 'Desktop'} ${m.score}/100 — FCP ${ms(m.fcp)}, LCP ${ms(m.lcp)}, TBT ${ms(m.tbt)}, CLS ${m.cls === null ? '—' : m.cls.toFixed(2)}, Speed Index ${ms(m.si)}${missed.length ? `. Over target: ${missed.join(', ')}` : ''}. (${m.engine})`, actual: m, evidence: reportUrl(cleanUrl(p.finalUrl), strategy) }));
+      const extra = notes(m);
+      const rating = m.score >= GOOD.score ? 'good' : m.score >= TARGETS.score ? 'needs improvement' : 'poor';
+      out.push(assertion({ ...base, status: missed.length ? 'fail' : 'pass', severity: 'warn', message: `${strategy === 'mobile' ? 'Mobile' : 'Desktop'} score ${m.score}/100 (${rating}). First paint ${ms(m.fcp)}, largest paint ${ms(m.lcp)}, blocking ${ms(m.tbt)}, layout shift ${m.cls === null ? '—' : m.cls.toFixed(2)}, speed index ${ms(m.si)}.${missed.length ? ` Fails because ${missed.join(', ')}.` : ''}${extra.length ? ` Could be faster: ${extra.join(', ')}.` : ''} Measured with ${m.engine}.`, actual: { ...m, engine: m.engine }, evidence: reportUrl(cleanUrl(p.finalUrl), strategy) }));
     }
   }
   return out;
@@ -132,3 +147,4 @@ module.exports = async function speed(ctx) {
 module.exports.judge = judge;
 module.exports.cleanUrl = cleanUrl;
 module.exports.TARGETS = TARGETS;
+module.exports.GOOD = GOOD;
