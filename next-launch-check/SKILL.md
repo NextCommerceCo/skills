@@ -40,6 +40,10 @@ allowed-tools:
 >    fall back to a hand-made QA pass.
 > 4. Speed, zoom, toggles, tracking and form errors are automated. Never list them as
 >    manual. Test orders are offered (Phase 4), never silently skipped.
+> 5. If you cannot run shell commands here (for example claude.ai chat, or a session
+>    without Node), stop and say: "This skill needs Claude Code on your computer, with
+>    the skill installed in ~/.claude/skills/next-launch-check. Install it there and
+>    run /next-launch-check <url>." Do not do the QA yourself instead.
 
 ## Using This Skill
 
