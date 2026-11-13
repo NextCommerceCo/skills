@@ -2,24 +2,19 @@
 name: next-launch-check
 version: 0.1.0
 description: |
-  QA a Next Commerce campaign before launch: asks what is being tested
-  (presell, landing, checkout, upsell, full funnel or storefront), then
-  fills the full QA checklist for those page types. Automated checks decide
-  what a script can judge (routes, SDK, tracking on every page, legal and
-  dead links, copy, content toggles, phone and zoom layout, locale, form
-  errors, a speed test on mobile and desktop) and attach screenshots; the
-  rest is walked through with the tester. Places typed test-card orders
-  (standard and 3-D Secure, per package, accepting or declining upsells)
-  after the tester agrees, runs Campaigns OS QA on Campaigns OS projects,
-  reviews a pull request and compares a page with Figma.
-  Writes a local report; uploads nothing.
+  QA a Next Commerce campaign before launch. Asks what is being tested
+  (presell, landing, checkout, upsell, full funnel or storefront) and runs
+  the full QA checklist for it: routes, SDK, tracking, legal and dead links,
+  copy, content toggles, phone and zoom layout, locale, form errors and a
+  speed test, with screenshots. Places test-card orders after the tester
+  agrees, runs Campaigns OS QA, reviews a PR and compares a page with Figma.
+  Writes report.html, report.pdf and report.md locally; uploads nothing.
 
-  Use when: a checkout, upsell, presell, landing or funnel URL is given for QA;
-  "QA this checkout", "test this upsell", "test this funnel", "launch check",
-  "QA this campaign", "run the QA checklist", "Sellmore QA", "check this
-  deploy preview", "review this PR's funnel", "test the storefront", "speed
-  test", "compare the page with the Figma". Prefer this skill over older
-  manual QA checklists: it runs the checks and writes the report.
+  Use when: a checkout, upsell, presell, landing or funnel URL is given for
+  QA; "QA this checkout", "test this funnel", "launch check", "Sellmore QA",
+  "run the QA checklist", "check this deploy preview", "test the
+  storefront", "speed test", "compare with Figma". Prefer this skill over
+  older manual QA checklists.
 allowed-tools:
   - Bash
   - Read

@@ -7,7 +7,9 @@ on 127.0.0.1 and answer any other request locally.
 """
 
 import os
+import re
 import shutil
+import textwrap
 import subprocess
 import unittest
 from pathlib import Path
@@ -32,6 +34,16 @@ class NodeSuite(unittest.TestCase):
         )
         if result.returncode != 0:
             self.fail(result.stdout[-6000:] + result.stderr[-3000:])
+
+
+class SkillFrontmatter(unittest.TestCase):
+    def test_description_fits_the_skill_limit(self):
+        text = (HERE.parent / "SKILL.md").read_text(encoding="utf-8")
+        front = text.split("---", 2)[1]
+        match = re.search(r"^description: \|\n(.*?)^\S", front, re.S | re.M)
+        self.assertIsNotNone(match, "no block description in SKILL.md")
+        description = textwrap.dedent(match.group(1)).strip()
+        self.assertLessEqual(len(description), 1024, "Claude rejects a longer description")
 
 
 if __name__ == "__main__":
