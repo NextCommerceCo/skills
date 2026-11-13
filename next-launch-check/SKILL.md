@@ -82,12 +82,23 @@ you did not run a lane. If a lane cannot run (Playwright, Lighthouse or Campaign
 missing), install what is missing after asking, or say plainly which lane did not run
 and why, as the report's "Ran:" line shows.
 
-Find the script next to this file and check the machine:
+Find the script and check the machine. It is normally next to this file. A copy of
+this skill added through claude.ai settings can arrive as SKILL.md alone, so look in
+the usual places, first match wins:
 
 ```bash
-S="<directory containing this SKILL.md>/scripts/launch-check.js"
+for d in "<directory containing this SKILL.md>" "$HOME/.claude/skills/next-launch-check" "$PWD/.claude/skills/next-launch-check" "$PWD/next-launch-check" "$PWD"; do
+  [ -f "$d/scripts/launch-check.js" ] && S="$d/scripts/launch-check.js" && break
+done
+echo "${S:-NOT FOUND}"
 node "$S" env
 ```
+
+If it prints `NOT FOUND`, stop and say: "The skill's scripts are not installed. Unzip
+next-launch-check.zip into ~/.claude/skills/ so that
+~/.claude/skills/next-launch-check/scripts/launch-check.js exists, then restart
+Claude Code." Do not run the QA another way. Tell the tester which copy you used
+when it is not the one next to this file.
 
 - **Node 18 or newer** is required. The script has no npm dependencies.
 - **Playwright** with Chromium runs the browser lane (on by default), design
